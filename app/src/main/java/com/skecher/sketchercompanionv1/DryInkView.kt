@@ -9,23 +9,46 @@ import androidx.ink.strokes.Stroke
 
 class DryInkView(context: Context) : View(context) {
     private val strokes = mutableListOf<Stroke>()
+    private val redoStack = mutableListOf<Stroke>()
     private val renderer = CanvasStrokeRenderer.create()
-    private val matrix = Matrix()
+    private val drawMatrix = Matrix()
 
     init {
-        // Aceleración de hardware para mejor rendimiento
         setLayerType(LAYER_TYPE_HARDWARE, null)
     }
 
     fun addStrokes(newStrokes: Collection<Stroke>) {
-        strokes.addAll(newStrokes)
+        if (newStrokes.isNotEmpty()) {
+            strokes.addAll(newStrokes)
+            redoStack.clear()
+            invalidate()
+        }
+    }
+
+    fun clearCanvas() {
+        strokes.clear()
+        redoStack.clear()
         invalidate()
+    }
+
+    fun undo() {
+        if (strokes.isNotEmpty()) {
+            redoStack.add(strokes.removeAt(strokes.lastIndex))
+            invalidate()
+        }
+    }
+
+    fun redo() {
+        if (redoStack.isNotEmpty()) {
+            strokes.add(redoStack.removeAt(redoStack.lastIndex))
+            invalidate()
+        }
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        strokes.forEach { stroke ->
-            renderer.draw(canvas, stroke, matrix)
+        for (stroke in strokes) {
+            renderer.draw(canvas, stroke, drawMatrix)
         }
     }
 }

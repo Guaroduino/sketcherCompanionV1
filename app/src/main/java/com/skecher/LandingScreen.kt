@@ -32,19 +32,19 @@ fun LandingScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(Color(0xFFF5F5F5)), // Fondo gris claro
+                // CORRECCIÓN: Fondo BLANCO SÓLIDO (Alpha 1.0)
+                // Esto evita que cualquier "fantasma" de la vista nativa se vea a través
+                .background(Color.White),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Spacer(modifier = Modifier.height(20.dp))
-            
-            // Grid de cuadernos
+
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
                 contentPadding = PaddingValues(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Simulamos 4 cuadernos
                 items(4) { index ->
                     NotebookItem(name = "Cuaderno ${index + 1}", onClick = onOpenNotebook)
                 }
@@ -60,7 +60,7 @@ fun NotebookItem(name: String, onClick: () -> Unit) {
             .height(200.dp)
             .clickable { onClick() },
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White)
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF0F0F0)) // Un gris muy suave para diferenciar
     ) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(text = name, style = MaterialTheme.typography.titleMedium)
