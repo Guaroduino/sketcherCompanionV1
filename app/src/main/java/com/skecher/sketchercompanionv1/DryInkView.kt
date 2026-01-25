@@ -1,117 +1,85 @@
 package com.skecher.sketchercompanionv1
 
-
-
 import android.content.Context
-
 import android.graphics.Canvas
-
 import android.graphics.Matrix
-
 import android.view.View
-
 import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
-
 import androidx.ink.strokes.Stroke
-
-
+import java.util.Collections
 
 class DryInkView(context: Context) : View(context) {
-
-    private val strokes = mutableListOf<Stroke>()
-
-    private val renderer = CanvasStrokeRenderer.create()
-
-// Matriz identidad para dibujar en píxeles puros (1:1 con lo que dibujaste)
-
-    private val identityMatrix = Matrix()
-
-
+    // Usamos una lista sincronizada para evitar choques de hilos
+    private val strokes = Collections.synchronizedList(mutableListOf<Stroke>())
+    
+    // Inicialización perezosa del renderer para evitar errores de contexto
+    private val renderer by lazy { CanvasStrokeRenderer.create() }
+    
+    private var currentMatrix = Matrix()
 
     private val undoStack = mutableListOf<List<Stroke>>()
-
     private val redoStack = mutableListOf<List<Stroke>>()
 
-
-
-    init {
-
-// Renderizado por GPU para máxima fluidez
-
-        setLayerType(LAYER_TYPE_HARDWARE, null)
-
+    fun setMatrix(matrix: Matrix) {
+        currentMatrix.set(matrix)
+        postInvalidate()
     }
-
-
 
     fun addStrokes(newStrokes: Collection<Stroke>) {
-
         if (newStrokes.isNotEmpty()) {
-
-            undoStack.add(strokes.toList())
-
-            redoStack.clear()
-
-            strokes.addAll(newStrokes)
-
-            invalidate()
-
+            synchronized(strokes) {
+                // Guardamos copia para undo
+                undoStack.add(ArrayList(strokes))
+                redoStack.clear()
+                
+                // Añadimos los nuevos trazos
+                strokes.addAll(newStrokes)
+            }
+            // postInvalidate es seguro de llamar desde cualquier hilo (background o UI)
+            postInvalidate()
         }
-
     }
-
-
 
     fun undo() {
-
-        if (undoStack.isNotEmpty()) {
-
-            redoStack.add(strokes.toList())
-
-            val previous = undoStack.removeAt(undoStack.lastIndex)
-
-            strokes.clear()
-
-            strokes.addAll(previous)
-
-            invalidate()
-
+        synchronized(strokes) {
+            if (undoStack.isNotEmpty()) {
+                redoStack.add(ArrayList(strokes))
+                val previous = undoStack.removeAt(undoStack.lastIndex)
+                strokes.clear()
+                strokes.addAll(previous)
+            }
         }
-
+        postInvalidate()
     }
-
-
 
     fun redo() {
-
-        if (redoStack.isNotEmpty()) {
-
-            undoStack.add(strokes.toList())
-
-            val next = redoStack.removeAt(redoStack.lastIndex)
-
-            strokes.clear()
-
-            strokes.addAll(next)
-
-            invalidate()
-
+        synchronized(strokes) {
+            if (redoStack.isNotEmpty()) {
+                undoStack.add(ArrayList(strokes))
+                val next = redoStack.removeAt(redoStack.lastIndex)
+                strokes.clear()
+                strokes.addAll(next)
+            }
         }
-
+        postInvalidate()
     }
-
-
 
     override fun onDraw(canvas: Canvas) {
-
         super.onDraw(canvas)
+        
+        // Sincronizamos el bloque de dibujo para que nadie toque la lista mientras dibujamos
+        synchronized(strokes) {
+            if (strokes.isEmpty()) return
 
-        strokes.forEach { stroke ->
-
-            renderer.draw(canvas, stroke, identityMatrix)
-
+            for (stroke in strokes) {
+                try {
+                    // Dibujamos cada trazo
+                    renderer.draw(canvas, stroke, currentMatrix)
+                } catch (e: Exception) {
+                    // Si un trazo nativo falla, evitamos que la app se cierre
+                    e.printStackTrace()
+                }
+            }
         }
-
     }
-
 }
