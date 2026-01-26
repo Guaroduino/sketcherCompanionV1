@@ -68,6 +68,8 @@ private class RuntimeState {
     var brushFamily: BrushFamily? = StockBrushes.pressurePen()
     var color: Int = AndroidColor.BLACK
     var size: Float = 15f
+    var opacity: Float = 1f
+
     // Eager initialization to fallback if update() is delayed
     var activeBrush: Brush? = Brush.createWithColorLong(
         family = StockBrushes.pressurePen(),
@@ -79,7 +81,12 @@ private class RuntimeState {
     fun updateActiveBrush(currentZoom: Float) {
         if (toolType != ToolType.ERASER && brushFamily != null) {
             val visualSize = size * currentZoom
-            val finalColor = if (toolType == ToolType.HIGHLIGHTER) (color and 0x00FFFFFF) or 0x40000000 else color
+            
+            // Mix Opacity
+            val baseColor = if (toolType == ToolType.HIGHLIGHTER) (color and 0x00FFFFFF) or 0x40000000 else color
+            val alpha = (AndroidColor.alpha(baseColor) * opacity).toInt()
+            val finalColor = (baseColor and 0x00FFFFFF) or (alpha shl 24)
+
             activeBrush = Brush.createWithColorLong(
                 family = brushFamily!!,
                 colorLong = AndroidColor.pack(finalColor),
@@ -121,6 +128,7 @@ fun SketcherSurface(
     val selectedColor = colorSlots[selectedColorSlotIndex]
     
     var selectedSize by rememberSaveable { mutableStateOf(15f) }
+    var selectedOpacity by rememberSaveable { mutableFloatStateOf(1f) }
     
     var showColorPicker by remember { mutableStateOf(false) }
     var showToolPopup by remember { mutableStateOf(false) }
@@ -205,10 +213,11 @@ fun SketcherSurface(
                         toolType = selectedTool
                         color = selectedColor
                         size = selectedSize
+                        opacity = selectedOpacity
                         
                          val currentConfig = brushTypes.find { it.type == selectedTool } ?: brushTypes.first()
                          brushFamily = currentConfig.family
-
+ 
                          val currentZoom = InkUtils.getMatrixScale(cameraMatrix)
                          updateActiveBrush(currentZoom)
                     }
@@ -260,7 +269,6 @@ fun SketcherSurface(
                     // If touch STARTS in bottom 40dp, ignore it to allow system gesture.
                     val density = context.resources.displayMetrics.density
                     val deadZonePx = 40 * density
-                    val screenH = context.resources.displayMetrics.heightPixels
                     
                     if (event.actionMasked == MotionEvent.ACTION_DOWN && event.y > (v.height - deadZonePx)) {
                         return@setOnTouchListener false
@@ -352,6 +360,7 @@ fun SketcherSurface(
                 state.brushFamily = currentConfig.family
                 state.color = selectedColor
                 state.size = selectedSize
+                state.opacity = selectedOpacity
                 
                 val currentZoom = InkUtils.getMatrixScale(cameraMatrix)
                 state.updateActiveBrush(currentZoom)
@@ -403,6 +412,8 @@ fun SketcherSurface(
             SizeSelectorPopup(
                 currentSize = selectedSize,
                 onSizeChanged = { selectedSize = it },
+                currentOpacity = selectedOpacity,
+                onOpacityChanged = { selectedOpacity = it },
                 onDismiss = { showSizePopup = false }
             )
         }
@@ -553,7 +564,13 @@ fun ColorSlot(color: Int, isSelected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-fun SizeSelectorPopup(currentSize: Float, onSizeChanged: (Float) -> Unit, onDismiss: () -> Unit) {
+fun SizeSelectorPopup(
+    currentSize: Float, 
+    onSizeChanged: (Float) -> Unit, 
+    currentOpacity: Float,
+    onOpacityChanged: (Float) -> Unit,
+    onDismiss: () -> Unit
+) {
     Popup(alignment = Alignment.BottomCenter, onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
@@ -571,10 +588,18 @@ fun SizeSelectorPopup(currentSize: Float, onSizeChanged: (Float) -> Unit, onDism
                 onValueChange = onSizeChanged,
                 valueRange = 1f..100f
             )
+            
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            
+            Text("Opacity: ${(currentOpacity * 100).toInt()}%")
+            Slider(
+                value = currentOpacity,
+                onValueChange = onOpacityChanged,
+                valueRange = 0.01f..1f // Min 1%
+            )
         }
     }
 }
-
 @Composable
 fun SettingsDialog(
     onDismiss: () -> Unit,
