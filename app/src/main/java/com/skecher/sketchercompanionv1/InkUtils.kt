@@ -10,9 +10,6 @@ import androidx.ink.strokes.Stroke
 object InkUtils {
     const val BASE_BRUSH_SIZE = 15f
 
-    /**
-     * Obtiene el nivel de zoom actual de una matriz de transformación.
-     */
     fun getMatrixScale(matrix: Matrix): Float {
         val values = FloatArray(9)
         matrix.getValues(values)
@@ -20,10 +17,14 @@ object InkUtils {
     }
 
     /**
-     * Transforma un trazo de pantalla a coordenadas de mundo.
-     * Incluye el "escudo de presión" para evitar el crash.
+     * Transforma el trazo y "desinfla" el pincel basándose en el zoom actual.
+     * Recupera Familia y Color directamente del trazo original.
      */
-    fun transformStrokeToWorld(screenStroke: Stroke, inverseMatrix: Matrix): Stroke? {
+    fun transformStrokeToWorld(
+        screenStroke: Stroke,
+        inverseMatrix: Matrix,
+        currentZoom: Float // <--- Solo necesitamos saber el Zoom para corregir el tamaño
+    ): Stroke? {
         val inputs = screenStroke.inputs
         if (inputs.size == 0) return null
 
@@ -36,7 +37,6 @@ object InkUtils {
             pts[1] = input.y
             inverseMatrix.mapPoints(pts)
 
-            // CORRECCIÓN CRÍTICA: Forzar rango [0, 1] para evitar crash de IllegalArgumentException
             val safePressure = input.pressure.coerceIn(0f, 1f)
 
             builder.add(
@@ -50,14 +50,20 @@ object InkUtils {
             )
         }
 
-        // Creamos un pincel "Estándar" para guardar el trazo, ignorando el "inflado" visual del zoom
-        val baseBrush = Brush.createWithColorLong(
-            family = StockBrushes.pressurePen(),
-            colorLong = Color.pack(Color.BLACK),
-            size = BASE_BRUSH_SIZE,
-            epsilon = 0.1f
+        // CORRECCIÓN MAESTRA:
+        // En lugar de pedir la config externa, "clonamos" el pincel que ya se usó,
+        // pero corregimos su tamaño (Desinflar: TamañoVisual / Zoom = TamañoReal).
+        val originalBrush = screenStroke.brush
+        
+        val realSize = originalBrush.size / currentZoom
+
+        val targetBrush = Brush.createWithColorLong(
+            family = originalBrush.family,
+            colorLong = originalBrush.colorLong,
+            size = realSize, 
+            epsilon = originalBrush.epsilon
         )
 
-        return Stroke(baseBrush, builder)
+        return Stroke(targetBrush, builder)
     }
 }
