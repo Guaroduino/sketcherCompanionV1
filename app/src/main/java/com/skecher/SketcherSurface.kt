@@ -198,8 +198,10 @@ fun SketcherSurface() {
 
                 wetView.addFinishedStrokesListener(object : InProgressStrokesFinishedListener {
                     override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
+                        // 1. Transferir trazos a la capa seca
+                        val currentZoom = InkUtils.getMatrixScale(cameraMatrix)
+                        
                         for (entry in strokes) {
-                            val currentZoom = InkUtils.getMatrixScale(cameraMatrix)
                             val worldStroke = InkUtils.transformStrokeToWorld(
                                 screenStroke = entry.value,
                                 inverseMatrix = inverseMatrix,
@@ -207,7 +209,13 @@ fun SketcherSurface() {
                             )
                             worldStroke?.let { canvasView.addStroke(it) }
                         }
-                        wetView.post { wetView.removeFinishedStrokes(strokes.keys) }
+                        
+                        // 2. CORRECCIÓN DEL PARPADEO:
+                        // Eliminamos los trazos de la vista húmeda INMEDIATAMENTE.
+                        // No usamos .post {} porque eso causa un frame de superposición (doble tinta).
+                        // La capa húmeda dejará de renderizarlos en su próximo onDraw, 
+                        // y la capa seca los empezará a renderizar en el suyo.
+                        wetView.removeFinishedStrokes(strokes.keys)
                     }
                 })
 
