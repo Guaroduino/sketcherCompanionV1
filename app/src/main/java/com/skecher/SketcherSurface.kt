@@ -1,11 +1,17 @@
 package com.skecher.sketchercompanionv1
 
 import android.annotation.SuppressLint
-import android.graphics.Color
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
+import android.graphics.Color as AndroidColor
 import android.graphics.Matrix
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
+import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -17,20 +23,28 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Text
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.Popup
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
 import androidx.ink.authoring.InProgressStrokesView
@@ -38,76 +52,185 @@ import androidx.ink.brush.Brush
 import androidx.ink.brush.BrushFamily
 import androidx.ink.brush.StockBrushes
 import androidx.ink.strokes.Stroke
+import com.skecher.sketchercompanionv1.ui.ColorPickerDialog
+import kotlin.math.roundToInt
 
-// --- TIPOS DE HERRAMIENTA ---
-enum class ToolType {
-    PEN, MARKER, HIGHLIGHTER, ERASER
-}
+enum class ToolType { PEN, MARKER, HIGHLIGHTER, ERASER }
 
-// Configuración solo del "Tipo" de pincel (Familia)
 data class BrushTypeConfig(
     val type: ToolType,
     val icon: ImageVector,
-    val family: BrushFamily? // Null si es borrador
+    val family: BrushFamily?
 )
 
-// Clase para pasar el estado "vivo" a la vista de Android
 private class RuntimeState {
     var toolType: ToolType = ToolType.PEN
     var brushFamily: BrushFamily? = StockBrushes.pressurePen()
-    var color: Int = Color.BLACK
+    var color: Int = AndroidColor.BLACK
     var size: Float = 15f
+    // Eager initialization to fallback if update() is delayed
+    var activeBrush: Brush? = Brush.createWithColorLong(
+        family = StockBrushes.pressurePen(),
+        colorLong = AndroidColor.pack(AndroidColor.BLACK),
+        size = 15f,
+        epsilon = 0.1f
+    )
+
+    fun updateActiveBrush(currentZoom: Float) {
+        if (toolType != ToolType.ERASER && brushFamily != null) {
+            val visualSize = size * currentZoom
+            val finalColor = if (toolType == ToolType.HIGHLIGHTER) (color and 0x00FFFFFF) or 0x40000000 else color
+            activeBrush = Brush.createWithColorLong(
+                family = brushFamily!!,
+                colorLong = AndroidColor.pack(finalColor),
+                size = visualSize,
+                epsilon = 0.1f
+            )
+        } else {
+            activeBrush = null
+        }
+    }
 }
 
-@SuppressLint("ClickableViewAccessibility")
-@Composable
-fun SketcherSurface() {
-    // --- ESTADO DE LA UI ---
-    var selectedTool by remember { mutableStateOf(ToolType.PEN) }
-    var selectedColor by remember { mutableStateOf(Color.BLACK) }
-    var selectedSize by remember { mutableStateOf(15f) }
-    
-    var canvasViewRef by remember { mutableStateOf<SketcherCanvasView?>(null) }
+fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
 
-    // Definición de familias de pinceles
+@SuppressLint("ClickableViewAccessibility", "SourceLockedOrientationActivity")
+@Composable
+fun SketcherSurface(
+    sketchViewModel: SketcherViewModel = viewModel()
+) {
+    val context = LocalContext.current
+    val activity = context.findActivity()
+    
+    // Detectamos cambio de configuración (rotación) automáticamente con Compose
+    val configuration = LocalConfiguration.current
+    val screenWidth = configuration.screenWidthDp
+    val screenHeight = configuration.screenHeightDp
+
+    // UI STATE
+    var selectedTool by rememberSaveable { mutableStateOf(ToolType.PEN) }
+    
+    // Color Slots
+    val defaultColors = listOf(AndroidColor.BLACK, AndroidColor.RED, AndroidColor.BLUE)
+    val colorSlots = remember { mutableStateListOf(*defaultColors.toTypedArray()) }
+    var selectedColorSlotIndex by rememberSaveable { mutableIntStateOf(0) }
+    val selectedColor = colorSlots[selectedColorSlotIndex]
+    
+    var selectedSize by rememberSaveable { mutableStateOf(15f) }
+    
+    var showColorPicker by remember { mutableStateOf(false) }
+    var showToolPopup by remember { mutableStateOf(false) }
+    var showSizePopup by remember { mutableStateOf(false) }
+    var showSettingsPopup by remember { mutableStateOf(false) }
+
+    var canvasViewRef by remember { mutableStateOf<SketcherCanvasView?>(null) }
+    
+    // Rotation Lock Effect
+    LaunchedEffect(sketchViewModel.isRotationLocked) {
+        activity?.requestedOrientation = if (sketchViewModel.isRotationLocked) {
+             ActivityInfo.SCREEN_ORIENTATION_LOCKED
+        } else {
+             ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+
+    // MATRICES (Persistentes en ViewModel)
+    val cameraMatrix = remember { Matrix().apply { setValues(sketchViewModel.cameraMatrixValues) } }
+    val inverseMatrix = remember { Matrix().apply { 
+        val temp = Matrix()
+        temp.setValues(sketchViewModel.cameraMatrixValues)
+        temp.invert(this)
+    }}
+
     val brushTypes = listOf(
         BrushTypeConfig(ToolType.PEN, Icons.Default.Create, StockBrushes.pressurePen()),
         BrushTypeConfig(ToolType.MARKER, Icons.Default.Edit, StockBrushes.marker()),
-        BrushTypeConfig(ToolType.HIGHLIGHTER, Icons.Default.Edit, StockBrushes.highlighter()),
-        BrushTypeConfig(ToolType.ERASER, Icons.Default.Delete, null)
+        BrushTypeConfig(ToolType.HIGHLIGHTER, Icons.Default.Edit, StockBrushes.highlighter())
     )
 
-    // Paleta de colores para probar
-    val colors = listOf(Color.BLACK, Color.RED, Color.BLUE, Color.GREEN, Color.MAGENTA, Color.CYAN, Color.YELLOW)
+    // --- EFECTO DE RE-CENTRADO (Sin hacks visuales) ---
+    LaunchedEffect(screenWidth, screenHeight, canvasViewRef) {
+        kotlinx.coroutines.delay(50)
+        
+        val view = canvasViewRef ?: return@LaunchedEffect
+        if (view.width == 0) return@LaunchedEffect
+
+        val currentW = view.width.toFloat()
+        val currentH = view.height.toFloat()
+        val lastW = sketchViewModel.lastViewportWidth
+        val lastH = sketchViewModel.lastViewportHeight
+
+        if (lastW > 0 && currentW > 0 && (lastW != currentW || lastH != currentH)) {
+            val deltaX = (currentW - lastW) / 2f
+            val deltaY = (currentH - lastH) / 2f
+            
+            cameraMatrix.postTranslate(deltaX, deltaY)
+            cameraMatrix.invert(inverseMatrix)
+            sketchViewModel.saveCameraState(cameraMatrix)
+            view.setCameraMatrix(cameraMatrix)
+        }
+        
+        sketchViewModel.saveDimensions(currentW, currentH)
+        view.invalidate()
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        
-        // 1. EL LIENZO ANDROID
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
                 val container = FrameLayout(ctx)
-                val canvasView = SketcherCanvasView(ctx)
+                val params = FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+
+                val canvasView = SketcherCanvasView(ctx).apply {
+                    layoutParams = params
+                    setLayerType(View.LAYER_TYPE_HARDWARE, null)
+                }
                 canvasViewRef = canvasView
+                
+                canvasView.restoreStrokes(sketchViewModel.strokes)
+                canvasView.setCameraMatrix(cameraMatrix)
 
                 val wetView = InProgressStrokesView(ctx).apply {
-                    setBackgroundColor(Color.TRANSPARENT)
-                    // Guardamos un objeto de estado en el tag para accederlo desde los listeners
-                    tag = RuntimeState()
+                    layoutParams = params
+                    setBackgroundColor(AndroidColor.TRANSPARENT)
+                    
+                    val initialState = RuntimeState().apply {
+                        toolType = selectedTool
+                        color = selectedColor
+                        size = selectedSize
+                        
+                         val currentConfig = brushTypes.find { it.type == selectedTool } ?: brushTypes.first()
+                         brushFamily = currentConfig.family
+
+                         val currentZoom = InkUtils.getMatrixScale(cameraMatrix)
+                         updateActiveBrush(currentZoom)
+                    }
+                    tag = initialState
+                    setLayerType(View.LAYER_TYPE_HARDWARE, null)
                 }
 
                 container.addView(canvasView)
                 container.addView(wetView)
 
-                // Matrices y Gestos
-                val cameraMatrix = Matrix()
-                val inverseMatrix = Matrix()
-
+                // --- GESTOS ---
                 val scaleDetector = ScaleGestureDetector(ctx, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
                     override fun onScale(detector: ScaleGestureDetector): Boolean {
                         cameraMatrix.postScale(detector.scaleFactor, detector.scaleFactor, detector.focusX, detector.focusY)
                         canvasView.setCameraMatrix(cameraMatrix)
                         cameraMatrix.invert(inverseMatrix)
+                        sketchViewModel.saveCameraState(cameraMatrix)
+                        
+                        // FIX: Update brush size dynamically on zoom
+                        val zoom = InkUtils.getMatrixScale(cameraMatrix)
+                        (wetView.tag as? RuntimeState)?.updateActiveBrush(zoom)
+                        
                         return true
                     }
                 })
@@ -118,6 +241,7 @@ fun SketcherSurface() {
                             cameraMatrix.postTranslate(-dX, -dY)
                             canvasView.setCameraMatrix(cameraMatrix)
                             cameraMatrix.invert(inverseMatrix)
+                            sketchViewModel.saveCameraState(cameraMatrix)
                             return true
                         }
                         return false
@@ -127,16 +251,27 @@ fun SketcherSurface() {
                 val strokeIdMap = mutableMapOf<Int, InProgressStrokeId>()
 
                 wetView.setOnTouchListener { v, event ->
+                    // PALM REJECTION (Stylus Only Check)
+                    if (sketchViewModel.isPalmRejectionEnabled && event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS) {
+                         return@setOnTouchListener false
+                    }
+
+                    // BOTTOM DEAD ZONE (Navigation Protection)
+                    // If touch STARTS in bottom 40dp, ignore it to allow system gesture.
+                    val density = context.resources.displayMetrics.density
+                    val deadZonePx = 40 * density
+                    val screenH = context.resources.displayMetrics.heightPixels
+                    
+                    if (event.actionMasked == MotionEvent.ACTION_DOWN && event.y > (v.height - deadZonePx)) {
+                        return@setOnTouchListener false
+                    }
+
                     scaleDetector.onTouchEvent(event)
                     gestureDetector.onTouchEvent(event)
                     
-                    // LEEMOS EL ESTADO ACTUAL (¡Aquí estaba el error antes!)
                     val state = v.tag as RuntimeState
-                    
                     val action = event.actionMasked
-                    val isStylus = event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS
                     val isEraserTool = state.toolType == ToolType.ERASER
-                    val isErasing = isEraserTool || (!isStylus && state.toolType != ToolType.ERASER)
 
                     if (event.pointerCount == 1) {
                         val pid = event.getPointerId(0)
@@ -147,40 +282,31 @@ fun SketcherSurface() {
 
                         when (action) {
                             MotionEvent.ACTION_DOWN -> {
-                                if (!isErasing && state.brushFamily != null) {
-                                    // --- DIBUJAR ---
-                                    val currentZoom = InkUtils.getMatrixScale(cameraMatrix)
-                                    val visualSize = state.size * currentZoom // Usamos el tamaño del slider
-
-                                    // IMPORTANTE: Ajuste de Alpha para el resaltador
-                                    val finalColor = if (state.toolType == ToolType.HIGHLIGHTER) {
-                                        // Forzamos alpha bajo para que acumule color
-                                        (state.color and 0x00FFFFFF) or 0x40000000 
-                                    } else {
-                                        state.color
+                                if (!isEraserTool && state.brushFamily != null) {
+                                    // SAFETY NET: Ensure brush is ready
+                                    if (state.activeBrush == null) {
+                                         val currentZoom = InkUtils.getMatrixScale(cameraMatrix)
+                                         state.updateActiveBrush(currentZoom)
                                     }
-
-                                    val brush = Brush.createWithColorLong(
-                                        family = state.brushFamily!!,
-                                        colorLong = Color.pack(finalColor),
-                                        size = visualSize,
-                                        epsilon = 0.1f
-                                    )
-                                    strokeIdMap[pid] = wetView.startStroke(event, pid, brush)
+                                    
+                                    state.activeBrush?.let { brush ->
+                                        strokeIdMap[pid] = wetView.startStroke(event, pid, brush)
+                                    }
                                 } else {
-                                    // --- BORRAR ---
-                                    canvasView.eraseStrokeAt(worldX, worldY)
+                                    val deletedStroke = canvasView.eraseStrokeAt(worldX, worldY)
+                                    deletedStroke?.let { sketchViewModel.removeStroke(it) }
                                 }
                             }
                             MotionEvent.ACTION_MOVE -> {
-                                if (!isErasing) {
+                                if (!isEraserTool) {
                                     strokeIdMap[pid]?.let { wetView.addToStroke(event, pid, it, null) }
                                 } else {
-                                    canvasView.eraseStrokeAt(worldX, worldY)
+                                    val deletedStroke = canvasView.eraseStrokeAt(worldX, worldY)
+                                    deletedStroke?.let { sketchViewModel.removeStroke(it) }
                                 }
                             }
                             MotionEvent.ACTION_UP -> {
-                                if (!isErasing) {
+                                if (!isEraserTool) {
                                     strokeIdMap[pid]?.let {
                                         wetView.finishStroke(event, pid, it)
                                         strokeIdMap.remove(pid)
@@ -198,172 +324,307 @@ fun SketcherSurface() {
 
                 wetView.addFinishedStrokesListener(object : InProgressStrokesFinishedListener {
                     override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
-                        // 1. Transferir trazos a la capa seca
-                        val currentZoom = InkUtils.getMatrixScale(cameraMatrix)
-                        
                         for (entry in strokes) {
+                            val currentZoom = InkUtils.getMatrixScale(cameraMatrix)
                             val worldStroke = InkUtils.transformStrokeToWorld(
                                 screenStroke = entry.value,
                                 inverseMatrix = inverseMatrix,
                                 currentZoom = currentZoom
                             )
-                            worldStroke?.let { canvasView.addStroke(it) }
+                            worldStroke?.let { 
+                                canvasView.addStroke(it)
+                                sketchViewModel.addStroke(it)
+                            }
                         }
-                        
-                        // 2. CORRECCIÓN DEL PARPADEO:
-                        // Eliminamos los trazos de la vista húmeda INMEDIATAMENTE.
-                        // No usamos .post {} porque eso causa un frame de superposición (doble tinta).
-                        // La capa húmeda dejará de renderizarlos en su próximo onDraw, 
-                        // y la capa seca los empezará a renderizar en el suyo.
                         wetView.removeFinishedStrokes(strokes.keys)
                     }
                 })
-
                 container
             },
-            // BLOQUE UPDATE: Aquí actualizamos el objeto de estado cuando cambia Compose
             update = { view ->
-                // Buscamos la wetView dentro del FrameLayout container
                 val container = view as FrameLayout
-                val wetView = container.getChildAt(1) // Índice 1 es wetView
-                
+                val wetView = container.getChildAt(1) as InProgressStrokesView
                 val state = wetView.tag as RuntimeState
                 
-                // Actualizamos los valores "vivos"
                 val currentConfig = brushTypes.find { it.type == selectedTool } ?: brushTypes.first()
+                
                 state.toolType = selectedTool
                 state.brushFamily = currentConfig.family
                 state.color = selectedColor
                 state.size = selectedSize
+                
+                val currentZoom = InkUtils.getMatrixScale(cameraMatrix)
+                state.updateActiveBrush(currentZoom)
+                
+                wetView.invalidate()
             }
         )
 
-        // 2. PANEL DE CONTROL (UI)
-        ToolbarOverlay(
-            modifier = Modifier.align(Alignment.CenterStart),
+        // --- NEW BOTTOM MENU BAR ---
+        BottomMenuBar(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .scale(sketchViewModel.interfaceScale),
             tools = brushTypes,
             selectedTool = selectedTool,
             onToolSelected = { selectedTool = it },
-            colors = colors,
-            selectedColor = selectedColor,
-            onColorSelected = { selectedColor = it },
+            colorSlots = colorSlots,
+            selectedColorSlotIndex = selectedColorSlotIndex,
+            onColorSlotSelected = { selectedColorSlotIndex = it },
+            onColorChangeRequest = { showColorPicker = true },
             selectedSize = selectedSize,
-            onSizeChanged = { selectedSize = it },
-            onClearCanvas = { canvasViewRef?.clearCanvas() }
+            onSizeChangeRequest = { showSizePopup = !showSizePopup },
+            isEraserActive = selectedTool == ToolType.ERASER,
+            onEraserToggle = {
+                selectedTool = if (selectedTool == ToolType.ERASER) ToolType.PEN else ToolType.ERASER
+            },
+            canUndo = sketchViewModel.canUndo,
+            onUndo = { sketchViewModel.undo(); canvasViewRef?.restoreStrokes(sketchViewModel.strokes) },
+            canRedo = sketchViewModel.canRedo,
+            onRedo = { sketchViewModel.redo(); canvasViewRef?.restoreStrokes(sketchViewModel.strokes) },
+            onSettingsClick = { showSettingsPopup = true },
+            showToolPopup = showToolPopup,
+            onShowToolPopupChange = { showToolPopup = it }
         )
+
+        // DIALOGS & POPUPS
+        if (showColorPicker) {
+            ColorPickerDialog(
+                initialColor = colorSlots[selectedColorSlotIndex],
+                onDismiss = { showColorPicker = false },
+                onColorSelected = { color ->
+                    colorSlots[selectedColorSlotIndex] = color
+                    showColorPicker = false
+                }
+            )
+        }
+        
+        if (showSizePopup) {
+            SizeSelectorPopup(
+                currentSize = selectedSize,
+                onSizeChanged = { selectedSize = it },
+                onDismiss = { showSizePopup = false }
+            )
+        }
+
+        if (showSettingsPopup) {
+           SettingsDialog(
+               onDismiss = { showSettingsPopup = false },
+               isRotationLocked = sketchViewModel.isRotationLocked,
+               onToggleRotationLock = { sketchViewModel.toggleRotationLock() },
+               isPalmRejectionEnabled = sketchViewModel.isPalmRejectionEnabled,
+               onTogglePalmRejection = { sketchViewModel.togglePalmRejection() },
+               interfaceScale = sketchViewModel.interfaceScale,
+               onInterfaceScaleChanged = { sketchViewModel.updateInterfaceScale(it) }
+           )
+        }
     }
 }
 
-// --- COMPONENTES UI MEJORADOS ---
 @Composable
-fun ToolbarOverlay(
+fun BottomMenuBar(
     modifier: Modifier = Modifier,
     tools: List<BrushTypeConfig>,
     selectedTool: ToolType,
     onToolSelected: (ToolType) -> Unit,
-    colors: List<Int>,
-    selectedColor: Int,
-    onColorSelected: (Int) -> Unit,
+    colorSlots: List<Int>,
+    selectedColorSlotIndex: Int,
+    onColorSlotSelected: (Int) -> Unit,
+    onColorChangeRequest: () -> Unit,
     selectedSize: Float,
-    onSizeChanged: (Float) -> Unit,
-    onClearCanvas: () -> Unit
+    onSizeChangeRequest: () -> Unit,
+    isEraserActive: Boolean,
+    onEraserToggle: () -> Unit,
+    canUndo: Boolean,
+    onUndo: () -> Unit,
+    canRedo: Boolean,
+    onRedo: () -> Unit,
+    onSettingsClick: () -> Unit,
+    showToolPopup: Boolean,
+    onShowToolPopupChange: (Boolean) -> Unit
 ) {
-    Column(
+    Box(
         modifier = modifier
+            .fillMaxWidth()
             .padding(16.dp)
-            .width(80.dp) // Un poco más ancho para los controles
-            .clip(RoundedCornerShape(16.dp))
-            .background(androidx.compose.ui.graphics.Color.LightGray.copy(alpha = 0.9f))
-            .padding(vertical = 12.dp, horizontal = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .clip(RoundedCornerShape(32.dp))
+            .background(Color.White.copy(alpha = 0.9f)) // Semi-transparent
+            .padding(8.dp)
     ) {
-        // 1. Herramientas
-        tools.forEach { tool ->
-            ToolButton(
-                icon = tool.icon,
-                isSelected = selectedTool == tool.type,
-                onClick = { onToolSelected(tool.type) },
-                tint = if (tool.type == ToolType.ERASER) androidx.compose.ui.graphics.Color.Black else androidx.compose.ui.graphics.Color(selectedColor)
-            )
-        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // TOOL SELECTOR
+            Box {
+                val currentToolConfig = tools.find { it.type == selectedTool } ?: tools.first()
+                val icon = if(selectedTool == ToolType.ERASER) Icons.Default.Edit else currentToolConfig.icon
+                
+                IconButton(onClick = { if(selectedTool != ToolType.ERASER) onShowToolPopupChange(!showToolPopup) else onToolSelected(ToolType.PEN)}) {
+                   Icon(icon, contentDescription = "Tool", tint = if (selectedTool == ToolType.ERASER) Color.Gray else Color.Black)
+                }
+                
+                DropdownMenu(
+                    expanded = showToolPopup,
+                    onDismissRequest = { onShowToolPopupChange(false) }
+                ) {
+                    tools.forEach { tool ->
+                        DropdownMenuItem(
+                            text = { Text(tool.type.name) },
+                            leadingIcon = { Icon(tool.icon, null) },
+                            onClick = {
+                                onToolSelected(tool.type)
+                                onShowToolPopupChange(false)
+                            }
+                        )
+                    }
+                }
+            }
 
-        Divider()
+            // COLOR SLOTS
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                colorSlots.forEachIndexed { index, color ->
+                    ColorSlot(
+                        color = color,
+                        isSelected = index == selectedColorSlotIndex,
+                        onClick = { 
+                            if (index == selectedColorSlotIndex) onColorChangeRequest() 
+                            else onColorSlotSelected(index)
+                        }
+                    )
+                }
+            }
 
-        // 2. Colores (Solo si no es borrador)
-        if (selectedTool != ToolType.ERASER) {
-            colors.take(4).forEach { color -> // Mostramos 4 colores de ejemplo
-                ColorButton(
-                    color = color,
-                    isSelected = selectedColor == color,
-                    onClick = { onColorSelected(color) }
+            // SIZE PREVIEW
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Color.LightGray)
+                    .clickable(onClick = onSizeChangeRequest),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(selectedSize.coerceIn(2f, 36f).dp)
+                        .clip(CircleShape)
+                        .background(Color.Black)
                 )
             }
-        }
+            
+            VerticalDivider(modifier = Modifier.height(24.dp))
 
-        Divider()
+            // ERASER
+            IconButton(onClick = onEraserToggle) {
+                Icon(
+                    Icons.Default.Delete, 
+                    contentDescription = "Eraser",
+                    tint = if (isEraserActive) Color.Red else Color.Gray
+                )
+            }
 
-        // 3. Tamaño (Slider vertical o botones +/- simplificados para el toolbar)
-        if (selectedTool != ToolType.ERASER) {
-            Text(text = "${selectedSize.toInt()}", fontSize = 12.sp)
-            // Slider simple (el Slider vertical nativo es experimental, usamos uno horizontal pequeño o botones)
-            // Para simplicidad en este layout estrecho, ponemos 2 botones de tamaño
-            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-               SmallButton(text = "-", onClick = { if(selectedSize > 5) onSizeChanged(selectedSize - 5) })
-               SmallButton(text = "+", onClick = { if(selectedSize < 100) onSizeChanged(selectedSize + 5) })
+            // UNDO / REDO
+            IconButton(onClick = onUndo, enabled = canUndo) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Undo", tint = if (canUndo) Color.Black else Color.LightGray)
+            }
+            IconButton(onClick = onRedo, enabled = canRedo) {
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Redo", tint = if (canRedo) Color.Black else Color.LightGray)
+            }
+
+            // SETTINGS
+            IconButton(onClick = onSettingsClick) {
+                Icon(Icons.Default.MoreVert, contentDescription = "Settings")
             }
         }
-
-        Divider()
-        
-        // 4. Limpiar
-        IconButton(onClick = onClearCanvas) {
-            Icon(Icons.Default.Refresh, contentDescription = "Limpiar", tint = androidx.compose.ui.graphics.Color.Red)
-        }
     }
 }
 
 @Composable
-fun Divider() {
-    Box(modifier = Modifier.height(1.dp).fillMaxWidth().background(androidx.compose.ui.graphics.Color.Gray))
-}
-
-@Composable
-fun ToolButton(icon: ImageVector, isSelected: Boolean, onClick: () -> Unit, tint: androidx.compose.ui.graphics.Color) {
+fun ColorSlot(color: Int, isSelected: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .size(48.dp)
+            .size(24.dp)
             .clip(CircleShape)
-            .background(if (isSelected) androidx.compose.ui.graphics.Color.White else androidx.compose.ui.graphics.Color.Transparent)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(imageVector = icon, contentDescription = null, tint = tint)
-    }
-}
-
-@Composable
-fun ColorButton(color: Int, isSelected: Boolean, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(32.dp)
-            .clip(CircleShape)
-            .background(androidx.compose.ui.graphics.Color(color))
-            .border(2.dp, if (isSelected) androidx.compose.ui.graphics.Color.White else androidx.compose.ui.graphics.Color.Transparent, CircleShape)
+            .background(Color(color))
+            .border(2.dp, if (isSelected) Color.Black else Color.Transparent, CircleShape)
             .clickable(onClick = onClick)
     )
 }
 
 @Composable
-fun SmallButton(text: String, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(24.dp)
-            .clip(CircleShape)
-            .background(androidx.compose.ui.graphics.Color.Gray)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(text = text, color = androidx.compose.ui.graphics.Color.White, fontSize = 14.sp)
+fun SizeSelectorPopup(currentSize: Float, onSizeChanged: (Float) -> Unit, onDismiss: () -> Unit) {
+    Popup(alignment = Alignment.BottomCenter, onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .padding(bottom = 100.dp) // Lift above bottom bar
+                .width(200.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color.White)
+                .border(1.dp, Color.LightGray, RoundedCornerShape(16.dp))
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("Brush Size: ${currentSize.toInt()}")
+            Slider(
+                value = currentSize,
+                onValueChange = onSizeChanged,
+                valueRange = 1f..100f
+            )
+        }
+    }
+}
+
+@Composable
+fun SettingsDialog(
+    onDismiss: () -> Unit,
+    isRotationLocked: Boolean,
+    onToggleRotationLock: () -> Unit,
+    isPalmRejectionEnabled: Boolean,
+    onTogglePalmRejection: () -> Unit,
+    interfaceScale: Float,
+    onInterfaceScaleChanged: (Float) -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color.White)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text("Settings", style = MaterialTheme.typography.titleMedium)
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Lock Rotation")
+                Switch(checked = isRotationLocked, onCheckedChange = { onToggleRotationLock() })
+            }
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Stylus Only (Palm Rejection)")
+                Switch(checked = isPalmRejectionEnabled, onCheckedChange = { onTogglePalmRejection() })
+            }
+            
+            Column {
+                Text("Interface Scale: ${(interfaceScale * 100).toInt()}%")
+                Slider(
+                    value = interfaceScale,
+                    onValueChange = onInterfaceScaleChanged,
+                    valueRange = 0.5f..2.0f
+                )
+            }
+            
+            Button(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) {
+                Text("Close")
+            }
+        }
     }
 }
