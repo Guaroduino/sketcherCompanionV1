@@ -332,19 +332,28 @@ fun SketcherSurface(
 
                 wetView.addFinishedStrokesListener(object : InProgressStrokesFinishedListener {
                     override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
-                        for (entry in strokes) {
-                            val currentZoom = InkUtils.getMatrixScale(cameraMatrix)
-                            val worldStroke = InkUtils.transformStrokeToWorld(
-                                screenStroke = entry.value,
-                                inverseMatrix = inverseMatrix,
-                                currentZoom = currentZoom
-                            )
-                            worldStroke?.let { 
-                                canvasView.addStroke(it)
-                                sketchViewModel.addStroke(it)
+                        try {
+                            for (entry in strokes) {
+                                try {
+                                    val currentZoom = InkUtils.getMatrixScale(cameraMatrix)
+                                    val worldStroke = InkUtils.transformStrokeToWorld(
+                                        screenStroke = entry.value,
+                                        inverseMatrix = inverseMatrix,
+                                        currentZoom = currentZoom
+                                    )
+                                    worldStroke?.let { 
+                                        canvasView.addStroke(it)
+                                        sketchViewModel.addStroke(it)
+                                    }
+                                } catch (e: Exception) {
+                                    // Ignore individual stroke failure
+                                }
                             }
+                        } finally {
+                            // SIEMPRE limpiar los trazos finalizados de la vista "húmeda"
+                            // Esto evita que se queden congelados en pantalla.
+                            wetView.removeFinishedStrokes(strokes.keys)
                         }
-                        wetView.removeFinishedStrokes(strokes.keys)
                     }
                 })
                 container

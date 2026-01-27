@@ -183,8 +183,8 @@ fun ColorWheel(
             drawCircle(
                 brush = Brush.sweepGradient(
                     colors = listOf(
-                        Color.Red, Color.Magenta, Color.Blue, Color.Cyan, 
-                        Color.Green, Color.Yellow, Color.Red
+                        Color.Red, Color.Yellow, Color.Green, Color.Cyan, 
+                        Color.Blue, Color.Magenta, Color.Red
                     ),
                     center = center
                 ),
