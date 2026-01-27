@@ -61,9 +61,19 @@ object InkUtils {
             
             val realSize = originalBrush.size / currentZoom
 
+            // FIX: Explicitly unpacking and repacking color to ensure Alpha channel 
+            // is strictly preserved.
+            // Using Color.valueOf(long) which is available in API 26 (minSdk).
+            val finalColor = try {
+                Color.valueOf(originalBrush.colorLong).toArgb()
+            } catch (e: Exception) {
+                // Fallback if color space is weird, though Ink usually uses sRGB
+                 Color.parseColor("#000000")
+            }
+
             val targetBrush = Brush.createWithColorLong(
                 family = originalBrush.family,
-                colorLong = originalBrush.colorLong,
+                colorLong = Color.pack(finalColor), // Force repack from ARGB Int
                 size = realSize, 
                 epsilon = originalBrush.epsilon
             )

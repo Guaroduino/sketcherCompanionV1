@@ -62,28 +62,27 @@ dependencies {
 
 
     // --- LIBRERÍAS DE ANDROID INK 1.0.0 ---
-    dependencies {
-        implementation("androidx.core:core-ktx:1.12.0") // (O la versión que tengas)
-        implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
-        implementation("androidx.activity:activity-compose:1.8.2")
-        implementation(platform("androidx.compose:compose-bom:2023.08.00"))
-        implementation("androidx.compose.ui:ui")
-        implementation("androidx.compose.ui:ui-graphics")
-        implementation("androidx.compose.ui:ui-tooling-preview")
-        implementation("androidx.compose.material3:material3")
+    implementation("androidx.core:core-ktx:1.12.0") // (O la versión que tengas)
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+    implementation("androidx.activity:activity-compose:1.8.2")
+    implementation(platform("androidx.compose:compose-bom:2023.08.00"))
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-graphics")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
 
-        // --- SOLO LIBRERÍAS DE INK ---
-        implementation("androidx.ink:ink-authoring:1.0.0")
-        implementation("androidx.ink:ink-authoring-compose:1.0.0")
-        implementation("androidx.ink:ink-brush:1.0.0")
-        implementation("androidx.ink:ink-brush-compose:1.0.0")
-        implementation("androidx.ink:ink-geometry:1.0.0")
-        implementation("androidx.ink:ink-geometry-compose:1.0.0")
-        implementation("androidx.ink:ink-nativeloader:1.0.0")
-        implementation("androidx.ink:ink-rendering:1.0.0")
-        implementation("androidx.ink:ink-storage:1.0.0")
-        implementation("androidx.ink:ink-strokes:1.0.0")
+    // --- SOLO LIBRERÍAS DE INK ---
+    implementation("androidx.ink:ink-authoring:1.0.0")
+    implementation("androidx.ink:ink-authoring-compose:1.0.0")
+    implementation("androidx.ink:ink-brush:1.0.0")
+    implementation("androidx.ink:ink-brush-compose:1.0.0")
+    implementation("androidx.ink:ink-geometry:1.0.0")
+    implementation("androidx.ink:ink-geometry-compose:1.0.0")
+    implementation("androidx.ink:ink-nativeloader:1.0.0")
+    implementation("androidx.ink:ink-rendering:1.0.0")
+    implementation("androidx.ink:ink-storage:1.0.0")
+    implementation("androidx.ink:ink-strokes:1.0.0")
 
-        implementation("androidx.input:input-motionprediction:1.0.0-beta04")
-    }
+    implementation("androidx.input:input-motionprediction:1.0.0-beta04")
 }

@@ -16,6 +16,9 @@ import android.widget.FrameLayout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -52,10 +55,19 @@ import androidx.ink.brush.Brush
 import androidx.ink.brush.BrushFamily
 import androidx.ink.brush.StockBrushes
 import androidx.ink.strokes.Stroke
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import com.skecher.sketchercompanionv1.ui.ColorPickerDialog
 import kotlin.math.roundToInt
 
-enum class ToolType { PEN, MARKER, HIGHLIGHTER, ERASER }
+
+enum class ToolType { PEN, MARKER, HIGHLIGHTER, ERASER, LASSO }
 
 data class BrushTypeConfig(
     val type: ToolType,
@@ -69,6 +81,9 @@ private class RuntimeState {
     var color: Int = AndroidColor.BLACK
     var size: Float = 15f
     var opacity: Float = 1f
+    
+    // LASSO Path
+    val lassoPath = android.graphics.Path()
 
     // Eager initialization to fallback if update() is delayed
     var activeBrush: Brush? = Brush.createWithColorLong(
@@ -79,7 +94,7 @@ private class RuntimeState {
     )
 
     fun updateActiveBrush(currentZoom: Float) {
-        if (toolType != ToolType.ERASER && brushFamily != null) {
+        if (toolType != ToolType.ERASER && toolType != ToolType.LASSO && brushFamily != null) {
             val visualSize = size * currentZoom
             
             // Mix Opacity
@@ -127,13 +142,14 @@ fun SketcherSurface(
     var selectedColorSlotIndex by rememberSaveable { mutableIntStateOf(0) }
     val selectedColor = colorSlots[selectedColorSlotIndex]
     
-    var selectedSize by rememberSaveable { mutableStateOf(15f) }
+    var selectedSize by rememberSaveable { mutableStateOf(7f) }
     var selectedOpacity by rememberSaveable { mutableFloatStateOf(1f) }
     
     var showColorPicker by remember { mutableStateOf(false) }
     var showToolPopup by remember { mutableStateOf(false) }
     var showSizePopup by remember { mutableStateOf(false) }
     var showSettingsPopup by remember { mutableStateOf(false) }
+    var showLayerManager by remember { mutableStateOf(false) }
 
     var canvasViewRef by remember { mutableStateOf<SketcherCanvasView?>(null) }
     
@@ -157,7 +173,8 @@ fun SketcherSurface(
     val brushTypes = listOf(
         BrushTypeConfig(ToolType.PEN, Icons.Default.Create, StockBrushes.pressurePen()),
         BrushTypeConfig(ToolType.MARKER, Icons.Default.Edit, StockBrushes.marker()),
-        BrushTypeConfig(ToolType.HIGHLIGHTER, Icons.Default.Edit, StockBrushes.highlighter())
+        BrushTypeConfig(ToolType.HIGHLIGHTER, Icons.Default.Edit, StockBrushes.highlighter()),
+        BrushTypeConfig(ToolType.LASSO, Icons.Default.Refresh, null) // Icono temporal
     )
 
     // --- EFECTO DE RE-CENTRADO (Sin hacks visuales) ---
@@ -186,6 +203,8 @@ fun SketcherSurface(
         view.invalidate()
     }
 
+    // --- FIX: STARTUP AWAKENER REMOVED (Replaced by OnLayoutChangeListener in Factory) ---
+
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
@@ -199,10 +218,27 @@ fun SketcherSurface(
                 val canvasView = SketcherCanvasView(ctx).apply {
                     layoutParams = params
                     setLayerType(View.LAYER_TYPE_HARDWARE, null)
+                    
+                    // STARTUP AWAKENER: Native Layout Listener
+                    addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+                        override fun onLayoutChange(
+                            v: View?,
+                            left: Int, top: Int, right: Int, bottom: Int,
+                            oldLeft: Int, oldTop: Int, oldRight: Int, oldBottom: Int
+                        ) {
+                            if ((right - left) > 0 && (bottom - top) > 0) {
+                                (v as? SketcherCanvasView)?.let { cv ->
+                                    cv.setLayers(sketchViewModel.layers)
+                                    cv.invalidate()
+                                }
+                                removeOnLayoutChangeListener(this)
+                            }
+                        }
+                    })
                 }
                 canvasViewRef = canvasView
                 
-                canvasView.restoreStrokes(sketchViewModel.strokes)
+                canvasView.setLayers(sketchViewModel.layers)
                 canvasView.setCameraMatrix(cameraMatrix)
 
                 val wetView = InProgressStrokesView(ctx).apply {
@@ -245,6 +281,10 @@ fun SketcherSurface(
                 })
 
                 val gestureDetector = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
+                    override fun onDown(e: MotionEvent): Boolean {
+                        return true // Essential for detecting scroll/pan
+                    }
+
                     override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dX: Float, dY: Float): Boolean {
                         if (e2.pointerCount >= 2) {
                             cameraMatrix.postTranslate(-dX, -dY)
@@ -260,99 +300,144 @@ fun SketcherSurface(
                 val strokeIdMap = mutableMapOf<Int, InProgressStrokeId>()
 
                 wetView.setOnTouchListener { v, event ->
-                    // PALM REJECTION (Stylus Only Check)
-                    if (sketchViewModel.isPalmRejectionEnabled && event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS) {
-                         return@setOnTouchListener false
-                    }
-
-                    // BOTTOM DEAD ZONE (Navigation Protection)
-                    // If touch STARTS in bottom 40dp, ignore it to allow system gesture.
-                    val density = context.resources.displayMetrics.density
-                    val deadZonePx = 40 * density
-                    
-                    if (event.actionMasked == MotionEvent.ACTION_DOWN && event.y > (v.height - deadZonePx)) {
-                        return@setOnTouchListener false
-                    }
-
+                    // 1. ALWAYS Process Gestures First (Zoom/Pan)
+                    // We dispatch to detectors regardless of tool type so fingers can zoom/pan
+                    // even if Palm Rejection is ON (which only blocks drawing).
                     scaleDetector.onTouchEvent(event)
                     gestureDetector.onTouchEvent(event)
                     
+                    // BOTTOM DEAD ZONE (Navigation Protection)
+                     val density = context.resources.displayMetrics.density
+                     val deadZonePx = 40 * density
+                     if (event.actionMasked == MotionEvent.ACTION_DOWN && event.y > (v.height - deadZonePx)) {
+                         return@setOnTouchListener false
+                     }
+
+                    // 2. PALM REJECTION CHECK (Blocks Tool Usage only)
+                    // If Palm Rejection enabled AND not using a Stylus -> Block drawing
+                    if (sketchViewModel.isPalmRejectionEnabled && event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS) {
+                         return@setOnTouchListener true // Consume event so it doesn't propagate, but don't draw
+                    }
+
                     val state = v.tag as RuntimeState
                     val action = event.actionMasked
-                    val isEraserTool = state.toolType == ToolType.ERASER
+                    
+                    // --- HERRAMIENTAS ---
+                    if (state.toolType == ToolType.LASSO) {
+                        if (event.pointerCount == 1) {
+                            val touchPts = floatArrayOf(event.x, event.y)
+                            inverseMatrix.mapPoints(touchPts)
+                            val worldX = touchPts[0]
+                            val worldY = touchPts[1]
 
-                    if (event.pointerCount == 1) {
-                        val pid = event.getPointerId(0)
-                        val touchPts = floatArrayOf(event.x, event.y)
-                        inverseMatrix.mapPoints(touchPts)
-                        val worldX = touchPts[0]
-                        val worldY = touchPts[1]
-
-                        when (action) {
-                            MotionEvent.ACTION_DOWN -> {
-                                if (!isEraserTool && state.brushFamily != null) {
-                                    // SAFETY NET: Ensure brush is ready
+                            when (action) {
+                                MotionEvent.ACTION_DOWN -> {
+                                    state.lassoPath.reset()
+                                    state.lassoPath.moveTo(worldX, worldY)
+                                    // Mix Opacity for Fill
+                                    val alpha = (AndroidColor.alpha(state.color) * state.opacity).toInt()
+                                    val fillColor = (state.color and 0x00FFFFFF) or (alpha shl 24)
+                                    canvasView.updateCurrentFill(state.lassoPath, fillColor)
+                                }
+                                MotionEvent.ACTION_MOVE -> {
+                                    state.lassoPath.lineTo(worldX, worldY)
+                                    // Send closed copy for preview
+                                    val previewPath = android.graphics.Path(state.lassoPath)
+                                    previewPath.close()
+                                    // Calculate color again or cache it
+                                    val alpha = (AndroidColor.alpha(state.color) * state.opacity).toInt()
+                                    val fillColor = (state.color and 0x00FFFFFF) or (alpha shl 24)
+                                    canvasView.updateCurrentFill(previewPath, fillColor)
+                                }
+                                MotionEvent.ACTION_UP -> {
+                                    state.lassoPath.close()
+                                    canvasView.finishCurrentFill(sketchViewModel.activeLayerIndex) // Commits to View
+                                    
+                                    // Commit to ViewModel (Persist Rotation)
+                                    val alpha = (AndroidColor.alpha(state.color) * state.opacity).toInt()
+                                    val finalColor = (state.color and 0x00FFFFFF) or (alpha shl 24)
+                                    sketchViewModel.addFill(FillData(android.graphics.Path(state.lassoPath), finalColor))
+                                    
+                                    v.performClick()
+                                }
+                            }
+                        }
+                    } else if (state.toolType == ToolType.ERASER) {
+                         // Lógica de Borrador existente
+                         if (event.pointerCount == 1) {
+                            val touchPts = floatArrayOf(event.x, event.y)
+                            inverseMatrix.mapPoints(touchPts)
+                            val worldX = touchPts[0]
+                            val worldY = touchPts[1]
+                            
+                            if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
+                                val deletedItem = canvasView.eraseContentAt(worldX, worldY)
+                                when (deletedItem) {
+                                    is Stroke -> sketchViewModel.removeStroke(deletedItem)
+                                    is FillData -> sketchViewModel.removeFill(deletedItem)
+                                }
+                            }
+                         }
+                    } else if (state.brushFamily != null) {
+                        // Lógica de Ink (Dibujo)
+                        if (event.pointerCount == 1) {
+                            val pid = event.getPointerId(0)
+                        
+                            when (action) {
+                                MotionEvent.ACTION_DOWN -> {
                                     if (state.activeBrush == null) {
                                          val currentZoom = InkUtils.getMatrixScale(cameraMatrix)
                                          state.updateActiveBrush(currentZoom)
                                     }
-                                    
                                     state.activeBrush?.let { brush ->
                                         strokeIdMap[pid] = wetView.startStroke(event, pid, brush)
                                     }
-                                } else {
-                                    val deletedStroke = canvasView.eraseStrokeAt(worldX, worldY)
-                                    deletedStroke?.let { sketchViewModel.removeStroke(it) }
                                 }
-                            }
-                            MotionEvent.ACTION_MOVE -> {
-                                if (!isEraserTool) {
+                                MotionEvent.ACTION_MOVE -> {
                                     strokeIdMap[pid]?.let { wetView.addToStroke(event, pid, it, null) }
-                                } else {
-                                    val deletedStroke = canvasView.eraseStrokeAt(worldX, worldY)
-                                    deletedStroke?.let { sketchViewModel.removeStroke(it) }
                                 }
-                            }
-                            MotionEvent.ACTION_UP -> {
-                                if (!isEraserTool) {
+                                MotionEvent.ACTION_UP -> {
                                     strokeIdMap[pid]?.let {
                                         wetView.finishStroke(event, pid, it)
                                         strokeIdMap.remove(pid)
                                     }
+                                    v.performClick()
                                 }
-                                v.performClick()
                             }
+                        } else if (strokeIdMap.isNotEmpty()) {
+                            strokeIdMap.forEach { (_, sid) -> wetView.cancelStroke(sid, event) }
+                            strokeIdMap.clear()
                         }
-                    } else if (strokeIdMap.isNotEmpty()) {
-                        strokeIdMap.forEach { (_, sid) -> wetView.cancelStroke(sid, event) }
-                        strokeIdMap.clear()
                     }
                     true
                 }
 
                 wetView.addFinishedStrokesListener(object : InProgressStrokesFinishedListener {
                     override fun onStrokesFinished(strokes: Map<InProgressStrokeId, Stroke>) {
-                        try {
-                            for (entry in strokes) {
-                                try {
-                                    val currentZoom = InkUtils.getMatrixScale(cameraMatrix)
-                                    val worldStroke = InkUtils.transformStrokeToWorld(
-                                        screenStroke = entry.value,
-                                        inverseMatrix = inverseMatrix,
-                                        currentZoom = currentZoom
-                                    )
-                                    worldStroke?.let { 
-                                        canvasView.addStroke(it)
-                                        sketchViewModel.addStroke(it)
+                        // FIX: Ensure UI updates happen on Main Thread to prevent crashes
+                        // during rapid stroking (caused by concurrent list modification)
+                        canvasView.post {
+                            try {
+                                for (entry in strokes) {
+                                    try {
+                                        val currentZoom = InkUtils.getMatrixScale(cameraMatrix)
+                                        val worldStroke = InkUtils.transformStrokeToWorld(
+                                            screenStroke = entry.value,
+                                            inverseMatrix = inverseMatrix,
+                                            currentZoom = currentZoom
+                                        )
+                                        worldStroke?.let { 
+                                            canvasView.addStroke(it, sketchViewModel.activeLayerIndex)
+                                            sketchViewModel.addStroke(it)
+                                        }
+                                    } catch (e: Exception) {
+                                        // Ignore individual stroke failure
                                     }
-                                } catch (e: Exception) {
-                                    // Ignore individual stroke failure
                                 }
+                            } finally {
+                                // SIEMPRE limpiar los trazos finalizados de la vista "húmeda"
+                                wetView.removeFinishedStrokes(strokes.keys)
                             }
-                        } finally {
-                            // SIEMPRE limpiar los trazos finalizados de la vista "húmeda"
-                            // Esto evita que se queden congelados en pantalla.
-                            wetView.removeFinishedStrokes(strokes.keys)
                         }
                     }
                 })
@@ -360,9 +445,13 @@ fun SketcherSurface(
             },
             update = { view ->
                 val container = view as FrameLayout
+                val canvasView = container.getChildAt(0) as SketcherCanvasView
                 val wetView = container.getChildAt(1) as InProgressStrokesView
                 val state = wetView.tag as RuntimeState
                 
+                // CRITICAL FIX: Ensure layers depend on ViewModel state updates
+                canvasView.setLayers(sketchViewModel.layers)
+
                 val currentConfig = brushTypes.find { it.type == selectedTool } ?: brushTypes.first()
                 
                 state.toolType = selectedTool
@@ -374,38 +463,70 @@ fun SketcherSurface(
                 val currentZoom = InkUtils.getMatrixScale(cameraMatrix)
                 state.updateActiveBrush(currentZoom)
                 
+                // FORCE REDRAW for Opacity/Layer changes
+                canvasView.invalidate()
                 wetView.invalidate()
             }
         )
 
-        // --- NEW BOTTOM MENU BAR ---
-        BottomMenuBar(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .scale(sketchViewModel.interfaceScale),
-            tools = brushTypes,
-            selectedTool = selectedTool,
-            onToolSelected = { selectedTool = it },
-            colorSlots = colorSlots,
-            selectedColorSlotIndex = selectedColorSlotIndex,
-            onColorSlotSelected = { selectedColorSlotIndex = it },
-            onColorChangeRequest = { showColorPicker = true },
-            selectedSize = selectedSize,
-            onSizeChangeRequest = { showSizePopup = !showSizePopup },
-            isEraserActive = selectedTool == ToolType.ERASER,
-            onEraserToggle = {
-                selectedTool = if (selectedTool == ToolType.ERASER) ToolType.PEN else ToolType.ERASER
-            },
-            canUndo = sketchViewModel.canUndo,
-            onUndo = { sketchViewModel.undo(); canvasViewRef?.restoreStrokes(sketchViewModel.strokes) },
-            canRedo = sketchViewModel.canRedo,
-            onRedo = { sketchViewModel.redo(); canvasViewRef?.restoreStrokes(sketchViewModel.strokes) },
-            onSettingsClick = { showSettingsPopup = true },
-            showToolPopup = showToolPopup,
-            onShowToolPopupChange = { showToolPopup = it }
-        )
+        // --- UI LAYER ---
+        // We define the custom density here, but ONLY apply it to the BottomMenuBar (Toolbar)
+        // so that the toolbar items shrink/fit better, but Dialogs/Popups remain standard
+        // to avoid hit-testing or window issues.
+        val currentDensity = androidx.compose.ui.platform.LocalDensity.current
+        val customDensity = remember(currentDensity, sketchViewModel.interfaceScale) {
+            androidx.compose.ui.unit.Density(
+                density = currentDensity.density * sketchViewModel.interfaceScale,
+                fontScale = currentDensity.fontScale
+            )
+        }
 
-        // DIALOGS & POPUPS
+        // 1. TOOLBAR (Effectively Scaled via Density)
+        CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides customDensity) {
+            BottomMenuBar(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter),
+                tools = brushTypes,
+                selectedTool = selectedTool,
+                onToolSelected = { selectedTool = it },
+                colorSlots = colorSlots,
+                selectedColorSlotIndex = selectedColorSlotIndex,
+                onColorSlotSelected = { selectedColorSlotIndex = it },
+                onColorChangeRequest = { showColorPicker = true },
+                selectedSize = selectedSize,
+                onSizeChangeRequest = { showSizePopup = !showSizePopup },
+                isEraserActive = selectedTool == ToolType.ERASER,
+                onEraserToggle = {
+                    selectedTool = if (selectedTool == ToolType.ERASER) ToolType.PEN else ToolType.ERASER
+                },
+                canUndo = sketchViewModel.canUndo,
+                onUndo = { sketchViewModel.undo(); canvasViewRef?.setLayers(sketchViewModel.layers) },
+                canRedo = sketchViewModel.canRedo,
+                onRedo = { sketchViewModel.redo(); canvasViewRef?.setLayers(sketchViewModel.layers) },
+                onSettingsClick = { showSettingsPopup = true },
+                onLayersClick = { showLayerManager = !showLayerManager },
+                showToolPopup = showToolPopup,
+                onShowToolPopupChange = { showToolPopup = it }
+            )
+        }
+
+        // 2. DIALOGS & POPUPS (Standard Density)
+        // These are now OUTSIDE the CompositionLocalProvider, so they use the system density.
+        if (showLayerManager) {
+            LayerManagerDialog(
+                layers = sketchViewModel.layers,
+                activeLayerIndex = sketchViewModel.activeLayerIndex,
+                onToggleVisibility = { sketchViewModel.toggleLayerVisibility(it) },
+                onOpacityChanged = { idx, op -> sketchViewModel.setLayerOpacity(idx, op) },
+                onActiveLayerChanged = { sketchViewModel.setActiveLayer(it) },
+                onAddLayer = { sketchViewModel.addNewLayer(true) }, // Default add to top
+                onDeleteLayer = { sketchViewModel.removeActiveLayer() },
+                onMoveUp = { sketchViewModel.moveActiveLayerUp() },
+                onMoveDown = { sketchViewModel.moveActiveLayerDown() },
+                onDismiss = { showLayerManager = false }
+            )
+        }
+
         if (showColorPicker) {
             ColorPickerDialog(
                 initialColor = colorSlots[selectedColorSlotIndex],
@@ -416,13 +537,16 @@ fun SketcherSurface(
                 }
             )
         }
-        
+
         if (showSizePopup) {
             SizeSelectorPopup(
                 currentSize = selectedSize,
                 onSizeChanged = { selectedSize = it },
                 currentOpacity = selectedOpacity,
                 onOpacityChanged = { selectedOpacity = it },
+                presets = sketchViewModel.brushSizePresets,
+                onPresetSelected = { selectedSize = it },
+                onPresetSave = { index, size -> sketchViewModel.updateBrushSizePreset(index, size) },
                 onDismiss = { showSizePopup = false }
             )
         }
@@ -440,6 +564,8 @@ fun SketcherSurface(
         }
     }
 }
+
+
 
 @Composable
 fun BottomMenuBar(
@@ -460,6 +586,7 @@ fun BottomMenuBar(
     canRedo: Boolean,
     onRedo: () -> Unit,
     onSettingsClick: () -> Unit,
+    onLayersClick: () -> Unit,
     showToolPopup: Boolean,
     onShowToolPopupChange: (Boolean) -> Unit
 ) {
@@ -472,8 +599,10 @@ fun BottomMenuBar(
             .padding(8.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()), // Make it scrollable
+            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // TOOL SELECTOR
@@ -552,6 +681,11 @@ fun BottomMenuBar(
                 Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Redo", tint = if (canRedo) Color.Black else Color.LightGray)
             }
 
+            // LAYERS
+            IconButton(onClick = onLayersClick) {
+                 Icon(Icons.Default.List, contentDescription = "Layers")
+            }
+
             // SETTINGS
             IconButton(onClick = onSettingsClick) {
                 Icon(Icons.Default.MoreVert, contentDescription = "Settings")
@@ -572,33 +706,91 @@ fun ColorSlot(color: Int, isSelected: Boolean, onClick: () -> Unit) {
     )
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun SizeSelectorPopup(
     currentSize: Float, 
     onSizeChanged: (Float) -> Unit, 
     currentOpacity: Float,
     onOpacityChanged: (Float) -> Unit,
+    presets: List<Float>,
+    onPresetSelected: (Float) -> Unit,
+    onPresetSave: (Int, Float) -> Unit,
     onDismiss: () -> Unit
 ) {
+    // Non-linear Slider Logic (Quadratic)
+    // t = 0..1
+    // Size = Min + (Max - Min) * t^2
+    // t = sqrt((Size - Min) / (Max - Min))
+    val minSize = 1f
+    val maxSize = 100f
+    
+    // Calculate initial slider position from currentSize
+    // Clamp magnitude to avoid NaN with sqrt of negative numbers
+    val initialT = kotlin.math.sqrt(((currentSize - minSize) / (maxSize - minSize)).coerceAtLeast(0f))
+    var sliderValue by remember { mutableFloatStateOf(initialT) }
+
     Popup(alignment = Alignment.BottomCenter, onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
                 .padding(bottom = 100.dp) // Lift above bottom bar
-                .width(200.dp)
+                .width(250.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .background(Color.White)
                 .border(1.dp, Color.LightGray, RoundedCornerShape(16.dp))
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Brush Size: ${currentSize.toInt()}")
+            Text("Size: ${currentSize.toInt()}")
+            
             Slider(
-                value = currentSize,
-                onValueChange = onSizeChanged,
-                valueRange = 1f..100f
+                value = sliderValue,
+                onValueChange = { t ->
+                    sliderValue = t
+                    // Quadratic mapping
+                    val nonLinearSize = minSize + (maxSize - minSize) * (t * t)
+                    onSizeChanged(nonLinearSize)
+                },
+                valueRange = 0f..1f
             )
             
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            // PRESETS
+            Text("Presets (Long press to Save)", fontSize = 10.sp, color = Color.Gray, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
+            
+            Row(
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                presets.forEachIndexed { index, size ->
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color.LightGray.copy(alpha = 0.3f))
+                            .combinedClickable(
+                                onClick = { 
+                                    onPresetSelected(size)
+                                    // Update slider visual
+                                    val newT = kotlin.math.sqrt(((size - minSize) / (maxSize - minSize)).coerceAtLeast(0f))
+                                    sliderValue = newT
+                                },
+                                onLongClick = { onPresetSave(index, currentSize) }
+                            )
+                            .border(1.dp, Color.Gray, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        // Dot representing size
+                        Box(
+                            modifier = Modifier
+                                .size((size.coerceIn(2f, 24f)).dp)
+                                .clip(CircleShape)
+                                .background(Color.Black)
+                        )
+                    }
+                }
+            }
+            
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
             
             Text("Opacity: ${(currentOpacity * 100).toInt()}%")
             Slider(
@@ -662,3 +854,130 @@ fun SettingsDialog(
         }
     }
 }
+
+@Composable
+fun LayerManagerDialog(
+    layers: List<Layer>,
+    activeLayerIndex: Int,
+    onToggleVisibility: (Int) -> Unit,
+    onOpacityChanged: (Int, Float) -> Unit,
+    onActiveLayerChanged: (Int) -> Unit,
+    onAddLayer: () -> Unit,
+    onDeleteLayer: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .width(320.dp)
+                .heightIn(max = 500.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color.White)
+                .padding(16.dp)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Capas", style = MaterialTheme.typography.titleLarge)
+                IconButton(onClick = onDismiss) {
+                    Text("X", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                }
+            }
+
+            Divider()
+
+            // Layers List (Reversed visual order)
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(vertical = 8.dp)
+            ) {
+                // Display in reverse order so top layer is at top of list
+                // We need to map index correctly back to original list
+                val reversedIndices = layers.indices.reversed().toList()
+                
+                itemsIndexed(reversedIndices) { _, originalIndex ->
+                    val layer = layers[originalIndex]
+                    val isActive = originalIndex == activeLayerIndex
+                    
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isActive) Color.LightGray.copy(alpha = 0.5f) else Color.Transparent)
+                            .clickable { onActiveLayerChanged(originalIndex) }
+                            .padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Visibility
+                        IconButton(
+                            onClick = { onToggleVisibility(originalIndex) },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                if (layer.isVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                contentDescription = "Toggle Visibility",
+                                tint = if (layer.isVisible) Color.Black else Color.Gray
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        // Name
+                        Text(
+                            text = layer.id,
+                            modifier = Modifier.weight(1f),
+                            fontWeight = if (isActive) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal
+                        )
+                        
+                        // Opacity
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("${(layer.opacity * 100).toInt()}%", fontSize = 10.sp)
+                            Slider(
+                                value = layer.opacity,
+                                onValueChange = { onOpacityChanged(originalIndex, it) },
+                                valueRange = 0f..1f,
+                                modifier = Modifier.width(80.dp).height(20.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
+            // Footer Controls
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.SpaceAround
+            ) {
+                // Add
+                IconButton(onClick = onAddLayer) {
+                    Icon(Icons.Default.Add, contentDescription = "Add Layer")
+                }
+                
+                // Move Up (Visual Up = Higher Index)
+                IconButton(onClick = onMoveUp) {
+                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move Up")
+                }
+                
+                // Move Down (Visual Down = Lower Index)
+                IconButton(onClick = onMoveDown) {
+                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move Down")
+                }
+                
+                // Delete
+                IconButton(onClick = onDeleteLayer) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete Active", tint = Color.Red)
+                }
+            }
+        }
+    }
+}
+
