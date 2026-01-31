@@ -55,25 +55,14 @@ object InkUtils {
             }
 
             // CORRECCIÓN MAESTRA:
-            // En lugar de pedir la config externa, "clonamos" el pincel que ya se usó,
-            // pero corregimos su tamaño (Desinflar: TamañoVisual / Zoom = TamañoReal).
+            // Intentar preservar las propiedades del pincel original (texturas, shaders, blend modes)
+            // Recreamos usando los valores crudos del original para no perder ColorSpace ni Alpha.
             val originalBrush = screenStroke.brush
-            
             val realSize = originalBrush.size / currentZoom
-
-            // FIX: Explicitly unpacking and repacking color to ensure Alpha channel 
-            // is strictly preserved.
-            // Using Color.valueOf(long) which is available in API 26 (minSdk).
-            val finalColor = try {
-                Color.valueOf(originalBrush.colorLong).toArgb()
-            } catch (e: Exception) {
-                // Fallback if color space is weird, though Ink usually uses sRGB
-                 Color.parseColor("#000000")
-            }
-
+            
             val targetBrush = Brush.createWithColorLong(
                 family = originalBrush.family,
-                colorLong = Color.pack(finalColor), // Force repack from ARGB Int
+                colorLong = originalBrush.colorLong, // Preserva exactamente el color/alpha original
                 size = realSize, 
                 epsilon = originalBrush.epsilon
             )
