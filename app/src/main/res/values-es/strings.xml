@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">sketcherCompanionV1</string>
+    <string name="tool_technical_pen">Lápiz Técnico</string>
+    <string name="tool_pressure_pen">Lápiz</string>
+    <string name="tool_marker">Marcador</string>
+    <string name="tool_highlighter">Resaltador</string>
+    <string name="tool_fill">Relleno</string>
+    <string name="tool_eraser">Borrador</string>
+    
+    <string name="label_size">Tamaño</string>
+    <string name="label_opacity">Opacidad</string>
+    <string name="label_smoothing">Estabilizador</string>
+    <string name="label_sensitivity">Sensibilidad</string>
+    <string name="label_min_size">Tamaño Mínimo</string>
+    
+    <string name="grid_title">Cuadrícula</string>
+    <string name="grid_snap">Ajustar a Cuadrícula</string>
+    <string name="grid_show">Mostrar Cuadrícula</string>
+    <string name="grid_spacing">Espaciado</string>
+    <string name="grid_primary">Primario (Mayor)</string>
+    <string name="grid_secondary">Secundario (Medio)</string>
+    <string name="grid_tertiary">Terciario (Menor)</string>
+    
+    <string name="settings_title">Ajustes</string>
+    <string name="project_settings">Proyecto</string>
+    <string name="app_prefs">Preferencias</string>
+    
+    <string name="action_undo">Deshacer</string>
+    <string name="action_redo">Rehacer</string>
+    <string name="action_save">Guardar</string>
+    <string name="action_load">Cargar</string>
+    <string name="action_new">Nuevo</string>
+    <string name="action_cancel">Cancelar</string>
+    <string name="action_apply">Aplicar</string>
+    <string name="action_close">Cerrar</string>
+
+    <string name="layer_title">Capas</string>
+    <string name="layer_add">Añadir Capa</string>
+    <string name="layer_base_name">Capa</string>
+    
+    <string name="settings_lock_rotation">Bloquear Rotación</string>
+    <string name="settings_stylus_only">Solo Stylus</string>
+    <string name="settings_interface_scale">Escala de Interfaz</string>
+    <string name="settings_debug_wireframe">Depurar Geometría (Wireframe)</string>
+    <string name="settings_enable_prediction">Habilitar Predicción (Comp. Lag)</string>
+    <string name="settings_debug_prediction">Depurar Predicción (Línea Roja)</string>
+    <string name="settings_max_prediction_lag">Lag Máximo de Predicción</string>
+    <string name="settings_prediction_smoothing">Suavizado de Predicción</string>
+    <string name="settings_prediction_hint">Mayor = Menos Temblor, Más Hook</string>
+    <string name="settings_velocity_thresholds">Umbrales de Velocidad (px/s)</string>
+    <string name="settings_min_velocity">Velocidad Mínima</string>
+    <string name="settings_max_velocity">Velocidad Máxima</string>
+    <string name="settings_simplification_title">Simplificación (General)</string>
+    <string name="settings_distance_tolerance">Tolerancia de Distancia</string>
+    <string name="settings_distance_hint">0 = Desactivado. Mayor = Menos puntos.</string>
+    <string name="settings_pressure_tolerance">Tolerancia de Presión</string>
+    <string name="settings_pressure_hint">Preservación de grosor (Menor = Más detalle)</string>
+    <string name="settings_corner_angle">Preservación de Esquinas</string>
+    <string name="settings_corner_hint">Ángulo mínimo (0 = Todo, 90 = Suave)</string>
+    <string name="settings_base_resolution">Resolución Base (px/mm)</string>
+    <string name="settings_resolution_hint">Píxeles por milímetro real.</string>
+    
+    <string name="popup_presets_hint">Preajustes (Mantener para Guardar)</string>
+    <string name="label_unit">Unidad</string>
+    <string name="label_line_colors">Colores de Línea</string>
+</resources>

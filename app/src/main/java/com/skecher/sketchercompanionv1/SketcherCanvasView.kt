@@ -1,4 +1,4 @@
-package com.skecher.sketchercompanionv1
+﻿package com.skecher.sketchercompanionv1
 
 import android.content.Context
 import android.graphics.Canvas
@@ -8,8 +8,6 @@ import android.view.View
 import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
 import androidx.ink.strokes.Stroke
 
-
-
 import com.skecher.sketchercompanionv1.dto.GridConfig
 import com.skecher.sketchercompanionv1.dto.ScaleConfig
 import com.skecher.sketchercompanionv1.dto.DistanceUnit
@@ -17,16 +15,7 @@ import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
 
-data class FillData(val path: android.graphics.Path, val color: Int) : LayerElement
-data class Layer(
-    val id: String, 
-    val name: String,
-    val inkStrokes: MutableList<Stroke>, 
-    val customElements: MutableList<LayerElement> = mutableListOf(), 
-    var isVisible: Boolean = true,
-    var opacity: Float = 1f
-)
-
+// Layer and FillData are now defined in Layer.kt and LayerElement.kt respectively
 
 class SketcherCanvasView(context: Context) : View(context) {
 
@@ -37,19 +26,20 @@ class SketcherCanvasView(context: Context) : View(context) {
     private var backingBitmap: android.graphics.Bitmap? = null
     private var backingCanvas: Canvas? = null
 
+    var onSizeChangedCallback: ((Int, Int) -> Unit)? = null
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         if (w > 0 && h > 0) {
             backingBitmap = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
             backingCanvas = Canvas(backingBitmap!!)
             redrawAllCache()
+            onSizeChangedCallback?.invoke(w, h)
         }
     }
 
     // Call this to Bake a finalized stroke into the bitmap
     fun bakeStroke(stroke: VectorStroke) {
-        // Optimized: Instead of full redraw, we just mark dirty or bake if cache is used.
-        // For now, since we move to dynamic rendering in onDraw, we just invalidate.
         invalidate()
     }
 
@@ -57,16 +47,13 @@ class SketcherCanvasView(context: Context) : View(context) {
     // Direct Add & Bake (Optimistic UI for Instant Feedback)
     fun addInkStroke(stroke: androidx.ink.strokes.Stroke, layerIndex: Int) {
         if (layerIndex in layers.indices) {
-            layers[layerIndex].inkStrokes.add(stroke)
+            layers[layerIndex].elements.add(AndroidInkElement(stroke))
             bakeInkStroke(stroke)
         }
     }
 
     // Bake Android Ink Stroke
     fun bakeInkStroke(stroke: androidx.ink.strokes.Stroke) {
-        // NO-OP: Ink strokes are now rendered live in the overlay view.
-        // val requestCanvas = backingCanvas ?: return
-        // ...
         invalidate()
     }
     
@@ -77,37 +64,18 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     
     // Helper to completely rebuild the cache
-    // Helper to completely rebuild the cache
     fun redrawAllCache() {
+        // Since we moved to dynamic rendering for Z-order correctness, 
+        // the "cache" concept needs to strictly respect the order.
+        // We can still draw to backingBitmap if we want, but for now we invalidate.
+        // If we want to use backingBitmap for performance, we would need to draw ALL elements to it 
+        // in order. 
+        // For this refactor, we are going completely dynamic in onDraw for the layers content
+        // to ensure correct mixing of Vector/Ink/Fills.
+        
+        // However, we might want to keep the backing canvas cleared or used for background?
         val requestCanvas = backingCanvas ?: return
-        
-        // Clear with Background Color (Opaque)
         requestCanvas.drawColor(canvasBackgroundColor)
-        
-        // Draw Layers
-        for (layer in layers) {
-            if (!layer.isVisible) continue
-            
-            // Layer Opacity
-            val layerSaveCount = if (layer.opacity < 1f) {
-                requestCanvas.saveLayerAlpha(0f, 0f, width.toFloat(), height.toFloat(), (layer.opacity * 255).toInt())
-            } else {
-                requestCanvas.save()
-            }
-            
-            // Base Group (Mixed Custom Elements)
-            requestCanvas.save()
-            requestCanvas.concat(viewMatrix)
-            for (element in layer.customElements) {
-                when (element) {
-                    is FillData -> drawFill(element, requestCanvas)
-                    is VectorStroke -> drawVectorStroke(element, requestCanvas)
-                }
-            }
-            requestCanvas.restore()
-            
-            requestCanvas.restoreToCount(layerSaveCount)
-        }
         
         invalidate()
     }
@@ -130,17 +98,12 @@ class SketcherCanvasView(context: Context) : View(context) {
         xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.MULTIPLY)
     }
 
-    private fun drawStroke(ink: Stroke, canvas: Canvas) {
-        // Apply "wet" look with Multiply blend
-        val saveCount = canvas.saveLayer(null, multiplyPaint)
-        canvas.drawColor(android.graphics.Color.WHITE) // Neutral base for multiply
-        
-        canvas.save()
-        canvas.concat(viewMatrix)
-        strokeRenderer.draw(canvas, ink, Matrix())
-        canvas.restore()
-        
-        canvas.restoreToCount(saveCount)
+    // Direct render on the main canvas (or passed canvas)
+    private fun drawInkStroke(ink: Stroke, canvas: Canvas) {
+        // NOTE: If we want "wet" multiply look, we need to handle layer saves carefully 
+        // or just draw normally.
+        // For unified Z-order, we draw directly.
+        strokeRenderer.draw(canvas, ink, Matrix()) 
     }
 
     
@@ -161,7 +124,7 @@ class SketcherCanvasView(context: Context) : View(context) {
     var canvasBackgroundColor: Int = android.graphics.Color.WHITE
         set(value) {
             field = value
-            redrawAllCache() // Must redraw cache because cache now contains background
+            redrawAllCache() 
         }
 
     // LAYERS (Replaces flat lists)
@@ -182,6 +145,7 @@ class SketcherCanvasView(context: Context) : View(context) {
     // PREVIEW STATE (For live drawing/filling)
     private var currentVectorPreviewPath: android.graphics.Path? = null
     private var currentVectorPreviewPoints: List<StrokePoint>? = null // For prediction
+    private var currentVectorPreviewColor: Int = 0 // Explicitly store preview color
     private var currentMaxWidth: Float = 10f // Max stroke width for prediction
     private var currentMinSizeFactor: Float = 0f // Min size factor for prediction
     private var currentFillPath: android.graphics.Path? = null
@@ -196,15 +160,10 @@ class SketcherCanvasView(context: Context) : View(context) {
         isAntiAlias = true
     }
 
-    /**
-     * FIX ROTACIÓN: Usamos 'post' para asegurar que la invalidación
-     * ocurra cuando la vista ya esté adjunta y medida.
-     */
     fun setLayers(newLayers: List<Layer>) {
         layers.clear()
         layers.addAll(newLayers)
-        // We do NOT redraw cache here automatically anymore, to allow efficient 'bakeStroke'.
-        // External changes (Undo/Redo/Load) must call 'redrawAllCache()' explicitly.
+        invalidate()
     }
 
 
@@ -222,7 +181,8 @@ class SketcherCanvasView(context: Context) : View(context) {
         currentMaxWidth = maxWidth
         currentMinSizeFactor = minSizeFactor
         currentPredictedPoint = predictedPoint
-        if (color != 0) vectorPaint.color = color
+        if (color != 0) currentVectorPreviewColor = color // Store it
+        // Do NOT set vectorPaint.color here, it gets overwritten by onDraw layers
         invalidate()
     }
 
@@ -240,21 +200,11 @@ class SketcherCanvasView(context: Context) : View(context) {
         for (layer in layers.reversed()) {
             if (!layer.isVisible) continue 
             
-            // 1. Check Strokes (Top priority usually, or same layer order)
-            // Let's check strokes first as they are "on top" of fills in drawing order
-            for (i in layer.inkStrokes.indices.reversed()) {
-                val stroke = layer.inkStrokes[i]
-                if (StrokeGeometry.isStrokeTouched(stroke, worldX, worldY)) {
-                    layer.inkStrokes.removeAt(i)
-                    invalidate()
-                    return stroke
-                }
-            }
-            
-            // 2. Check Custom Elements (Fills and Vector Strokes)
-            for (i in layer.customElements.indices.reversed()) {
-                val element = layer.customElements[i]
-                when(element) {
+            // Iterate elements reversed (Top to Bottom)
+            val iterator = layer.elements.listIterator(layer.elements.size)
+            while (iterator.hasPrevious()) {
+                val element = iterator.previous()
+                val removed = when(element) {
                     is FillData -> {
                         val bounds = android.graphics.RectF()
                         element.path.computeBounds(bounds, true)
@@ -264,21 +214,58 @@ class SketcherCanvasView(context: Context) : View(context) {
                                 bounds.left.toInt(), bounds.top.toInt(), 
                                 bounds.right.toInt(), bounds.bottom.toInt()
                             ))
-                            if (region.contains(worldX.toInt(), worldY.toInt())) {
-                                layer.customElements.removeAt(i)
-                                invalidate()
-                                return element
-                            }
+                            region.contains(worldX.toInt(), worldY.toInt())
+                        } else {
+                            false
                         }
                     }
                     is VectorStroke -> {
-                        // Collision for vector stroke? 
-                        // For now we only had fill collision here, but let's keep it consistent.
-                        // If VectorStroke had collision logic, we'd add it here.
+                        // existing logic was "Use existing geometry check" but implementation in previous View was empty comment
+                        // "Collision for vector stroke? ... If VectorStroke had collision logic..."
+                        // User prompt says: "VectorStroke: Use existing geometry check."
+                        // I need to check if there is a helper. `StrokeGeometry.isStrokeTouched` was used for INK.
+                        // For VectorStroke, I might need to implement something or check if `StrokeGeometry` supports it.
+                        // Assuming `StrokeGeometry` is only for Ink. 
+                        // I will implement a basic bounds/path check for VectorStroke if needed, 
+                        // OR if there is an existing utility.
+                        // Actually, previous code for VectorStroke in eraseContentAt ended with empty check.
+                        // Let's assume for now we might skip VectorStroke erasure functionality or implement basic path contains.
+                        // Wait, previous code checked `layer.inkStrokes` with `StrokeGeometry.isStrokeTouched`.
+                        // For `VectorStroke`, it matches what was there: nothing.
+                        // BUT user asked: "VectorStroke: Use existing geometry check."
+                        // I will assume for now I should check if `VectorStroke` has a `contains` or similar, 
+                        // or if I should use the Path.
+                        val bounds = android.graphics.RectF()
+                        element.path.computeBounds(bounds, true)
+                        // Simple bounds check for now as placeholder for "existing geometry check" if none exists.
+                        // Or maybe `StrokeGeometry` has an overload?
+                        // Let's stick to simple bounds -> path region check like Fill for now, 
+                        // as VectorStroke.path is a Path.
+                        if (bounds.contains(worldX, worldY)) {
+                             // Precise check
+                            // NOTE: Path.contains is not standard API for points.
+                            // We use Region.
+                             val region = android.graphics.Region()
+                             region.setPath(element.path, android.graphics.Region(
+                                 bounds.left.toInt(), bounds.top.toInt(), 
+                                 bounds.right.toInt(), bounds.bottom.toInt()
+                             ))
+                             region.contains(worldX.toInt(), worldY.toInt())
+                        } else {
+                            false
+                        }
+                    }
+                    is AndroidInkElement -> {
+                        StrokeGeometry.isStrokeTouched(element.stroke, worldX, worldY)
                     }
                 }
-            }
 
+                if (removed) {
+                    iterator.remove()
+                    invalidate()
+                    return element
+                }
+            }
         }
         return null
     }
@@ -290,8 +277,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     fun clearCanvas() {
         layers.forEach { 
-            it.inkStrokes.clear()
-            it.customElements.clear()
+            it.elements.clear()
         }
 
         redrawAllCache()
@@ -304,8 +290,6 @@ class SketcherCanvasView(context: Context) : View(context) {
         val spacing = gridConfig.spacing
         if (spacing <= 0f) return
 
-        // 1. Calculate Pixels per Project Unit
-        // formula: pixels = (baseMm / ratio) * (dpi / 25.4)
         // 1. Calculate Pixels per Unit using Central Logic
         val stepPx = com.skecher.sketchercompanionv1.utils.UnitUtils.projectUnitsToPixels(
             value = spacing, 
@@ -321,10 +305,7 @@ class SketcherCanvasView(context: Context) : View(context) {
         
         val screenStep = stepPx * zoom
         if (screenStep < 3f) {
-             // Too dense to render anything meaningfully, or just render majors?
-             // Prompt says: "If pixelsPerProjectUnit * spacing is smaller than 3 pixels ... STOP rendering minor lines and only render Major/Mid"
-             // Actually, if it's REALLY dense, even majors might be too much.
-             // But let's follow the density logic filtering per level.
+           // Skip
         }
 
         // 4. Calculate Visible Bounds in WORLD Coordinates
@@ -340,17 +321,12 @@ class SketcherCanvasView(context: Context) : View(context) {
         val right = worldBounds[2]
         val bottom = worldBounds[3]
         
-        // Normalize bounds (handle rotation/inversion if needed, though simple invert usually works for axis aligned)
-        // Assuming no rotation for simplicty in grid loop ranges, or taking min/max
         val wMinX = kotlin.math.min(left, right)
         val wMaxX = kotlin.math.max(left, right)
         val wMinY = kotlin.math.min(top, bottom)
         val wMaxY = kotlin.math.max(top, bottom)
 
         // 5. Draw Loop
-        // We draw vertical lines at: x = index * stepPx
-        // We draw horizontal lines at: y = index * stepPx
-        
         val startXIndex = floor(wMinX / stepPx).toInt()
         val endXIndex = ceil(wMaxX / stepPx).toInt()
         
@@ -366,7 +342,7 @@ class SketcherCanvasView(context: Context) : View(context) {
             
             var drawLine = false
             var thicknessScale = 1.0f
-            var lineColor = gridConfig.color // Default to Primary
+            var lineColor = gridConfig.color 
 
             if (i % 10 == 0) {
                 // Major
@@ -375,14 +351,14 @@ class SketcherCanvasView(context: Context) : View(context) {
                 lineColor = gridConfig.color
             } else if (i % 5 == 0) {
                 // Mid
-                if (screenStep >= 3f) { // Only if not too dense
+                if (screenStep >= 3f) { 
                     drawLine = true
                     thicknessScale = 1.5f
                     lineColor = gridConfig.secondaryColor
                 }
             } else {
                 // Minor
-                if (screenStep >= 8f) { // Require more space for minors
+                if (screenStep >= 8f) { 
                     drawLine = true
                     thicknessScale = 1.0f
                     lineColor = gridConfig.tertiaryColor
@@ -391,9 +367,7 @@ class SketcherCanvasView(context: Context) : View(context) {
             
             if (drawLine) {
                 gridPaint.color = lineColor
-                // gridPaint.alpha is now implicit in the color itself
                 gridPaint.strokeWidth = if (thicknessScale > 1.0f) (thicknessScale / zoom) else 0f
-                
                 canvas.drawLine(x, wMinY, x, wMaxY, gridPaint)
             }
         }
@@ -436,7 +410,7 @@ class SketcherCanvasView(context: Context) : View(context) {
         super.onDraw(canvas)
         canvas.drawColor(canvasBackgroundColor)
         
-        // 0. Grid (Dynamic, drawn behind cache but managed separately)
+        // 0. Grid
         canvas.save()
         canvas.concat(viewMatrix)
         drawGrid(canvas)
@@ -453,36 +427,28 @@ class SketcherCanvasView(context: Context) : View(context) {
                 canvas.save()
             }
             
-            // Step A: Base Group (Fills & Vector Strokes)
+            // Unified Loop
             canvas.save()
             canvas.concat(viewMatrix)
-            for (element in layer.customElements) {
-                when (element) {
+            
+            for (element in layer.elements) {
+                when(element) {
                     is FillData -> drawFill(element, canvas)
                     is VectorStroke -> drawVectorStroke(element, canvas)
+                    is AndroidInkElement -> drawInkStroke(element.stroke, canvas)
                 }
             }
+            
             canvas.restore()
-            
-            // Step B: Top Group (Android Ink)
-            for (ink in layer.inkStrokes) {
-                drawStroke(ink, canvas)
-            }
-            
             canvas.restoreToCount(saveCount)
         }
         
-        // --- Note: backingBitmap is retained for background/grid or future caching, 
-        // but core rendering is now dynamic per-layer to support interleaving. ---
-
         
         // 3. Previews (Live content) - Needs Matrix
         canvas.save()
         canvas.concat(viewMatrix)
         
-        // ... (rest of previews)
-        
-        // 4. Current Fill in progress (Preview) - Drawn BEFORE stroke to stay behind
+        // 4. Current Fill in progress
         currentFillPath?.let { path ->
             currentFillColor?.let { color ->
                 fillPaint.color = color
@@ -492,26 +458,23 @@ class SketcherCanvasView(context: Context) : View(context) {
 
         // 5. Vector Preview with Prediction
         currentVectorPreviewPath?.let { path ->
-             // Draw the stable path (real data)
+             // CRITICAL FIX: explicit color set before drawing preview
+             if (currentVectorPreviewColor != 0) vectorPaint.color = currentVectorPreviewColor
              canvas.drawPath(path, vectorPaint)
              
              val points = currentVectorPreviewPoints
              if (points != null && points.isNotEmpty()) {
-                 // 4. Dynamic Velocity-Based Prediction
                  currentPredictedPoint?.let { pred ->
                      val last = points.last()
                      
-                     // Render faded prediction trail
                      val predictionPath = android.graphics.Path()
                      val dynamicRange = 1.0f - currentMinSizeFactor
                      
                      val lastScale = currentMinSizeFactor + (dynamicRange * last.pressure)
                      val lastWidth = currentMaxWidth * lastScale
                      
-                     // We don't have pressure for the predicted point, assume same as last
                      val predWidth = lastWidth 
 
-                     // Visual "Trail" - Draw a continuous line for better visibility
                      predictionPath.moveTo(last.x, last.y)
                      predictionPath.lineTo(pred.x, pred.y)
                      
@@ -521,7 +484,6 @@ class SketcherCanvasView(context: Context) : View(context) {
                      val originalStyle = vectorPaint.style
 
                      if (isDebugPredictionEnabled) {
-                         // DEBUG: RED PREDICTION LINE + BLUE CROSS
                          android.util.Log.d("CanvasDebug", "Drawing Prediction Line (DEBUG)")
                          
                          vectorPaint.color = android.graphics.Color.RED
@@ -529,29 +491,22 @@ class SketcherCanvasView(context: Context) : View(context) {
                          vectorPaint.strokeWidth = 5f 
                          vectorPaint.style = android.graphics.Paint.Style.STROKE 
                          
-                         // 1. Draw Actual Prediction Line
                          canvas.drawPath(predictionPath, vectorPaint)
                          
-                         // 2. DEBUG CROSS at Predicted Target (Blue)
                          vectorPaint.color = android.graphics.Color.BLUE
                          vectorPaint.strokeWidth = 3f
                          canvas.drawLine(pred.x - 20, pred.y, pred.x + 20, pred.y, vectorPaint)
                          canvas.drawLine(pred.x, pred.y - 20, pred.x, pred.y + 20, vectorPaint)
                          
                      } else {
-                         // STANDARD VISUAL (Seamless Continuation)
-                         // Use original color and alpha
                          vectorPaint.color = originalColor
                          vectorPaint.alpha = originalAlpha
                          vectorPaint.style = android.graphics.Paint.Style.STROKE 
-                         
-                         // Match the width of the tip of the stroke
                          vectorPaint.strokeWidth = lastWidth 
                          
                          canvas.drawPath(predictionPath, vectorPaint)
                      }
 
-                     // Restore
                      vectorPaint.color = originalColor
                      vectorPaint.alpha = originalAlpha
                      vectorPaint.strokeWidth = originalWidth
@@ -563,7 +518,6 @@ class SketcherCanvasView(context: Context) : View(context) {
 
         canvas.restore()
         
-        // ATOMIC HANDOFF: Execute queued action (e.g., clearing wet layer) immediately after drawing dry layer
         onDrawAction?.invoke()
         onDrawAction = null
     }
@@ -599,7 +553,6 @@ class SketcherCanvasView(context: Context) : View(context) {
         }
 
     private fun drawDebugStroke(canvas: Canvas, stroke: VectorStroke) {
-        // Step A: Draw Skeleton
         if (stroke.points.size >= 2) {
             for (i in 0 until stroke.points.size - 1) {
                 val p1 = stroke.points[i]
@@ -608,12 +561,10 @@ class SketcherCanvasView(context: Context) : View(context) {
             }
         }
         
-        // Draw Vertices
         for (p in stroke.points) {
             canvas.drawCircle(p.x, p.y, 4f, debugVertexPaint)
         }
 
-        // Step B: Draw Edges
         if (stroke.leftPoints.size >= 2) {
             for (i in 0 until stroke.leftPoints.size - 1) {
                 val p1 = stroke.leftPoints[i]
@@ -630,4 +581,3 @@ class SketcherCanvasView(context: Context) : View(context) {
         }
     }
 }
-

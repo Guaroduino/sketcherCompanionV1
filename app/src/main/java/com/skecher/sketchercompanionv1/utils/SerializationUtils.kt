@@ -21,17 +21,29 @@ import com.skecher.sketchercompanionv1.dto.*
 // --- LAYER MAPPERS ---
 
 fun Layer.toLayerJson(): LayerJson {
-    val currentFills = this.customElements.filterIsInstance<com.skecher.sketchercompanionv1.FillData>()
-    val currentVectorStrokes = this.customElements.filterIsInstance<com.skecher.sketchercompanionv1.VectorStroke>()
+    val elementsJson = this.elements.map { element ->
+        when (element) {
+            is com.skecher.sketchercompanionv1.AndroidInkElement -> LayerElementJson(
+                type = "INK",
+                inkStroke = element.stroke.toStrokeJson()
+            )
+            is com.skecher.sketchercompanionv1.VectorStroke -> LayerElementJson(
+                type = "VECTOR",
+                vectorStroke = element.toVectorStrokeJson()
+            )
+            is com.skecher.sketchercompanionv1.FillData -> LayerElementJson(
+                type = "FILL",
+                fill = element.toFillDataJson()
+            )
+        }
+    }
     
     return LayerJson(
         id = this.id,
         name = this.name,
         isVisible = this.isVisible,
         opacity = this.opacity,
-        strokes = this.inkStrokes.map { it.toStrokeJson() }, // Map domain 'inkStrokes' to JSON 'strokes'
-        fills = currentFills.map { it.toFillDataJson() }, // Renamed helper to avoid confusion
-        vectorStrokes = currentVectorStrokes.map { it.toVectorStrokeJson() }
+        elements = elementsJson
     )
 }
 
@@ -46,18 +58,33 @@ fun VectorStroke.toVectorStrokeJson(): VectorStrokeJson {
 }
 
 fun LayerJson.toLayer(): Layer {
-    val layerStrokes = this.strokes.map { it.toStroke() }.toMutableList()
     val customElements = mutableListOf<com.skecher.sketchercompanionv1.LayerElement>()
     
-    // Fallback interleaving: Fills then Vector Strokes (Loses exact time order from memory if not saved in JSON)
-    customElements.addAll(this.fills.map { it.toFillData() })
-    customElements.addAll(this.vectorStrokes.map { it.toVectorStroke() })
+    // Map unified elements
+    this.elements.forEach { elJson ->
+        when (elJson.type) {
+            "INK" -> {
+                elJson.inkStroke?.let {
+                    customElements.add(com.skecher.sketchercompanionv1.AndroidInkElement(it.toStroke()))
+                }
+            }
+            "VECTOR" -> {
+                elJson.vectorStroke?.let {
+                    customElements.add(it.toVectorStroke())
+                }
+            }
+            "FILL" -> {
+                elJson.fill?.let {
+                    customElements.add(it.toFillData())
+                }
+            }
+        }
+    }
     
     return Layer(
         id = this.id,
         name = this.name,
-        inkStrokes = layerStrokes, // Map JSON 'strokes' to domain 'inkStrokes'
-        customElements = customElements,
+        elements = customElements,
         isVisible = this.isVisible,
         opacity = this.opacity
     )

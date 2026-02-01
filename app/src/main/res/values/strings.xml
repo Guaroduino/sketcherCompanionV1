@@ -1,3 +1,66 @@
 <resources>
     <string name="app_name">sketcherCompanionV1</string>
+    <string name="tool_technical_pen">Technical Pen</string>
+    <string name="tool_pressure_pen">Pressure Pen</string>
+    <string name="tool_marker">Marker</string>
+    <string name="tool_highlighter">Highlighter</string>
+    <string name="tool_fill">Fill</string>
+    <string name="tool_eraser">Eraser</string>
+    
+    <string name="label_size">Size</string>
+    <string name="label_opacity">Opacity</string>
+    <string name="label_smoothing">Stabilizer</string>
+    <string name="label_sensitivity">Sensitivity</string>
+    <string name="label_min_size">Min Size</string>
+    
+    <string name="grid_title">Grid</string>
+    <string name="grid_snap">Snap to Grid</string>
+    <string name="grid_show">Show Grid</string>
+    <string name="grid_spacing">Spacing</string>
+    <string name="grid_primary">Primary (Major)</string>
+    <string name="grid_secondary">Secondary (Mid)</string>
+    <string name="grid_tertiary">Tertiary (Minor)</string>
+    
+    <string name="settings_title">Settings</string>
+    <string name="project_settings">Project</string>
+    <string name="app_prefs">Preferences</string>
+    
+    <string name="action_undo">Undo</string>
+    <string name="action_redo">Redo</string>
+    <string name="action_save">Save</string>
+    <string name="action_load">Load</string>
+    <string name="action_new">New</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_apply">Apply</string>
+    <string name="action_close">Close</string>
+
+    <string name="layer_title">Layers</string>
+    <string name="layer_add">Add Layer</string>
+    <string name="layer_base_name">Layer</string>
+    
+    <string name="settings_lock_rotation">Lock Rotation</string>
+    <string name="settings_stylus_only">Stylus Only</string>
+    <string name="settings_interface_scale">Interface Scale</string>
+    <string name="settings_debug_wireframe">Debug Geometry (Wireframe)</string>
+    <string name="settings_enable_prediction">Enable Prediction (Lag Comp)</string>
+    <string name="settings_debug_prediction">Debug Prediction (Red Line)</string>
+    <string name="settings_max_prediction_lag">Max Prediction Lag</string>
+    <string name="settings_prediction_smoothing">Prediction Smoothing</string>
+    <string name="settings_prediction_hint">Higher = Less Jitter, More Trailing Hook</string>
+    <string name="settings_velocity_thresholds">Velocity Thresholds (px/s)</string>
+    <string name="settings_min_velocity">Min Velocity (Start Lag)</string>
+    <string name="settings_max_velocity">Max Velocity (Full Lag)</string>
+    <string name="settings_simplification_title">Simplification (General)</string>
+    <string name="settings_distance_tolerance">Distance Tolerance</string>
+    <string name="settings_distance_hint">0 = Disabled. Higher = Fewer points.</string>
+    <string name="settings_pressure_tolerance">Pressure Tolerance</string>
+    <string name="settings_pressure_hint">Thickness preservation (Lower = More detail)</string>
+    <string name="settings_corner_angle">Corner Preservation</string>
+    <string name="settings_corner_hint">Min angle to force a point (0 = All, 90 = Smooth)</string>
+    <string name="settings_base_resolution">Base Resolution (px/mm)</string>
+    <string name="settings_resolution_hint">Pixels per real-world millimeter.</string>
+    
+    <string name="popup_presets_hint">Presets (Long press to Save)</string>
+    <string name="label_unit">Unit</string>
+    <string name="label_line_colors">Line Colors</string>
 </resources>

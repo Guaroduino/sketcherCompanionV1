@@ -43,9 +43,14 @@ data class LayerJson(
     val name: String,
     val isVisible: Boolean,
     val opacity: Float,
-    val strokes: List<StrokeJson>,
-    val fills: List<FillJson>,
-    val vectorStrokes: List<VectorStrokeJson> = emptyList()
+    val elements: List<LayerElementJson>
+)
+
+data class LayerElementJson(
+    val type: String, // "INK", "VECTOR", "FILL"
+    val inkStroke: StrokeJson? = null,
+    val vectorStroke: VectorStrokeJson? = null,
+    val fill: FillJson? = null
 )
 
 data class VectorStrokeJson(

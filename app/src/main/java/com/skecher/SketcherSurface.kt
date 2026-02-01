@@ -86,6 +86,10 @@ import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Grid4x4
 import kotlin.math.round
 import kotlin.math.roundToInt
+import androidx.compose.material.icons.filled.Grid3x3
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.ui.res.stringResource
 
 
 enum class ToolType { TECHNICAL_PEN, PRESSURE_PEN, MARKER, HIGHLIGHTER, FILL_SHAPE, ERASER }
@@ -93,8 +97,22 @@ enum class ToolType { TECHNICAL_PEN, PRESSURE_PEN, MARKER, HIGHLIGHTER, FILL_SHA
 data class BrushTypeConfig(
     val type: ToolType,
     val icon: ImageVector,
-    val family: BrushFamily?
+    val family: BrushFamily?,
+    val nameResId: Int // Add resource ID
 )
+
+// Helper to get name
+@Composable
+fun getToolName(type: ToolType): String {
+    return when(type) {
+        ToolType.TECHNICAL_PEN -> stringResource(R.string.tool_technical_pen)
+        ToolType.PRESSURE_PEN -> stringResource(R.string.tool_pressure_pen)
+        ToolType.MARKER -> stringResource(R.string.tool_marker)
+        ToolType.HIGHLIGHTER -> stringResource(R.string.tool_highlighter)
+        ToolType.FILL_SHAPE -> stringResource(R.string.tool_fill)
+        ToolType.ERASER -> stringResource(R.string.tool_eraser)
+    }
+}
 
 private class RuntimeState {
     var toolType: ToolType = ToolType.TECHNICAL_PEN
@@ -198,41 +216,22 @@ fun SketcherSurface(
     val screenWidth = configuration.screenWidthDp
     val screenHeight = configuration.screenHeightDp
 
-    // UI STATE
-    var selectedTool by rememberSaveable { mutableStateOf(ToolType.TECHNICAL_PEN) }
-    
-    // Color Slots
-    val defaultColors = listOf(AndroidColor.BLACK, AndroidColor.RED, AndroidColor.BLUE)
-    val colorSlots = remember { mutableStateListOf(*defaultColors.toTypedArray()) }
-    var selectedColorSlotIndex by rememberSaveable { mutableIntStateOf(0) }
-    val selectedColor = colorSlots[selectedColorSlotIndex]
-    
-    var selectedSize by rememberSaveable { mutableStateOf(7f) }
-    var selectedOpacity by rememberSaveable { mutableFloatStateOf(1f) }
-    var stabilizationLevel by rememberSaveable { mutableStateOf(0f) }
-    
     var showColorPicker by remember { mutableStateOf(false) }
-    var showFillColorPicker by remember { mutableStateOf(false) } // Second picker for fill
     var showToolPopup by remember { mutableStateOf(false) }
     var showSizePopup by remember { mutableStateOf(false) }
     var showSettingsPopup by remember { mutableStateOf(false) }
     var showLayerManager by remember { mutableStateOf(false) }
-    var showBackgroundColorPicker by remember { mutableStateOf(false) } // Background Picker State
+    var showBackgroundColorPicker by remember { mutableStateOf(false) } 
     var showGridSettings by remember { mutableStateOf(false) }
-    var isSnapEnabled by remember { mutableStateOf(false) }
-    
-    // FILL MODE STATE
-    var isFillModeEnabled by rememberSaveable { mutableStateOf(false) }
-    var fillModeColor by rememberSaveable { mutableStateOf(AndroidColor.YELLOW) } // Default Yellow
+    var showFillColorPicker by remember { mutableStateOf(false) }
 
-    // PRESSURE SENSITIVITY
-    var pressureSensitivity by rememberSaveable { mutableFloatStateOf(0.6f) }
+    // Convenience accessors (optional, but keep for clarity if used)
+    val isFillModeEnabled = sketchViewModel.isFillModeEnabled
+    val fillModeColor = sketchViewModel.fillModeColor
     
-    // SIMPLIFICATION TOLERANCE (for RDP algorithm)
-    var simplificationTolerance by rememberSaveable { mutableFloatStateOf(1.5f) }  // Default: balanced quality/performance
-    
-    // PRESSURE TOLERANCE (for RDP algorithm)
-    var pressureTolerance by rememberSaveable { mutableFloatStateOf(0.05f) }  // Default: ~5% pressure change
+    // Simplification Vars (Keep Local for now)
+    var simplificationTolerance by rememberSaveable { mutableFloatStateOf(1.5f) } 
+    var pressureTolerance by rememberSaveable { mutableFloatStateOf(0.05f) }
     
     // Rotation Lock Effect
     LaunchedEffect(sketchViewModel.isRotationLocked) {
@@ -240,17 +239,6 @@ fun SketcherSurface(
              ActivityInfo.SCREEN_ORIENTATION_LOCKED
         } else {
              ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
-    }
-
-    // LAYER CONSTRAINT: Disable Fill for Ink Tools
-    LaunchedEffect(selectedTool) {
-        val isInkTool = selectedTool == ToolType.MARKER || 
-                        selectedTool == ToolType.HIGHLIGHTER || 
-                        selectedTool == ToolType.PRESSURE_PEN
-                        
-        if (isInkTool && isFillModeEnabled) {
-             isFillModeEnabled = false
         }
     }
 
@@ -262,16 +250,36 @@ fun SketcherSurface(
         temp.invert(this)
     }}
 
-    // ZOOM STATE (Exposed for UI Overlays, initialized from Material)
-    // Must be defined AFTER cameraMatrix
+    // ZOOM STATE 
     var currentZoom by remember { mutableFloatStateOf(InkUtils.getMatrixScale(cameraMatrix)) }
 
+    // VIEW REFS
+    var wetViewRef by remember { mutableStateOf<InProgressStrokesView?>(null) }
+
+    // CAMERA SYNC OBSERVER
+    LaunchedEffect(sketchViewModel.cameraUpdateTrigger) {
+        val vmMatrixValues = sketchViewModel.cameraMatrixValues
+        cameraMatrix.setValues(vmMatrixValues)
+        cameraMatrix.invert(inverseMatrix)
+        
+        canvasViewRef?.setCameraMatrix(cameraMatrix)
+        canvasViewRef?.invalidate()
+        
+        // Update Local Zoom State
+        val newZoom = InkUtils.getMatrixScale(cameraMatrix)
+        currentZoom = newZoom
+        
+        // Update WetView Brush Size
+        (wetViewRef?.tag as? RuntimeState)?.updateActiveBrush(newZoom)
+        wetViewRef?.invalidate()
+    }
+
     val brushTypes = listOf(
-        BrushTypeConfig(ToolType.TECHNICAL_PEN, Icons.Default.Create, StockBrushes.pressurePen()),
-        BrushTypeConfig(ToolType.PRESSURE_PEN, Icons.Default.Brush, StockBrushes.pressurePen()),
-        BrushTypeConfig(ToolType.MARKER, Icons.Default.Edit, StockBrushes.marker()),
-        BrushTypeConfig(ToolType.HIGHLIGHTER, Icons.Default.Edit, StockBrushes.highlighter()),
-        BrushTypeConfig(ToolType.FILL_SHAPE, Icons.Default.FormatPaint, null) // New Fill Tool, no Ink Brush
+        BrushTypeConfig(ToolType.TECHNICAL_PEN, Icons.Default.Create, StockBrushes.pressurePen(), R.string.tool_technical_pen),
+        BrushTypeConfig(ToolType.PRESSURE_PEN, Icons.Default.Brush, StockBrushes.pressurePen(), R.string.tool_pressure_pen),
+        BrushTypeConfig(ToolType.MARKER, Icons.Default.Edit, StockBrushes.marker(), R.string.tool_marker),
+        BrushTypeConfig(ToolType.HIGHLIGHTER, Icons.Default.Edit, StockBrushes.highlighter(), R.string.tool_highlighter),
+        BrushTypeConfig(ToolType.FILL_SHAPE, Icons.Default.FormatPaint, null, R.string.tool_fill)
     )
 
     // --- EFECTO DE RE-CENTRADO (Sin hacks visuales) ---
@@ -328,6 +336,10 @@ fun SketcherSurface(
                     layoutParams = params
                     setLayerType(View.LAYER_TYPE_HARDWARE, null)
                     
+                    this.onSizeChangedCallback = { w, h ->
+                        sketchViewModel.saveDimensions(w.toFloat(), h.toFloat())
+                    }
+
                     // Set initial background color
                     canvasBackgroundColor = sketchViewModel.backgroundColor
 
@@ -372,12 +384,12 @@ fun SketcherSurface(
                     })
                     
                     val initialState = RuntimeState().apply {
-                        toolType = selectedTool
-                        color = selectedColor
-                        size = selectedSize
-                        opacity = selectedOpacity
+                        toolType = sketchViewModel.currentTool
+                        color = sketchViewModel.currentColor
+                        size = sketchViewModel.currentSize
+                        opacity = sketchViewModel.currentOpacity
                         
-                         val currentConfig = brushTypes.find { it.type == selectedTool } ?: brushTypes.first()
+                         val currentConfig = brushTypes.find { it.type == sketchViewModel.currentTool } ?: brushTypes.first()
                          brushFamily = currentConfig.family
  
                          val currentZoom = InkUtils.getMatrixScale(cameraMatrix)
@@ -386,6 +398,8 @@ fun SketcherSurface(
                     tag = initialState
                     setLayerType(View.LAYER_TYPE_HARDWARE, null)
                 }
+                // Capture Ref
+                wetViewRef = wetView
 
                 container.addView(canvasView)
                 container.addView(wetView)
@@ -494,75 +508,51 @@ fun SketcherSurface(
                     val state = v.tag as RuntimeState
                     val action = event.actionMasked
                     
-                    // --- HERRAMIENTAS ---
-                    // --- HERRAMIENTAS ---
+                    // --- SYNC STATE FROM VIEWMODEL (CRITICAL FOR FIRST STROKE & COLOR LAG) ---
+                    if (action == MotionEvent.ACTION_DOWN) {
+                         state.toolType = sketchViewModel.currentTool
+                         state.color = sketchViewModel.currentColor
+                         state.size = sketchViewModel.currentSize
+                         state.opacity = sketchViewModel.currentOpacity
+                         
+                         val currentConfig = brushTypes.find { it.type == state.toolType } ?: brushTypes.first()
+                         state.brushFamily = currentConfig.family
+
+                         val zoom = InkUtils.getMatrixScale(cameraMatrix)
+                         state.updateActiveBrush(zoom)
+                    }
+
+                    // --- TOOL CLASSIFICATION ---
+                    val isTechPen = state.toolType == ToolType.TECHNICAL_PEN
+                    val isFillTool = state.toolType == ToolType.FILL_SHAPE
+                    val isVectorTool = isTechPen || isFillTool
+                    
+                    // Ink Tool = Active Brush AND NOT a Vector Tool (Marker, Highlighter, Pressure Pen)
+                    val isInkTool = state.activeBrush != null && !isVectorTool
+
+                    // Parallel Capture: Capture Vector Points if it's a Vector Tool OR (Ink Tool + Fill Mode)
+                    val shouldCaptureVector = isVectorTool || (isInkTool && sketchViewModel.isFillModeEnabled)
+
                     if (state.toolType == ToolType.ERASER) {
-                        // OBJECT ERASER LOGIC
-                        if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
-                             if (event.pointerCount == 1) {
-                                val touchPts = floatArrayOf(event.x, event.y)
-                                inverseMatrix.mapPoints(touchPts)
-                                val worldX = touchPts[0]
-                                val worldY = touchPts[1]
-                                
-                                var needsRedraw = false
-                                
-                                // 1. Check Custom Elements (Vector Strokes and Fills)
-                                val activeLayer = sketchViewModel.layers.getOrNull(sketchViewModel.activeLayerIndex)
-                                if (activeLayer != null) {
-                                     val cIter = activeLayer.customElements.iterator()
-                                     while (cIter.hasNext()) {
-                                         val element = cIter.next()
-                                         if (element is VectorStroke) {
-                                             if (CollisionUtils.isTouchingStroke(element.points, worldX, worldY)) {
-                                                 cIter.remove()
-                                                 needsRedraw = true
-                                             }
-                                         } else if (element is FillData) {
-                                             // Optional: Add fill erasure logic here if needed
-                                             // For now we keep it consistent with previous logic that only had vector strokes
-                                         }
-                                     }
-
-                                     
-                                     // 2. Check Ink Strokes (LIVE VIEW)
-                                     val kIter = activeLayer.inkStrokes.iterator()
-                                     var inkRemoved = false
-                                     while (kIter.hasNext()) {
-                                         val stroke = kIter.next()
-                                         // Check Collision
-                                         if (CollisionUtils.isTouchingStroke(stroke, worldX, worldY)) {
-                                             kIter.remove()
-                                             inkRemoved = true
-                                         }
-                                     }
-                                     
-                                     // If Ink was removed, we must reload the Live View
-                                     if (inkRemoved) {
-                                         // User Request: "Call wetView.setStrokes(viewModel.inkStrokes)"
-                                         // Used extension function defined below
-                                         wetView.setStrokes(activeLayer.inkStrokes)
+                                // OBJECT ERASER LOGIC
+                                if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
+                                     if (event.pointerCount == 1) {
+                                        val touchPts = floatArrayOf(event.x, event.y)
+                                        inverseMatrix.mapPoints(touchPts)
+                                        val worldX = touchPts[0]
+                                        val worldY = touchPts[1]
+                                        
+                                        // Unified Erasure via ViewModel
+                                        val erased = sketchViewModel.erase(worldX, worldY, state.size)
+                                        
+                                        if (erased) {
+                                             // Force visual update since we modified the layer list deeply
+                                             canvasView.setLayers(sketchViewModel.layers)
+                                             canvasView.redrawAllCache()
+                                        }
                                      }
                                 }
-
-                                if (needsRedraw) {
-                                     canvasView.redrawAllCache()
-                                }
-                                
-                                // RELOAD INK (If needed)
-                                if (sketchViewModel.layers.getOrNull(sketchViewModel.activeLayerIndex)?.inkStrokes != null) {
-                                     // Optimization: Only if ink changed.
-                                     // ...
-                                }
-                             }
-                        }
-                    } else {
-                        // MAIN DRAWING LOGIC (Vector + Ink)
-                        // Allow entry if we have a BrushFamily (Ink) OR if it is a known Vector Tool
-                        val isVectorTool = state.toolType == ToolType.TECHNICAL_PEN || 
-                                           state.toolType == ToolType.FILL_SHAPE
-                                           
-                        if (state.brushFamily != null || isVectorTool) {
+                    } else if (state.brushFamily != null || isVectorTool) {
                             if (event.pointerCount == 1) {
                                 val pid = event.getPointerId(0)
                                 
@@ -576,7 +566,7 @@ fun SketcherSurface(
                                 var effectiveX = worldXRaw
                                 var effectiveY = worldYRaw
     
-                                if (isSnapEnabled) {
+                                if (sketchViewModel.isSnapToGridEnabled) {
                                     val gridStepPx = UnitUtils.projectUnitsToPixels(
                                         value = sketchViewModel.gridConfig.spacing,
                                         unit = sketchViewModel.currentUnit,
@@ -593,6 +583,7 @@ fun SketcherSurface(
                                     MotionEvent.ACTION_DOWN -> {
                                         // FORCE WAKEUP
                                         v.invalidate()
+                                        canvasView.invalidate()
     
                                         // Reset Filtering
                                         lastInputX = effectiveX
@@ -608,18 +599,18 @@ fun SketcherSurface(
                                         // 1. Reset Stabilizer with EFFECTIVE (Snapped) Coordinates
                                         stabilizer.reset(effectiveX, effectiveY)
                                         
-                                        // --- VECTOR TOOL INITIALIZATION ---
-                                        if (isVectorTool) {
+                                        // --- VECTOR / FILL INITIALIZATION ---
+                                        if (shouldCaptureVector) {
                                             state.vectorPoints.clear()
                                             
                                             var pressure = event.pressure
-                                            pressure = adjustPressure(pressure, pressureSensitivity)
+                                            pressure = adjustPressure(pressure, sketchViewModel.currentSensitivity)
                                             
                                             // effectiveX/Y are ALREADY in World Space
                                             state.vectorPoints.add(StrokePoint(effectiveX, effectiveY, pressure))
                                             
-                                            // Vector Preview (Tech Pen / Polygon Sweeper)
-                                            if (state.toolType != ToolType.FILL_SHAPE) {
+                                            // Vector Preview (Technical Pen Only)
+                                            if (state.toolType == ToolType.TECHNICAL_PEN) {
                                                 // Generate preview...
                                                 val (path, _, _) = PathGenerator.generateStrokePath(state.vectorPoints, state.size, sketchViewModel.penMinSizeFactor)
                                                 val alpha = (state.opacity * 255).toInt()
@@ -627,18 +618,18 @@ fun SketcherSurface(
                                                 canvasView.updateCurrentVectorPreview(path, state.vectorPoints.toList(), colorWithAlpha, state.size, sketchViewModel.penMinSizeFactor)
                                             }
             
-                                            // Fill Path Start (For Tech Pen OR Fill Tool)
-                                            if (isFillModeEnabled || state.toolType == ToolType.FILL_SHAPE) {
+                                            // Fill Path Start (Tech Pen Fill, Fill Tool, OR Ink Tool + Fill Mode)
+                                            if (sketchViewModel.isFillModeEnabled || state.toolType == ToolType.FILL_SHAPE) {
                                                 state.fillPath.reset()
                                                 state.fillPath.moveTo(effectiveX, effectiveY)
-                                                canvasView.updateCurrentFill(state.fillPath, if(state.toolType == ToolType.FILL_SHAPE) state.color else fillModeColor)
+                                                canvasView.updateCurrentFill(state.fillPath, if(state.toolType == ToolType.FILL_SHAPE) state.color else sketchViewModel.fillModeColor)
                                             }
                                         }
                                         
                                         // --- INK TOOL INITIALIZATION ---
                                         // Only run Ink logic if we actually have an active Ink Brush
                                         // Markers and Highlighters usually fall here.
-                                        if (state.activeBrush != null && !isVectorTool) { 
+                                        if (isInkTool) { 
                                             // Synthesize Event for Ink Engine (Needs Screen Coordinates)
                                             val snapScreenPts = floatArrayOf(effectiveX, effectiveY)
                                             cameraMatrix.mapPoints(snapScreenPts)
@@ -657,7 +648,7 @@ fun SketcherSurface(
                                             coords[0].y = snapScreenPts[1]
     
                                             if (state.toolType == ToolType.PRESSURE_PEN) {
-                                                coords[0].pressure = adjustPressure(coords[0].pressure, pressureSensitivity)
+                                                coords[0].pressure = adjustPressure(coords[0].pressure, sketchViewModel.currentSensitivity)
                                             }
                                             
                                             val snappedEvent = MotionEvent.obtain(
@@ -673,13 +664,6 @@ fun SketcherSurface(
                                             } finally {
                                                 snappedEvent.recycle()
                                             }
-                                            
-                                            // Fill Path Start (Secondary Fill for Ink)
-                                            if (isFillModeEnabled) {
-                                                state.fillPath.reset()
-                                                state.fillPath.moveTo(effectiveX, effectiveY)
-                                                canvasView.updateCurrentFill(state.fillPath, fillModeColor)
-                                            }
                                         }
                                     }
                                     MotionEvent.ACTION_MOVE -> {
@@ -692,12 +676,12 @@ fun SketcherSurface(
                                             lastInputY = effectiveY
                                             lastInputPressure = event.pressure
                                             
-                                            val stabilizedPoint = stabilizer.update(effectiveX, effectiveY, stabilizationLevel)
+                                            val stabilizedPoint = stabilizer.update(effectiveX, effectiveY, sketchViewModel.currentSmoothing)
                                             val stabWorldX = stabilizedPoint.x
                                             val stabWorldY = stabilizedPoint.y
                                             
-                                            // --- VECTOR UPDATE ---
-                                            if (isVectorTool) {
+                                            // --- VECTOR / FILL UPDATE ---
+                                            if (shouldCaptureVector) {
                                                 // Batch Histroy
                                                 val historySize = event.historySize
                                                 for (i in 0 until historySize) {
@@ -709,65 +693,74 @@ fun SketcherSurface(
                                                      var hWorldX = hTouchPts[0]
                                                      var hWorldY = hTouchPts[1]
                                                      
-                                                     if (isSnapEnabled) {
+                                                     if (sketchViewModel.isSnapToGridEnabled) {
                                                          val gridStepPx = UnitUtils.projectUnitsToPixels(sketchViewModel.gridConfig.spacing, sketchViewModel.currentUnit, sketchViewModel.scaleConfig.basePixelsPerMillimeter)
                                                          if (gridStepPx > 0) {
                                                              hWorldX = (kotlin.math.round(hWorldX / gridStepPx) * gridStepPx)
                                                              hWorldY = (kotlin.math.round(hWorldY / gridStepPx) * gridStepPx)
                                                          }
                                                      }
-                                                     val hStabilized = stabilizer.update(hWorldX, hWorldY, stabilizationLevel)
-                                                     var hPressureAdjusted = adjustPressure(hPressure, pressureSensitivity)
+                                                     val hStabilized = stabilizer.update(hWorldX, hWorldY, sketchViewModel.currentSmoothing)
+                                                     var hPressureAdjusted = adjustPressure(hPressure, sketchViewModel.currentSensitivity)
                                                      
-                                                      state.vectorPoints.add(StrokePoint(hStabilized.x, hStabilized.y, hPressureAdjusted))
+                                                     // Only accumulate vector points for Tech Pen (optimization)
+                                                     if (isTechPen) {
+                                                         state.vectorPoints.add(StrokePoint(hStabilized.x, hStabilized.y, hPressureAdjusted))
+                                                     }
                                                 }
                                                 
                                                 // Current Point
                                                 var pressure = event.pressure
-                                                pressure = adjustPressure(pressure, pressureSensitivity)
-                                                state.vectorPoints.add(StrokePoint(stabWorldX, stabWorldY, pressure))
+                                                pressure = adjustPressure(pressure, sketchViewModel.currentSensitivity)
+                                                
+                                                if (isTechPen) {
+                                                    state.vectorPoints.add(StrokePoint(stabWorldX, stabWorldY, pressure))
+                                                }
                                                 
                                                 // Fill Path Update
-                                                if (isFillModeEnabled || state.toolType == ToolType.FILL_SHAPE) {
+                                                if (sketchViewModel.isFillModeEnabled || state.toolType == ToolType.FILL_SHAPE) {
                                                     state.fillPath.lineTo(stabWorldX, stabWorldY)
                                                     val previewPath = android.graphics.Path(state.fillPath)
                                                     previewPath.close()
-                                                    canvasView.updateCurrentFill(previewPath, if(state.toolType == ToolType.FILL_SHAPE) state.color else fillModeColor)
+                                                    val baseFillColor = if(state.toolType == ToolType.FILL_SHAPE) state.color else sketchViewModel.fillModeColor
+                                                    val alpha = (state.opacity * 255).toInt()
+                                                    val colorWithAlpha = androidx.core.graphics.ColorUtils.setAlphaComponent(baseFillColor, alpha)
+                                                    canvasView.updateCurrentFill(previewPath, colorWithAlpha)
                                                 }
                                                 
-                                                // Vector Prediction & Preview
-                                                val dt = (event.eventTime - state.lastEventTime).toFloat().coerceAtLeast(1f)
-                                                val rawVelX = (event.x - state.lastScreenX) / dt
-                                                val rawVelY = (event.y - state.lastScreenY) / dt
-                                                val smoothFactor = sketchViewModel.predictionSmoothing
-                                                state.smoothedVelocityX = (state.smoothedVelocityX * smoothFactor) + (rawVelX * (1f - smoothFactor))
-                                                state.smoothedVelocityY = (state.smoothedVelocityY * smoothFactor) + (rawVelY * (1f - smoothFactor))
-                                                state.lastScreenX = event.x
-                                                state.lastScreenY = event.y
-                                                state.lastEventTime = event.eventTime
-                                                
-                                                var predWorldX = stabWorldX
-                                                var predWorldY = stabWorldY
-                                                
-                                                 if (sketchViewModel.isPredictionEnabled) {
-                                                    val velocityMag = kotlin.math.hypot(state.smoothedVelocityX, state.smoothedVelocityY)
-                                                    val minLag = 15f
-                                                    val maxLag = sketchViewModel.predictionLagMs
-                                                    val minVel = sketchViewModel.predictionVelocityMin
-                                                    val maxVel = sketchViewModel.predictionVelocityMax
-                                                    val range = (maxVel - minVel).coerceAtLeast(1f)
-                                                    val velocityT = ((velocityMag - minVel) / range).coerceIn(0f, 1f)
-                                                    val predictionLagMs = minLag + (maxLag - minLag) * velocityT
-                                                    val predScreenX = event.x + (state.smoothedVelocityX * predictionLagMs)
-                                                    val predScreenY = event.y + (state.smoothedVelocityY * predictionLagMs)
-                                                    val predWorldPts = floatArrayOf(predScreenX, predScreenY)
-                                                    inverseMatrix.mapPoints(predWorldPts)
-                                                    predWorldX = predWorldPts[0]
-                                                    predWorldY = predWorldPts[1]
-                                                 }
-                                                 val predictedPoint = android.graphics.PointF(predWorldX, predWorldY)
-                                                
-                                                if (state.toolType != ToolType.FILL_SHAPE) {
+                                                // Vector Prediction & Preview (Tech Pen Only)
+                                                if (state.toolType == ToolType.TECHNICAL_PEN) {
+                                                    val dt = (event.eventTime - state.lastEventTime).toFloat().coerceAtLeast(1f)
+                                                    val rawVelX = (event.x - state.lastScreenX) / dt
+                                                    val rawVelY = (event.y - state.lastScreenY) / dt
+                                                    val smoothFactor = sketchViewModel.predictionSmoothing
+                                                    state.smoothedVelocityX = (state.smoothedVelocityX * smoothFactor) + (rawVelX * (1f - smoothFactor))
+                                                    state.smoothedVelocityY = (state.smoothedVelocityY * smoothFactor) + (rawVelY * (1f - smoothFactor))
+                                                    state.lastScreenX = event.x
+                                                    state.lastScreenY = event.y
+                                                    state.lastEventTime = event.eventTime
+                                                    
+                                                    var predWorldX = stabWorldX
+                                                    var predWorldY = stabWorldY
+                                                    
+                                                     if (sketchViewModel.isPredictionEnabled) {
+                                                        val velocityMag = kotlin.math.hypot(state.smoothedVelocityX, state.smoothedVelocityY)
+                                                        val minLag = 15f
+                                                        val maxLag = sketchViewModel.predictionLagMs
+                                                        val minVel = sketchViewModel.predictionVelocityMin
+                                                        val maxVel = sketchViewModel.predictionVelocityMax
+                                                        val range = (maxVel - minVel).coerceAtLeast(1f)
+                                                        val velocityT = ((velocityMag - minVel) / range).coerceIn(0f, 1f)
+                                                        val predictionLagMs = minLag + (maxLag - minLag) * velocityT
+                                                        val predScreenX = event.x + (state.smoothedVelocityX * predictionLagMs)
+                                                        val predScreenY = event.y + (state.smoothedVelocityY * predictionLagMs)
+                                                        val predWorldPts = floatArrayOf(predScreenX, predScreenY)
+                                                        inverseMatrix.mapPoints(predWorldPts)
+                                                        predWorldX = predWorldPts[0]
+                                                        predWorldY = predWorldPts[1]
+                                                     }
+                                                     val predictedPoint = android.graphics.PointF(predWorldX, predWorldY)
+                                                    
                                                      val (path, _, _) = PathGenerator.generateStrokePath(state.vectorPoints, state.size, sketchViewModel.penMinSizeFactor)
                                                      val alpha = (state.opacity * 255).toInt()
                                                      val colorWithAlpha = androidx.core.graphics.ColorUtils.setAlphaComponent(state.color, alpha)
@@ -777,7 +770,7 @@ fun SketcherSurface(
                                             }
                                             
                                             // --- INK UPDATE ---
-                                            if (state.activeBrush != null && !isVectorTool) {
+                                            if (isInkTool) {
                                                  val stabScreenPts = floatArrayOf(stabWorldX, stabWorldY)
                                                  cameraMatrix.mapPoints(stabScreenPts)
                                                  
@@ -792,7 +785,7 @@ fun SketcherSurface(
                                                  coords[0].y = stabScreenPts[1]
                                                  
                                                   if (state.toolType == ToolType.PRESSURE_PEN) {
-                                                     coords[0].pressure = adjustPressure(coords[0].pressure, pressureSensitivity)
+                                                     coords[0].pressure = adjustPressure(coords[0].pressure, sketchViewModel.currentSensitivity)
                                                  }
                                                  
                                                  val stabilizedEvent = MotionEvent.obtain(
@@ -806,33 +799,32 @@ fun SketcherSurface(
                                                  } finally {
                                                      stabilizedEvent.recycle()
                                                  }
-                                                 
-                                                 // Fill Move
-                                                 if (isFillModeEnabled) {
-                                                     state.fillPath.lineTo(stabWorldX, stabWorldY)
-                                                     val previewPath = android.graphics.Path(state.fillPath)
-                                                     previewPath.close()
-                                                     canvasView.updateCurrentFill(previewPath, fillModeColor)
-                                                 }
                                             }
                                         }
                                     }
                                     MotionEvent.ACTION_UP -> {
-                                        val stabilizedPoint = stabilizer.update(effectiveX, effectiveY, stabilizationLevel)
+                                        val stabilizedPoint = stabilizer.update(effectiveX, effectiveY, sketchViewModel.currentSmoothing)
                                         val stabWorldX = stabilizedPoint.x
                                         val stabWorldY = stabilizedPoint.y
                                         
-                                        // --- VECTOR COMMIT ---
-                                        if (isVectorTool) {
+                                        // --- VECTOR / FILL COMMIT ---
+                                        if (shouldCaptureVector) {
                                             var pressure = event.pressure
-                                            pressure = adjustPressure(pressure, pressureSensitivity)
-                                            state.vectorPoints.add(StrokePoint(stabWorldX, stabWorldY, pressure))
+                                            pressure = adjustPressure(pressure, sketchViewModel.currentSensitivity)
+                                            
+                                            // Guard vector points for Tech Pen (optimization)
+                                            if (isTechPen) {
+                                                state.vectorPoints.add(StrokePoint(stabWorldX, stabWorldY, pressure))
+                                            }
                                             
                                             // Commit Fill (Fill Tool OR Tech Pen Fill)
-                                            if (isFillModeEnabled || state.toolType == ToolType.FILL_SHAPE) {
+                                            if (sketchViewModel.isFillModeEnabled || state.toolType == ToolType.FILL_SHAPE) {
                                                 state.fillPath.lineTo(stabWorldX, stabWorldY)
                                                 state.fillPath.close() // Close
-                                                val finalFillColor = if(state.toolType == ToolType.FILL_SHAPE) state.color else fillModeColor
+                                                val baseFillColor = if(state.toolType == ToolType.FILL_SHAPE) state.color else sketchViewModel.fillModeColor
+                                                val alpha = (state.opacity * 255).toInt()
+                                                val finalFillColor = androidx.core.graphics.ColorUtils.setAlphaComponent(baseFillColor, alpha)
+                                                
                                                 val fillData = FillData(android.graphics.Path(state.fillPath), finalFillColor)
                                                 sketchViewModel.addFill(fillData)
                                                 canvasView.updateCurrentFill(null, 0)
@@ -877,7 +869,7 @@ fun SketcherSurface(
                                         }
                                         
                                         // --- INK COMMIT ---
-                                        if (state.activeBrush != null && !isVectorTool) {
+                                        if (isInkTool) {
                                             val snapScreenPts = floatArrayOf(stabWorldX, stabWorldY)
                                             cameraMatrix.mapPoints(snapScreenPts)
                                             
@@ -905,17 +897,6 @@ fun SketcherSurface(
                                             } finally {
                                                 snappedEvent.recycle()
                                             }
-                                            
-                                            // Ink Fill Commit
-                                            if (isFillModeEnabled) {
-                                                state.fillPath.lineTo(stabWorldX, stabWorldY)
-                                                state.fillPath.close()
-                                                val fillData = FillData(android.graphics.Path(state.fillPath), fillModeColor)
-                                                sketchViewModel.addFill(fillData)
-                                                canvasView.updateCurrentFill(null, 0)
-                                                canvasView.bakeFill(fillData)
-                                                canvasView.setLayers(sketchViewModel.layers)
-                                            }
                                         }
     
                                     }
@@ -925,12 +906,11 @@ fun SketcherSurface(
                             strokeIdMap.forEach { (_, sid) -> wetView.cancelStroke(sid, event) }
                             strokeIdMap.clear()
                             // Cancel Fill too?
-                            if (isFillModeEnabled) {
+                            if (sketchViewModel.isFillModeEnabled) {
                                 state.fillPath.reset()
                                 canvasView.updateCurrentFill(null, 0) // Clear
                             }
                         }
-                    }
                     true
                 }
 
@@ -990,13 +970,13 @@ fun SketcherSurface(
                 // CRITICAL FIX: Ensure layers depend on ViewModel state updates
                 canvasView.setLayers(sketchViewModel.layers)
 
-                val currentConfig = brushTypes.find { it.type == selectedTool } ?: brushTypes.first()
+                val currentConfig = brushTypes.find { it.type == sketchViewModel.currentTool } ?: brushTypes.first()
                 
-                state.toolType = selectedTool
+                state.toolType = sketchViewModel.currentTool
                 state.brushFamily = currentConfig.family
-                state.color = selectedColor
-                state.size = selectedSize
-                state.opacity = selectedOpacity
+                state.color = sketchViewModel.currentColor
+                state.size = sketchViewModel.currentSize
+                state.opacity = sketchViewModel.currentOpacity
                 
                 val currentZoom = InkUtils.getMatrixScale(cameraMatrix)
                 state.updateActiveBrush(currentZoom)
@@ -1047,17 +1027,22 @@ fun SketcherSurface(
                     sketchViewModel.clear()
                     // Reset View Camera
                     cameraMatrix.reset()
-                    cameraMatrix.invert(inverseMatrix) // Fix: Update inverse matrix too!
+                    cameraMatrix.invert(inverseMatrix)
                     canvasViewRef?.setCameraMatrix(cameraMatrix)
                     canvasViewRef?.setLayers(sketchViewModel.layers)
                     canvasViewRef?.redrawAllCache()
                     canvasViewRef?.invalidate()
-                    currentZoom = 1f // Reset Zoom State
+                    currentZoom = 1f 
                 },
                 onSettingsClick = { showSettingsPopup = true },
                 onGridClick = { showGridSettings = true },
-                isSnapEnabled = isSnapEnabled,
-                onToggleSnap = { isSnapEnabled = !isSnapEnabled },
+                onZoomReset = { 
+                    sketchViewModel.resetCamera()
+                    // sketchViewModel will trigger update via state change in update block
+                },
+                onZoomExtend = {
+                    sketchViewModel.fitContent()
+                },
                 activeLayerName = if (sketchViewModel.layers.isNotEmpty() && sketchViewModel.activeLayerIndex in sketchViewModel.layers.indices) {
                     sketchViewModel.layers[sketchViewModel.activeLayerIndex].name
                 } else "Layer"
@@ -1077,27 +1062,29 @@ fun SketcherSurface(
                 modifier = Modifier
                     .align(Alignment.BottomCenter),
                 tools = brushTypes,
-                selectedTool = selectedTool,
-                onToolSelected = { selectedTool = it },
-                colorSlots = colorSlots,
-                selectedColorSlotIndex = selectedColorSlotIndex,
-                onColorSlotSelected = { selectedColorSlotIndex = it },
+                selectedTool = sketchViewModel.currentTool,
+                onToolSelected = { sketchViewModel.selectTool(it) },
+                colorSlots = sketchViewModel.availableColors,
+                selectedColorSlotIndex = sketchViewModel.selectedColorIndex,
+                onColorSlotSelected = { sketchViewModel.selectedColorIndex = it; sketchViewModel.updateCurrentColorFromSlot() },
                 onColorChangeRequest = { showColorPicker = true },
-                selectedSize = selectedSize,
+                selectedSize = sketchViewModel.currentSize,
                 onSizeChangeRequest = { 
-                    // Use a small delay or check to prevent immediate re-opening
-                    // when clicking the icon to close.
                     showSizePopup = !showSizePopup 
                 },
-                isEraserActive = selectedTool == ToolType.ERASER,
+                isEraserActive = sketchViewModel.currentTool == ToolType.ERASER,
                 onEraserToggle = {
-                    selectedTool = if (selectedTool == ToolType.ERASER) ToolType.TECHNICAL_PEN else ToolType.ERASER
+                    if (sketchViewModel.currentTool == ToolType.ERASER) {
+                         sketchViewModel.selectTool(ToolType.TECHNICAL_PEN)
+                    } else {
+                         sketchViewModel.selectTool(ToolType.ERASER)
+                    }
                 },
                 showToolPopup = showToolPopup,
                 onShowToolPopupChange = { showToolPopup = it },
-                isFillModeEnabled = isFillModeEnabled,
-                onToggleFillMode = { if(selectedTool != ToolType.MARKER && selectedTool != ToolType.HIGHLIGHTER && selectedTool != ToolType.PRESSURE_PEN) isFillModeEnabled = !isFillModeEnabled },
-                fillColor = fillModeColor,
+                isFillModeEnabled = sketchViewModel.isFillModeEnabled,
+                onToggleFillMode = { sketchViewModel.isFillModeEnabled = !sketchViewModel.isFillModeEnabled },
+                fillColor = sketchViewModel.fillModeColor,
                 onFillColorChangeRequest = { showFillColorPicker = true },
                 backgroundColor = sketchViewModel.backgroundColor,
                 onBackgroundColorChangeRequest = { showBackgroundColorPicker = true }
@@ -1117,10 +1104,10 @@ fun SketcherSurface(
         
         if (showFillColorPicker) {
             ColorPickerDialog(
-                initialColor = fillModeColor,
+                initialColor = sketchViewModel.fillModeColor,
                 onDismiss = { showFillColorPicker = false },
                 onColorSelected = { color ->
-                    fillModeColor = color
+                    sketchViewModel.fillModeColor = color
                     showFillColorPicker = false
                 }
             )
@@ -1131,10 +1118,12 @@ fun SketcherSurface(
         if (showGridSettings) {
             GridSettingsDialog(
                 currentGridConfig = sketchViewModel.gridConfig,
+                isSnapEnabled = sketchViewModel.isSnapToGridEnabled,
                 currentUnit = sketchViewModel.currentUnit,
                 onUpdateGrid = { visible, spacing, color, color2, color3 -> 
                     sketchViewModel.updateGridConfig(visible, spacing, color, color2, color3) 
                 },
+                onUpdateSnap = { sketchViewModel.isSnapToGridEnabled = it },
                 onUpdateUnit = { unit -> sketchViewModel.setUnit(unit) },
                 onDismiss = { showGridSettings = false }
             )
@@ -1160,10 +1149,13 @@ fun SketcherSurface(
 
         if (showColorPicker) {
             ColorPickerDialog(
-                initialColor = colorSlots[selectedColorSlotIndex],
+                initialColor = sketchViewModel.availableColors[sketchViewModel.selectedColorIndex],
                 onDismiss = { showColorPicker = false },
                 onColorSelected = { color ->
-                    colorSlots[selectedColorSlotIndex] = color
+                    if (sketchViewModel.selectedColorIndex in sketchViewModel.availableColors.indices) {
+                        sketchViewModel.availableColors[sketchViewModel.selectedColorIndex] = color
+                        sketchViewModel.updateCurrentColorFromSlot()
+                    }
                     showColorPicker = false
                 }
             )
@@ -1171,20 +1163,20 @@ fun SketcherSurface(
 
         if (showSizePopup) {
             SizeSelectorPopup(
-                currentSize = selectedSize,
-                onSizeChanged = { selectedSize = it },
-                currentOpacity = selectedOpacity,
-                onOpacityChanged = { selectedOpacity = it },
-                stabilizationLevel = stabilizationLevel,
-                onStabilizationLevelChanged = { stabilizationLevel = it },
-                pressureSensitivity = pressureSensitivity,
-                onPressureSensitivityChanged = { pressureSensitivity = it },
+                currentSize = sketchViewModel.currentSize,
+                onSizeChanged = { sketchViewModel.setToolSize(it) },
+                currentOpacity = sketchViewModel.currentOpacity,
+                onOpacityChanged = { sketchViewModel.setToolOpacity(it) },
+                stabilizationLevel = sketchViewModel.currentSmoothing,
+                onStabilizationLevelChanged = { sketchViewModel.setToolSmoothing(it) },
+                pressureSensitivity = sketchViewModel.currentSensitivity,
+                onPressureSensitivityChanged = { sketchViewModel.setToolSensitivity(it) },
                 presets = sketchViewModel.brushSizePresets,
-                onPresetSelected = { selectedSize = it },
+                onPresetSelected = { sketchViewModel.setToolSize(it) },
                 onPresetSave = { index, size -> sketchViewModel.updateBrushSizePreset(index, size) },
                 penMinSizeFactor = sketchViewModel.penMinSizeFactor,
-                onPenMinSizeFactorChanged = { sketchViewModel.penMinSizeFactor = it },
-                isVectorPen = (selectedTool == ToolType.TECHNICAL_PEN || selectedTool == ToolType.PRESSURE_PEN),
+                onPenMinSizeFactorChanged = { sketchViewModel.setToolMinSizeFactor(it) },
+                activeToolType = sketchViewModel.currentTool,
                 onDismiss = { showSizePopup = false }
             )
         }
@@ -1288,14 +1280,7 @@ fun BottomMenuBar(
                     tools.forEach { tool ->
                         DropdownMenuItem(
                             text = { 
-                                val param = tool.type.name
-                                val label = when (param) {
-                                    "TECHNICAL_PEN" -> "Technical Pen"
-                                    "PRESSURE_PEN" -> "Pressure Pen"
-                                    "FILL_SHAPE" -> "Fill Tool"
-                                    else -> param.replace("_", " ").lowercase().replaceFirstChar { it.uppercase() }
-                                }
-                                Text(label) 
+                                Text(getToolName(tool.type)) 
                             },
                             leadingIcon = { Icon(tool.icon, null) },
                             onClick = {
@@ -1324,31 +1309,36 @@ fun BottomMenuBar(
             VerticalDivider(modifier = Modifier.height(24.dp))
 
             // FILL MODE TOGGLE
-            Row(
-                 verticalAlignment = Alignment.CenterVertically
-            ) {
-                 IconButton(onClick = onToggleFillMode) {
-                     Icon(
-                        Icons.Default.FormatPaint,
-                        contentDescription = "Auto Fill",
-                        tint = if (isFillModeEnabled) Color.Black else Color.LightGray
-                     )
-                 }
-                 
-                 // FILL COLOR PREVIEW (Only if enabled)
-                 if (isFillModeEnabled) {
-                     Box(
-                         modifier = Modifier
-                             .size(24.dp)
-                             .clip(CircleShape)
-                             .background(Color(fillColor))
-                             .border(2.dp, Color.Black, CircleShape)
-                             .clickable(onClick = onFillColorChangeRequest)
-                     )
-                 }
-            }
+            val isFillTool = selectedTool == ToolType.FILL_SHAPE
+            if (!isFillTool) {
+                Row(
+                     verticalAlignment = Alignment.CenterVertically
+                ) {
+                     IconButton(
+                         onClick = onToggleFillMode
+                     ) {
+                         Icon(
+                            Icons.Default.FormatPaint,
+                            contentDescription = "Auto Fill",
+                            tint = if (isFillModeEnabled) Color.Black else Color.LightGray
+                         )
+                     }
+                     
+                     // FILL COLOR PREVIEW (Only if enabled)
+                     if (isFillModeEnabled) {
+                         Box(
+                             modifier = Modifier
+                                 .size(24.dp)
+                                 .clip(CircleShape)
+                                 .background(Color(fillColor))
+                                 .border(2.dp, Color.Black, CircleShape)
+                                 .clickable(onClick = onFillColorChangeRequest)
+                         )
+                     }
+                }
 
-            VerticalDivider(modifier = Modifier.height(24.dp))
+                VerticalDivider(modifier = Modifier.height(24.dp))
+            }
 
             // SIZE PREVIEW
             Box(
@@ -1414,8 +1404,8 @@ fun TopMenuBar(
     onNewDrawing: () -> Unit,
     onSettingsClick: () -> Unit,
     onGridClick: () -> Unit,
-    isSnapEnabled: Boolean,
-    onToggleSnap: () -> Unit,
+    onZoomReset: () -> Unit,
+    onZoomExtend: () -> Unit,
     activeLayerName: String
 ) {
     var showProjectMenu by remember { mutableStateOf(false) }
@@ -1428,7 +1418,7 @@ fun TopMenuBar(
             .background(Color.White.copy(alpha = 0.9f))
             .padding(8.dp)
     ) {
-        // 1. LEFT: Project & Tools
+        // 1. LEFT: Project & Tools & Zoom
         Row(
             modifier = Modifier.align(Alignment.CenterStart),
             verticalAlignment = Alignment.CenterVertically
@@ -1443,19 +1433,24 @@ fun TopMenuBar(
                     onDismissRequest = { showProjectMenu = false }
                 ) {
                     DropdownMenuItem(
-                        text = { Text("New Drawing") },
+                        text = { Text(stringResource(R.string.action_new)) },
                         leadingIcon = { Icon(Icons.Default.Refresh, null) },
                         onClick = { onNewDrawing(); showProjectMenu = false }
                     )
                     DropdownMenuItem(
-                        text = { Text("Save Project") },
+                        text = { Text(stringResource(R.string.action_save)) },
                         leadingIcon = { Icon(Icons.Default.Save, null) },
                         onClick = { onSave(); showProjectMenu = false }
                     )
                     DropdownMenuItem(
-                        text = { Text("Load Project") },
+                        text = { Text(stringResource(R.string.action_load)) },
                         leadingIcon = { Icon(Icons.Default.FolderOpen, null) },
                         onClick = { onLoad(); showProjectMenu = false }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.settings_title)) },
+                        leadingIcon = { Icon(Icons.Default.MoreVert, null) },
+                        onClick = { onSettingsClick(); showProjectMenu = false }
                     )
                 }
             }
@@ -1465,9 +1460,18 @@ fun TopMenuBar(
                 Icon(Icons.Default.GridOn, contentDescription = "Grid")
             }
 
-            IconButton(onClick = onToggleSnap) {
-                Icon(Icons.Default.Grid4x4, contentDescription = "Snap to Grid", tint = if (isSnapEnabled) Color.Black else Color.LightGray)
-            }
+             // Zoom Controls
+             IconButton(onClick = onZoomReset) {
+                 // "100%" Icon usually text
+                 Box(contentAlignment = Alignment.Center) {
+                     Icon(Icons.Default.Search, contentDescription = "Zoom 100%")
+                     Text("1:1", fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                 }
+             }
+             
+             IconButton(onClick = onZoomExtend) {
+                 Icon(Icons.Default.AspectRatio, contentDescription = "Zoom Extend")
+             }
         }
 
         // 2. CENTER: Undo/Redo (Perfectly Centered)
@@ -1476,12 +1480,12 @@ fun TopMenuBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onUndo, enabled = canUndo) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Undo", tint = if (canUndo) Color.Black else Color.LightGray)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_undo), tint = if (canUndo) Color.Black else Color.LightGray)
             }
             // Small spacer betweeen undo/redo?
             Spacer(modifier = Modifier.width(8.dp))
             IconButton(onClick = onRedo, enabled = canRedo) {
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Redo", tint = if (canRedo) Color.Black else Color.LightGray)
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = stringResource(R.string.action_redo), tint = if (canRedo) Color.Black else Color.LightGray)
             }
         }
 
@@ -1501,9 +1505,7 @@ fun TopMenuBar(
                 Icon(Icons.Default.List, contentDescription = "Layers")
             }
             
-            IconButton(onClick = onSettingsClick) {
-                Icon(Icons.Default.MoreVert, contentDescription = "Settings")
-            }
+
         }
     }
 }
@@ -1536,18 +1538,19 @@ fun SizeSelectorPopup(
     onPresetSave: (Int, Float) -> Unit,
     penMinSizeFactor: Float,
     onPenMinSizeFactorChanged: (Float) -> Unit,
-    isVectorPen: Boolean,
+    activeToolType: ToolType,
     onDismiss: () -> Unit
 ) {
+    // Visibility Logic
+    val showSize = activeToolType != ToolType.FILL_SHAPE
+    val showOpacity = true
+    val showStabilizer = activeToolType != ToolType.FILL_SHAPE && activeToolType != ToolType.ERASER
+    val showPressure = activeToolType != ToolType.FILL_SHAPE && activeToolType != ToolType.ERASER
+    val showMinSize = activeToolType == ToolType.TECHNICAL_PEN || activeToolType == ToolType.PRESSURE_PEN
+
     // Non-linear Slider Logic (Quadratic)
-    // t = 0..1
-    // Size = Min + (Max - Min) * t^2
-    // t = sqrt((Size - Min) / (Max - Min))
     val minSize = 1f
     val maxSize = 100f
-    
-    // Calculate initial slider position from currentSize
-    // Clamp magnitude to avoid NaN with sqrt of negative numbers
     val initialT = kotlin.math.sqrt(((currentSize - minSize) / (maxSize - minSize)).coerceAtLeast(0f))
     var sliderValue by remember { mutableFloatStateOf(initialT) }
 
@@ -1566,95 +1569,96 @@ fun SizeSelectorPopup(
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Size: ${currentSize.toInt()}")
             
-            Slider(
-                value = sliderValue,
-                onValueChange = { t ->
-                    sliderValue = t
-                    // Quadratic mapping
-                    val nonLinearSize = minSize + (maxSize - minSize) * (t * t)
-                    onSizeChanged(nonLinearSize)
-                },
-                valueRange = 0f..1f
-            )
-            
-            // PRESETS
-            Text("Presets (Long press to Save)", fontSize = 10.sp, color = Color.Gray, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
-            
-            Row(
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                presets.forEachIndexed { index, size ->
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(Color.LightGray.copy(alpha = 0.3f))
-                            .combinedClickable(
-                                onClick = { 
-                                    onPresetSelected(size)
-                                    // Update slider visual
-                                    val newT = kotlin.math.sqrt(((size - minSize) / (maxSize - minSize)).coerceAtLeast(0f))
-                                    sliderValue = newT
-                                },
-                                onLongClick = { onPresetSave(index, currentSize) }
-                            )
-                            .border(1.dp, Color.Gray, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        // Dot representing size
+            if (showSize) {
+                Text("${stringResource(R.string.label_size)}: ${currentSize.toInt()}")
+                
+                Slider(
+                    value = sliderValue,
+                    onValueChange = { t ->
+                        sliderValue = t
+                        val nonLinearSize = minSize + (maxSize - minSize) * (t * t)
+                        onSizeChanged(nonLinearSize)
+                    },
+                    valueRange = 0f..1f
+                )
+                
+                // PRESETS
+                Text(stringResource(R.string.popup_presets_hint), fontSize = 10.sp, color = Color.Gray, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
+                
+                Row(
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    presets.forEachIndexed { index, size ->
                         Box(
                             modifier = Modifier
-                                .size((size.coerceIn(2f, 24f)).dp)
+                                .size(36.dp)
                                 .clip(CircleShape)
-                                .background(Color.Black)
-                        )
+                                .background(Color.LightGray.copy(alpha = 0.3f))
+                                .combinedClickable(
+                                    onClick = { 
+                                        onPresetSelected(size)
+                                        val newT = kotlin.math.sqrt(((size - minSize) / (maxSize - minSize)).coerceAtLeast(0f))
+                                        sliderValue = newT
+                                    },
+                                    onLongClick = { onPresetSave(index, currentSize) }
+                                )
+                                .border(1.dp, Color.Gray, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size((size.coerceIn(2f, 24f)).dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black)
+                            )
+                        }
                     }
                 }
+                
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
             }
             
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-            
-            Text("Opacity: ${(currentOpacity * 100).toInt()}%")
-            Slider(
-                value = currentOpacity,
-                onValueChange = onOpacityChanged,
-                valueRange = 0.01f..1f // Min 1%
-            )
+            if (showOpacity) {
+                Text("${stringResource(R.string.label_opacity)}: ${(currentOpacity * 100).toInt()}%")
+                Slider(
+                    value = currentOpacity,
+                    onValueChange = onOpacityChanged,
+                    valueRange = 0.01f..1f
+                )
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+            }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+            if (showStabilizer) {
+                Text("${stringResource(R.string.label_smoothing)}: ${(stabilizationLevel).toInt()}%")
+                Slider(
+                    value = stabilizationLevel,
+                    onValueChange = onStabilizationLevelChanged,
+                    valueRange = 0f..100f
+                )
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+            }
 
-            Text("Estabilizador: ${(stabilizationLevel).toInt()}%")
-            Slider(
-                value = stabilizationLevel,
-                onValueChange = onStabilizationLevelChanged,
-                valueRange = 0f..100f
-            )
+            if (showPressure) {
+                Text("${stringResource(R.string.label_sensitivity)}: $pressureSensitivity")
+                Slider(
+                    value = pressureSensitivity,
+                    onValueChange = onPressureSensitivityChanged,
+                    valueRange = 0.1f..2.0f
+                )
+            }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-
-            Text("Sensibilidad: $pressureSensitivity")
-            Slider(
-                value = pressureSensitivity,
-                onValueChange = onPressureSensitivityChanged,
-                valueRange = 0.1f..2.0f
-            )
-
-            if (isVectorPen) {
+            if (showMinSize) {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
                 
-                Text("Tamaño Mínimo: ${(penMinSizeFactor * 100).toInt()}%")
+                Text("${stringResource(R.string.label_min_size)}: ${(penMinSizeFactor * 100).toInt()}%")
                 Slider(
                     value = penMinSizeFactor,
                     onValueChange = onPenMinSizeFactorChanged,
                     valueRange = 0f..1f
                 )
-                
             }
-            
-
         }
     }
 }
@@ -1703,21 +1707,21 @@ fun SettingsDialog(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text("Settings & Project", style = MaterialTheme.typography.titleLarge)
+            Text("${stringResource(R.string.settings_title)} & ${stringResource(R.string.project_settings)}", style = MaterialTheme.typography.titleLarge)
             
             // --- PROJECT CONFIGURATION ---
-            Text("Project", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Text(stringResource(R.string.project_settings), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             
             // Resolution
             Column {
-                Text("Base Resolution (px/mm)", style = MaterialTheme.typography.labelMedium)
+                Text(stringResource(R.string.settings_base_resolution), style = MaterialTheme.typography.labelMedium)
                 OutlinedTextField(
                     value = resolutionText,
                     onValueChange = { resolutionText = it },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Text("Pixels per real-world millimeter.", fontSize = 10.sp, color = Color.Gray)
+                Text(stringResource(R.string.settings_resolution_hint), fontSize = 10.sp, color = Color.Gray)
             }
             
             // Unit
@@ -1726,7 +1730,7 @@ fun SettingsDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Unit")
+                Text(stringResource(R.string.label_unit))
                 Row {
                     DistanceUnit.entries.forEach { unit ->
                         Row(
@@ -1760,14 +1764,14 @@ fun SettingsDialog(
             HorizontalDivider()
             
             // --- APP SETTINGS ---
-            Text("App Preferences", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Text(stringResource(R.string.app_prefs), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Lock Rotation")
+                Text(stringResource(R.string.settings_lock_rotation))
                 Switch(checked = isRotationLocked, onCheckedChange = { onToggleRotationLock() })
             }
             
@@ -1776,12 +1780,12 @@ fun SettingsDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Stylus Only")
+                Text(stringResource(R.string.settings_stylus_only))
                 Switch(checked = isPalmRejectionEnabled, onCheckedChange = { onTogglePalmRejection() })
             }
             
             Column {
-                Text("Interface Scale: ${(interfaceScale * 100).toInt()}%")
+                Text("${stringResource(R.string.settings_interface_scale)}: ${(interfaceScale * 100).toInt()}%")
                 Slider(
                     value = interfaceScale,
                     onValueChange = onInterfaceScaleChanged,
@@ -1794,7 +1798,7 @@ fun SettingsDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Debug Geometry (Wireframe)")
+                Text(stringResource(R.string.settings_debug_wireframe))
                 Switch(checked = isDebugWireframe, onCheckedChange = { onToggleDebugWireframe() })
             }
             
@@ -1803,7 +1807,7 @@ fun SettingsDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Enable Prediction (Lag Comp)")
+                Text(stringResource(R.string.settings_enable_prediction))
                 Switch(checked = isPredictionEnabled, onCheckedChange = { onTogglePrediction() })
             }
 
@@ -1813,38 +1817,38 @@ fun SettingsDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Debug Prediction (Red Line)")
+                    Text(stringResource(R.string.settings_debug_prediction))
                     Switch(checked = isDebugPredictionEnabled, onCheckedChange = { onToggleDebugPrediction() })
                 }
                 
                 if (isDebugPredictionEnabled) {
                 Column {
-                    Text("Max Prediction Lag: ${predictionLagMs.toInt()} ms")
+                    Text("${stringResource(R.string.settings_max_prediction_lag)}: ${predictionLagMs.toInt()} ms")
                     Slider(
                         value = predictionLagMs,
                         onValueChange = onPredictionLagChanged,
                         valueRange = 0f..150f
                     )
                     
-                    Text("Prediction Smoothing: ${(predictionSmoothing * 100).toInt()}%")
+                    Text("${stringResource(R.string.settings_prediction_smoothing)}: ${(predictionSmoothing * 100).toInt()}%")
                     Slider(
                         value = predictionSmoothing,
                         onValueChange = onPredictionSmoothingChanged,
                         valueRange = 0.0f..0.99f
                     )
-                    Text("Higher = Less Jitter, More Trailing Hook", fontSize = 10.sp, color = Color.Gray)
+                    Text(stringResource(R.string.settings_prediction_hint), fontSize = 10.sp, color = Color.Gray)
                     
                     HorizontalDivider()
-                    Text("Velocity Thresholds (px/s)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.settings_velocity_thresholds), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     
-                    Text("Min Velocity (Start Lag): ${predictionVelocityMin.toInt()} px/s")
+                    Text("${stringResource(R.string.settings_min_velocity)}: ${predictionVelocityMin.toInt()} px/s")
                     Slider(
                         value = predictionVelocityMin,
                         onValueChange = onPredictionVelocityMinChanged,
                         valueRange = 0f..1000f
                     )
                     
-                    Text("Max Velocity (Full Lag): ${predictionVelocityMax.toInt()} px/s")
+                    Text("${stringResource(R.string.settings_max_velocity)}: ${predictionVelocityMax.toInt()} px/s")
                     Slider(
                          value = predictionVelocityMax,
                          onValueChange = onPredictionVelocityMaxChanged,
@@ -1855,30 +1859,30 @@ fun SettingsDialog(
             }
             
             Column {
-                Text("Simplificación (General)", style = MaterialTheme.typography.titleSmall)
-                Text("Tolerancia Distancia: ${String.format("%.1f", simplificationTolerance)}px")
+                Text(stringResource(R.string.settings_simplification_title), style = MaterialTheme.typography.titleSmall)
+                Text("${stringResource(R.string.settings_distance_tolerance)}: ${String.format("%.1f", simplificationTolerance)}px")
                 Slider(
                     value = simplificationTolerance,
                     onValueChange = onSimplificationToleranceChanged,
                     valueRange = 0f..5f
                 )
-                Text("0 = Desactivado. Mayor = Menos puntos.", fontSize = 10.sp, color = Color.Gray)
+                Text(stringResource(R.string.settings_distance_hint), fontSize = 10.sp, color = Color.Gray)
 
-                Text("Tolerancia Presión: ${String.format("%.2f", pressureTolerance)}")
+                Text("${stringResource(R.string.settings_pressure_tolerance)}: ${String.format("%.2f", pressureTolerance)}")
                 Slider(
                     value = pressureTolerance,
                     onValueChange = onPressureToleranceChanged,
                     valueRange = 0.01f..0.2f
                 )
-                Text("Preservación de grosor (Menor = Más detalle)", fontSize = 10.sp, color = Color.Gray)
+                Text(stringResource(R.string.settings_pressure_hint), fontSize = 10.sp, color = Color.Gray)
 
-                Text("Preservación de Esquinas: ${simplificationAngleThreshold.toInt()}°")
+                Text("${stringResource(R.string.settings_corner_angle)}: ${simplificationAngleThreshold.toInt()}°")
                 Slider(
                     value = simplificationAngleThreshold,
                     onValueChange = onSimplificationAngleThresholdChanged,
                     valueRange = 0f..90f
                 )
-                Text("Ángulo mínimo para forzar un punto (0 = Todo, 90 = Suave)", fontSize = 10.sp, color = Color.Gray)
+                Text(stringResource(R.string.settings_corner_hint), fontSize = 10.sp, color = Color.Gray)
             }
             
             Row(
@@ -1886,7 +1890,7 @@ fun SettingsDialog(
                 horizontalArrangement = Arrangement.End
             ) {
                 Button(onClick = onDismiss, colors = ButtonDefaults.textButtonColors()) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.action_cancel))
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 Button(onClick = {
@@ -1896,7 +1900,7 @@ fun SettingsDialog(
                     }
                     onDismiss()
                 }) {
-                    Text("Apply & Close")
+                    Text(stringResource(R.string.action_apply))
                 }
             }
         }
@@ -1931,7 +1935,7 @@ fun LayerManagerDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Capas", style = MaterialTheme.typography.titleLarge)
+                Text(stringResource(R.string.layer_title), style = MaterialTheme.typography.titleLarge)
                 IconButton(onClick = onDismiss) {
                     Text("X", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                 }
@@ -2007,7 +2011,7 @@ fun LayerManagerDialog(
             ) {
                 // Add
                 IconButton(onClick = onAddLayer) {
-                    Icon(Icons.Default.Add, contentDescription = "Add Layer")
+                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.layer_add))
                 }
                 
                 // Move Up (Visual Up = Higher Index)
@@ -2034,8 +2038,10 @@ fun LayerManagerDialog(
 @Composable
 fun GridSettingsDialog(
     currentGridConfig: GridConfig,
+    isSnapEnabled: Boolean,
     currentUnit: DistanceUnit,
     onUpdateGrid: (Boolean, Float, Int, Int, Int) -> Unit,
+    onUpdateSnap: (Boolean) -> Unit,
     onUpdateUnit: (DistanceUnit) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -2103,21 +2109,34 @@ fun GridSettingsDialog(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text("Grid Settings", style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(R.string.grid_title), style = MaterialTheme.typography.titleLarge)
             
-            // Toggle
+            // Grid Toggle
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Show Grid")
+                Text(stringResource(R.string.grid_show))
                 Switch(
                     checked = isVisible, 
                     onCheckedChange = { 
                         isVisible = it
                         updateConfig()
                     }
+                )
+            }
+
+            // Snap Toggle
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(stringResource(R.string.grid_snap))
+                Switch(
+                    checked = isSnapEnabled, 
+                    onCheckedChange = { onUpdateSnap(it) }
                 )
             }
             
@@ -2129,7 +2148,7 @@ fun GridSettingsDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Unit")
+                Text(stringResource(R.string.label_unit))
                 Box {
                     Button(onClick = { expandedUnit = true }) {
                         Text(currentUnit.symbol)
@@ -2154,7 +2173,7 @@ fun GridSettingsDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Spacing (${currentUnit.symbol})")
+                Text("${stringResource(R.string.grid_spacing)} (${currentUnit.symbol})")
                 OutlinedTextField(
                     value = spacingText,
                     onValueChange = { 
@@ -2168,7 +2187,7 @@ fun GridSettingsDialog(
             
             HorizontalDivider()
             
-            Text("Line Colors", style = MaterialTheme.typography.labelMedium)
+            Text(stringResource(R.string.label_line_colors), style = MaterialTheme.typography.labelMedium)
             
             // Primary Color
             Row(
@@ -2176,7 +2195,7 @@ fun GridSettingsDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Primary (Major)")
+                Text(stringResource(R.string.grid_primary))
                 Box(
                     modifier = Modifier
                         .size(40.dp)
@@ -2193,7 +2212,7 @@ fun GridSettingsDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Secondary (Mid)")
+                Text(stringResource(R.string.grid_secondary))
                 Box(
                     modifier = Modifier
                         .size(40.dp)
@@ -2210,7 +2229,7 @@ fun GridSettingsDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Tertiary (Minor)")
+                Text(stringResource(R.string.grid_tertiary))
                 Box(
                     modifier = Modifier
                         .size(40.dp)
@@ -2223,7 +2242,7 @@ fun GridSettingsDialog(
 
             // Close
             Button(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) {
-                Text("Close")
+                Text(stringResource(R.string.action_close))
             }
         }
     }
