@@ -88,7 +88,7 @@ import kotlin.math.round
 import kotlin.math.roundToInt
 
 
-enum class ToolType { TECHNICAL_PEN, PRESSURE_PEN, MARKER, HIGHLIGHTER, FILL_SHAPE, POLYGON_SWEEPER, ERASER }
+enum class ToolType { TECHNICAL_PEN, PRESSURE_PEN, MARKER, HIGHLIGHTER, FILL_SHAPE, ERASER }
 
 data class BrushTypeConfig(
     val type: ToolType,
@@ -271,8 +271,7 @@ fun SketcherSurface(
         BrushTypeConfig(ToolType.PRESSURE_PEN, Icons.Default.Brush, StockBrushes.pressurePen()),
         BrushTypeConfig(ToolType.MARKER, Icons.Default.Edit, StockBrushes.marker()),
         BrushTypeConfig(ToolType.HIGHLIGHTER, Icons.Default.Edit, StockBrushes.highlighter()),
-        BrushTypeConfig(ToolType.FILL_SHAPE, Icons.Default.FormatPaint, null), // New Fill Tool, no Ink Brush
-        BrushTypeConfig(ToolType.POLYGON_SWEEPER, Icons.Default.Grid4x4, null) // Polygon Sweeper Tool
+        BrushTypeConfig(ToolType.FILL_SHAPE, Icons.Default.FormatPaint, null) // New Fill Tool, no Ink Brush
     )
 
     // --- EFECTO DE RE-CENTRADO (Sin hacks visuales) ---
@@ -508,30 +507,23 @@ fun SketcherSurface(
                                 
                                 var needsRedraw = false
                                 
-                                // 1. Check Vector Strokes (Reversed to delete top-most first, optional)
-                                val iterator = sketchViewModel.layers[sketchViewModel.activeLayerIndex].vectorStrokes.iterator()
-                                val strokesToRemove = mutableListOf<VectorStroke>()
-                                
-                                // We iterate a COPY or use separate list to avoid ConcurrentModification if we remove directly in loop
-                                // But here we are on UI thread, accessing list.
-                                // Safe approach: Collect then remove.
-                                // Actually, simpler: Iterate indices reversed? Or simple iterator remove?
-                                // VectorStroke is in 'layer.vectorStrokes' which is a MutableList.
-                                
-                                // Let's iterate the ViewModel's active layer directly
+                                // 1. Check Custom Elements (Vector Strokes and Fills)
                                 val activeLayer = sketchViewModel.layers.getOrNull(sketchViewModel.activeLayerIndex)
                                 if (activeLayer != null) {
-                                     val vIter = activeLayer.vectorStrokes.iterator()
-                                     while (vIter.hasNext()) {
-                                         val stroke = vIter.next()
-                                         if (CollisionUtils.isTouchingStroke(stroke.points, worldX, worldY)) {
-                                             vIter.remove()
-                                             needsRedraw = true
-                                             // Break after one? Or erase all under finger?
-                                             // "that entire stroke should be removed" - implies the one touched.
-                                             // Usually iterating all is fine.
+                                     val cIter = activeLayer.customElements.iterator()
+                                     while (cIter.hasNext()) {
+                                         val element = cIter.next()
+                                         if (element is VectorStroke) {
+                                             if (CollisionUtils.isTouchingStroke(element.points, worldX, worldY)) {
+                                                 cIter.remove()
+                                                 needsRedraw = true
+                                             }
+                                         } else if (element is FillData) {
+                                             // Optional: Add fill erasure logic here if needed
+                                             // For now we keep it consistent with previous logic that only had vector strokes
                                          }
                                      }
+
                                      
                                      // 2. Check Ink Strokes (LIVE VIEW)
                                      val kIter = activeLayer.inkStrokes.iterator()
@@ -568,8 +560,7 @@ fun SketcherSurface(
                         // MAIN DRAWING LOGIC (Vector + Ink)
                         // Allow entry if we have a BrushFamily (Ink) OR if it is a known Vector Tool
                         val isVectorTool = state.toolType == ToolType.TECHNICAL_PEN || 
-                                           state.toolType == ToolType.FILL_SHAPE || 
-                                           state.toolType == ToolType.POLYGON_SWEEPER
+                                           state.toolType == ToolType.FILL_SHAPE
                                            
                         if (state.brushFamily != null || isVectorTool) {
                             if (event.pointerCount == 1) {
@@ -630,11 +621,7 @@ fun SketcherSurface(
                                             // Vector Preview (Tech Pen / Polygon Sweeper)
                                             if (state.toolType != ToolType.FILL_SHAPE) {
                                                 // Generate preview...
-                                                val (path, _, _) = if (state.toolType == ToolType.POLYGON_SWEEPER) {
-                                                    PathGenerator.generateOrganicFillPath(state.vectorPoints, state.size, sketchViewModel.penMinSizeFactor)
-                                                } else {
-                                                    PathGenerator.generateStrokePath(state.vectorPoints, state.size, sketchViewModel.penMinSizeFactor)
-                                                }
+                                                val (path, _, _) = PathGenerator.generateStrokePath(state.vectorPoints, state.size, sketchViewModel.penMinSizeFactor)
                                                 val alpha = (state.opacity * 255).toInt()
                                                 val colorWithAlpha = androidx.core.graphics.ColorUtils.setAlphaComponent(state.color, alpha)
                                                 canvasView.updateCurrentVectorPreview(path, state.vectorPoints.toList(), colorWithAlpha, state.size, sketchViewModel.penMinSizeFactor)
@@ -781,11 +768,7 @@ fun SketcherSurface(
                                                  val predictedPoint = android.graphics.PointF(predWorldX, predWorldY)
                                                 
                                                 if (state.toolType != ToolType.FILL_SHAPE) {
-                                                     val (path, _, _) = if (state.toolType == ToolType.POLYGON_SWEEPER) {
-                                                         PathGenerator.generateOrganicFillPath(state.vectorPoints, state.size, sketchViewModel.penMinSizeFactor)
-                                                     } else {
-                                                         PathGenerator.generateStrokePath(state.vectorPoints, state.size, sketchViewModel.penMinSizeFactor)
-                                                     }
+                                                     val (path, _, _) = PathGenerator.generateStrokePath(state.vectorPoints, state.size, sketchViewModel.penMinSizeFactor)
                                                      val alpha = (state.opacity * 255).toInt()
                                                      val colorWithAlpha = androidx.core.graphics.ColorUtils.setAlphaComponent(state.color, alpha)
                                                      canvasView.updateCurrentVectorPreview(path, state.vectorPoints.toList(), colorWithAlpha, state.size, sketchViewModel.penMinSizeFactor, predictedPoint)
@@ -857,8 +840,9 @@ fun SketcherSurface(
                                                 canvasView.setLayers(sketchViewModel.layers)
                                             }
                                             
-                                            // Commit Stroke (Tech Pen / Polygon)
-                                            if (state.toolType == ToolType.TECHNICAL_PEN || state.toolType == ToolType.POLYGON_SWEEPER) {
+                                            // Commit Stroke (Tech Pen)
+                                            if (state.toolType == ToolType.TECHNICAL_PEN) {
+
                                                 // Simplify Path
                                                 val simplifiedPoints = if (simplificationTolerance > 0f) {
                                                     com.skecher.sketchercompanionv1.utils.VectorUtils.simplifyPoints(
@@ -871,11 +855,8 @@ fun SketcherSurface(
                                                     state.vectorPoints
                                                 }
 
-                                                 val (path, leftPts, rightPts) = if (state.toolType == ToolType.POLYGON_SWEEPER) {
-                                                     PathGenerator.generateOrganicFillPath(simplifiedPoints, state.size, sketchViewModel.penMinSizeFactor)
-                                                 } else {
-                                                     PathGenerator.generateStrokePath(simplifiedPoints, state.size, sketchViewModel.penMinSizeFactor)
-                                                }
+                                                 val (path, leftPts, rightPts) = PathGenerator.generateStrokePath(simplifiedPoints, state.size, sketchViewModel.penMinSizeFactor)
+
                                                 
                                                   val alpha = (state.opacity * 255).toInt()
                                                   val colorWithAlpha = androidx.core.graphics.ColorUtils.setAlphaComponent(state.color, alpha)
@@ -1204,13 +1185,6 @@ fun SketcherSurface(
                 penMinSizeFactor = sketchViewModel.penMinSizeFactor,
                 onPenMinSizeFactorChanged = { sketchViewModel.penMinSizeFactor = it },
                 isVectorPen = (selectedTool == ToolType.TECHNICAL_PEN || selectedTool == ToolType.PRESSURE_PEN),
-                isPolygonSweeper = (selectedTool == ToolType.POLYGON_SWEEPER),
-                polygonSides = sketchViewModel.polygonSides,
-                onPolygonSidesChanged = { sketchViewModel.polygonSides = it },
-                polygonRotationSpeed = sketchViewModel.polygonRotationSpeed,
-                onPolygonRotationSpeedChanged = { sketchViewModel.polygonRotationSpeed = it },
-                isPolygonRandomRotation = sketchViewModel.isPolygonRandomRotation,
-                onPolygonRandomRotationChanged = { sketchViewModel.isPolygonRandomRotation = it },
                 onDismiss = { showSizePopup = false }
             )
         }
@@ -1316,7 +1290,6 @@ fun BottomMenuBar(
                             text = { 
                                 val param = tool.type.name
                                 val label = when (param) {
-                                    "POLYGON_SWEEPER" -> "Organic Fill"
                                     "TECHNICAL_PEN" -> "Technical Pen"
                                     "PRESSURE_PEN" -> "Pressure Pen"
                                     "FILL_SHAPE" -> "Fill Tool"
@@ -1564,13 +1537,6 @@ fun SizeSelectorPopup(
     penMinSizeFactor: Float,
     onPenMinSizeFactorChanged: (Float) -> Unit,
     isVectorPen: Boolean,
-    isPolygonSweeper: Boolean = false,
-    polygonSides: Int = 5,
-    onPolygonSidesChanged: (Int) -> Unit = {},
-    polygonRotationSpeed: Float = 0.5f,
-    onPolygonRotationSpeedChanged: (Float) -> Unit = {},
-    isPolygonRandomRotation: Boolean = false,
-    onPolygonRandomRotationChanged: (Boolean) -> Unit = {},
     onDismiss: () -> Unit
 ) {
     // Non-linear Slider Logic (Quadratic)
@@ -1688,50 +1654,7 @@ fun SizeSelectorPopup(
                 
             }
             
-            // POLYGON SWEEPER SETTINGS
-            if (isPolygonSweeper) {
-                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-                
-                // Shape name helper
-                val shapeName = when(polygonSides) {
-                    3 -> "Triángulo"
-                    4 -> "Cuadrado"
-                    5 -> "Pentágono"
-                    6 -> "Hexágono"
-                    7 -> "Heptágono"
-                    8 -> "Octágono"
-                    9 -> "Eneágono"
-                    10 -> "Decágono"
-                    else -> "Polígono"
-                }
-                
-                Text("Lados: $polygonSides ($shapeName)")
-                Slider(
-                    value = polygonSides.toFloat(),
-                    onValueChange = { onPolygonSidesChanged(it.toInt()) },
-                    valueRange = 3f..10f,
-                    steps = 7 - 1 // 8 total values (3-10), so 6 steps between
-                )
-                
-                Text("Rotación: ${String.format("%.2f", polygonRotationSpeed)}")
-                Slider(
-                    value = polygonRotationSpeed,
-                    onValueChange = onPolygonRotationSpeedChanged,
-                    valueRange = 0f..2.0f
-                )
-                
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Caos (Random)")
-                    Switch(
-                        checked = isPolygonRandomRotation,
-                        onCheckedChange = onPolygonRandomRotationChanged
-                    )
-                }
-            }
+
         }
     }
 }

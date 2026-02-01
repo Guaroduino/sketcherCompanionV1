@@ -17,16 +17,16 @@ import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
 
-data class FillData(val path: android.graphics.Path, val color: Int)
+data class FillData(val path: android.graphics.Path, val color: Int) : LayerElement
 data class Layer(
     val id: String, 
     val name: String,
     val inkStrokes: MutableList<Stroke>, 
-    val fills: MutableList<FillData>,
-    val vectorStrokes: MutableList<VectorStroke> = mutableListOf(), 
+    val customElements: MutableList<LayerElement> = mutableListOf(), 
     var isVisible: Boolean = true,
     var opacity: Float = 1f
 )
+
 
 class SketcherCanvasView(context: Context) : View(context) {
 
@@ -48,18 +48,11 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     // Call this to Bake a finalized stroke into the bitmap
     fun bakeStroke(stroke: VectorStroke) {
-        val requestCanvas = backingCanvas ?: return
-        
-        // We must draw with the CURRENT View Matrix so it aligns with the screen
-        requestCanvas.save()
-        requestCanvas.concat(viewMatrix)
-        
-        vectorPaint.color = stroke.color
-        requestCanvas.drawPath(stroke.path, vectorPaint)
-        
-        requestCanvas.restore()
+        // Optimized: Instead of full redraw, we just mark dirty or bake if cache is used.
+        // For now, since we move to dynamic rendering in onDraw, we just invalidate.
         invalidate()
     }
+
 
     // Direct Add & Bake (Optimistic UI for Instant Feedback)
     fun addInkStroke(stroke: androidx.ink.strokes.Stroke, layerIndex: Int) {
@@ -79,15 +72,11 @@ class SketcherCanvasView(context: Context) : View(context) {
     
     // Also Bake Fills (optional but useful)
     fun bakeFill(fill: FillData) {
-        val requestCanvas = backingCanvas ?: return
-        requestCanvas.save()
-        requestCanvas.concat(viewMatrix)
-        fillPaint.color = fill.color
-        requestCanvas.drawPath(fill.path, fillPaint)
-        requestCanvas.restore()
         invalidate()
     }
+
     
+    // Helper to completely rebuild the cache
     // Helper to completely rebuild the cache
     fun redrawAllCache() {
         val requestCanvas = backingCanvas ?: return
@@ -106,67 +95,54 @@ class SketcherCanvasView(context: Context) : View(context) {
                 requestCanvas.save()
             }
             
-            // 1. Fills (Bottom)
-            if (layer.fills.isNotEmpty()) {
-                requestCanvas.save()
-                requestCanvas.concat(viewMatrix)
-                for (fill in layer.fills) {
-                    fillPaint.color = fill.color
-                    requestCanvas.drawPath(fill.path, fillPaint)
+            // Base Group (Mixed Custom Elements)
+            requestCanvas.save()
+            requestCanvas.concat(viewMatrix)
+            for (element in layer.customElements) {
+                when (element) {
+                    is FillData -> drawFill(element, requestCanvas)
+                    is VectorStroke -> drawVectorStroke(element, requestCanvas)
                 }
-                requestCanvas.restore()
             }
-            
-            // 2. Vector Strokes (Middle)
-            if (layer.vectorStrokes.isNotEmpty()) {
-                requestCanvas.save()
-                requestCanvas.concat(viewMatrix)
-                for (vStroke in layer.vectorStrokes) {
-                    if (isDebugWireframeByVM) {
-                        drawDebugStroke(requestCanvas, vStroke)
-                    } else {
-                        vectorPaint.color = vStroke.color
-                        requestCanvas.drawPath(vStroke.path, vectorPaint)
-                    }
-                }
-                requestCanvas.restore()
-            }
-            
-            // 3. Ink Strokes (Top) - Rendered by Overlay, but if we were baking them:
-            // if (layer.inkStrokes.isNotEmpty()) { ... }
-            // Currently Ink is handled by InProgressStrokesView (Overlay) for active layer,
-            // BUT for non-active layers or if we wanted them baked, we would do it here.
-            
-            // Current Logic: 
-            // - Baked Ink Strokes? We don't bake Ink strokes into bitmap anymore because we want them re-editable/live?
-            // - Wait, if we use InProgressStrokesView for EVERYTHING, we need to pass ALL strokes to it?
-            // - Or do we only use InProgressStrokesView for the ACTIVE stroke?
-            
-            // Correction based on previous conversations: 
-            // "Ink strokes are now rendered live in the overlay view." (Line 74/135)
-            // So we do NOTHING here for Ink, assuming the Overlay View handles valid Z-ordering?
-            // PROBLEM: Overlay View is ON TOP of the entire CanvasView.
-            // If we want Ink strictly above Vectors of the SAME Layer, but BELOW Vectors of the Layer ABOVE...
-            // We cannot easily do that with 2 separate Views (CanvasView + WetView).
-            // 2 Views = All Ink Above All Vectors.
-            
-            // CONSTRAINT CHECK:
-            // User asked: "within each User Layer, the Z-order is strictly: Fill -> Vector -> Ink"
-            // If 'WetView' is a generic overlay on top of CanvasView, then ALL Ink is on top of ALL Vectors.
-            // This satisfies "Ink (Top)" for a single layer, but technically breaks interleaving.
-            // However, given the current Dual-View architecture, "Ink is always Top" is the physical reality.
-            // UNLESS we bake Ink into this bitmap.
-            
-            // Recommendation: We stick to the request "No Fill for Ink Tools".
-            // And we assume "Ink Top" is acceptable globally for now, OR we assume we bake Ink?
-            // Line 135 says: "Ink Strokes are now handled by the overlay View... NOT baked here."
-            // So we proceed with that.
+            requestCanvas.restore()
             
             requestCanvas.restoreToCount(layerSaveCount)
         }
         
         invalidate()
     }
+
+    private fun drawFill(fill: FillData, canvas: Canvas) {
+        fillPaint.color = fill.color
+        canvas.drawPath(fill.path, fillPaint)
+    }
+
+    private fun drawVectorStroke(vStroke: VectorStroke, canvas: Canvas) {
+        if (isDebugWireframeByVM) {
+            drawDebugStroke(canvas, vStroke)
+        } else {
+            vectorPaint.color = vStroke.color
+            canvas.drawPath(vStroke.path, vectorPaint)
+        }
+    }
+
+    private val multiplyPaint = android.graphics.Paint().apply {
+        xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.MULTIPLY)
+    }
+
+    private fun drawStroke(ink: Stroke, canvas: Canvas) {
+        // Apply "wet" look with Multiply blend
+        val saveCount = canvas.saveLayer(null, multiplyPaint)
+        canvas.drawColor(android.graphics.Color.WHITE) // Neutral base for multiply
+        
+        canvas.save()
+        canvas.concat(viewMatrix)
+        strokeRenderer.draw(canvas, ink, Matrix())
+        canvas.restore()
+        
+        canvas.restoreToCount(saveCount)
+    }
+
     
     // GRID CONFIG
     var gridConfig: GridConfig = GridConfig()
@@ -275,28 +251,34 @@ class SketcherCanvasView(context: Context) : View(context) {
                 }
             }
             
-            // 2. Check Fills
-            for (i in layer.fills.indices.reversed()) {
-                val fill = layer.fills[i]
-                // Hit test path
-                val bounds = android.graphics.RectF()
-                fill.path.computeBounds(bounds, true)
-                
-                if (bounds.contains(worldX, worldY)) {
-                    // Precise check using Region
-                    val region = android.graphics.Region()
-                    region.setPath(fill.path, android.graphics.Region(
-                        bounds.left.toInt(), bounds.top.toInt(), 
-                        bounds.right.toInt(), bounds.bottom.toInt()
-                    ))
-                    
-                    if (region.contains(worldX.toInt(), worldY.toInt())) {
-                        layer.fills.removeAt(i)
-                        invalidate()
-                        return fill
+            // 2. Check Custom Elements (Fills and Vector Strokes)
+            for (i in layer.customElements.indices.reversed()) {
+                val element = layer.customElements[i]
+                when(element) {
+                    is FillData -> {
+                        val bounds = android.graphics.RectF()
+                        element.path.computeBounds(bounds, true)
+                        if (bounds.contains(worldX, worldY)) {
+                            val region = android.graphics.Region()
+                            region.setPath(element.path, android.graphics.Region(
+                                bounds.left.toInt(), bounds.top.toInt(), 
+                                bounds.right.toInt(), bounds.bottom.toInt()
+                            ))
+                            if (region.contains(worldX.toInt(), worldY.toInt())) {
+                                layer.customElements.removeAt(i)
+                                invalidate()
+                                return element
+                            }
+                        }
+                    }
+                    is VectorStroke -> {
+                        // Collision for vector stroke? 
+                        // For now we only had fill collision here, but let's keep it consistent.
+                        // If VectorStroke had collision logic, we'd add it here.
                     }
                 }
             }
+
         }
         return null
     }
@@ -309,9 +291,9 @@ class SketcherCanvasView(context: Context) : View(context) {
     fun clearCanvas() {
         layers.forEach { 
             it.inkStrokes.clear()
-            it.fills.clear()
-            it.vectorStrokes.clear() // Should clear vector strokes too if not already
+            it.customElements.clear()
         }
+
         redrawAllCache()
     }
 
@@ -460,54 +442,39 @@ class SketcherCanvasView(context: Context) : View(context) {
         drawGrid(canvas)
         canvas.restore()
         
-        // 1. Cached Bitmap (Contains all finalized VECTOR strokes/fills)
-        // Drawn at Identity (0,0) because it is a Screen Buffer
-        backingBitmap?.let {
-            canvas.drawBitmap(it, 0f, 0f, null)
-        }
-        
-        // 2. DYNAMIC INK RENDERING (Live Overlay)
-        // Ink strokes are stored in WORLD-SPACE coordinates (transformed when captured).
-        // Like the backingBitmap, they are drawn WITHOUT viewMatrix because they're already
-        // in world-space. The viewMatrix was applied during transformation (InkUtils.transformStrokeToWorld).
-        // 
-        // This is different from Vector strokes which are drawn WITH viewMatrix in the bitmap cache.
-        // Here we draw world-space strokes directly to screen-space canvas (identity transform).
-        
-        // NO canvas.concat(viewMatrix) here! Strokes are already in world-space.
-        
-        // Setup Multiply Paint for "Wet" look
-        val multiplyPaint = android.graphics.Paint()
-        multiplyPaint.xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.MULTIPLY)
-        
-        // Iterate layers to draw Ink strokes
+        // 1. RENDER LAYERS
         for (layer in layers) {
             if (!layer.isVisible) continue
-            if (layer.inkStrokes.isEmpty()) continue
             
-            // Apply Layer Opacity if needed
-            val layerAlpha = if (layer.opacity < 1f) {
-                (layer.opacity * 255).toInt()
+            val layerAlpha = if (layer.opacity < 1f) (layer.opacity * 255).toInt() else 255
+            val saveCount = if (layerAlpha < 255) {
+                canvas.saveLayerAlpha(0f, 0f, width.toFloat(), height.toFloat(), layerAlpha)
             } else {
-                255
+                canvas.save()
             }
             
-            for (stroke in layer.inkStrokes) {
-                // Draw stroke with multiply blend mode for "wet" appearance
-                // The stroke is in world-space, we draw it with identity transform
-                val saveCount = canvas.saveLayer(null, multiplyPaint)
-                canvas.drawColor(android.graphics.Color.WHITE) // Neutral base for multiply
-                
-                // Draw the stroke - it's in world coordinates, we apply viewMatrix here
-                // to convert to screen coordinates
-                canvas.save()
-                canvas.concat(viewMatrix)
-                strokeRenderer.draw(canvas, stroke, Matrix())
-                canvas.restore()
-                
-                canvas.restoreToCount(saveCount)
+            // Step A: Base Group (Fills & Vector Strokes)
+            canvas.save()
+            canvas.concat(viewMatrix)
+            for (element in layer.customElements) {
+                when (element) {
+                    is FillData -> drawFill(element, canvas)
+                    is VectorStroke -> drawVectorStroke(element, canvas)
+                }
             }
+            canvas.restore()
+            
+            // Step B: Top Group (Android Ink)
+            for (ink in layer.inkStrokes) {
+                drawStroke(ink, canvas)
+            }
+            
+            canvas.restoreToCount(saveCount)
         }
+        
+        // --- Note: backingBitmap is retained for background/grid or future caching, 
+        // but core rendering is now dynamic per-layer to support interleaving. ---
+
         
         // 3. Previews (Live content) - Needs Matrix
         canvas.save()

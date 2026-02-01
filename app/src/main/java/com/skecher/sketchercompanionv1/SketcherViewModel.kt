@@ -69,10 +69,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     var isPredictionEnabled by mutableStateOf(true) // Master toggle
     var isDebugPredictionEnabled by mutableStateOf(false)
 
-    // POLYGON SWEEPER SETTINGS
-    var polygonSides by mutableIntStateOf(5) // Range: 3 to 10 (3=Triangle, 4=Square, 5=Pentagon, 6=Hexagon, etc.)
-    var polygonRotationSpeed by mutableStateOf(0.5f) // Radians per pixel traveled
-    var isPolygonRandomRotation by mutableStateOf(false) // Add jitter to rotation for organic effects
+
 
     val cameraMatrixValues = FloatArray(9).apply { 
         Matrix().getValues(this) 
@@ -111,6 +108,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         add(Layer("layer_2", "Capa 2", mutableListOf(), mutableListOf()))
         add(Layer("layer_3", "Capa 3", mutableListOf(), mutableListOf()))
     }
+
     
     var activeLayerIndex by mutableIntStateOf(0)
 
@@ -221,7 +219,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         saveStateForUndo() // We want to undo fills too now
         if (activeLayerIndex in layers.indices) {
             val layer = layers[activeLayerIndex]
-            layer.fills.add(fill)
+            layer.customElements.add(fill)
             // Fix: Replace layer with copy to trigger Compose Recomposition
             layers[activeLayerIndex] = layer.copy()
         }
@@ -229,16 +227,18 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         updateUndoRedoSupport()
     }
 
+
     fun addVectorStroke(stroke: VectorStroke) {
         saveStateForUndo()
         if (activeLayerIndex in layers.indices) {
             val layer = layers[activeLayerIndex]
-            layer.vectorStrokes.add(stroke)
+            layer.customElements.add(stroke)
             layers[activeLayerIndex] = layer.copy()
         }
         redoStack.clear()
         updateUndoRedoSupport()
     }
+
 
     fun removeStroke(stroke: Stroke) {
         saveStateForUndo()
@@ -259,7 +259,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         saveStateForUndo()
         for (i in layers.indices) {
             val layer = layers[i]
-            if (layer.fills.remove(fill)) {
+            if (layer.customElements.remove(fill)) {
                 // Fix: Replace layer with copy to trigger Compose Recomposition
                 layers[i] = layer.copy()
                 break
@@ -269,12 +269,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         updateUndoRedoSupport()
     }
 
+
     private fun saveStateForUndo() {
         val snapshot = layers.map { layer ->
             layer.copy(
                 inkStrokes = ArrayList(layer.inkStrokes),
-                fills = ArrayList(layer.fills),
-                vectorStrokes = ArrayList(layer.vectorStrokes)
+                customElements = ArrayList(layer.customElements)
                 // properties copied automatically
             )
         }
@@ -282,6 +282,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         // Limit stack size if needed (e.g. 50 steps)
         if (undoStack.size > 50) undoStack.removeLast()
     }
+
 
     fun undo() {
         if (undoStack.isEmpty()) return
@@ -309,23 +310,23 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
          val snapshot = layers.map { layer ->
             layer.copy(
                 inkStrokes = ArrayList(layer.inkStrokes),
-                fills = ArrayList(layer.fills),
-                vectorStrokes = ArrayList(layer.vectorStrokes)
+                customElements = ArrayList(layer.customElements)
             )
         }
         redoStack.push(snapshot)
     }
 
+
     private fun saveCurrentStateToUndoStacksOnly() {
          val snapshot = layers.map { layer ->
             layer.copy(
                 inkStrokes = ArrayList(layer.inkStrokes),
-                fills = ArrayList(layer.fills),
-                vectorStrokes = ArrayList(layer.vectorStrokes)
+                customElements = ArrayList(layer.customElements)
             )
         }
         undoStack.push(snapshot)
     }
+
     
     private fun restoreState(state: List<Layer>) {
         layers.clear()
@@ -333,11 +334,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             // Deep copy back
             layers.add(savedLayer.copy(
                 inkStrokes = ArrayList(savedLayer.inkStrokes),
-                fills = ArrayList(savedLayer.fills),
-                vectorStrokes = ArrayList(savedLayer.vectorStrokes)
+                customElements = ArrayList(savedLayer.customElements)
             ))
         }
     }
+
 
     private fun updateUndoRedoSupport() {
         canUndo = undoStack.isNotEmpty()
@@ -395,6 +396,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         layers.add(Layer("layer_${System.currentTimeMillis()}_1", "Capa 1", mutableListOf(), mutableListOf()))
         layers.add(Layer("layer_${System.currentTimeMillis()}_2", "Capa 2", mutableListOf(), mutableListOf()))
         layers.add(Layer("layer_${System.currentTimeMillis()}_3", "Capa 3", mutableListOf(), mutableListOf()))
+
         
         activeLayerIndex = 0
         

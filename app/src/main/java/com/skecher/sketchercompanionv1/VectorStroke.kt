@@ -11,4 +11,5 @@ data class VectorStroke(
     val path: Path,
     val leftPoints: List<android.graphics.PointF> = emptyList(),
     val rightPoints: List<android.graphics.PointF> = emptyList()
-)
+) : LayerElement
+

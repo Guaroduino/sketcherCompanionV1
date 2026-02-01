@@ -21,16 +21,20 @@ import com.skecher.sketchercompanionv1.dto.*
 // --- LAYER MAPPERS ---
 
 fun Layer.toLayerJson(): LayerJson {
+    val currentFills = this.customElements.filterIsInstance<com.skecher.sketchercompanionv1.FillData>()
+    val currentVectorStrokes = this.customElements.filterIsInstance<com.skecher.sketchercompanionv1.VectorStroke>()
+    
     return LayerJson(
         id = this.id,
         name = this.name,
         isVisible = this.isVisible,
         opacity = this.opacity,
         strokes = this.inkStrokes.map { it.toStrokeJson() }, // Map domain 'inkStrokes' to JSON 'strokes'
-        fills = this.fills.map { it.toFillJson() },
-        vectorStrokes = this.vectorStrokes.map { it.toVectorStrokeJson() }
+        fills = currentFills.map { it.toFillDataJson() }, // Renamed helper to avoid confusion
+        vectorStrokes = currentVectorStrokes.map { it.toVectorStrokeJson() }
     )
 }
+
 
 fun VectorStroke.toVectorStrokeJson(): VectorStrokeJson {
     // Basic mapping
@@ -43,17 +47,22 @@ fun VectorStroke.toVectorStrokeJson(): VectorStrokeJson {
 
 fun LayerJson.toLayer(): Layer {
     val layerStrokes = this.strokes.map { it.toStroke() }.toMutableList()
-    val layerFills = this.fills.map { it.toFillData() }.toMutableList()
+    val customElements = mutableListOf<com.skecher.sketchercompanionv1.LayerElement>()
+    
+    // Fallback interleaving: Fills then Vector Strokes (Loses exact time order from memory if not saved in JSON)
+    customElements.addAll(this.fills.map { it.toFillData() })
+    customElements.addAll(this.vectorStrokes.map { it.toVectorStroke() })
+    
     return Layer(
         id = this.id,
         name = this.name,
         inkStrokes = layerStrokes, // Map JSON 'strokes' to domain 'inkStrokes'
-        fills = layerFills,
-        vectorStrokes = this.vectorStrokes.map { it.toVectorStroke() }.toMutableList(),
+        customElements = customElements,
         isVisible = this.isVisible,
         opacity = this.opacity
     )
 }
+
 
 fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     val pts = this.points.map { StrokePoint(it.x, it.y, it.pressure) }
@@ -142,7 +151,8 @@ fun StrokeJson.toStroke(): Stroke {
 
 // --- FILL / PATH MAPPERS ---
 
-fun FillData.toFillJson(): FillJson {
+fun FillData.toFillDataJson(): FillJson {
+
     // Attempt to extract commands.
     // Since Android Path doesn't expose commands easily, and we likely generate these from Lasso (Polygon),
     // we might need a workaround.
