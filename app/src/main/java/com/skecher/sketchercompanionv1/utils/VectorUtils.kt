@@ -330,5 +330,48 @@ object VectorUtils {
         // Step 5: Return the extreme points
         return Pair(maxVertex, minVertex)
     }
+
+    /**
+     * Generates a smooth closed path from a list of points using Cubic Bézier interpolation.
+     * Ideal for organic blobs and closed shapes.
+     * 
+     * @param points Ordered list of points defining the perimeter
+     * @param tension Tension factor for the spline (default 0.5 leads to standard Catmull-Rom)
+     * @return Closed Path with smooth transitions
+     */
+    fun generateSmoothClosedPath(points: List<PointF>, tension: Float = 0.5f): android.graphics.Path {
+        val path = android.graphics.Path()
+        if (points.size < 3) return path
+
+        // 1. Move to the first point
+        path.moveTo(points[0].x, points[0].y)
+
+        val n = points.size
+        for (i in 0 until n) {
+            val p0 = points[(i - 1 + n) % n] // Previous
+            val p1 = points[i]               // Current
+            val p2 = points[(i + 1) % n]     // Next
+            val p3 = points[(i + 2) % n]     // Next-Next
+
+            // Calculate Control Points using Catmull-Rom logic
+            // The factor determines how "tight" the curve is.
+            // Using user requested formula: (tension / 6f)
+            val factor = tension / 6f
+
+            // CP1 = p1 + (p2 - p0) * factor
+            val cp1x = p1.x + (p2.x - p0.x) * factor
+            val cp1y = p1.y + (p2.y - p0.y) * factor
+
+            // CP2 = p2 - (p3 - p1) * factor
+            val cp2x = p2.x - (p3.x - p1.x) * factor
+            val cp2y = p2.y - (p3.y - p1.y) * factor
+            
+            // Draw Cubic Bezier to the NEXT point (p2)
+            path.cubicTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y)
+        }
+        
+        path.close()
+        return path
+    }
 }
 
