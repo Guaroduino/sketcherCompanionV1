@@ -42,7 +42,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         private set
 
     // UNITS
-    var currentUnit by mutableStateOf(DistanceUnit.M)
+    var currentUnit by mutableStateOf(DistanceUnit.MM)
 
     // GRID CONFIG
     var gridConfig by mutableStateOf(GridConfig())
@@ -209,7 +209,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         saveStateForUndo()
         if (activeLayerIndex in layers.indices) {
             val layer = layers[activeLayerIndex]
-            layer.strokes.add(stroke)
+            layer.inkStrokes.add(stroke)
             // Fix: Replace layer with copy to trigger Compose Recomposition
             layers[activeLayerIndex] = layer.copy()
         }
@@ -245,7 +245,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         // Find and remove
         for (i in layers.indices) {
              val layer = layers[i]
-             if (layer.strokes.remove(stroke)) {
+             if (layer.inkStrokes.remove(stroke)) {
                  // Fix: Replace layer with copy to trigger Compose Recomposition
                  layers[i] = layer.copy()
                  break
@@ -272,7 +272,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     private fun saveStateForUndo() {
         val snapshot = layers.map { layer ->
             layer.copy(
-                strokes = ArrayList(layer.strokes),
+                inkStrokes = ArrayList(layer.inkStrokes),
                 fills = ArrayList(layer.fills),
                 vectorStrokes = ArrayList(layer.vectorStrokes)
                 // properties copied automatically
@@ -308,7 +308,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     private fun saveCurrentStateToRedo() {
          val snapshot = layers.map { layer ->
             layer.copy(
-                strokes = ArrayList(layer.strokes),
+                inkStrokes = ArrayList(layer.inkStrokes),
                 fills = ArrayList(layer.fills),
                 vectorStrokes = ArrayList(layer.vectorStrokes)
             )
@@ -319,7 +319,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     private fun saveCurrentStateToUndoStacksOnly() {
          val snapshot = layers.map { layer ->
             layer.copy(
-                strokes = ArrayList(layer.strokes),
+                inkStrokes = ArrayList(layer.inkStrokes),
                 fills = ArrayList(layer.fills),
                 vectorStrokes = ArrayList(layer.vectorStrokes)
             )
@@ -332,7 +332,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         state.forEach { savedLayer ->
             // Deep copy back
             layers.add(savedLayer.copy(
-                strokes = ArrayList(savedLayer.strokes),
+                inkStrokes = ArrayList(savedLayer.inkStrokes),
                 fills = ArrayList(savedLayer.fills),
                 vectorStrokes = ArrayList(savedLayer.vectorStrokes)
             ))

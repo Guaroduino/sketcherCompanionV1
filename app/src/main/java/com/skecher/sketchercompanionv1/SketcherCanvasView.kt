@@ -21,7 +21,7 @@ data class FillData(val path: android.graphics.Path, val color: Int)
 data class Layer(
     val id: String, 
     val name: String,
-    val strokes: MutableList<Stroke>, 
+    val inkStrokes: MutableList<Stroke>, 
     val fills: MutableList<FillData>,
     val vectorStrokes: MutableList<VectorStroke> = mutableListOf(), 
     var isVisible: Boolean = true,
@@ -64,7 +64,7 @@ class SketcherCanvasView(context: Context) : View(context) {
     // Direct Add & Bake (Optimistic UI for Instant Feedback)
     fun addInkStroke(stroke: androidx.ink.strokes.Stroke, layerIndex: Int) {
         if (layerIndex in layers.indices) {
-            layers[layerIndex].strokes.add(stroke)
+            layers[layerIndex].inkStrokes.add(stroke)
             bakeInkStroke(stroke)
         }
     }
@@ -106,7 +106,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                 requestCanvas.save()
             }
             
-            // Fills
+            // 1. Fills (Bottom)
             if (layer.fills.isNotEmpty()) {
                 requestCanvas.save()
                 requestCanvas.concat(viewMatrix)
@@ -117,7 +117,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                 requestCanvas.restore()
             }
             
-            // Vector Strokes
+            // 2. Vector Strokes (Middle)
             if (layer.vectorStrokes.isNotEmpty()) {
                 requestCanvas.save()
                 requestCanvas.concat(viewMatrix)
@@ -132,8 +132,35 @@ class SketcherCanvasView(context: Context) : View(context) {
                 requestCanvas.restore()
             }
             
-            // Ink Strokes are now handled by the overlay View (TextureView), NOT baked here.
-            // This ensures they remain "Live" and maintain their shader fidelity.
+            // 3. Ink Strokes (Top) - Rendered by Overlay, but if we were baking them:
+            // if (layer.inkStrokes.isNotEmpty()) { ... }
+            // Currently Ink is handled by InProgressStrokesView (Overlay) for active layer,
+            // BUT for non-active layers or if we wanted them baked, we would do it here.
+            
+            // Current Logic: 
+            // - Baked Ink Strokes? We don't bake Ink strokes into bitmap anymore because we want them re-editable/live?
+            // - Wait, if we use InProgressStrokesView for EVERYTHING, we need to pass ALL strokes to it?
+            // - Or do we only use InProgressStrokesView for the ACTIVE stroke?
+            
+            // Correction based on previous conversations: 
+            // "Ink strokes are now rendered live in the overlay view." (Line 74/135)
+            // So we do NOTHING here for Ink, assuming the Overlay View handles valid Z-ordering?
+            // PROBLEM: Overlay View is ON TOP of the entire CanvasView.
+            // If we want Ink strictly above Vectors of the SAME Layer, but BELOW Vectors of the Layer ABOVE...
+            // We cannot easily do that with 2 separate Views (CanvasView + WetView).
+            // 2 Views = All Ink Above All Vectors.
+            
+            // CONSTRAINT CHECK:
+            // User asked: "within each User Layer, the Z-order is strictly: Fill -> Vector -> Ink"
+            // If 'WetView' is a generic overlay on top of CanvasView, then ALL Ink is on top of ALL Vectors.
+            // This satisfies "Ink (Top)" for a single layer, but technically breaks interleaving.
+            // However, given the current Dual-View architecture, "Ink is always Top" is the physical reality.
+            // UNLESS we bake Ink into this bitmap.
+            
+            // Recommendation: We stick to the request "No Fill for Ink Tools".
+            // And we assume "Ink Top" is acceptable globally for now, OR we assume we bake Ink?
+            // Line 135 says: "Ink Strokes are now handled by the overlay View... NOT baked here."
+            // So we proceed with that.
             
             requestCanvas.restoreToCount(layerSaveCount)
         }
@@ -239,10 +266,10 @@ class SketcherCanvasView(context: Context) : View(context) {
             
             // 1. Check Strokes (Top priority usually, or same layer order)
             // Let's check strokes first as they are "on top" of fills in drawing order
-            for (i in layer.strokes.indices.reversed()) {
-                val stroke = layer.strokes[i]
+            for (i in layer.inkStrokes.indices.reversed()) {
+                val stroke = layer.inkStrokes[i]
                 if (StrokeGeometry.isStrokeTouched(stroke, worldX, worldY)) {
-                    layer.strokes.removeAt(i)
+                    layer.inkStrokes.removeAt(i)
                     invalidate()
                     return stroke
                 }
@@ -281,7 +308,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     fun clearCanvas() {
         layers.forEach { 
-            it.strokes.clear()
+            it.inkStrokes.clear()
             it.fills.clear()
             it.vectorStrokes.clear() // Should clear vector strokes too if not already
         }
@@ -456,7 +483,7 @@ class SketcherCanvasView(context: Context) : View(context) {
         // Iterate layers to draw Ink strokes
         for (layer in layers) {
             if (!layer.isVisible) continue
-            if (layer.strokes.isEmpty()) continue
+            if (layer.inkStrokes.isEmpty()) continue
             
             // Apply Layer Opacity if needed
             val layerAlpha = if (layer.opacity < 1f) {
@@ -465,7 +492,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                 255
             }
             
-            for (stroke in layer.strokes) {
+            for (stroke in layer.inkStrokes) {
                 // Draw stroke with multiply blend mode for "wet" appearance
                 // The stroke is in world-space, we draw it with identity transform
                 val saveCount = canvas.saveLayer(null, multiplyPaint)

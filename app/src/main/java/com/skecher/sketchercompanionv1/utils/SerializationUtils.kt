@@ -2,6 +2,7 @@ package com.skecher.sketchercompanionv1.utils
 
 import android.graphics.Matrix
 import android.graphics.Path
+import android.graphics.PointF
 import androidx.ink.brush.Brush
 import androidx.ink.brush.InputToolType
 import androidx.ink.strokes.MutableStrokeInputBatch
@@ -10,6 +11,8 @@ import androidx.ink.strokes.StrokeInput
 import androidx.ink.strokes.StrokeInputBatch
 import com.skecher.sketchercompanionv1.FillData
 import com.skecher.sketchercompanionv1.Layer
+import com.skecher.sketchercompanionv1.VectorStroke
+import com.skecher.sketchercompanionv1.StrokePoint
 import com.skecher.sketchercompanionv1.dto.*
 
 // --- PROJECT LEVEL ---
@@ -23,8 +26,18 @@ fun Layer.toLayerJson(): LayerJson {
         name = this.name,
         isVisible = this.isVisible,
         opacity = this.opacity,
-        strokes = this.strokes.map { it.toStrokeJson() },
-        fills = this.fills.map { it.toFillJson() }
+        strokes = this.inkStrokes.map { it.toStrokeJson() }, // Map domain 'inkStrokes' to JSON 'strokes'
+        fills = this.fills.map { it.toFillJson() },
+        vectorStrokes = this.vectorStrokes.map { it.toVectorStrokeJson() }
+    )
+}
+
+fun VectorStroke.toVectorStrokeJson(): VectorStrokeJson {
+    // Basic mapping
+    return VectorStrokeJson(
+        points = this.points.map { StrokePointJson(it.x, it.y, it.pressure) },
+        color = this.color,
+        maxWidth = this.maxWidth
     )
 }
 
@@ -34,10 +47,39 @@ fun LayerJson.toLayer(): Layer {
     return Layer(
         id = this.id,
         name = this.name,
-        strokes = layerStrokes,
+        inkStrokes = layerStrokes, // Map JSON 'strokes' to domain 'inkStrokes'
         fills = layerFills,
+        vectorStrokes = this.vectorStrokes.map { it.toVectorStroke() }.toMutableList(),
         isVisible = this.isVisible,
         opacity = this.opacity
+    )
+}
+
+fun VectorStrokeJson.toVectorStroke(): VectorStroke {
+    val pts = this.points.map { StrokePoint(it.x, it.y, it.pressure) }
+    // Reconstruct Path? 
+    // We need to regenerate the Path object from points since JSON doesn't store Path commands directly/easily
+    // and we want it editable/re-generatable.
+    // BUT VectorStroke has a immutable 'path' property.
+    // We need to use PathGenerator here to recreate it!
+    
+    // We assume default generator logic for now.
+    // Ideally we should save the 'type' of stroke (Tech Pen vs Organic).
+    // For now assuming Tech Pen unless we store metadata.
+    // Or we use a generic path generator.
+    
+    // WARNING: This requires PathGenerator dependency here.
+    // If not available, we might return empty path?
+    // Let's import PathGenerator if needed.
+    // Assuming com.skecher.sketchercompanionv1.PathGenerator is accessible.
+    
+    val (path, _, _) = com.skecher.sketchercompanionv1.PathGenerator.generateStrokePath(pts, this.maxWidth)
+    
+    return VectorStroke(
+        points = pts,
+        color = this.color,
+        maxWidth = this.maxWidth,
+        path = path
     )
 }
 

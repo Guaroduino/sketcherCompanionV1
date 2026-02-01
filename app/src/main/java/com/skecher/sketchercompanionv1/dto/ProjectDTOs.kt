@@ -34,7 +34,7 @@ enum class DistanceUnit(val symbol: String, val toMillimeters: Float) {
     M("m", 1000.0f);
 
     companion object {
-        fun fromSymbol(symbol: String): DistanceUnit = entries.find { it.symbol == symbol } ?: M
+        fun fromSymbol(symbol: String): DistanceUnit = entries.find { it.symbol == symbol } ?: MM
     }
 }
 
@@ -44,7 +44,20 @@ data class LayerJson(
     val isVisible: Boolean,
     val opacity: Float,
     val strokes: List<StrokeJson>,
-    val fills: List<FillJson>
+    val fills: List<FillJson>,
+    val vectorStrokes: List<VectorStrokeJson> = emptyList()
+)
+
+data class VectorStrokeJson(
+    val points: List<StrokePointJson>,
+    val color: Int,
+    val maxWidth: Float
+)
+
+data class StrokePointJson(
+    val x: Float,
+    val y: Float,
+    val pressure: Float
 )
 
 data class StrokeJson(

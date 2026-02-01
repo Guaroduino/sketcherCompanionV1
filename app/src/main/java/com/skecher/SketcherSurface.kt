@@ -151,19 +151,7 @@ fun Context.findActivity(): Activity? = when (this) {
     else -> null
 }
 
-/**
- * Applies a Gamma Correction curve to the pressure.
- * @param rawPressure Input pressure (0.0 to 1.0)
- * @param sensitivity Exponent value. 
- *        < 1.0 makes it MORE sensitive (curves up, e.g. 0.5 is sqrt).
- *        > 1.0 makes it LESS sensitive (curves down, e.g. 2.0 is squared).
- *        1.0 is linear.
- */
-private fun adjustPressure(rawPressure: Float, sensitivity: Float): Float {
-    val clamped = rawPressure.coerceIn(0f, 1f)
-    if (sensitivity == 1.0f) return clamped
-    return java.lang.Math.pow(clamped.toDouble(), sensitivity.toDouble()).toFloat()
-}
+
 
 @SuppressLint("ClickableViewAccessibility", "SourceLockedOrientationActivity")
 @Composable
@@ -252,6 +240,17 @@ fun SketcherSurface(
              ActivityInfo.SCREEN_ORIENTATION_LOCKED
         } else {
              ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+
+    // LAYER CONSTRAINT: Disable Fill for Ink Tools
+    LaunchedEffect(selectedTool) {
+        val isInkTool = selectedTool == ToolType.MARKER || 
+                        selectedTool == ToolType.HIGHLIGHTER || 
+                        selectedTool == ToolType.PRESSURE_PEN
+                        
+        if (isInkTool && isFillModeEnabled) {
+             isFillModeEnabled = false
         }
     }
 
@@ -535,7 +534,7 @@ fun SketcherSurface(
                                      }
                                      
                                      // 2. Check Ink Strokes (LIVE VIEW)
-                                     val kIter = activeLayer.strokes.iterator()
+                                     val kIter = activeLayer.inkStrokes.iterator()
                                      var inkRemoved = false
                                      while (kIter.hasNext()) {
                                          val stroke = kIter.next()
@@ -550,7 +549,7 @@ fun SketcherSurface(
                                      if (inkRemoved) {
                                          // User Request: "Call wetView.setStrokes(viewModel.inkStrokes)"
                                          // Used extension function defined below
-                                         wetView.setStrokes(activeLayer.strokes)
+                                         wetView.setStrokes(activeLayer.inkStrokes)
                                      }
                                 }
 
@@ -559,366 +558,105 @@ fun SketcherSurface(
                                 }
                                 
                                 // RELOAD INK (If needed)
-                                if (sketchViewModel.layers.getOrNull(sketchViewModel.activeLayerIndex)?.strokes != null) {
+                                if (sketchViewModel.layers.getOrNull(sketchViewModel.activeLayerIndex)?.inkStrokes != null) {
                                      // Optimization: Only if ink changed.
                                      // ...
                                 }
                              }
                         }
-                    } else if (state.brushFamily != null) {
-                        // Lógica de Ink (Dibujo) + Dual Fill
-                        if (event.pointerCount == 1) {
-                            val pid = event.getPointerId(0)
-                            
-                            val rawTouchPts = floatArrayOf(event.x, event.y)
-                            inverseMatrix.mapPoints(rawTouchPts)
-                            val worldXRaw = rawTouchPts[0]
-                            val worldYRaw = rawTouchPts[1]
-
-                            // --- SNAP TO GRID LOGIC (IMMEDIATE) ---
-                            // Check snap BEFORE processing any stroke/stabilizer logic
-                            var effectiveX = worldXRaw
-                            var effectiveY = worldYRaw
-
-                            if (isSnapEnabled) {
-                                val gridStepPx = UnitUtils.projectUnitsToPixels(
-                                    value = sketchViewModel.gridConfig.spacing,
-                                    unit = sketchViewModel.currentUnit,
-                                    basePxPerMm = sketchViewModel.scaleConfig.basePixelsPerMillimeter
-                                )
-
-                                if (gridStepPx > 0) {
-                                    effectiveX = (kotlin.math.round(worldXRaw / gridStepPx) * gridStepPx)
-                                    effectiveY = (kotlin.math.round(worldYRaw / gridStepPx) * gridStepPx)
-                                }
-                            }
-                        
-                            when (action) {
-                                MotionEvent.ACTION_DOWN -> {
-                                    // FORCE WAKEUP
-                                    v.invalidate()
-
-                                    // Reset Filtering
-                                    lastInputX = effectiveX
-                                    lastInputY = effectiveY
-                                    lastInputPressure = event.pressure
-                                    
-                                    state.lastScreenX = event.x
-                                    state.lastScreenY = event.y
-                                    state.lastEventTime = event.eventTime
-                                    state.smoothedVelocityX = 0f
-                                    state.smoothedVelocityY = 0f
-
-                                    // 1. Reset Stabilizer with EFFECTIVE (Snapped) Coordinates
-                                    stabilizer.reset(effectiveX, effectiveY)
-                                    
-                                    if (state.toolType == ToolType.TECHNICAL_PEN || state.toolType == ToolType.FILL_SHAPE || state.toolType == ToolType.POLYGON_SWEEPER) {
-                                        // --- CUSTOM VECTOR ENGINE ---
-                                        state.vectorPoints.clear()
-                                        // Adjust pressure with same curve
-                                        var pressure = event.pressure
-                                        pressure = adjustPressure(pressure, pressureSensitivity)
-                                        
-                                        // Transform to World Space
-                                        // CRITICAL FIX: effectiveX/Y are ALREADY in World Space (transformed at line 577)
-                                        // do NOT transform again.
-                                        val worldX = effectiveX
-                                        val worldY = effectiveY
-                                        
-                                        state.vectorPoints.add(StrokePoint(worldX, worldY, pressure))
-                                        
-                                        if (state.toolType == ToolType.TECHNICAL_PEN || state.toolType == ToolType.POLYGON_SWEEPER) {
-                                            // Preview Stroke
-                                            val (path, _, _) = if (state.toolType == ToolType.POLYGON_SWEEPER) {
-                                                PathGenerator.generateOrganicFillPath(state.vectorPoints, state.size, sketchViewModel.penMinSizeFactor)
-                                            } else {
-                                                PathGenerator.generateStrokePath(state.vectorPoints, state.size, sketchViewModel.penMinSizeFactor)
-                                            }
-                                            
-                                            // Calculate Opacity-Aware Color
-                                            val alpha = (state.opacity * 255).toInt()
-                                            val colorWithAlpha = androidx.core.graphics.ColorUtils.setAlphaComponent(state.color, alpha)
-                                            
-                                            canvasView.updateCurrentVectorPreview(
-                                                path = path, 
-                                                points = state.vectorPoints.toList(), 
-                                                color = colorWithAlpha, 
-                                                maxWidth = state.size, 
-                                                minSizeFactor = sketchViewModel.penMinSizeFactor
-                                            )
-                                        }
-
-                                        // 3. Fill Path Start (For Tech Pen OR Fill Tool)
-                                        if (isFillModeEnabled || state.toolType == ToolType.FILL_SHAPE) {
-                                            state.fillPath.reset()
-                                            state.fillPath.moveTo(effectiveX, effectiveY)
-                                            canvasView.updateCurrentFill(state.fillPath, if(state.toolType == ToolType.FILL_SHAPE) state.color else fillModeColor)
-                                        }
-                                        
-                                    } else {
-                                        // --- ANDROID INK ENGINE (Markers/Highlighters) ---
-                                        
-                                        // Synthesize Event for Ink Engine (Needs Screen Coordinates)
-                                        val snapScreenPts = floatArrayOf(effectiveX, effectiveY)
-                                        cameraMatrix.mapPoints(snapScreenPts)
-                                        
-                                        val pointerIndex = 0
-                                        val props = arrayOf(MotionEvent.PointerProperties())
-                                        props[0] = MotionEvent.PointerProperties()
-                                        event.getPointerProperties(pointerIndex, props[0])
-                                        
-                                        val coords = arrayOf(MotionEvent.PointerCoords())
-                                        coords[0] = MotionEvent.PointerCoords()
-                                        event.getPointerCoords(pointerIndex, coords[0])
-                                        
-                                        // Overwrite with Snapped Screen Coords
-                                        coords[0].x = snapScreenPts[0]
-                                        coords[0].y = snapScreenPts[1]
-
-                                        // PRESSURE CURVE (Gamma Correction) - Logic preserved though mostly handled by Vector now for Pens
-                                        if (state.toolType == ToolType.PRESSURE_PEN) {
-                                            coords[0].pressure = adjustPressure(coords[0].pressure, pressureSensitivity)
-                                        }
-                                        // Note: Prompt assumes PEN is Vector. Marker/Highlighter are Ink. They usually ignore pressure opacity or have fixed behavior, 
-                                        // but Ink engine supports it. We'll leave it.
-                                        
-                                        val snappedEvent = MotionEvent.obtain(
-                                            event.downTime, event.eventTime, event.action, 1, props, coords,
-                                            event.metaState, event.buttonState, event.xPrecision, event.yPrecision,
-                                            event.deviceId, event.edgeFlags, event.source, event.flags
-                                        )
-
-                                        // 2. Ink Stroke Start (Using Snapped Event)
-                                        if (state.activeBrush == null) {
-                                             val currentZoom = InkUtils.getMatrixScale(cameraMatrix)
-                                             state.updateActiveBrush(currentZoom)
-                                        }
-                                        
-                                        try {
-                                            state.activeBrush?.let { brush ->
-                                                strokeIdMap[pid] = wetView.startStroke(snappedEvent, pid, brush)
-                                            }
-                                        } finally {
-                                            snappedEvent.recycle()
-                                        }
-                                        
-                                        // 3. Fill Path Start
-                                        if (isFillModeEnabled) {
-                                            state.fillPath.reset()
-                                            state.fillPath.moveTo(effectiveX, effectiveY)
-                                            canvasView.updateCurrentFill(state.fillPath, fillModeColor)
-                                        }
+                    } else {
+                        // MAIN DRAWING LOGIC (Vector + Ink)
+                        // Allow entry if we have a BrushFamily (Ink) OR if it is a known Vector Tool
+                        val isVectorTool = state.toolType == ToolType.TECHNICAL_PEN || 
+                                           state.toolType == ToolType.FILL_SHAPE || 
+                                           state.toolType == ToolType.POLYGON_SWEEPER
+                                           
+                        if (state.brushFamily != null || isVectorTool) {
+                            if (event.pointerCount == 1) {
+                                val pid = event.getPointerId(0)
+                                
+                                val rawTouchPts = floatArrayOf(event.x, event.y)
+                                inverseMatrix.mapPoints(rawTouchPts)
+                                val worldXRaw = rawTouchPts[0]
+                                val worldYRaw = rawTouchPts[1]
+    
+                                // --- SNAP TO GRID LOGIC (IMMEDIATE) ---
+                                // Check snap BEFORE processing any stroke/stabilizer logic
+                                var effectiveX = worldXRaw
+                                var effectiveY = worldYRaw
+    
+                                if (isSnapEnabled) {
+                                    val gridStepPx = UnitUtils.projectUnitsToPixels(
+                                        value = sketchViewModel.gridConfig.spacing,
+                                        unit = sketchViewModel.currentUnit,
+                                        basePxPerMm = sketchViewModel.scaleConfig.basePixelsPerMillimeter
+                                    )
+    
+                                    if (gridStepPx > 0) {
+                                        effectiveX = (kotlin.math.round(worldXRaw / gridStepPx) * gridStepPx)
+                                        effectiveY = (kotlin.math.round(worldYRaw / gridStepPx) * gridStepPx)
                                     }
                                 }
-                                MotionEvent.ACTION_MOVE -> {
-                                    // INPUT FILTERING
-                                    // Calculate distance from last processed point
-                                    val dist = kotlin.math.hypot(effectiveX - lastInputX, effectiveY - lastInputY)
-                                    val pressureDelta = kotlin.math.abs(event.pressure - lastInputPressure)
-
-                                    // Only process if moved > 2.0 pixels OR pressure changed significantly
-                                    if (dist > 2.0f || pressureDelta > 0.1f) {
+                            
+                                when (action) {
+                                    MotionEvent.ACTION_DOWN -> {
+                                        // FORCE WAKEUP
+                                        v.invalidate()
+    
+                                        // Reset Filtering
                                         lastInputX = effectiveX
                                         lastInputY = effectiveY
                                         lastInputPressure = event.pressure
                                         
-                                        // Stabilize Logic (Input: EFFECTIVE/Snapped World Coords)
-                                        val stabilizedPoint = stabilizer.update(effectiveX, effectiveY, stabilizationLevel)
-                                        val stabWorldX = stabilizedPoint.x
-                                        val stabWorldY = stabilizedPoint.y
+                                        state.lastScreenX = event.x
+                                        state.lastScreenY = event.y
+                                        state.lastEventTime = event.eventTime
+                                        state.smoothedVelocityX = 0f
+                                        state.smoothedVelocityY = 0f
+    
+                                        // 1. Reset Stabilizer with EFFECTIVE (Snapped) Coordinates
+                                        stabilizer.reset(effectiveX, effectiveY)
                                         
-                                        if (state.toolType == ToolType.TECHNICAL_PEN || state.toolType == ToolType.FILL_SHAPE || state.toolType == ToolType.POLYGON_SWEEPER) {
-                                            // VECTOR ENGINE with INPUT BATCHING
+                                        // --- VECTOR TOOL INITIALIZATION ---
+                                        if (isVectorTool) {
+                                            state.vectorPoints.clear()
                                             
-                                            // Process ALL historical points first (Input Batching)
-                                            val historySize = event.historySize
-                                            for (i in 0 until historySize) {
-                                                val hx = event.getHistoricalX(i)
-                                                val hy = event.getHistoricalY(i)
-                                                val hPressure = event.getHistoricalPressure(i)
-                                                
-                                                // Transform to world coordinates
-                                                val hTouchPts = floatArrayOf(hx, hy)
-                                                inverseMatrix.mapPoints(hTouchPts)
-                                                var hWorldX = hTouchPts[0]
-                                                var hWorldY = hTouchPts[1]
-                                                
-                                                // Apply snap if enabled
-                                                if (isSnapEnabled) {
-                                                    val gridStepPx = UnitUtils.projectUnitsToPixels(
-                                                        value = sketchViewModel.gridConfig.spacing,
-                                                        unit = sketchViewModel.currentUnit,
-                                                        basePxPerMm = sketchViewModel.scaleConfig.basePixelsPerMillimeter
-                                                    )
-                                                    if (gridStepPx > 0) {
-                                                        hWorldX = (kotlin.math.round(hWorldX / gridStepPx) * gridStepPx)
-                                                        hWorldY = (kotlin.math.round(hWorldY / gridStepPx) * gridStepPx)
-                                                    }
-                                                }
-                                                
-                                                // Apply stabilization
-                                                val hStabilized = stabilizer.update(hWorldX, hWorldY, stabilizationLevel)
-                                                
-                                                // Apply pressure curve
-                                                var hPressureAdjusted = adjustPressure(hPressure, pressureSensitivity)
-                                                
-                                                // DISTANCE FILTER: Only add if moved significantly or pressure changed
-                                                val lastPoint = state.vectorPoints.lastOrNull()
-                                                if (lastPoint != null) {
-                                                    val hDist = kotlin.math.hypot(hStabilized.x - lastPoint.x, hStabilized.y - lastPoint.y)
-                                                    val hPressureDelta = kotlin.math.abs(hPressureAdjusted - lastPoint.pressure)
-                                                    
-                                                    // Only add if moved > 2.0px OR pressure changed > 0.05
-                                                    if (hDist > 2.0f || hPressureDelta > 0.05f) {
-                                                        state.vectorPoints.add(StrokePoint(hStabilized.x, hStabilized.y, hPressureAdjusted))
-                                                    }
-                                                } else {
-                                                    // First point, always add
-                                                    state.vectorPoints.add(StrokePoint(hStabilized.x, hStabilized.y, hPressureAdjusted))
-                                                }
-                                            }
-                                            
-                                            // Now process the current point
                                             var pressure = event.pressure
                                             pressure = adjustPressure(pressure, pressureSensitivity)
                                             
-                                            // DISTANCE FILTER: Only add if moved significantly or pressure changed
-                                            val lastPoint = state.vectorPoints.lastOrNull()
-                                            if (lastPoint != null) {
-                                                // Convert 'stabWorldX' (which is actually screen/snapped) to REAL World Space
-                                                // CRITICAL FIX: stabWorldX is ALREADY World Space.
-                                                val realWorldX = stabWorldX
-                                                val realWorldY = stabWorldY
-                                                
-                                                val currentDist = kotlin.math.hypot(realWorldX - lastPoint.x, realWorldY - lastPoint.y)
-                                                val currentPressureDelta = kotlin.math.abs(pressure - lastPoint.pressure)
-                                                
-                                                // Only add if moved > 2.0px OR pressure changed > 0.05
-                                                if (currentDist > 2.0f || currentPressureDelta > 0.05f) {
-                                                    state.vectorPoints.add(StrokePoint(realWorldX, realWorldY, pressure))
-                                                }
-                                            } else {
-                                                // First point, always add
-                                                // CRITICAL FIX: stabWorldX is ALREADY World Space.
-                                                val realWorldX = stabWorldX
-                                                val realWorldY = stabWorldY
-                                                
-                                                state.vectorPoints.add(StrokePoint(realWorldX, realWorldY, pressure))
-                                            }
+                                            // effectiveX/Y are ALREADY in World Space
+                                            state.vectorPoints.add(StrokePoint(effectiveX, effectiveY, pressure))
                                             
-                                            // 3. Fill Path Update (For Tech Pen OR Fill Tool)
+                                            // Vector Preview (Tech Pen / Polygon Sweeper)
+                                            if (state.toolType != ToolType.FILL_SHAPE) {
+                                                // Generate preview...
+                                                val (path, _, _) = if (state.toolType == ToolType.POLYGON_SWEEPER) {
+                                                    PathGenerator.generateOrganicFillPath(state.vectorPoints, state.size, sketchViewModel.penMinSizeFactor)
+                                                } else {
+                                                    PathGenerator.generateStrokePath(state.vectorPoints, state.size, sketchViewModel.penMinSizeFactor)
+                                                }
+                                                val alpha = (state.opacity * 255).toInt()
+                                                val colorWithAlpha = androidx.core.graphics.ColorUtils.setAlphaComponent(state.color, alpha)
+                                                canvasView.updateCurrentVectorPreview(path, state.vectorPoints.toList(), colorWithAlpha, state.size, sketchViewModel.penMinSizeFactor)
+                                            }
+            
+                                            // Fill Path Start (For Tech Pen OR Fill Tool)
                                             if (isFillModeEnabled || state.toolType == ToolType.FILL_SHAPE) {
-                                                state.fillPath.lineTo(stabWorldX, stabWorldY)
-                                                // Send closed copy for preview
-                                                val previewPath = android.graphics.Path(state.fillPath)
-                                                previewPath.close()
-                                                canvasView.updateCurrentFill(previewPath, if(state.toolType == ToolType.FILL_SHAPE) state.color else fillModeColor)
+                                                state.fillPath.reset()
+                                                state.fillPath.moveTo(effectiveX, effectiveY)
+                                                canvasView.updateCurrentFill(state.fillPath, if(state.toolType == ToolType.FILL_SHAPE) state.color else fillModeColor)
                                             }
+                                        }
+                                        
+                                        // --- INK TOOL INITIALIZATION ---
+                                        // Only run Ink logic if we actually have an active Ink Brush
+                                        // Markers and Highlighters usually fall here.
+                                        if (state.activeBrush != null && !isVectorTool) { 
+                                            // Synthesize Event for Ink Engine (Needs Screen Coordinates)
+                                            val snapScreenPts = floatArrayOf(effectiveX, effectiveY)
+                                            cameraMatrix.mapPoints(snapScreenPts)
                                             
-                                            // --- DYNAMIC PREDICTION LOGIC with SMOOTHING ---
-                                            val dt = (event.eventTime - state.lastEventTime).toFloat().coerceAtLeast(1f)
-                                            val rawVelX = (event.x - state.lastScreenX) / dt
-                                            val rawVelY = (event.y - state.lastScreenY) / dt
-                                            
-                                            // EMA Smoothing
-                                            val smoothFactor = sketchViewModel.predictionSmoothing
-                                            state.smoothedVelocityX = (state.smoothedVelocityX * smoothFactor) + (rawVelX * (1f - smoothFactor))
-                                            state.smoothedVelocityY = (state.smoothedVelocityY * smoothFactor) + (rawVelY * (1f - smoothFactor))
-                                            
-                                            state.lastScreenX = event.x
-                                            state.lastScreenY = event.y
-                                            state.lastEventTime = event.eventTime
-                                            
-                                            // DYNAMIC VELOCITY LAG
-                                            // Scale lag based on velocity to prevent overshoot on slow detailed strokes
-                                            val velocityMag = kotlin.math.hypot(state.smoothedVelocityX, state.smoothedVelocityY)
-                                            val maxLag = sketchViewModel.predictionLagMs
-                                            val minLag = 15f
-                                            
-                                            var predWorldX = stabWorldX
-                                            var predWorldY = stabWorldY
-                                            val predictionLagMs: Float
-
-                                            if (sketchViewModel.isPredictionEnabled) {
-                                                // Mapping: 0..Min px/s -> MinLag
-                                                //          Max px/s  -> MaxLag
-                                                val minVel = sketchViewModel.predictionVelocityMin
-                                                val maxVel = sketchViewModel.predictionVelocityMax
-                                                val range = (maxVel - minVel).coerceAtLeast(1f) // avoid div by zero
-                                                
-                                                val velocityT = ((velocityMag - minVel) / range).coerceIn(0f, 1f)
-                                                predictionLagMs = minLag + (maxLag - minLag) * velocityT
-                                                
-                                                val predScreenX = event.x + (state.smoothedVelocityX * predictionLagMs)
-                                                val predScreenY = event.y + (state.smoothedVelocityY * predictionLagMs)
-                                                
-                                                android.util.Log.d("PredictionDebug", "Vel: $velocityMag, Lag: $predictionLagMs, PredX: $predScreenX")
-                                                
-                                                // Convert to World Space
-                                                val predWorldPts = floatArrayOf(predScreenX, predScreenY)
-                                                inverseMatrix.mapPoints(predWorldPts)
-                                                predWorldX = predWorldPts[0]
-                                                predWorldY = predWorldPts[1]
-                                                
-                                                // Clamp Prediction distance in World Space
-                                                // Max prediction = 2000 screen pixels (effectively unlimited, controlled by Lag Slider)
-                                                val maxPredScreenDist = 2000f
-                                                val maxPredWorldDist = (maxPredScreenDist / currentZoom)
-                                                
-                                                val dxWorld = predWorldX - stabWorldX
-                                                val dyWorld = predWorldY - stabWorldY
-                                                val distWorld = kotlin.math.hypot(dxWorld, dyWorld)
-                                                
-                                                if (distWorld > maxPredWorldDist && distWorld > 0) {
-                                                    val factor = maxPredWorldDist / distWorld
-                                                    predWorldX = stabWorldX + dxWorld * factor
-                                                    predWorldY = stabWorldY + dyWorld * factor
-                                                }
-                                            } else {
-                                                // Prediction Disabled: Use current stabilized point
-                                                predictionLagMs = 0f
-                                                predWorldX = stabWorldX
-                                                predWorldY = stabWorldY
-                                            }
-                                            
-                                            val predictedPoint = android.graphics.PointF(predWorldX, predWorldY)
-
-                                            // Generate preview path based on tool type
-                                            val (path, _, _) = if (state.toolType == ToolType.POLYGON_SWEEPER) {
-                                                PathGenerator.generateOrganicFillPath(
-                                                    points = state.vectorPoints,
-                                                    maxWidth = state.size,
-                                                    minSizeFactor = sketchViewModel.penMinSizeFactor
-                                                )
-                                            } else {
-                                                PathGenerator.generateStrokePath(state.vectorPoints, state.size, sketchViewModel.penMinSizeFactor)
-                                            }
-                                            
-                                            // Calculate Opacity-Aware Color
-                                            val alpha = (state.opacity * 255).toInt()
-                                            val colorWithAlpha = androidx.core.graphics.ColorUtils.setAlphaComponent(state.color, alpha)
-                                            
-                                            canvasView.updateCurrentVectorPreview(
-                                                path = path, 
-                                                points = state.vectorPoints.toList(), 
-                                                color = colorWithAlpha, 
-                                                maxWidth = state.size, 
-                                                minSizeFactor = sketchViewModel.penMinSizeFactor,
-                                                predictedPoint = predictedPoint
-                                            )
-                                        } else {
-                                            // Keep INK logic mostly as is, but nested inside filter
-                                             // INK ENGINE
-                                            
-                                            // Transform back to Screen Coordinates for Stroke
-                                            val stabScreenPts = floatArrayOf(stabWorldX, stabWorldY)
-                                            cameraMatrix.mapPoints(stabScreenPts)
-                                            val stabScreenX = stabScreenPts[0]
-                                            val stabScreenY = stabScreenPts[1]
-        
-                                            // Synthesize Event with NO HISTORY
                                             val pointerIndex = 0
-                                            
                                             val props = arrayOf(MotionEvent.PointerProperties())
                                             props[0] = MotionEvent.PointerProperties()
                                             event.getPointerProperties(pointerIndex, props[0])
@@ -927,190 +665,279 @@ fun SketcherSurface(
                                             coords[0] = MotionEvent.PointerCoords()
                                             event.getPointerCoords(pointerIndex, coords[0])
                                             
-                                            // Overwrite with Stabilized Coordinates
-                                            coords[0].x = stabScreenX
-                                            coords[0].y = stabScreenY
-        
-                                            // PRESSURE CURVE (Gamma Correction) - Removed Pen check since Pen is handled above
+                                            // Overwrite with Snapped Screen Coords
+                                            coords[0].x = snapScreenPts[0]
+                                            coords[0].y = snapScreenPts[1]
+    
                                             if (state.toolType == ToolType.PRESSURE_PEN) {
                                                 coords[0].pressure = adjustPressure(coords[0].pressure, pressureSensitivity)
                                             }
                                             
-                                            val stabilizedEvent = MotionEvent.obtain(
+                                            val snappedEvent = MotionEvent.obtain(
                                                 event.downTime, event.eventTime, event.action, 1, props, coords,
                                                 event.metaState, event.buttonState, event.xPrecision, event.yPrecision,
                                                 event.deviceId, event.edgeFlags, event.source, event.flags
                                             )
-        
-                                            // 1. Ink Stroke Move
+    
                                             try {
-                                                strokeIdMap[pid]?.let { wetView.addToStroke(stabilizedEvent, pid, it, null) }
+                                                state.activeBrush?.let { brush ->
+                                                    strokeIdMap[pid] = wetView.startStroke(snappedEvent, pid, brush)
+                                                }
                                             } finally {
-                                                stabilizedEvent.recycle()
+                                                snappedEvent.recycle()
                                             }
                                             
-                                            // 2. Fill Path Move
+                                            // Fill Path Start (Secondary Fill for Ink)
+                                            if (isFillModeEnabled) {
+                                                state.fillPath.reset()
+                                                state.fillPath.moveTo(effectiveX, effectiveY)
+                                                canvasView.updateCurrentFill(state.fillPath, fillModeColor)
+                                            }
+                                        }
+                                    }
+                                    MotionEvent.ACTION_MOVE -> {
+                                        // INPUT FILTERING
+                                        val dist = kotlin.math.hypot(effectiveX - lastInputX, effectiveY - lastInputY)
+                                        val pressureDelta = kotlin.math.abs(event.pressure - lastInputPressure)
+    
+                                        if (dist > 2.0f || pressureDelta > 0.1f) {
+                                            lastInputX = effectiveX
+                                            lastInputY = effectiveY
+                                            lastInputPressure = event.pressure
+                                            
+                                            val stabilizedPoint = stabilizer.update(effectiveX, effectiveY, stabilizationLevel)
+                                            val stabWorldX = stabilizedPoint.x
+                                            val stabWorldY = stabilizedPoint.y
+                                            
+                                            // --- VECTOR UPDATE ---
+                                            if (isVectorTool) {
+                                                // Batch Histroy
+                                                val historySize = event.historySize
+                                                for (i in 0 until historySize) {
+                                                     val hx = event.getHistoricalX(i)
+                                                     val hy = event.getHistoricalY(i)
+                                                     val hPressure = event.getHistoricalPressure(i)
+                                                     val hTouchPts = floatArrayOf(hx, hy)
+                                                     inverseMatrix.mapPoints(hTouchPts)
+                                                     var hWorldX = hTouchPts[0]
+                                                     var hWorldY = hTouchPts[1]
+                                                     
+                                                     if (isSnapEnabled) {
+                                                         val gridStepPx = UnitUtils.projectUnitsToPixels(sketchViewModel.gridConfig.spacing, sketchViewModel.currentUnit, sketchViewModel.scaleConfig.basePixelsPerMillimeter)
+                                                         if (gridStepPx > 0) {
+                                                             hWorldX = (kotlin.math.round(hWorldX / gridStepPx) * gridStepPx)
+                                                             hWorldY = (kotlin.math.round(hWorldY / gridStepPx) * gridStepPx)
+                                                         }
+                                                     }
+                                                     val hStabilized = stabilizer.update(hWorldX, hWorldY, stabilizationLevel)
+                                                     var hPressureAdjusted = adjustPressure(hPressure, pressureSensitivity)
+                                                     
+                                                      state.vectorPoints.add(StrokePoint(hStabilized.x, hStabilized.y, hPressureAdjusted))
+                                                }
+                                                
+                                                // Current Point
+                                                var pressure = event.pressure
+                                                pressure = adjustPressure(pressure, pressureSensitivity)
+                                                state.vectorPoints.add(StrokePoint(stabWorldX, stabWorldY, pressure))
+                                                
+                                                // Fill Path Update
+                                                if (isFillModeEnabled || state.toolType == ToolType.FILL_SHAPE) {
+                                                    state.fillPath.lineTo(stabWorldX, stabWorldY)
+                                                    val previewPath = android.graphics.Path(state.fillPath)
+                                                    previewPath.close()
+                                                    canvasView.updateCurrentFill(previewPath, if(state.toolType == ToolType.FILL_SHAPE) state.color else fillModeColor)
+                                                }
+                                                
+                                                // Vector Prediction & Preview
+                                                val dt = (event.eventTime - state.lastEventTime).toFloat().coerceAtLeast(1f)
+                                                val rawVelX = (event.x - state.lastScreenX) / dt
+                                                val rawVelY = (event.y - state.lastScreenY) / dt
+                                                val smoothFactor = sketchViewModel.predictionSmoothing
+                                                state.smoothedVelocityX = (state.smoothedVelocityX * smoothFactor) + (rawVelX * (1f - smoothFactor))
+                                                state.smoothedVelocityY = (state.smoothedVelocityY * smoothFactor) + (rawVelY * (1f - smoothFactor))
+                                                state.lastScreenX = event.x
+                                                state.lastScreenY = event.y
+                                                state.lastEventTime = event.eventTime
+                                                
+                                                var predWorldX = stabWorldX
+                                                var predWorldY = stabWorldY
+                                                
+                                                 if (sketchViewModel.isPredictionEnabled) {
+                                                    val velocityMag = kotlin.math.hypot(state.smoothedVelocityX, state.smoothedVelocityY)
+                                                    val minLag = 15f
+                                                    val maxLag = sketchViewModel.predictionLagMs
+                                                    val minVel = sketchViewModel.predictionVelocityMin
+                                                    val maxVel = sketchViewModel.predictionVelocityMax
+                                                    val range = (maxVel - minVel).coerceAtLeast(1f)
+                                                    val velocityT = ((velocityMag - minVel) / range).coerceIn(0f, 1f)
+                                                    val predictionLagMs = minLag + (maxLag - minLag) * velocityT
+                                                    val predScreenX = event.x + (state.smoothedVelocityX * predictionLagMs)
+                                                    val predScreenY = event.y + (state.smoothedVelocityY * predictionLagMs)
+                                                    val predWorldPts = floatArrayOf(predScreenX, predScreenY)
+                                                    inverseMatrix.mapPoints(predWorldPts)
+                                                    predWorldX = predWorldPts[0]
+                                                    predWorldY = predWorldPts[1]
+                                                 }
+                                                 val predictedPoint = android.graphics.PointF(predWorldX, predWorldY)
+                                                
+                                                if (state.toolType != ToolType.FILL_SHAPE) {
+                                                     val (path, _, _) = if (state.toolType == ToolType.POLYGON_SWEEPER) {
+                                                         PathGenerator.generateOrganicFillPath(state.vectorPoints, state.size, sketchViewModel.penMinSizeFactor)
+                                                     } else {
+                                                         PathGenerator.generateStrokePath(state.vectorPoints, state.size, sketchViewModel.penMinSizeFactor)
+                                                     }
+                                                     val alpha = (state.opacity * 255).toInt()
+                                                     val colorWithAlpha = androidx.core.graphics.ColorUtils.setAlphaComponent(state.color, alpha)
+                                                     canvasView.updateCurrentVectorPreview(path, state.vectorPoints.toList(), colorWithAlpha, state.size, sketchViewModel.penMinSizeFactor, predictedPoint)
+                                                }
+    
+                                            }
+                                            
+                                            // --- INK UPDATE ---
+                                            if (state.activeBrush != null && !isVectorTool) {
+                                                 val stabScreenPts = floatArrayOf(stabWorldX, stabWorldY)
+                                                 cameraMatrix.mapPoints(stabScreenPts)
+                                                 
+                                                 val pointerIndex = 0
+                                                 val props = arrayOf(MotionEvent.PointerProperties())
+                                                 props[0] = MotionEvent.PointerProperties()
+                                                 event.getPointerProperties(pointerIndex, props[0])
+                                                 val coords = arrayOf(MotionEvent.PointerCoords())
+                                                 coords[0] = MotionEvent.PointerCoords()
+                                                 event.getPointerCoords(pointerIndex, coords[0])
+                                                 coords[0].x = stabScreenPts[0]
+                                                 coords[0].y = stabScreenPts[1]
+                                                 
+                                                  if (state.toolType == ToolType.PRESSURE_PEN) {
+                                                     coords[0].pressure = adjustPressure(coords[0].pressure, pressureSensitivity)
+                                                 }
+                                                 
+                                                 val stabilizedEvent = MotionEvent.obtain(
+                                                    event.downTime, event.eventTime, event.action, 1, props, coords,
+                                                    event.metaState, event.buttonState, event.xPrecision, event.yPrecision,
+                                                    event.deviceId, event.edgeFlags, event.source, event.flags
+                                                 )
+            
+                                                 try {
+                                                     strokeIdMap[pid]?.let { wetView.addToStroke(stabilizedEvent, pid, it, null) }
+                                                 } finally {
+                                                     stabilizedEvent.recycle()
+                                                 }
+                                                 
+                                                 // Fill Move
+                                                 if (isFillModeEnabled) {
+                                                     state.fillPath.lineTo(stabWorldX, stabWorldY)
+                                                     val previewPath = android.graphics.Path(state.fillPath)
+                                                     previewPath.close()
+                                                     canvasView.updateCurrentFill(previewPath, fillModeColor)
+                                                 }
+                                            }
+                                        }
+                                    }
+                                    MotionEvent.ACTION_UP -> {
+                                        val stabilizedPoint = stabilizer.update(effectiveX, effectiveY, stabilizationLevel)
+                                        val stabWorldX = stabilizedPoint.x
+                                        val stabWorldY = stabilizedPoint.y
+                                        
+                                        // --- VECTOR COMMIT ---
+                                        if (isVectorTool) {
+                                            var pressure = event.pressure
+                                            pressure = adjustPressure(pressure, pressureSensitivity)
+                                            state.vectorPoints.add(StrokePoint(stabWorldX, stabWorldY, pressure))
+                                            
+                                            // Commit Fill (Fill Tool OR Tech Pen Fill)
+                                            if (isFillModeEnabled || state.toolType == ToolType.FILL_SHAPE) {
+                                                state.fillPath.lineTo(stabWorldX, stabWorldY)
+                                                state.fillPath.close() // Close
+                                                val finalFillColor = if(state.toolType == ToolType.FILL_SHAPE) state.color else fillModeColor
+                                                val fillData = FillData(android.graphics.Path(state.fillPath), finalFillColor)
+                                                sketchViewModel.addFill(fillData)
+                                                canvasView.updateCurrentFill(null, 0)
+                                                canvasView.bakeFill(fillData)
+                                                canvasView.setLayers(sketchViewModel.layers)
+                                            }
+                                            
+                                            // Commit Stroke (Tech Pen / Polygon)
+                                            if (state.toolType == ToolType.TECHNICAL_PEN || state.toolType == ToolType.POLYGON_SWEEPER) {
+                                                // Simplify Path
+                                                val simplifiedPoints = if (simplificationTolerance > 0f) {
+                                                    com.skecher.sketchercompanionv1.utils.VectorUtils.simplifyPoints(
+                                                        state.vectorPoints,
+                                                        zoomScale = InkUtils.getMatrixScale(cameraMatrix),
+                                                        cornerThresholdDegrees = sketchViewModel.simplificationAngleThreshold,
+                                                        pressureTolerance = pressureTolerance
+                                                    )
+                                                } else {
+                                                    state.vectorPoints
+                                                }
+
+                                                 val (path, leftPts, rightPts) = if (state.toolType == ToolType.POLYGON_SWEEPER) {
+                                                     PathGenerator.generateOrganicFillPath(simplifiedPoints, state.size, sketchViewModel.penMinSizeFactor)
+                                                 } else {
+                                                     PathGenerator.generateStrokePath(simplifiedPoints, state.size, sketchViewModel.penMinSizeFactor)
+                                                }
+                                                
+                                                  val alpha = (state.opacity * 255).toInt()
+                                                  val colorWithAlpha = androidx.core.graphics.ColorUtils.setAlphaComponent(state.color, alpha)
+                                                  
+                                                  val stroke = VectorStroke(
+                                                      points = simplifiedPoints.toList(),
+                                                      color = colorWithAlpha,
+                                                      maxWidth = state.size,
+                                                      path = path,
+                                                      leftPoints = leftPts,
+                                                      rightPoints = rightPts
+                                                  )
+                                                  sketchViewModel.addVectorStroke(stroke)
+                                                  canvasView.updateCurrentVectorPreview(null, null, 0) // Clear
+                                                  canvasView.bakeStroke(stroke)
+                                                  canvasView.setLayers(sketchViewModel.layers)
+                                            }
+                                        }
+                                        
+                                        // --- INK COMMIT ---
+                                        if (state.activeBrush != null && !isVectorTool) {
+                                            val snapScreenPts = floatArrayOf(stabWorldX, stabWorldY)
+                                            cameraMatrix.mapPoints(snapScreenPts)
+                                            
+                                            val pointerIndex = 0
+                                            val props = arrayOf(MotionEvent.PointerProperties())
+                                            props[0] = MotionEvent.PointerProperties()
+                                            event.getPointerProperties(pointerIndex, props[0])
+                                            val coords = arrayOf(MotionEvent.PointerCoords())
+                                            coords[0] = MotionEvent.PointerCoords()
+                                            event.getPointerCoords(pointerIndex, coords[0])
+                                            coords[0].x = snapScreenPts[0]
+                                            coords[0].y = snapScreenPts[1]
+                                            
+                                            val snappedEvent = MotionEvent.obtain(
+                                                event.downTime, event.eventTime, event.action, 1, props, coords,
+                                                event.metaState, event.buttonState, event.xPrecision, event.yPrecision,
+                                                event.deviceId, event.edgeFlags, event.source, event.flags
+                                            )
+                                           
+                                            try {
+                                                strokeIdMap[pid]?.let { 
+                                                    wetView.finishStroke(snappedEvent, pid, it)
+                                                    strokeIdMap.remove(pid)
+                                                }
+                                            } finally {
+                                                snappedEvent.recycle()
+                                            }
+                                            
+                                            // Ink Fill Commit
                                             if (isFillModeEnabled) {
                                                 state.fillPath.lineTo(stabWorldX, stabWorldY)
-                                                // Send closed copy for preview
-                                                val previewPath = android.graphics.Path(state.fillPath)
-                                                previewPath.close()
-                                                canvasView.updateCurrentFill(previewPath, fillModeColor)
+                                                state.fillPath.close()
+                                                val fillData = FillData(android.graphics.Path(state.fillPath), fillModeColor)
+                                                sketchViewModel.addFill(fillData)
+                                                canvasView.updateCurrentFill(null, 0)
+                                                canvasView.bakeFill(fillData)
+                                                canvasView.setLayers(sketchViewModel.layers)
                                             }
                                         }
-                                    }
-                                }
-                                MotionEvent.ACTION_UP -> {
-                                    // Use last stabilized position (implicitly handled by last MOVE)
-                                    // But we need to use the current EFFECTIVE position to ensure continuity.
-                                    
-                                    // Stabilize Logic
-                                    val stabilizedPoint = stabilizer.update(effectiveX, effectiveY, stabilizationLevel)
-                                    val stabWorldX = stabilizedPoint.x
-                                    val stabWorldY = stabilizedPoint.y
-                                    
-                                    if (state.toolType == ToolType.TECHNICAL_PEN || state.toolType == ToolType.FILL_SHAPE || state.toolType == ToolType.POLYGON_SWEEPER) {
-                                        // VECTOR ENGINE (BAKED)
-                                        var pressure = event.pressure
-                                        pressure = adjustPressure(pressure, pressureSensitivity)
-                                        
-                                        state.vectorPoints.add(StrokePoint(stabWorldX, stabWorldY, pressure))
-                                        
-                                        // 1. Commit Fill (For Tech Pen OR Fill Tool) - Bake Fill FIRST so it stays behind the stroke
-                                        if (isFillModeEnabled || state.toolType == ToolType.FILL_SHAPE) {
-                                            state.fillPath.lineTo(stabWorldX, stabWorldY)
-                                            state.fillPath.close() // Close the loop
-                                            
-                                            val finalFillColor = if(state.toolType == ToolType.FILL_SHAPE) state.color else fillModeColor
-                                            val fillData = FillData(android.graphics.Path(state.fillPath), finalFillColor)
-                                            
-                                            sketchViewModel.addFill(fillData)
-                                            
-                                            // Clear Preview
-                                            canvasView.updateCurrentFill(null, 0)
-                                            
-                                            // Force Redraw to show baked fill
-                                            canvasView.bakeFill(fillData)
-                                        }
-
-                                        if (state.toolType == ToolType.TECHNICAL_PEN || state.toolType == ToolType.POLYGON_SWEEPER) {
-                                            // STEP B: PATH SIMPLIFICATION (RDP Algorithm)
-                                            // Simplify the raw points to remove noise and reduce vertex count
-                                            // User can disable by setting tolerance to 0
-                                            val simplifiedPoints = if (simplificationTolerance > 0f) {
-                                                com.skecher.sketchercompanionv1.utils.VectorUtils.simplifyPoints(
-                                                    state.vectorPoints,
-                                                    zoomScale = currentZoom,
-                                                    cornerThresholdDegrees = sketchViewModel.simplificationAngleThreshold,
-                                                    pressureTolerance = pressureTolerance
-                                                )
-                                            } else {
-                                                state.vectorPoints  // No simplification
-                                            }
-                                            
-                                            // STEP C: PATH GENERATION (Choose generator based on tool)
-                                            val (finalPath, leftPts, rightPts) = if (state.toolType == ToolType.POLYGON_SWEEPER) {
-                                                // Use Organic Fill Generator (Re-mapped from Polygon Sweeper)
-                                                PathGenerator.generateOrganicFillPath(
-                                                    points = simplifiedPoints,
-                                                    maxWidth = state.size,
-                                                    minSizeFactor = sketchViewModel.penMinSizeFactor
-                                                )
-                                            } else {
-                                                // Use Standard Stroke Generator
-                                                PathGenerator.generateStrokePath(simplifiedPoints, state.size, sketchViewModel.penMinSizeFactor)
-                                            }
-                                            
-                                            // Clear Preview
-                                            canvasView.updateCurrentVectorPreview(null, null, 0, 0f, 0f)
-                                            
-                                            // Calculate Opacity-Aware Color (Final)
-                                            val alpha = (state.opacity * 255).toInt()
-                                            val colorWithAlpha = androidx.core.graphics.ColorUtils.setAlphaComponent(state.color, alpha)
-                                            
-                                            // Add to ViewModel (Persistent) - Use simplified points
-                                            val vectorStroke = VectorStroke(
-                                                ArrayList(simplifiedPoints),  // Use simplified points
-                                                colorWithAlpha,
-                                                state.size,
-                                                finalPath,
-                                                leftPts,
-                                                rightPts
-                                            )
-                                            
-                                            // 2. Bake Visuals (Fast) - Bake Stroke AFTER Fill
-                                            canvasView.bakeStroke(vectorStroke)
-                                            
-                                            // 3. Update Data
-                                            sketchViewModel.addVectorStroke(vectorStroke)
-                                            canvasView.setLayers(sketchViewModel.layers) 
-                                        }
-
-                                        // Clear Temp
-                                        state.vectorPoints.clear()
-                                        
-                                    } else {
-                                        // INK ENGINE (LIVE OPENGL)
-                                        // We do NOT bake these strokes. They stay in the wetView.
-                                        
-                                        val stabScreenPts = floatArrayOf(stabWorldX, stabWorldY)
-                                        cameraMatrix.mapPoints(stabScreenPts)
-                                        val stabScreenX = stabScreenPts[0]
-                                        val stabScreenY = stabScreenPts[1]
-                                        
-                                        val pointerIndex = 0
-                                        
-                                        val props = arrayOf(MotionEvent.PointerProperties())
-                                        props[0] = MotionEvent.PointerProperties()
-                                        event.getPointerProperties(pointerIndex, props[0])
-                                        
-                                        val coords = arrayOf(MotionEvent.PointerCoords())
-                                        coords[0] = MotionEvent.PointerCoords()
-                                        event.getPointerCoords(pointerIndex, coords[0])
-                                        
-                                        coords[0].x = stabScreenX
-                                        coords[0].y = stabScreenY
     
-                                        // PRESSURE CURVE (Gamma Correction)
-                                        if (state.toolType == ToolType.PRESSURE_PEN) {
-                                            coords[0].pressure = adjustPressure(coords[0].pressure, pressureSensitivity)
-                                        }
-                                        
-                                        val stabilizedEvent = MotionEvent.obtain(
-                                            event.downTime, event.eventTime, event.action, 1, props, coords,
-                                            event.metaState, event.buttonState, event.xPrecision, event.yPrecision,
-                                            event.deviceId, event.edgeFlags, event.source, event.flags
-                                        )
-    
-                                        // 1. Ink Stroke Update
-                                        try {
-                                            strokeIdMap[pid]?.let {
-                                                // Finish the stroke. 
-                                                // This will trigger the listener and naturally clear the wetView (Standard behavior).
-                                                wetView.finishStroke(stabilizedEvent, pid, it)
-                                                strokeIdMap.remove(pid)
-                                            }
-                                        } finally {
-                                            stabilizedEvent.recycle()
-                                        }
-                                        
-                                        // 2. ViewModel Addition is handled by the Listener below.
-                                        
-                                        // 3. For Ink Tools: Commit Fill if needed
-                                        if (isFillModeEnabled) {
-                                            state.fillPath.lineTo(stabWorldX, stabWorldY)
-                                            state.fillPath.close() // Close the loop
-                                            
-                                            val fillData = FillData(android.graphics.Path(state.fillPath), fillModeColor)
-                                            sketchViewModel.addFill(fillData)
-                                            
-                                            // Clear Preview
-                                            canvasView.updateCurrentFill(null, 0)
-                                            canvasView.bakeFill(fillData)
-                                        }
                                     }
-                                    
-                                    v.performClick()
                                 }
                             }
                         } else if (strokeIdMap.isNotEmpty()) {
@@ -1276,7 +1103,11 @@ fun SketcherSurface(
                 onColorSlotSelected = { selectedColorSlotIndex = it },
                 onColorChangeRequest = { showColorPicker = true },
                 selectedSize = selectedSize,
-                onSizeChangeRequest = { showSizePopup = !showSizePopup },
+                onSizeChangeRequest = { 
+                    // Use a small delay or check to prevent immediate re-opening
+                    // when clicking the icon to close.
+                    showSizePopup = !showSizePopup 
+                },
                 isEraserActive = selectedTool == ToolType.ERASER,
                 onEraserToggle = {
                     selectedTool = if (selectedTool == ToolType.ERASER) ToolType.TECHNICAL_PEN else ToolType.ERASER
@@ -1284,7 +1115,7 @@ fun SketcherSurface(
                 showToolPopup = showToolPopup,
                 onShowToolPopupChange = { showToolPopup = it },
                 isFillModeEnabled = isFillModeEnabled,
-                onToggleFillMode = { isFillModeEnabled = !isFillModeEnabled },
+                onToggleFillMode = { if(selectedTool != ToolType.MARKER && selectedTool != ToolType.HIGHLIGHTER && selectedTool != ToolType.PRESSURE_PEN) isFillModeEnabled = !isFillModeEnabled },
                 fillColor = fillModeColor,
                 onFillColorChangeRequest = { showFillColorPicker = true },
                 backgroundColor = sketchViewModel.backgroundColor,
@@ -1754,7 +1585,11 @@ fun SizeSelectorPopup(
     val initialT = kotlin.math.sqrt(((currentSize - minSize) / (maxSize - minSize)).coerceAtLeast(0f))
     var sliderValue by remember { mutableFloatStateOf(initialT) }
 
-    Popup(alignment = Alignment.BottomCenter, onDismissRequest = onDismiss) {
+    Popup(
+        alignment = Alignment.BottomCenter, 
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.PopupProperties(focusable = true)
+    ) {
         Column(
             modifier = Modifier
                 .padding(bottom = 100.dp) // Lift above bottom bar
@@ -2485,7 +2320,17 @@ private fun InProgressStrokesView.setStrokes(strokes: List<Stroke>) {
     // HOWEVER: For "Live Ink" staying on screen, the view retains them internally.
     // If we want to "Reload" (e.g. after ERASE), we need to clear that internal state.
     // If the API doesn't expose 'clear', we might be stuck with accumulation.
-    // WORKAROUND: For this iteration, we accept we can't clear easily without 'clear()'.
-    // We comment it out to allow compilation.
-    // Real implementation would require recreating the View or using a different API.
+    // End of implementation
+
 }
+
+private fun adjustPressure(pressure: Float, sensitivity: Float): Float {
+    if (pressure <= 0f) return 0f
+    if (pressure >= 1f) return 1f
+    return try {
+        java.lang.Math.pow(pressure.toDouble(), (1.0 / sensitivity.coerceAtLeast(0.01f)).toDouble()).toFloat()
+    } catch (e: Exception) {
+        pressure
+    }
+}
+
