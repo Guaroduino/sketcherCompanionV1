@@ -20,16 +20,15 @@ class AndroidInkElement(val stroke: androidx.ink.strokes.Stroke) : LayerElement 
     
     override fun getBounds(): RectF {
         val rect = RectF()
-        // Compute bounds of the stroke. 
-        // Note: For Android Ink, we might need a better way if this doesn't work directly.
-        // But for now, let's assume we can get it or use the point iteration fallback if needed.
-        // Actually, Stroke has inputs.
+        // Compute bounds of the stroke inputs
         var minX = Float.MAX_VALUE
         var minY = Float.MAX_VALUE
         var maxX = -Float.MAX_VALUE
         var maxY = -Float.MAX_VALUE
         
         val inputs = stroke.inputs
+        if (inputs.size == 0) return RectF()
+
         for (i in 0 until inputs.size) {
             val input = inputs.get(i)
             if (input.x < minX) minX = input.x
@@ -37,7 +36,11 @@ class AndroidInkElement(val stroke: androidx.ink.strokes.Stroke) : LayerElement 
             if (input.y < minY) minY = input.y
             if (input.y > maxY) maxY = input.y
         }
-        rect.set(minX, minY, maxX, maxY)
+        
+        // Inflate by brush radius to capture thickness
+        val radius = stroke.brush.size / 2f
+        rect.set(minX - radius, minY - radius, maxX + radius, maxY + radius)
+        
         localMatrix.mapRect(rect)
         return rect
     }

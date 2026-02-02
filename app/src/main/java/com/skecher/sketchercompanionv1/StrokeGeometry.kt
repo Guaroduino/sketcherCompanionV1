@@ -10,17 +10,23 @@ object StrokeGeometry {
     /**
      * Devuelve true si el punto (x, y) toca el trazo, considerando un margen de tolerancia.
      */
+    /**
+     * Devuelve true si el punto (x, y) toca el trazo, considerando un margen de tolerancia (Eraser Radius).
+     */
     fun isStrokeTouched(stroke: Stroke, x: Float, y: Float, tolerance: Float = 20f): Boolean {
         val inputs = stroke.inputs
-        if (inputs.size < 2) return false // Un punto solo es difícil de tocar
+        if (inputs.size < 2) return false
+
+        // ConsiderStroke Width in Hit Test
+        // Total Threshold = Eraser Radius (tolerance) + Stroke Radius (size / 2)
+        val strokeRadius = stroke.brush.size / 2f
+        val totalThreshold = tolerance + strokeRadius
 
         // 1. OPTIMIZACIÓN (Bounding Box):
-        // Primero verificamos si el toque está cerca del rectángulo general del trazo.
-        // Si no está ni cerca, nos ahorramos la matemática pesada.
         var minX = Float.MAX_VALUE
-        var maxX = Float.MIN_VALUE
+        var maxX = -Float.MAX_VALUE // Fix: Correct initialization for Max
         var minY = Float.MAX_VALUE
-        var maxY = Float.MIN_VALUE
+        var maxY = -Float.MAX_VALUE
 
         for (i in 0 until inputs.size) {
             val inp = inputs.get(i)
@@ -30,21 +36,20 @@ object StrokeGeometry {
             if (inp.y > maxY) maxY = inp.y
         }
 
-        // Si el punto está fuera de la caja (+ tolerancia), descartamos.
-        if (x < minX - tolerance || x > maxX + tolerance ||
-            y < minY - tolerance || y > maxY + tolerance) {
+        // Expanded bounds check
+        if (x < minX - totalThreshold || x > maxX + totalThreshold ||
+            y < minY - totalThreshold || y > maxY + totalThreshold) {
             return false
         }
 
         // 2. PRECISIÓN (Distancia a Segmentos):
-        // Si pasó el filtro rápido, verificamos línea por línea.
         for (i in 0 until inputs.size - 1) {
             val p1 = inputs.get(i)
             val p2 = inputs.get(i + 1)
             
             val dist = distanceToSegment(x, y, p1.x, p1.y, p2.x, p2.y)
-            if (dist <= tolerance) {
-                return true // ¡Tocado!
+            if (dist <= totalThreshold) { // Use combined threshold
+                return true
             }
         }
 
