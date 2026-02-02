@@ -10,24 +10,24 @@ class SelectionManager {
     val selectionMatrix = Matrix()
     var baseBounds = RectF()
 
-    fun selectSingleAt(x: Float, y: Float, layer: Layer): Boolean {
+    fun selectSingleAt(x: Float, y: Float, layer: Layer, addToSelection: Boolean = false): Boolean {
         // Reverse iterate to get top-most (elements at the end of the list are "on top")
         val iterator = layer.elements.listIterator(layer.elements.size)
         while (iterator.hasPrevious()) {
             val element = iterator.previous()
             if (isHit(element, x, y)) {
-                selectedElements.clear()
+                if (!addToSelection) selectedElements.clear()
                 selectedElements.add(element)
                 recalculateBaseBounds()
                 return true
             }
         }
-        clearSelection()
+        if (!addToSelection) clearSelection()
         return false
     }
 
-    fun selectArea(selectionPath: Path, layer: Layer) {
-        selectedElements.clear()
+    fun selectArea(selectionPath: Path, layer: Layer, addToSelection: Boolean = false) {
+        if (!addToSelection) selectedElements.clear()
         val selectionBounds = RectF()
         selectionPath.computeBounds(selectionBounds, true)
 
@@ -40,7 +40,7 @@ class SelectionManager {
         recalculateBaseBounds()
     }
 
-    private fun recalculateBaseBounds() {
+    fun recalculateBaseBounds() {
         selectionMatrix.reset()
         baseBounds.setEmpty()
         if (selectedElements.isEmpty()) return

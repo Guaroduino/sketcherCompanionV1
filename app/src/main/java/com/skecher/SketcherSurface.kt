@@ -48,10 +48,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.Popup
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.core.view.WindowCompat
+import com.skecher.sketchercompanionv1.ui.FileMenu
+import com.skecher.sketchercompanionv1.ui.theme.SketcherCompanionV1Theme
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
 import androidx.ink.authoring.InProgressStrokesView
@@ -97,8 +102,55 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.ui.res.stringResource
+import android.graphics.BitmapFactory
+import java.io.InputStream
+import androidx.compose.material.icons.filled.Image // Import Icon
+
+fun decodeSampledBitmapFromUri(context: Context, uri: android.net.Uri, reqWidth: Int, reqHeight: Int): android.graphics.Bitmap? {
+    try {
+        var inputStream: InputStream? = context.contentResolver.openInputStream(uri)
+        
+        // First decode with inJustDecodeBounds=true to check dimensions
+        val options = BitmapFactory.Options()
+        options.inJustDecodeBounds = true
+        BitmapFactory.decodeStream(inputStream, null, options)
+        inputStream?.close()
+
+        // Calculate inSampleSize
+        options.inSampleSize = calculateInSampleSize(options, reqWidth, reqHeight)
+
+        // Decode bitmap with inSampleSize set
+        options.inJustDecodeBounds = false
+        inputStream = context.contentResolver.openInputStream(uri)
+        val bitmap = BitmapFactory.decodeStream(inputStream, null, options)
+        inputStream?.close()
+        return bitmap
+    } catch (e: Exception) {
+        e.printStackTrace()
+        return null
+    }
+}
+
+fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
+    // Raw height and width of image
+    val (height: Int, width: Int) = options.run { outHeight to outWidth }
+    var inSampleSize = 1
+
+    if (height > reqHeight || width > reqWidth) {
+        val halfHeight: Int = height / 2
+        val halfWidth: Int = width / 2
+
+        // Calculate the largest inSampleSize value that is a power of 2 and keeps both
+        // height and width larger than the requested height and width.
+        while (halfHeight / inSampleSize >= reqHeight && halfWidth / inSampleSize >= reqWidth) {
+            inSampleSize *= 2
+        }
+    }
+    return inSampleSize
+}
 
 
 enum class ToolType { TECHNICAL_PEN, PRESSURE_PEN, MARKER, HIGHLIGHTER, FILL_SHAPE, ERASER, SELECTION }
@@ -193,32 +245,40 @@ fun SketcherSurface(
     var canvasViewRef by remember { mutableStateOf<SketcherCanvasView?>(null) }
 
     // --- SAVE / LOAD HANDLERS (SAF) ---
-    val saveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+    // --- SAVE / LOAD HANDLERS (SAF) ---
+    val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
-            try {
-                val json = sketchViewModel.getProjectJson()
-                context.contentResolver.openOutputStream(it)?.use { output ->
-                    output.write(json.toByteArray())
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
+            val type = context.contentResolver.getType(it) ?: ""
+            if (type.contains("svg") || it.toString().endsWith(".svg", ignoreCase = true)) {
+                sketchViewModel.insertSvg(context, it)
+            } else {
+                sketchViewModel.insertImage(context, it)
             }
+        }
+    }
+
+    val saveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        uri?.let {
+            sketchViewModel.saveProjectToZip(context, it)
         }
     }
 
     val loadLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
             try {
-                context.contentResolver.openInputStream(it)?.use { input ->
-                    val json = input.bufferedReader().use { reader -> reader.readText() }
-                    sketchViewModel.loadProjectFromJson(json)
-                    // Update View and Redraw Cache
-                    canvasViewRef?.setLayers(sketchViewModel.layers)
-                    canvasViewRef?.redrawAllCache()
-                }
+                sketchViewModel.loadProjectFromZip(context, it)
+                // Update View and Redraw Cache
+                canvasViewRef?.setLayers(sketchViewModel.layers)
+                canvasViewRef?.redrawAllCache()
             } catch (e: Exception) {
                 e.printStackTrace()
             }
+        }
+    }
+    
+    val exportSvgLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/svg+xml")) { uri ->
+        uri?.let {
+             sketchViewModel.exportSvg(context, it)
         }
     }
     
@@ -750,20 +810,41 @@ fun SketcherSurface(
                                 if (selTouchMode == SelectionTouchMode.SELECTING_AREA) {
                                     canvasView.updateCurrentFill(null, 0)
                                     val dist = kotlin.math.hypot(wx - lastX, wy - lastY)
+                                    val isAllLayers = sketchViewModel.selectionScope == SketcherViewModel.SelectionScope.ALL_LAYERS
+
                                     if (dist < 5f) {
                                         // Tap -> Select single
-                                        manager.selectSingleAt(wx, wy, sketchViewModel.layers[sketchViewModel.activeLayerIndex])
-                                    } else {
-                                        if (sketchViewModel.currentSelectionMode == SketcherViewModel.SelectionMode.RECTANGLE) {
-                                            val rectPath = android.graphics.Path()
-                                            rectPath.addRect(
-                                                kotlin.math.min(lastX, wx), kotlin.math.min(lastY, wy),
-                                                kotlin.math.max(lastX, wx), kotlin.math.max(lastY, wy),
-                                                android.graphics.Path.Direction.CW
-                                            )
-                                            manager.selectArea(rectPath, sketchViewModel.layers[sketchViewModel.activeLayerIndex])
+                                        if (isAllLayers) {
+                                             for (i in sketchViewModel.layers.indices.reversed()) {
+                                                 // Try to select on this layer. If hit, it replaced selection (due to false flag) and we break.
+                                                 // If miss, it cleared selection, so we continue clean to next layer.
+                                                 if (manager.selectSingleAt(wx, wy, sketchViewModel.layers[i], addToSelection = false)) {
+                                                     break 
+                                                 }
+                                             }
                                         } else {
-                                            manager.selectArea(selPath, sketchViewModel.layers[sketchViewModel.activeLayerIndex])
+                                            manager.selectSingleAt(wx, wy, sketchViewModel.layers[sketchViewModel.activeLayerIndex], addToSelection = false)
+                                        }
+                                    } else {
+                                        val selectionPath = if (sketchViewModel.currentSelectionMode == SketcherViewModel.SelectionMode.RECTANGLE) {
+                                            android.graphics.Path().apply {
+                                                addRect(
+                                                    kotlin.math.min(lastX, wx), kotlin.math.min(lastY, wy),
+                                                    kotlin.math.max(lastX, wx), kotlin.math.max(lastY, wy),
+                                                    android.graphics.Path.Direction.CW
+                                                )
+                                            }
+                                        } else {
+                                            selPath
+                                        }
+
+                                        if (isAllLayers) {
+                                            manager.clearSelection()
+                                            sketchViewModel.layers.forEach { layer ->
+                                                manager.selectArea(selectionPath, layer, addToSelection = true)
+                                            }
+                                        } else {
+                                            manager.selectArea(selectionPath, sketchViewModel.layers[sketchViewModel.activeLayerIndex], addToSelection = false)
                                         }
                                     }
                                 }
@@ -1262,8 +1343,12 @@ fun SketcherSurface(
                 canRedo = sketchViewModel.canRedo,
                 onRedo = { sketchViewModel.redo(); canvasViewRef?.setLayers(sketchViewModel.layers); canvasViewRef?.redrawAllCache() },
                 onLayersClick = { showLayerManager = !showLayerManager },
-                onSave = { saveLauncher.launch("project.json") },
-                onLoad = { loadLauncher.launch(arrayOf("application/json")) },
+                onSave = { saveLauncher.launch("project.skc") },
+                onLoad = { loadLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
+                onImportImage = { imagePickerLauncher.launch(arrayOf("image/*", "image/svg+xml")) },
+                onSaveTemplate = { name -> sketchViewModel.saveTemplate(context, name) },
+                onLoadTemplate = { file -> sketchViewModel.loadFromTemplate(context, file) },
+                onExportSvg = { exportSvgLauncher.launch("drawing.svg") },
                 onNewDrawing = {
                     sketchViewModel.clear()
                     // Reset View Camera
@@ -1304,7 +1389,13 @@ fun SketcherSurface(
                     .align(Alignment.BottomCenter),
                 tools = brushTypes,
                 selectedTool = sketchViewModel.currentTool,
-                onToolSelected = { sketchViewModel.selectTool(it) },
+                onToolSelected = { newTool -> 
+                    if (sketchViewModel.currentTool == ToolType.SELECTION && newTool != ToolType.SELECTION) {
+                        sketchViewModel.selectionManager.clearSelection()
+                        canvasViewRef?.invalidate()
+                    }
+                    sketchViewModel.selectTool(newTool)
+                },
                 colorSlots = sketchViewModel.availableColors,
                 selectedColorSlotIndex = sketchViewModel.selectedColorIndex,
                 onColorSlotSelected = { sketchViewModel.selectedColorIndex = it; sketchViewModel.updateCurrentColorFromSlot() },
@@ -1352,7 +1443,14 @@ fun SketcherSurface(
                     canvasViewRef?.redrawAllCache()
                     canvasViewRef?.invalidate()
                 },
-                canPaste = sketchViewModel.canPaste
+                canPaste = sketchViewModel.canPaste,
+                selectionScope = sketchViewModel.selectionScope,
+                onToggleSelectionScope = {
+                    sketchViewModel.selectionScope = if (sketchViewModel.selectionScope == SketcherViewModel.SelectionScope.CURRENT_LAYER) 
+                        SketcherViewModel.SelectionScope.ALL_LAYERS 
+                    else 
+                        SketcherViewModel.SelectionScope.CURRENT_LAYER
+                }
             )
         }
         
@@ -1521,7 +1619,9 @@ fun BottomMenuBar(
     onCopy: () -> Unit,
     onCut: () -> Unit,
     onPaste: () -> Unit,
-    canPaste: Boolean
+    canPaste: Boolean,
+    selectionScope: SketcherViewModel.SelectionScope,
+    onToggleSelectionScope: () -> Unit
 ) {
     Box(
         modifier = modifier
@@ -1705,6 +1805,15 @@ fun BottomMenuBar(
                      }
                  }
 
+                 // SELECTION SCOPE TOGGLE
+                 IconButton(onClick = onToggleSelectionScope) {
+                     Icon(
+                         imageVector = Icons.Default.Layers,
+                         contentDescription = "Selection Scope",
+                         tint = if (selectionScope == SketcherViewModel.SelectionScope.ALL_LAYERS) Color.Blue else Color.Gray
+                     )
+                 }
+
                  // ACTION PLACEHOLDERS
                  IconButton(onClick = onCopy) {
                      Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = Color.Black)
@@ -1761,6 +1870,10 @@ fun TopMenuBar(
     onLayersClick: () -> Unit,
     onSave: () -> Unit,
     onLoad: () -> Unit,
+    onImportImage: () -> Unit,
+    onSaveTemplate: (String) -> Unit,
+    onLoadTemplate: (java.io.File) -> Unit,
+    onExportSvg: () -> Unit,
     onNewDrawing: () -> Unit,
     onSettingsClick: () -> Unit,
     onGridClick: () -> Unit,
@@ -1768,8 +1881,6 @@ fun TopMenuBar(
     onZoomExtend: () -> Unit,
     activeLayerName: String
 ) {
-    var showProjectMenu by remember { mutableStateOf(false) }
-
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -1784,38 +1895,18 @@ fun TopMenuBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Project Menu
-            Box {
-                IconButton(onClick = { showProjectMenu = true }) {
-                    Icon(Icons.Default.Menu, contentDescription = "Project")
-                }
-                DropdownMenu(
-                    expanded = showProjectMenu,
-                    onDismissRequest = { showProjectMenu = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.action_new)) },
-                        leadingIcon = { Icon(Icons.Default.Refresh, null) },
-                        onClick = { onNewDrawing(); showProjectMenu = false }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.action_save)) },
-                        leadingIcon = { Icon(Icons.Default.Save, null) },
-                        onClick = { onSave(); showProjectMenu = false }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.action_load)) },
-                        leadingIcon = { Icon(Icons.Default.FolderOpen, null) },
-                        onClick = { onLoad(); showProjectMenu = false }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.settings_title)) },
-                        leadingIcon = { Icon(Icons.Default.MoreVert, null) },
-                        onClick = { onSettingsClick(); showProjectMenu = false }
-                    )
-                }
-            }
+            FileMenu(
+                onNewDrawing = onNewDrawing,
+                onSave = onSave,
+                onLoad = onLoad,
+                onImportImage = onImportImage,
+                onSettingsClick = onSettingsClick,
+                onSaveTemplate = onSaveTemplate,
+                onLoadTemplate = onLoadTemplate,
+                onExportSvg = onExportSvg
+            )
 
-            
+            // Grid
             IconButton(onClick = onGridClick) {
                 Icon(Icons.Default.GridOn, contentDescription = "Grid")
             }
@@ -1995,7 +2086,7 @@ fun SizeSelectorPopup(
                 Slider(
                     value = stabilizationLevel,
                     onValueChange = onStabilizationLevelChanged,
-                    valueRange = 0f..100f
+                    valueRange = 0f..300f
                 )
                 HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
             }

@@ -64,4 +64,12 @@
     <string name="popup_presets_hint">Presets (Long press to Save)</string>
     <string name="label_unit">Unit</string>
     <string name="label_line_colors">Line Colors</string>
+    
+    <!-- TEMPLATES -->
+    <string name="section_templates">Templates</string>
+    <string name="action_save_template">Save as Template</string>
+    <string name="action_new_from_template">New from Template</string>
+    <string name="dialog_template_name_title">Template Name</string>
+    <string name="dialog_select_template_title">Select Template</string>
+    <string name="dialog_hint_template_name">Enter name</string>
 </resources>

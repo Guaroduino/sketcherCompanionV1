@@ -21,7 +21,7 @@ import com.skecher.sketchercompanionv1.dto.*
 // --- LAYER MAPPERS ---
 
 fun Layer.toLayerJson(): LayerJson {
-    val elementsJson = this.elements.map { element ->
+    val elementsJson = this.elements.mapNotNull { element ->
         when (element) {
             is com.skecher.sketchercompanionv1.AndroidInkElement -> LayerElementJson(
                 type = "INK",
@@ -35,6 +35,21 @@ fun Layer.toLayerJson(): LayerJson {
                 type = "FILL",
                 fill = element.toFillDataJson()
             )
+            is com.skecher.sketchercompanionv1.ImageElement -> LayerElementJson(
+                type = "IMAGE",
+                image = ImageElementJson(
+                    fileName = element.imageFileName,
+                    matrixValues = element.matrixValues.toList()
+                )
+            )
+            is com.skecher.sketchercompanionv1.SvgElement -> LayerElementJson(
+                type = "SVG",
+                svg = SvgElementJson(
+                    fileName = element.svgFileName,
+                    id = element.id,
+                    matrixValues = element.matrixValues.toList()
+                )
+            )
         }
     }
     
@@ -47,7 +62,6 @@ fun Layer.toLayerJson(): LayerJson {
     )
 }
 
-
 fun VectorStroke.toVectorStrokeJson(): VectorStrokeJson {
     // Basic mapping
     return VectorStrokeJson(
@@ -57,7 +71,10 @@ fun VectorStroke.toVectorStrokeJson(): VectorStrokeJson {
     )
 }
 
-fun LayerJson.toLayer(): Layer {
+fun LayerJson.toLayer(
+    bitmapLoader: (String) -> android.graphics.Bitmap?,
+    svgLoader: (String) -> String?
+): Layer {
     val customElements = mutableListOf<com.skecher.sketchercompanionv1.LayerElement>()
     
     // Map unified elements
@@ -76,6 +93,33 @@ fun LayerJson.toLayer(): Layer {
             "FILL" -> {
                 elJson.fill?.let {
                     customElements.add(it.toFillData())
+                }
+            }
+            "IMAGE" -> {
+                elJson.image?.let { imgJson ->
+                    val bitmap = bitmapLoader(imgJson.fileName)
+                    if (bitmap != null) {
+                        val matrix = Matrix()
+                        matrix.setValues(imgJson.matrixValues.toFloatArray())
+                        customElements.add(com.skecher.sketchercompanionv1.ImageElement(
+                            bitmap = bitmap,
+                            imageFileName = imgJson.fileName,
+                            matrix = matrix
+                        ))
+                    }
+                }
+            }
+            "SVG" -> {
+                elJson.svg?.let { svgJson ->
+                    val content = svgLoader(svgJson.fileName)
+                    if (content != null) {
+                        customElements.add(com.skecher.sketchercompanionv1.SvgElement(
+                            id = svgJson.id,
+                            svgFileName = svgJson.fileName,
+                            svgContent = content,
+                            matrixValues = svgJson.matrixValues.toFloatArray()
+                        ))
+                    }
                 }
             }
         }

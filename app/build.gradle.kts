@@ -60,6 +60,7 @@ dependencies {
     
     implementation("androidx.navigation:navigation-compose:2.8.0")
     implementation("com.google.code.gson:gson:2.10.1")
+    implementation("com.caverock:androidsvg-aar:1.4")
 
 
     // --- LIBRERÍAS DE ANDROID INK 1.0.0 ---

@@ -47,10 +47,23 @@ data class LayerJson(
 )
 
 data class LayerElementJson(
-    val type: String, // "INK", "VECTOR", "FILL"
+    val type: String, // "INK", "VECTOR", "FILL", "IMAGE", "SVG"
     val inkStroke: StrokeJson? = null,
     val vectorStroke: VectorStrokeJson? = null,
-    val fill: FillJson? = null
+    val fill: FillJson? = null,
+    val image: ImageElementJson? = null,
+    val svg: SvgElementJson? = null
+)
+
+data class SvgElementJson(
+    val fileName: String,
+    val id: String,
+    val matrixValues: List<Float>
+)
+
+data class ImageElementJson(
+    val fileName: String,
+    val matrixValues: List<Float>
 )
 
 data class VectorStrokeJson(

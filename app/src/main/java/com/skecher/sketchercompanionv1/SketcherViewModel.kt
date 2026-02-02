@@ -14,7 +14,12 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.lifecycle.AndroidViewModel
 import androidx.ink.strokes.Stroke
 import com.google.gson.Gson
-import com.skecher.sketchercompanionv1.dto.ProjectJson
+import com.skecher.sketchercompanionv1.dto.ProjectData
+import com.skecher.sketchercompanionv1.dto.BackgroundConfig
+import com.skecher.sketchercompanionv1.dto.CanvasMetadata
+import com.skecher.sketchercompanionv1.utils.TemplateManager
+import java.io.File
+import java.util.UUID
 import com.skecher.sketchercompanionv1.dto.LayerJson
 import com.skecher.sketchercompanionv1.dto.ScaleConfig
 import com.skecher.sketchercompanionv1.dto.GridConfig
@@ -56,7 +61,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     var currentUnit by mutableStateOf(DistanceUnit.MM)
 
     // GRID CONFIG (Default Spacing 50f, OFF)
-    var gridConfig by mutableStateOf(GridConfig(spacing = 50f, isVisible = false))
+    var gridConfig by mutableStateOf(GridConfig(spacing = 5f, isVisible = false))
     var isSnapToGridEnabled by mutableStateOf(false)
 
     // SETTINGS
@@ -69,6 +74,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     // BACKGROUND COLOR
     var backgroundColor by mutableIntStateOf(Color.WHITE)
+
+    // PROJECT METADATA
+    var projectId by mutableStateOf(UUID.randomUUID().toString())
+    var currentFileUri: android.net.Uri? by mutableStateOf(null)
+
 
     // --- TOOL STATE & CONFIG ---
     var currentTool by mutableStateOf(ToolType.TECHNICAL_PEN)
@@ -113,7 +123,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     // --- SELECTION STATE ---
     val selectionManager = SelectionManager()
     enum class SelectionMode { RECTANGLE, FREEHAND, TRANSFORM_BOX }
+    enum class SelectionScope { CURRENT_LAYER, ALL_LAYERS }
     var currentSelectionMode by mutableStateOf(SelectionMode.RECTANGLE)
+    var selectionScope by mutableStateOf(SelectionScope.CURRENT_LAYER)
     var isSelectionAspectRatioLocked by mutableStateOf(true)
 
     fun deleteSelection() {
@@ -444,6 +456,306 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         updateUndoRedoSupport()
     }
 
+    fun insertImage(context: android.content.Context, uri: android.net.Uri) {
+        // 1. Load Scaled Bitmap with Transparency
+        val bitmap = com.skecher.sketchercompanionv1.utils.BitmapUtils.loadScaledBitmap(context, uri) ?: return
+        
+        // 2. Generate Filename (e.g. "img_<uuid>.png")
+        val filename = "img_${java.util.UUID.randomUUID()}.png"
+        
+        insertImageWithBitmap(bitmap, filename)
+    }
+
+    fun insertSvg(context: android.content.Context, uri: android.net.Uri) {
+         try {
+             val inputStream = context.contentResolver.openInputStream(uri)
+             val bytes = inputStream?.readBytes()
+             inputStream?.close()
+             
+             if (bytes != null) {
+                 val content = String(bytes, Charsets.UTF_8)
+                 val filename = "vector_${java.util.UUID.randomUUID()}.svg"
+                 
+                 // Create Element
+                 val svgElement = SvgElement(
+                     id = java.util.UUID.randomUUID().toString(),
+                     svgFileName = filename,
+                     svgContent = content
+                 )
+                 
+                 // Normalize Size (If dimensions are missing or weird)
+                 val svg = svgElement.getSvg()
+                 if (svg != null) {
+                     // Check if document dimensions are valid (>0)
+                     // If not, set ViewBox or Default
+                     // AndroidSVG handles a lot, but if documentWidth is -1, we might need to set it.
+                     // Our SvgElement.getBounds handles 0/0 fallback.
+                 }
+
+                 saveStateForUndo()
+                 
+                 if (activeLayerIndex in layers.indices) {
+                     val layer = layers[activeLayerIndex]
+                     
+                     // Center logic
+                     val matrix = android.graphics.Matrix()
+                     // Get Bounds
+                     val bounds = svgElement.getBounds()
+                     
+                     if (lastViewportWidth > 0 && lastViewportHeight > 0) {
+                        val cx = lastViewportWidth / 2f
+                        val cy = lastViewportHeight / 2f
+                        val cameraInv = android.graphics.Matrix()
+                        val cameraM = android.graphics.Matrix()
+                        cameraM.setValues(cameraMatrixValues)
+                        cameraM.invert(cameraInv)
+                        val centerPt = floatArrayOf(cx, cy)
+                        cameraInv.mapPoints(centerPt)
+                        
+                        val wx = centerPt[0] - (bounds.width() / 2f)
+                        val wy = centerPt[1] - (bounds.height() / 2f)
+                        matrix.postTranslate(wx, wy)
+                     }
+                     
+                     svgElement.transform(matrix)
+                     
+                     layer.elements.add(svgElement)
+                     layers[activeLayerIndex] = layer.copy()
+                     
+                     selectionManager.clearSelection()
+                     selectionManager.selectedElements.add(svgElement)
+                     selectionManager.recalculateBaseBounds()
+                     
+                     selectTool(ToolType.SELECTION)
+                 }
+                 redoStack.clear()
+                 updateUndoRedoSupport()
+             }
+         } catch (e: Exception) {
+             e.printStackTrace()
+         }
+    }
+
+    // Interval helper or for direct bitmap usage
+    fun insertImageWithBitmap(bitmap: android.graphics.Bitmap, filename: String) {
+        undoStack.clear() // Or save state
+        saveStateForUndo()
+        
+        if (activeLayerIndex in layers.indices) {
+            val layer = layers[activeLayerIndex]
+            
+            // Center logic
+            val matrix = android.graphics.Matrix()
+            if (lastViewportWidth > 0 && lastViewportHeight > 0) {
+                val cx = lastViewportWidth / 2f
+                val cy = lastViewportHeight / 2f
+                val cameraInv = android.graphics.Matrix()
+                val cameraM = android.graphics.Matrix()
+                cameraM.setValues(cameraMatrixValues)
+                cameraM.invert(cameraInv)
+                val centerPt = floatArrayOf(cx, cy)
+                cameraInv.mapPoints(centerPt)
+                val wx = centerPt[0] - (bitmap.width / 2f)
+                val wy = centerPt[1] - (bitmap.height / 2f)
+                matrix.postTranslate(wx, wy)
+            }
+            
+            val imageElement = ImageElement(
+                bitmap = bitmap,
+                imageFileName = filename,
+                matrix = matrix
+            )
+            
+            layer.elements.add(imageElement)
+            layers[activeLayerIndex] = layer.copy()
+            
+            selectionManager.clearSelection()
+            selectionManager.selectedElements.add(imageElement)
+            selectionManager.recalculateBaseBounds()
+            
+            selectTool(ToolType.SELECTION)
+        }
+        redoStack.clear()
+        updateUndoRedoSupport()
+    }
+    
+    // --- ZIP STORAGE METHODS ---
+    // --- ZIP STORAGE METHODS ---
+    fun saveProjectToZip(context: android.content.Context, uri: android.net.Uri) {
+        try {
+            // Generate ProjectData
+            val projectData = ProjectData(
+                id = projectId,
+                layers = layers.map { it.toLayerJson() },
+                backgroundConfig = BackgroundConfig(
+                    color = backgroundColor,
+                    gridConfig = gridConfig
+                ),
+                paletteColors = availableColors.toList(),
+                toolConfigs = toolConfigs.toMap(),
+                canvasMetadata = CanvasMetadata(
+                    width = lastViewportWidth,
+                    height = lastViewportHeight,
+                    cameraMatrix = cameraMatrixValues.toList(),
+                    scaleConfig = scaleConfig.copy(unitName = currentUnit.symbol)
+                )
+            )
+            
+            com.skecher.sketchercompanionv1.utils.ZipStorageManager.saveProject(context, projectData, layers, uri)
+            currentFileUri = uri
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun loadProjectFromZip(context: android.content.Context, uri: android.net.Uri) {
+        try {
+            val (projectData, bitmapMap, svgMap) = com.skecher.sketchercompanionv1.utils.ZipStorageManager.loadProject(context, uri)
+            
+            restoreProjectState(projectData, bitmapMap, svgMap)
+            currentFileUri = uri
+            
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+    
+    // --- TEMPLATE METHODS ---
+    fun saveTemplate(context: android.content.Context, name: String) {
+        try {
+             val projectData = ProjectData(
+                id = projectId, // ID is saved, but loadTemplate regenerates it
+                layers = layers.map { it.toLayerJson() },
+                backgroundConfig = BackgroundConfig(
+                    color = backgroundColor,
+                    gridConfig = gridConfig
+                ),
+                paletteColors = availableColors.toList(),
+                toolConfigs = toolConfigs.toMap(),
+                canvasMetadata = CanvasMetadata(
+                    width = lastViewportWidth,
+                    height = lastViewportHeight,
+                    cameraMatrix = cameraMatrixValues.toList(),
+                    scaleConfig = scaleConfig.copy(unitName = currentUnit.symbol)
+                )
+            )
+            TemplateManager.saveAsTemplate(context, projectData, layers, name)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun loadFromTemplate(context: android.content.Context, file: File) {
+        try {
+            val (projectData, bitmapMap, svgMap) = TemplateManager.loadTemplate(context, file)
+            restoreProjectState(projectData, bitmapMap, svgMap)
+            currentFileUri = null // Reset so it's treated as a new project
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+    
+    fun exportSvg(context: android.content.Context, uri: android.net.Uri) {
+        try {
+             // 1. Generate XML
+             val projectData = com.skecher.sketchercompanionv1.dto.ProjectData(
+                 id = projectId,
+                 layers = emptyList(), // Not used for export usually, or we pass layers directly
+                 backgroundConfig = BackgroundConfig(color = backgroundColor, gridConfig = gridConfig),
+                 paletteColors = emptyList(),
+                 toolConfigs = emptyMap(),
+                 canvasMetadata = CanvasMetadata(
+                     width = lastViewportWidth,
+                     height = lastViewportHeight,
+                     cameraMatrix = cameraMatrixValues.toList(),
+                     scaleConfig = scaleConfig.copy(unitName = currentUnit.symbol)
+                 )
+             )
+             
+             // Generate content
+             val svgString = com.skecher.sketchercompanionv1.utils.SvgExporter.export(projectData, layers)
+             
+             // 2. Write to File
+             context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+                 outputStream.write(svgString.toByteArray(Charsets.UTF_8))
+             }
+        } catch (e: Exception) {
+             e.printStackTrace()
+        }
+    }
+
+    private fun restoreProjectState(
+        projectData: ProjectData,
+        bitmapMap: Map<String, android.graphics.Bitmap>,
+        svgMap: Map<String, String> = emptyMap()
+    ) {
+        // Clear State
+        layers.clear()
+        undoStack.clear()
+        redoStack.clear()
+
+        // Restore ID
+        projectId = projectData.id
+
+        // Restore Layers
+        projectData.layers.forEach { layerDto ->
+            val layer = layerDto.toLayer(
+                bitmapLoader = { fileName -> bitmapMap[fileName] },
+                svgLoader = { fileName -> svgMap[fileName] }
+            )
+            layers.add(layer)
+        }
+        
+        // Restore Global Props
+        if (projectData.canvasMetadata.cameraMatrix.size == 9) {
+           for (i in 0 until 9) {
+               cameraMatrixValues[i] = projectData.canvasMetadata.cameraMatrix[i]
+           }
+        }
+        
+        // Restore Canvas Metadata
+        lastViewportWidth = projectData.canvasMetadata.width
+        lastViewportHeight = projectData.canvasMetadata.height
+        val loadedScale = projectData.canvasMetadata.scaleConfig ?: ScaleConfig()
+        scaleConfig = if (loadedScale.basePixelsPerMillimeter == 0f) {
+             loadedScale.copy(basePixelsPerMillimeter = 5.0f)
+        } else {
+             loadedScale
+        }
+        currentUnit = DistanceUnit.fromSymbol(scaleConfig.unitName)
+        
+        // Restore Background & Grid
+        backgroundColor = projectData.backgroundConfig.color
+        val loadedGrid = projectData.backgroundConfig.gridConfig
+        gridConfig = loadedGrid ?: GridConfig()
+
+        // Restore Palette
+        if (projectData.paletteColors.isNotEmpty()) {
+            availableColors.clear()
+            availableColors.addAll(projectData.paletteColors)
+            selectedColorIndex = 0
+            updateCurrentColorFromSlot()
+        }
+
+        // Restore Tool Configs
+        if (projectData.toolConfigs.isNotEmpty()) {
+            toolConfigs.putAll(projectData.toolConfigs)
+            // Refresh current tool
+            selectTool(currentTool)
+        }
+        
+        if (layers.isNotEmpty()) {
+            activeLayerIndex = 0
+            // Ensure bounds selection is cleared or updated
+             selectionManager.clearSelection()
+        }
+
+        updateUndoRedoSupport()
+        // Trigger Camera Reset or Update?
+        cameraUpdateTrigger++
+    }
+
+
 
     fun removeStroke(stroke: Stroke) {
         saveStateForUndo()
@@ -536,6 +848,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     // Use Android Ink's internal hit test
                     // StrokeGeometry.isStrokeTouched(element.stroke, x, y)
                      shouldRemove = com.skecher.sketchercompanionv1.StrokeGeometry.isStrokeTouched(element.stroke, x, y)
+                }
+                is ImageElement -> {
+                    val bounds = element.getBounds()
+                    shouldRemove = bounds.contains(x, y)
+                }
+                is SvgElement -> {
+                    val bounds = element.getBounds()
+                    shouldRemove = bounds.contains(x, y)
                 }
             }
 
@@ -634,7 +954,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     private fun createLayersSnapshot(): List<Layer> {
         return layers.map { layer ->
             layer.copy(
-                elements = ArrayList(layer.elements.map { element ->
+                elements = layer.elements.map { element ->
                     when (element) {
                         is VectorStroke -> element.copy(
                             points = element.points.map { it.copy() },
@@ -646,8 +966,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                                 localMatrix = android.graphics.Matrix(element.localMatrix)
                             }
                         }
+                        is ImageElement -> element.copyElement()
+                        is SvgElement -> element.copyElement()
                     }
-                })
+                }.toMutableList()
             )
         }
     }
@@ -724,41 +1046,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         layers.forEach { layer ->
             layer.elements.forEach { element ->
-                when (element) {
-                    is com.skecher.sketchercompanionv1.VectorStroke -> {
-                        element.points.forEach { p ->
-                            if (p.x < minX) minX = p.x
-                            if (p.x > maxX) maxX = p.x
-                            if (p.y < minY) minY = p.y
-                            if (p.y > maxY) maxY = p.y
-                        }
-                        hasContent = true
-                    }
-                    is androidx.ink.strokes.Stroke -> {
-                         // Ink Stroke doesn't expose ease bounds directly in all versions, 
-                         // but we can iterate inputs if needed.
-                         // Optimization: Skip or use a heuristic if API missing.
-                         // Assuming we can access inputs or we skip for now to avoid compilation error if unknown.
-                         // Let's rely on inputs if accessible? 
-                         // Check API from ViewFile? No stroke methods visible.
-                         // Safest: Ignore Ink for bounds OR assume user draws near vector.
-                         // Better: Try to access generic bounds if available.
-                         // As fallback, we won't crash.
-                    }
-                     is com.skecher.sketchercompanionv1.FillData -> {
-                         // Path bounds
-                         val bounds = android.graphics.RectF()
-                         element.path.computeBounds(bounds, true)
-                         if (bounds.left < minX) minX = bounds.left
-                         if (bounds.right > maxX) maxX = bounds.right
-                         if (bounds.top < minY) minY = bounds.top
-                         if (bounds.bottom > maxY) maxY = bounds.bottom
-                         hasContent = true
-                     }
-                     is com.skecher.sketchercompanionv1.AndroidInkElement -> {
-                         // Fallback or ignore
-                     }
-                }
+                val bounds = element.getBounds()
+                if (bounds.left < minX) minX = bounds.left
+                if (bounds.right > maxX) maxX = bounds.right
+                if (bounds.top < minY) minY = bounds.top
+                if (bounds.bottom > maxY) maxY = bounds.bottom
+                hasContent = true
             }
         }
 
@@ -827,87 +1120,6 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     // --- SAVE AND LOAD ---
     
-    fun getProjectJson(): String {
-        // Create Snapshot of current state
-        val projectDto = ProjectJson(
-            version = 1,
-            canvasWidth = lastViewportWidth,
-            canvasHeight = lastViewportHeight,
-            cameraMatrix = cameraMatrixValues.toList(),
-            layers = layers.map { it.toLayerJson() },
-            backgroundColor = backgroundColor,
-            scaleConfig = scaleConfig.copy(unitName = currentUnit.symbol), // Ensure sync
-            gridConfig = gridConfig
-        )
 
-        
-        return Gson().toJson(projectDto)
-    }
-
-    fun loadProjectFromJson(json: String) {
-        try {
-            val projectDto = Gson().fromJson(json, ProjectJson::class.java)
-            
-            // Validate Version if needed
-            
-            // Clear current state NO undo for load (it's a reset)
-            layers.clear()
-            undoStack.clear()
-            redoStack.clear()
-            
-            // Restore Layers
-            projectDto.layers.forEach { layerDto ->
-                layers.add(layerDto.toLayer())
-            }
-            
-            // Restore Camera
-            // We need to notify the View to update its matrix. 
-            // The ViewModel holds the *values*, but the View holds the Matrix object.
-            // We'll update the values here, and exposed them.
-            // Ideally, we'd have a StateFlow for camera, but for now we update the array
-            // and maybe expose a 'cameraResetTrigger'.
-            // Actually, we can just update the array. The View might need to pull it.
-            // Or better: The prompt implies just updating state. 
-            // Verification step will check if this is sufficient.
-            
-            if (projectDto.cameraMatrix.size == 9) {
-               for (i in 0 until 9) {
-                   cameraMatrixValues[i] = projectDto.cameraMatrix[i]
-               }
-            }
-            
-            // Restore Background Color
-            backgroundColor = projectDto.backgroundColor
-            
-            // Restore Scale
-            // Restore Scale
-            val loadedScale = projectDto.scaleConfig ?: ScaleConfig()
-            // Migration: If basePixelsPerMillimeter is 0 (legacy json), force default
-            scaleConfig = if (loadedScale.basePixelsPerMillimeter == 0f) {
-                loadedScale.copy(basePixelsPerMillimeter = 5.0f)
-            } else {
-                loadedScale
-            }
-            currentUnit = DistanceUnit.fromSymbol(scaleConfig.unitName)
-            
-            // Restore Grid
-            gridConfig = projectDto.gridConfig ?: GridConfig()
-
-            // Restore Dimensions
-            lastViewportWidth = projectDto.canvasWidth
-            lastViewportHeight = projectDto.canvasHeight
-            
-            // Restore Active Index
-            if (layers.isNotEmpty()) {
-                activeLayerIndex = 0
-            }
-
-            updateUndoRedoSupport()
-            
-        } catch (e: Exception) {
-            e.printStackTrace()
-            // Handle error (maybe show toast via side effect)
-        }
-    }
 }
 

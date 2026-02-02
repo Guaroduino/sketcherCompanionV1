@@ -64,4 +64,12 @@
     <string name="popup_presets_hint">Preajustes (Mantener para Guardar)</string>
     <string name="label_unit">Unidad</string>
     <string name="label_line_colors">Colores de Línea</string>
+
+    <!-- TEMPLATES -->
+    <string name="section_templates">Plantillas</string>
+    <string name="action_save_template">Guardar como Plantilla</string>
+    <string name="action_new_from_template">Nuevo desde Plantilla</string>
+    <string name="dialog_template_name_title">Nombre de la Plantilla</string>
+    <string name="dialog_select_template_title">Seleccionar Plantilla</string>
+    <string name="dialog_hint_template_name">Introduce el nombre</string>
 </resources>

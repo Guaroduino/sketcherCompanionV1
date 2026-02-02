@@ -166,8 +166,6 @@ class SketcherCanvasView(context: Context) : View(context) {
         invalidate()
     }
 
-
-    
     fun updateCurrentVectorPreview(
         path: android.graphics.Path?, 
         points: List<StrokePoint>?, 
@@ -181,26 +179,19 @@ class SketcherCanvasView(context: Context) : View(context) {
         currentMaxWidth = maxWidth
         currentMinSizeFactor = minSizeFactor
         currentPredictedPoint = predictedPoint
-        if (color != 0) currentVectorPreviewColor = color // Store it
-        // Do NOT set vectorPaint.color here, it gets overwritten by onDraw layers
+        if (color != 0) currentVectorPreviewColor = color 
         invalidate()
     }
 
-    // --- LASSO FILL METHODS ---
     fun updateCurrentFill(path: android.graphics.Path?, color: Int) {
         currentFillPath = path
         currentFillColor = color
         invalidate()
     }
 
-
-
     fun eraseContentAt(worldX: Float, worldY: Float): Any? {
-        // Iterate layers top-down (reversed)
         for (layer in layers.reversed()) {
             if (!layer.isVisible) continue 
-            
-            // Iterate elements reversed (Top to Bottom)
             val iterator = layer.elements.listIterator(layer.elements.size)
             while (iterator.hasPrevious()) {
                 val element = iterator.previous()
@@ -215,51 +206,31 @@ class SketcherCanvasView(context: Context) : View(context) {
                                 bounds.right.toInt(), bounds.bottom.toInt()
                             ))
                             region.contains(worldX.toInt(), worldY.toInt())
-                        } else {
-                            false
-                        }
+                        } else { false }
                     }
                     is VectorStroke -> {
-                        // existing logic was "Use existing geometry check" but implementation in previous View was empty comment
-                        // "Collision for vector stroke? ... If VectorStroke had collision logic..."
-                        // User prompt says: "VectorStroke: Use existing geometry check."
-                        // I need to check if there is a helper. `StrokeGeometry.isStrokeTouched` was used for INK.
-                        // For VectorStroke, I might need to implement something or check if `StrokeGeometry` supports it.
-                        // Assuming `StrokeGeometry` is only for Ink. 
-                        // I will implement a basic bounds/path check for VectorStroke if needed, 
-                        // OR if there is an existing utility.
-                        // Actually, previous code for VectorStroke in eraseContentAt ended with empty check.
-                        // Let's assume for now we might skip VectorStroke erasure functionality or implement basic path contains.
-                        // Wait, previous code checked `layer.inkStrokes` with `StrokeGeometry.isStrokeTouched`.
-                        // For `VectorStroke`, it matches what was there: nothing.
-                        // BUT user asked: "VectorStroke: Use existing geometry check."
-                        // I will assume for now I should check if `VectorStroke` has a `contains` or similar, 
-                        // or if I should use the Path.
                         val bounds = android.graphics.RectF()
                         element.path.computeBounds(bounds, true)
-                        // Simple bounds check for now as placeholder for "existing geometry check" if none exists.
-                        // Or maybe `StrokeGeometry` has an overload?
-                        // Let's stick to simple bounds -> path region check like Fill for now, 
-                        // as VectorStroke.path is a Path.
                         if (bounds.contains(worldX, worldY)) {
-                             // Precise check
-                            // NOTE: Path.contains is not standard API for points.
-                            // We use Region.
                              val region = android.graphics.Region()
                              region.setPath(element.path, android.graphics.Region(
                                  bounds.left.toInt(), bounds.top.toInt(), 
                                  bounds.right.toInt(), bounds.bottom.toInt()
                              ))
                              region.contains(worldX.toInt(), worldY.toInt())
-                        } else {
-                            false
-                        }
+                        } else { false }
                     }
-                    is AndroidInkElement -> {
-                        StrokeGeometry.isStrokeTouched(element.stroke, worldX, worldY)
+                    is AndroidInkElement -> StrokeGeometry.isStrokeTouched(element.stroke, worldX, worldY)
+                    is ImageElement -> {
+                        val bounds = element.getBounds()
+                        bounds.contains(worldX, worldY)
                     }
+                    is SvgElement -> {
+                        val bounds = element.getBounds()
+                        bounds.contains(worldX, worldY)
+                    }
+                    else -> false
                 }
-
                 if (removed) {
                     iterator.remove()
                     invalidate()
@@ -276,29 +247,22 @@ class SketcherCanvasView(context: Context) : View(context) {
     }
 
     fun clearCanvas() {
-        layers.forEach { 
-            it.elements.clear()
-        }
-
+        layers.forEach { it.elements.clear() }
         redrawAllCache()
     }
 
-    // --- GRID RENDERING ---
     private fun drawGrid(canvas: Canvas) {
         if (!gridConfig.isVisible) return
 
         val spacing = gridConfig.spacing
         if (spacing <= 0f) return
 
-        // 1. Calculate Pixels per Unit using Central Logic
         val stepPx = com.skecher.sketchercompanionv1.utils.UnitUtils.projectUnitsToPixels(
             value = spacing, 
             unit = currentUnit, 
             basePxPerMm = scaleConfig.basePixelsPerMillimeter
         )
         
-        // 3. Check Density (Performance Guard)
-        // Get current zoom from matrix to check screen density
         val transformValues = FloatArray(9)
         viewMatrix.getValues(transformValues)
         val zoom = kotlin.math.sqrt(transformValues[Matrix.MSCALE_X] * transformValues[Matrix.MSCALE_X] + transformValues[Matrix.MSKEW_X] * transformValues[Matrix.MSKEW_X])
@@ -308,8 +272,6 @@ class SketcherCanvasView(context: Context) : View(context) {
            // Skip
         }
 
-        // 4. Calculate Visible Bounds in WORLD Coordinates
-        // Invert Matrix
         val inverse = Matrix()
         viewMatrix.invert(inverse)
         
@@ -326,17 +288,14 @@ class SketcherCanvasView(context: Context) : View(context) {
         val wMinY = kotlin.math.min(top, bottom)
         val wMaxY = kotlin.math.max(top, bottom)
 
-        // 5. Draw Loop
         val startXIndex = floor(wMinX / stepPx).toInt()
         val endXIndex = ceil(wMaxX / stepPx).toInt()
         
         val startYIndex = floor(wMinY / stepPx).toInt()
         val endYIndex = ceil(wMaxY / stepPx).toInt()
         
-        // Limit loop count to prevent hanging on extreme zoom bugs
         if ((endXIndex - startXIndex) > 2000 || (endYIndex - startYIndex) > 2000) return 
 
-        // Draw Verticals
         for (i in startXIndex..endXIndex) {
             val x = i * stepPx
             
@@ -372,7 +331,6 @@ class SketcherCanvasView(context: Context) : View(context) {
             }
         }
 
-        // Draw Horizontals
         for (i in startYIndex..endYIndex) {
             val y = i * stepPx
             
@@ -406,6 +364,17 @@ class SketcherCanvasView(context: Context) : View(context) {
         }
     }
 
+     private val imagePaint = android.graphics.Paint().apply {
+        isFilterBitmap = true
+        isAntiAlias = true
+        isDither = true
+    }
+
+    private fun drawImage(element: ImageElement, canvas: Canvas) {
+        // Matrix already contains position/scale/rotation
+        canvas.drawBitmap(element.bitmap, element.matrix, imagePaint)
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         canvas.drawColor(canvasBackgroundColor)
@@ -436,6 +405,8 @@ class SketcherCanvasView(context: Context) : View(context) {
                     is FillData -> drawFill(element, canvas)
                     is VectorStroke -> drawVectorStroke(element, canvas)
                     is AndroidInkElement -> drawInkStroke(element, canvas)
+                    is ImageElement -> drawImage(element, canvas)
+                    is SvgElement -> element.render(canvas)
                 }
             }
             

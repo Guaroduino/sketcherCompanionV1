@@ -24,18 +24,19 @@ class StrokeStabilizer {
      */
     fun update(targetX: Float, targetY: Float, level: Float): PointF {
         // Validation of level is implicitly handled by math, but clamping is good practice
-        val clampedLevel = level.coerceIn(0f, 100f)
+        val clampedLevel = level.coerceIn(0f, 300f)
 
         // Calculate weight:
-        // Level 0   -> Weight 1.0 (Instant)
-        // Level 100 -> Weight ~0.05 (Slow catching up)
-        // We can use a simple linear mapping or something more exponential for "feel".
-        // Let's try a simple mapping first that allows for strong stabilization at 100.
-        // weight = 1.0 - (level / 100 * 0.95)
-        // if level 0 -> 1.0 - 0 = 1.0
-        // if level 100 -> 1.0 - 0.95 = 0.05
+        // Level 0-100: Legacy linear mapping (1.0 -> 0.05)
+        // Level 100-300: Extended mapping (0.05 -> 0.005)
         
-        val weight = 1.0f - (clampedLevel / 100f * 0.95f)
+        val weight = if (clampedLevel <= 100f) {
+            1.0f - (clampedLevel / 100f * 0.95f)
+        } else {
+            // Map 100..300 to 0.05..0.005
+            val ratio = (clampedLevel - 100f) / 200f // 0..1
+            0.05f * (1.0f - ratio * 0.9f) // Decays to 10% of 0.05 = 0.005
+        }
 
         currentX += (targetX - currentX) * weight
         currentY += (targetY - currentY) * weight
