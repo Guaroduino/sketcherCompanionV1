@@ -106,6 +106,78 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         put(ToolType.FILL_SHAPE, ToolConfig(size = 1f, opacity = 1.0f, smoothing = 0.7f, sensitivity = 1f, minSizeFactor = 1f))
         // Borrador (Eraser) - Default
         put(ToolType.ERASER, ToolConfig(size = 30f, opacity = 1f, smoothing = 0f, sensitivity = 1f, minSizeFactor = 1f))
+        // Selección (Selection)
+        put(ToolType.SELECTION, ToolConfig(size = 1f, opacity = 1f, smoothing = 0f, sensitivity = 1f, minSizeFactor = 1f))
+    }
+
+    // --- SELECTION STATE ---
+    val selectionManager = SelectionManager()
+    enum class SelectionMode { RECTANGLE, FREEHAND, TRANSFORM_BOX }
+    var currentSelectionMode by mutableStateOf(SelectionMode.RECTANGLE)
+    var isSelectionAspectRatioLocked by mutableStateOf(true)
+
+    fun deleteSelection() {
+        if (selectionManager.selectedElements.isEmpty()) return
+        saveStateForUndo()
+        var changed = false
+        layers.forEachIndexed { index, layer ->
+            val initialSize = layer.elements.size
+            layer.elements.removeAll(selectionManager.selectedElements)
+            if (layer.elements.size != initialSize) {
+                layers[index] = layer.copy()
+                changed = true
+            }
+        }
+        if (changed) {
+            selectionManager.clearSelection()
+            updateUndoRedoSupport()
+        }
+    }
+
+    // --- CLIPBOARD ---
+    private val clipboard = mutableListOf<LayerElement>()
+    var canPaste by mutableStateOf(false)
+        private set
+
+    fun copy() {
+        if (selectionManager.selectedElements.isEmpty()) return
+        clipboard.clear()
+        clipboard.addAll(selectionManager.selectedElements.map { it.copyElement() })
+        canPaste = true
+    }
+
+    fun cut() {
+        if (selectionManager.selectedElements.isEmpty()) return
+        copy()
+        deleteSelection()
+    }
+
+    fun paste() {
+        if (clipboard.isEmpty()) return
+        if (layers.isEmpty()) return
+        
+        saveStateForUndo()
+        
+        // Offset for pasted items to distinguish them
+        val offset = 50f 
+        val m = Matrix()
+        m.postTranslate(offset, offset)
+        
+        val pasted = clipboard.map { 
+            it.copyElement().apply { transform(m) } 
+        }
+        
+        // Add to active layer
+        val activeLayer = layers[activeLayerIndex]
+        activeLayer.elements.addAll(pasted)
+        layers[activeLayerIndex] = activeLayer.copy() // Trigger update
+        
+        // Select pasted items
+        selectionManager.clearSelection()
+        selectionManager.selectedElements.addAll(pasted)
+        selectionManager.recalculateBaseBounds()
+        
+        updateUndoRedoSupport()
     }
 
     // COLORS
@@ -522,12 +594,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun saveStateForUndo() {
-        val snapshot = layers.map { layer ->
-            layer.copy(
-                elements = ArrayList(layer.elements)
-            )
-        }
-        undoStack.push(snapshot)
+        undoStack.push(createLayersSnapshot())
         // Limit stack size if needed (e.g. 50 steps)
         if (undoStack.size > 50) undoStack.removeLast()
     }
@@ -556,22 +623,33 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
     
     private fun saveCurrentStateToRedo() {
-         val snapshot = layers.map { layer ->
-            layer.copy(
-                elements = ArrayList(layer.elements)
-            )
-        }
-        redoStack.push(snapshot)
+        redoStack.push(createLayersSnapshot())
     }
 
 
     private fun saveCurrentStateToUndoStacksOnly() {
-         val snapshot = layers.map { layer ->
+        undoStack.push(createLayersSnapshot())
+    }
+
+    private fun createLayersSnapshot(): List<Layer> {
+        return layers.map { layer ->
             layer.copy(
-                elements = ArrayList(layer.elements)
+                elements = ArrayList(layer.elements.map { element ->
+                    when (element) {
+                        is VectorStroke -> element.copy(
+                            points = element.points.map { it.copy() },
+                            path = android.graphics.Path(element.path)
+                        )
+                        is FillData -> element.copy(path = android.graphics.Path(element.path))
+                        is AndroidInkElement -> {
+                            AndroidInkElement(element.stroke).apply {
+                                localMatrix = android.graphics.Matrix(element.localMatrix)
+                            }
+                        }
+                    }
+                })
             )
         }
-        undoStack.push(snapshot)
     }
 
     

@@ -99,11 +99,11 @@ class SketcherCanvasView(context: Context) : View(context) {
     }
 
     // Direct render on the main canvas (or passed canvas)
-    private fun drawInkStroke(ink: Stroke, canvas: Canvas) {
-        // NOTE: If we want "wet" multiply look, we need to handle layer saves carefully 
-        // or just draw normally.
-        // For unified Z-order, we draw directly.
-        strokeRenderer.draw(canvas, ink, Matrix()) 
+    private fun drawInkStroke(element: AndroidInkElement, canvas: Canvas) {
+        canvas.save()
+        canvas.concat(element.localMatrix)
+        strokeRenderer.draw(canvas, element.stroke, Matrix()) 
+        canvas.restore()
     }
 
     
@@ -435,7 +435,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                 when(element) {
                     is FillData -> drawFill(element, canvas)
                     is VectorStroke -> drawVectorStroke(element, canvas)
-                    is AndroidInkElement -> drawInkStroke(element.stroke, canvas)
+                    is AndroidInkElement -> drawInkStroke(element, canvas)
                 }
             }
             
@@ -518,6 +518,9 @@ class SketcherCanvasView(context: Context) : View(context) {
 
         canvas.restore()
         
+        // 6. Selection Overlay
+        drawSelectionOverlay(canvas)
+        
         onDrawAction?.invoke()
         onDrawAction = null
     }
@@ -579,5 +582,83 @@ class SketcherCanvasView(context: Context) : View(context) {
                 canvas.drawLine(p1.x, p1.y, p2.x, p2.y, debugRightEdgePaint)
             }
         }
+    }
+
+    // --- SELECTION OVERLAY ---
+    var selectionManager: SelectionManager? = null
+    var selectionTouchMode: String = "IDLE" // To show different visuals if needed
+
+    private val selectionBoxPaint = android.graphics.Paint().apply {
+        color = android.graphics.Color.parseColor("#44007AFF") // Translucent Apple Blue
+        style = android.graphics.Paint.Style.FILL
+    }
+    private val selectionBorderPaint = android.graphics.Paint().apply {
+        color = android.graphics.Color.parseColor("#FF007AFF")
+        style = android.graphics.Paint.Style.STROKE
+        strokeWidth = 2f
+    }
+    private val selectionHandlePaint = android.graphics.Paint().apply {
+        color = android.graphics.Color.WHITE
+        style = android.graphics.Paint.Style.FILL
+        setShadowLayer(5f, 0f, 2f, 0x44000000)
+    }
+
+    private fun drawSelectionOverlay(canvas: Canvas) {
+        val manager = selectionManager ?: return
+        if (manager.selectedElements.isEmpty()) return
+
+        val bounds = manager.baseBounds
+        if (bounds.isEmpty) return
+
+        canvas.save()
+        canvas.concat(viewMatrix)
+        canvas.concat(manager.selectionMatrix)
+
+        // Draw Bounding Box
+        canvas.drawRect(bounds, selectionBoxPaint)
+        canvas.drawRect(bounds, selectionBorderPaint)
+
+        // Draw Handles
+        val transformValues = FloatArray(9)
+        viewMatrix.getValues(transformValues)
+        val zoom = kotlin.math.sqrt(transformValues[Matrix.MSCALE_X] * transformValues[Matrix.MSCALE_X] + transformValues[Matrix.MSKEW_X] * transformValues[Matrix.MSKEW_X])
+        
+        val handleSize = 10f / zoom
+        
+        // Corners
+        canvas.drawCircle(bounds.left, bounds.top, handleSize, selectionHandlePaint)
+        canvas.drawCircle(bounds.left, bounds.top, handleSize, selectionBorderPaint)
+        
+        canvas.drawCircle(bounds.right, bounds.top, handleSize, selectionHandlePaint)
+        canvas.drawCircle(bounds.right, bounds.top, handleSize, selectionBorderPaint)
+        
+        canvas.drawCircle(bounds.left, bounds.bottom, handleSize, selectionHandlePaint)
+        canvas.drawCircle(bounds.left, bounds.bottom, handleSize, selectionBorderPaint)
+        
+        canvas.drawCircle(bounds.right, bounds.bottom, handleSize, selectionHandlePaint)
+        canvas.drawCircle(bounds.right, bounds.bottom, handleSize, selectionBorderPaint)
+
+        // Edge Centers (New)
+        canvas.drawCircle(bounds.centerX(), bounds.top, handleSize, selectionHandlePaint)
+        canvas.drawCircle(bounds.centerX(), bounds.top, handleSize, selectionBorderPaint)
+
+        canvas.drawCircle(bounds.centerX(), bounds.bottom, handleSize, selectionHandlePaint)
+        canvas.drawCircle(bounds.centerX(), bounds.bottom, handleSize, selectionBorderPaint)
+
+        canvas.drawCircle(bounds.left, bounds.centerY(), handleSize, selectionHandlePaint)
+        canvas.drawCircle(bounds.left, bounds.centerY(), handleSize, selectionBorderPaint)
+
+        canvas.drawCircle(bounds.right, bounds.centerY(), handleSize, selectionHandlePaint)
+        canvas.drawCircle(bounds.right, bounds.centerY(), handleSize, selectionBorderPaint)
+
+        // Rotate Handle (Top Center with a stem)
+        val stemLength = 30f / zoom
+        val centerX = bounds.centerX()
+        val rotateY = bounds.top - stemLength
+        canvas.drawLine(centerX, bounds.top, centerX, rotateY, selectionBorderPaint)
+        canvas.drawCircle(centerX, rotateY, handleSize, selectionHandlePaint)
+        canvas.drawCircle(centerX, rotateY, handleSize, selectionBorderPaint)
+
+        canvas.restore()
     }
 }

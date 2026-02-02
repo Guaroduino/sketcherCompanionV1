@@ -1,0 +1,79 @@
+package com.skecher.sketchercompanionv1
+
+import android.graphics.Matrix
+import android.graphics.Path
+import android.graphics.RectF
+import androidx.compose.runtime.mutableStateListOf
+
+class SelectionManager {
+    val selectedElements = mutableStateListOf<LayerElement>()
+    val selectionMatrix = Matrix()
+    var baseBounds = RectF()
+
+    fun selectSingleAt(x: Float, y: Float, layer: Layer): Boolean {
+        // Reverse iterate to get top-most (elements at the end of the list are "on top")
+        val iterator = layer.elements.listIterator(layer.elements.size)
+        while (iterator.hasPrevious()) {
+            val element = iterator.previous()
+            if (isHit(element, x, y)) {
+                selectedElements.clear()
+                selectedElements.add(element)
+                recalculateBaseBounds()
+                return true
+            }
+        }
+        clearSelection()
+        return false
+    }
+
+    fun selectArea(selectionPath: Path, layer: Layer) {
+        selectedElements.clear()
+        val selectionBounds = RectF()
+        selectionPath.computeBounds(selectionBounds, true)
+
+        layer.elements.forEach { element ->
+            val elementBounds = element.getBounds()
+            if (RectF.intersects(selectionBounds, elementBounds)) {
+                selectedElements.add(element)
+            }
+        }
+        recalculateBaseBounds()
+    }
+
+    private fun recalculateBaseBounds() {
+        selectionMatrix.reset()
+        baseBounds.setEmpty()
+        if (selectedElements.isEmpty()) return
+        
+        selectedElements.forEachIndexed { index, element ->
+            if (index == 0) {
+                baseBounds.set(element.getBounds())
+            } else {
+                baseBounds.union(element.getBounds())
+            }
+        }
+    }
+
+    fun getSelectionBounds(): RectF {
+        // Return transformed bounds for simple logic, but better to use baseBounds + Matrix elsewhere
+        val rect = RectF(baseBounds)
+        selectionMatrix.mapRect(rect)
+        return rect
+    }
+
+    fun applyTransform(matrix: Matrix) {
+        selectedElements.forEach { it.transform(matrix) }
+        selectionMatrix.postConcat(matrix)
+    }
+    
+    fun clearSelection() {
+        selectedElements.clear()
+        selectionMatrix.reset()
+        baseBounds.setEmpty()
+    }
+
+    private fun isHit(element: LayerElement, x: Float, y: Float): Boolean {
+        // Simple bounds check for now. Can be refined for strokes.
+        return element.getBounds().contains(x, y)
+    }
+}

@@ -89,10 +89,20 @@ import kotlin.math.roundToInt
 import androidx.compose.material.icons.filled.Grid3x3
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.material.icons.filled.Gesture
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.ui.res.stringResource
 
 
-enum class ToolType { TECHNICAL_PEN, PRESSURE_PEN, MARKER, HIGHLIGHTER, FILL_SHAPE, ERASER }
+enum class ToolType { TECHNICAL_PEN, PRESSURE_PEN, MARKER, HIGHLIGHTER, FILL_SHAPE, ERASER, SELECTION }
+enum class SelectionTouchMode { IDLE, SELECTING_AREA, DRAGGING_CONTENT, DRAGGING_CORNER, ROTATING }
 
 data class BrushTypeConfig(
     val type: ToolType,
@@ -111,6 +121,7 @@ fun getToolName(type: ToolType): String {
         ToolType.HIGHLIGHTER -> stringResource(R.string.tool_highlighter)
         ToolType.FILL_SHAPE -> stringResource(R.string.tool_fill)
         ToolType.ERASER -> stringResource(R.string.tool_eraser)
+        ToolType.SELECTION -> stringResource(R.string.tool_selection)
     }
 }
 
@@ -279,7 +290,8 @@ fun SketcherSurface(
         BrushTypeConfig(ToolType.PRESSURE_PEN, Icons.Default.Brush, StockBrushes.pressurePen(), R.string.tool_pressure_pen),
         BrushTypeConfig(ToolType.MARKER, Icons.Default.Edit, StockBrushes.marker(), R.string.tool_marker),
         BrushTypeConfig(ToolType.HIGHLIGHTER, Icons.Default.Edit, StockBrushes.highlighter(), R.string.tool_highlighter),
-        BrushTypeConfig(ToolType.FILL_SHAPE, Icons.Default.FormatPaint, null, R.string.tool_fill)
+        BrushTypeConfig(ToolType.FILL_SHAPE, Icons.Default.FormatPaint, null, R.string.tool_fill),
+        BrushTypeConfig(ToolType.SELECTION, Icons.Default.TouchApp, null, R.string.tool_selection)
     )
 
     // --- EFECTO DE RE-CENTRADO (Sin hacks visuales) ---
@@ -318,6 +330,10 @@ fun SketcherSurface(
 
     LaunchedEffect(sketchViewModel.isDebugWireframe) {
         canvasViewRef?.isDebugWireframeByVM = sketchViewModel.isDebugWireframe
+    }
+
+    LaunchedEffect(canvasViewRef) {
+        canvasViewRef?.selectionManager = sketchViewModel.selectionManager
     }
 
     // --- FIX: STARTUP AWAKENER REMOVED (Replaced by OnLayoutChangeListener in Factory) ---
@@ -450,6 +466,18 @@ fun SketcherSurface(
                 val stabilizer = StrokeStabilizer()
                 val strokeIdMap = mutableMapOf<Int, InProgressStrokeId>()
                 
+                // SELECTION STATE
+                var selTouchMode = SelectionTouchMode.IDLE
+                var activeHandle = -1 // 0-3 corners, 4 rotation
+                val selPath = android.graphics.Path()
+                val initialBox = android.graphics.RectF()
+                val currentBox = android.graphics.RectF()
+                var pivotX = 0f
+                var pivotY = 0f
+                var lastX = 0f
+                var lastY = 0f
+                var startAngle = 0f
+
                 // INPUT FILTERING STATE
                 var lastInputX = 0f
                 var lastInputY = 0f
@@ -532,6 +560,219 @@ fun SketcherSurface(
 
                     // Parallel Capture: Capture Vector Points if it's a Vector Tool OR (Ink Tool + Fill Mode)
                     val shouldCaptureVector = isVectorTool || (isInkTool && sketchViewModel.isFillModeEnabled)
+
+                        if (state.toolType == ToolType.SELECTION) {
+                            val touchPts = floatArrayOf(event.x, event.y)
+                            inverseMatrix.mapPoints(touchPts)
+                            val wx = touchPts[0]
+                            val wy = touchPts[1]
+
+                            when (action) {
+                                MotionEvent.ACTION_DOWN -> {
+                                    val manager = sketchViewModel.selectionManager
+                                    val bounds = manager.baseBounds
+                                    val zoom = InkUtils.getMatrixScale(cameraMatrix)
+                                    val handleSize = 25f / zoom 
+
+                                    activeHandle = -1
+                                    selTouchMode = SelectionTouchMode.IDLE
+                                    
+                                    if (!bounds.isEmpty) {
+                                        val selMatrix = manager.selectionMatrix
+                                        // 0:TL  1:TR  2:BL  3:BR  4:ROT  5:CENTER 
+                                        // 6:TC  7:BC  8:LC  9:RC
+                                        val pts = floatArrayOf(
+                                            bounds.left, bounds.top,                   // 0: TL
+                                            bounds.right, bounds.top,                  // 1: TR
+                                            bounds.left, bounds.bottom,                // 2: BL
+                                            bounds.right, bounds.bottom,               // 3: BR
+                                            bounds.centerX(), bounds.top - (30f / zoom),// 4: ROT
+                                            bounds.centerX(), bounds.centerY(),        // 5: CENTER
+                                            bounds.centerX(), bounds.top,              // 6: TC
+                                            bounds.centerX(), bounds.bottom,           // 7: BC
+                                            bounds.left, bounds.centerY(),             // 8: LC
+                                            bounds.right, bounds.centerY()             // 9: RC
+                                        )
+                                        selMatrix.mapPoints(pts)
+
+                                        // Hit test rotation handle
+                                        if (kotlin.math.hypot(wx - pts[8], wy - pts[9]) < handleSize) {
+                                            activeHandle = 4
+                                            selTouchMode = SelectionTouchMode.ROTATING
+                                            pivotX = pts[10]
+                                            pivotY = pts[11]
+                                            startAngle = Math.toDegrees(Math.atan2((wy - pivotY).toDouble(), (wx - pivotX).toDouble())).toFloat()
+                                        } else {
+                                            // Hit test corners
+                                            if (kotlin.math.hypot(wx - pts[0], wy - pts[1]) < handleSize) activeHandle = 0
+                                            else if (kotlin.math.hypot(wx - pts[2], wy - pts[3]) < handleSize) activeHandle = 1
+                                            else if (kotlin.math.hypot(wx - pts[4], wy - pts[5]) < handleSize) activeHandle = 2
+                                            else if (kotlin.math.hypot(wx - pts[6], wy - pts[7]) < handleSize) activeHandle = 3
+                                            // Hit test edges
+                                            else if (kotlin.math.hypot(wx - pts[12], wy - pts[13]) < handleSize) activeHandle = 6 // TC
+                                            else if (kotlin.math.hypot(wx - pts[14], wy - pts[15]) < handleSize) activeHandle = 7 // BC
+                                            else if (kotlin.math.hypot(wx - pts[16], wy - pts[17]) < handleSize) activeHandle = 8 // LC
+                                            else if (kotlin.math.hypot(wx - pts[18], wy - pts[19]) < handleSize) activeHandle = 9 // RC
+
+                                            if (activeHandle != -1) {
+                                                selTouchMode = SelectionTouchMode.DRAGGING_CORNER
+                                                // Set Pivot (Opposite point)
+                                                val oppIdx = when(activeHandle) {
+                                                    0 -> 3 // TL -> BR
+                                                    1 -> 2 // TR -> BL
+                                                    2 -> 1 // BL -> TR
+                                                    3 -> 0 // BR -> TL
+                                                    6 -> 7 // TC -> BC
+                                                    7 -> 6 // BC -> TC
+                                                    8 -> 9 // LC -> RC
+                                                    9 -> 8 // RC -> LC
+                                                    else -> 5
+                                                }
+                                                pivotX = pts[oppIdx * 2]
+                                                pivotY = pts[oppIdx * 2 + 1]
+                                            } else {
+                                                // Content Drag Hit Test
+                                                val invM = Matrix()
+                                                selMatrix.invert(invM)
+                                                val localTouch = floatArrayOf(wx, wy)
+                                                invM.mapPoints(localTouch)
+                                                if (bounds.contains(localTouch[0], localTouch[1])) {
+                                                    selTouchMode = SelectionTouchMode.DRAGGING_CONTENT
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if (selTouchMode == SelectionTouchMode.IDLE) {
+                                        selTouchMode = SelectionTouchMode.SELECTING_AREA
+                                        selPath.reset()
+                                        selPath.moveTo(wx, wy)
+                                        if (sketchViewModel.currentSelectionMode == SketcherViewModel.SelectionMode.RECTANGLE) {
+                                            initialBox.set(wx, wy, wx, wy)
+                                        }
+                                    }
+                                    
+                                    lastX = wx
+                                    lastY = wy
+                                }
+                            MotionEvent.ACTION_MOVE -> {
+                                val manager = sketchViewModel.selectionManager
+                                val dx = wx - lastX
+                                val dy = wy - lastY
+
+                                when (selTouchMode) {
+                                    SelectionTouchMode.SELECTING_AREA -> {
+                                        if (sketchViewModel.currentSelectionMode == SketcherViewModel.SelectionMode.RECTANGLE) {
+                                            val rectPath = android.graphics.Path()
+                                            rectPath.addRect(
+                                                kotlin.math.min(lastX, wx), kotlin.math.min(lastY, wy),
+                                                kotlin.math.max(lastX, wx), kotlin.math.max(lastY, wy),
+                                                android.graphics.Path.Direction.CW
+                                            )
+                                            canvasView.updateCurrentFill(rectPath, android.graphics.Color.argb(60, 0, 122, 255))
+                                        } else {
+                                            selPath.lineTo(wx, wy)
+                                            canvasView.updateCurrentFill(selPath, android.graphics.Color.argb(60, 0, 122, 255))
+                                        }
+                                    }
+                                    SelectionTouchMode.DRAGGING_CONTENT -> {
+                                        val m = Matrix()
+                                        m.postTranslate(dx, dy)
+                                        manager.applyTransform(m)
+                                        lastX = wx
+                                        lastY = wy
+                                    }
+                                    SelectionTouchMode.DRAGGING_CORNER -> {
+                                        val selM = manager.selectionMatrix
+                                        val invM = android.graphics.Matrix()
+                                        selM.invert(invM)
+
+                                        // Map touch points and pivot to local space
+                                        val locLast = floatArrayOf(lastX, lastY)
+                                        val locCurr = floatArrayOf(wx, wy)
+                                        val locPivot = floatArrayOf(pivotX, pivotY)
+                                        invM.mapPoints(locLast)
+                                        invM.mapPoints(locCurr)
+                                        invM.mapPoints(locPivot)
+
+                                        val oldDX = locLast[0] - locPivot[0]
+                                        val oldDY = locLast[1] - locPivot[1]
+                                        val newDX = locCurr[0] - locPivot[0]
+                                        val newDY = locCurr[1] - locPivot[1]
+
+                                        // Calculate scale factors in local space
+                                        var sx = if (kotlin.math.abs(oldDX) > 0.01f) newDX / oldDX else 1f
+                                        var sy = if (kotlin.math.abs(oldDY) > 0.01f) newDY / oldDY else 1f
+
+                                        if (activeHandle <= 3) {
+                                            // Corner handle: Uniform scale if locked
+                                            if (sketchViewModel.isSelectionAspectRatioLocked) {
+                                                val s = if (kotlin.math.abs(sx) > kotlin.math.abs(sy)) sx else sy
+                                                sx = s
+                                                sy = s
+                                            }
+                                        } else {
+                                            // Edge handle: One-direction scale in local space
+                                            // 6:TC, 7:BC (Top/Bottom) -> Sy only
+                                            // 8:LC, 9:RC (Left/Right) -> Sx only
+                                            if (activeHandle == 6 || activeHandle == 7) sx = 1f
+                                            if (activeHandle == 8 || activeHandle == 9) sy = 1f
+                                        }
+
+                                        val sMatrix = android.graphics.Matrix()
+                                        sMatrix.postScale(sx, sy, locPivot[0], locPivot[1])
+                                        
+                                        // Incremental world matrix: I = M * S_local * M^-1
+                                        val imM = android.graphics.Matrix()
+                                        imM.set(invM)
+                                        imM.postConcat(sMatrix)
+                                        imM.postConcat(selM)
+                                        
+                                        manager.applyTransform(imM)
+                                        lastX = wx
+                                        lastY = wy
+                                    }
+                                    SelectionTouchMode.ROTATING -> {
+                                        val currentAngle = Math.toDegrees(Math.atan2((wy - pivotY).toDouble(), (wx - pivotX).toDouble())).toFloat()
+                                        val deltaAngle = currentAngle - startAngle
+                                        
+                                        val m = Matrix()
+                                        m.postRotate(deltaAngle, pivotX, pivotY)
+                                        manager.applyTransform(m)
+                                        startAngle = currentAngle
+                                    }
+                                    else -> {}
+                                }
+                                canvasView.invalidate()
+                            }
+                            MotionEvent.ACTION_UP -> {
+                                val manager = sketchViewModel.selectionManager
+                                if (selTouchMode == SelectionTouchMode.SELECTING_AREA) {
+                                    canvasView.updateCurrentFill(null, 0)
+                                    val dist = kotlin.math.hypot(wx - lastX, wy - lastY)
+                                    if (dist < 5f) {
+                                        // Tap -> Select single
+                                        manager.selectSingleAt(wx, wy, sketchViewModel.layers[sketchViewModel.activeLayerIndex])
+                                    } else {
+                                        if (sketchViewModel.currentSelectionMode == SketcherViewModel.SelectionMode.RECTANGLE) {
+                                            val rectPath = android.graphics.Path()
+                                            rectPath.addRect(
+                                                kotlin.math.min(lastX, wx), kotlin.math.min(lastY, wy),
+                                                kotlin.math.max(lastX, wx), kotlin.math.max(lastY, wy),
+                                                android.graphics.Path.Direction.CW
+                                            )
+                                            manager.selectArea(rectPath, sketchViewModel.layers[sketchViewModel.activeLayerIndex])
+                                        } else {
+                                            manager.selectArea(selPath, sketchViewModel.layers[sketchViewModel.activeLayerIndex])
+                                        }
+                                    }
+                                }
+                                selTouchMode = SelectionTouchMode.IDLE
+                                canvasView.invalidate()
+                            }
+                        }
+                        return@setOnTouchListener true
+                    }
 
                     if (state.toolType == ToolType.ERASER) {
                                 // OBJECT ERASER LOGIC
@@ -1087,7 +1328,31 @@ fun SketcherSurface(
                 fillColor = sketchViewModel.fillModeColor,
                 onFillColorChangeRequest = { showFillColorPicker = true },
                 backgroundColor = sketchViewModel.backgroundColor,
-                onBackgroundColorChangeRequest = { showBackgroundColorPicker = true }
+                onBackgroundColorChangeRequest = { showBackgroundColorPicker = true },
+                onDeleteSelection = { 
+                    sketchViewModel.deleteSelection()
+                    canvasViewRef?.setLayers(sketchViewModel.layers)
+                    canvasViewRef?.redrawAllCache()
+                    canvasViewRef?.invalidate()
+                },
+                selectionMode = sketchViewModel.currentSelectionMode,
+                onSelectionModeChanged = { sketchViewModel.currentSelectionMode = it },
+                isAspectRatioLocked = sketchViewModel.isSelectionAspectRatioLocked,
+                onToggleAspectRatioLock = { sketchViewModel.isSelectionAspectRatioLocked = !sketchViewModel.isSelectionAspectRatioLocked },
+                onCopy = { sketchViewModel.copy() },
+                onCut = { 
+                    sketchViewModel.cut()
+                    canvasViewRef?.setLayers(sketchViewModel.layers)
+                    canvasViewRef?.redrawAllCache()
+                    canvasViewRef?.invalidate()
+                },
+                onPaste = { 
+                    sketchViewModel.paste()
+                    canvasViewRef?.setLayers(sketchViewModel.layers)
+                    canvasViewRef?.redrawAllCache()
+                    canvasViewRef?.invalidate()
+                },
+                canPaste = sketchViewModel.canPaste
             )
         }
         
@@ -1247,7 +1512,16 @@ fun BottomMenuBar(
     fillColor: Int,
     onFillColorChangeRequest: () -> Unit,
     backgroundColor: Int,
-    onBackgroundColorChangeRequest: () -> Unit
+    onBackgroundColorChangeRequest: () -> Unit,
+    onDeleteSelection: () -> Unit,
+    selectionMode: SketcherViewModel.SelectionMode,
+    onSelectionModeChanged: (SketcherViewModel.SelectionMode) -> Unit,
+    isAspectRatioLocked: Boolean,
+    onToggleAspectRatioLock: () -> Unit,
+    onCopy: () -> Unit,
+    onCut: () -> Unit,
+    onPaste: () -> Unit,
+    canPaste: Boolean
 ) {
     Box(
         modifier = modifier
@@ -1293,24 +1567,26 @@ fun BottomMenuBar(
             }
 
             // COLOR SLOTS
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                colorSlots.forEachIndexed { index, color ->
-                    ColorSlot(
-                        color = color,
-                        isSelected = index == selectedColorSlotIndex,
-                        onClick = { 
-                            if (index == selectedColorSlotIndex) onColorChangeRequest() 
-                            else onColorSlotSelected(index)
-                        }
-                    )
+            if (selectedTool != ToolType.SELECTION) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    colorSlots.forEachIndexed { index, color ->
+                        ColorSlot(
+                            color = color,
+                            isSelected = index == selectedColorSlotIndex,
+                            onClick = { 
+                                if (index == selectedColorSlotIndex) onColorChangeRequest() 
+                                else onColorSlotSelected(index)
+                            }
+                        )
+                    }
                 }
+                
+                VerticalDivider(modifier = Modifier.height(24.dp))
             }
-            
-            VerticalDivider(modifier = Modifier.height(24.dp))
 
             // FILL MODE TOGGLE
             val isFillTool = selectedTool == ToolType.FILL_SHAPE
-            if (!isFillTool) {
+            if (!isFillTool && selectedTool != ToolType.SELECTION) {
                 Row(
                      verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -1329,7 +1605,7 @@ fun BottomMenuBar(
                          Box(
                              modifier = Modifier
                                  .size(24.dp)
-                                 .clip(CircleShape)
+                                  .clip(CircleShape)
                                  .background(Color(fillColor))
                                  .border(2.dp, Color.Black, CircleShape)
                                  .clickable(onClick = onFillColorChangeRequest)
@@ -1341,50 +1617,134 @@ fun BottomMenuBar(
             }
 
             // SIZE PREVIEW
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(Color.LightGray)
-                    .clickable(onClick = onSizeChangeRequest),
-                contentAlignment = Alignment.Center
-            ) {
+            if (selectedTool != ToolType.SELECTION) {
                 Box(
                     modifier = Modifier
-                        .size(selectedSize.coerceIn(2f, 36f).dp)
+                        .size(40.dp)
                         .clip(CircleShape)
-                        .background(Color.Black)
-                )
+                        .background(Color.LightGray)
+                        .clickable(onClick = onSizeChangeRequest),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(selectedSize.coerceIn(2f, 36f).dp)
+                            .clip(CircleShape)
+                            .background(Color.Black)
+                    )
+                }
+                
+                VerticalDivider(modifier = Modifier.height(24.dp))
             }
-            
-            VerticalDivider(modifier = Modifier.height(24.dp))
 
             // ERASER
-            IconButton(onClick = onEraserToggle) {
-                Icon(
-                    Icons.Default.Delete, 
-                    contentDescription = "Eraser",
-                    tint = if (isEraserActive) Color.Red else Color.Gray
-                )
-            }
+            if (selectedTool != ToolType.SELECTION) {
+                IconButton(onClick = onEraserToggle) {
+                    Icon(
+                        Icons.Default.Delete, 
+                        contentDescription = "Eraser",
+                        tint = if (isEraserActive) Color.Red else Color.Gray
+                    )
+                }
 
-            VerticalDivider(modifier = Modifier.height(24.dp))
+                VerticalDivider(modifier = Modifier.height(24.dp))
+            }
             
             // BACKGROUND COLOR PICKER
-             Box(
-                 modifier = Modifier
-                     .size(32.dp)
-                     .clip(CircleShape)
-                     .background(Color(backgroundColor))
-                     .border(1.dp, Color.Gray, CircleShape)
-                     .clickable(onClick = onBackgroundColorChangeRequest),
-                 contentAlignment = Alignment.Center
-             ) {
-                 // Icon overlay to indicate it's background?
-                 // Or just the color. 
-                 // Let's add a small icon overlay if white to differentiate.
-                 if (backgroundColor == android.graphics.Color.WHITE) {
-                     Icon(Icons.Default.Palette, contentDescription = "Background", tint = Color.Black.copy(alpha=0.5f), modifier = Modifier.size(16.dp))
+            if (selectedTool != ToolType.SELECTION) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(Color(backgroundColor))
+                        .border(1.dp, Color.Gray, CircleShape)
+                        .clickable(onClick = onBackgroundColorChangeRequest),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (backgroundColor == android.graphics.Color.WHITE) {
+                        Icon(Icons.Default.Palette, contentDescription = "Background", tint = Color.Black.copy(alpha=0.5f), modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+
+             // --- SELECTION SPECIFIC ---
+             if (selectedTool == ToolType.SELECTION) {
+                 VerticalDivider(modifier = Modifier.height(24.dp))
+                 
+                 // Mode Toggles
+                 var showSelectionMenu by remember { mutableStateOf(false) }
+                 Box {
+                     IconButton(onClick = { showSelectionMenu = true }) {
+                         Icon(
+                             if (selectionMode == SketcherViewModel.SelectionMode.RECTANGLE) Icons.Default.AspectRatio else Icons.Default.Gesture,
+                             contentDescription = "Selection Mode",
+                             tint = Color.Blue
+                         )
+                     }
+                     
+                     DropdownMenu(
+                         expanded = showSelectionMenu,
+                         onDismissRequest = { showSelectionMenu = false }
+                     ) {
+                         DropdownMenuItem(
+                             text = { Text("Rectangle Selection") },
+                             leadingIcon = { Icon(Icons.Default.AspectRatio, null) },
+                             onClick = {
+                                 onSelectionModeChanged(SketcherViewModel.SelectionMode.RECTANGLE)
+                                 showSelectionMenu = false
+                             }
+                         )
+                         DropdownMenuItem(
+                             text = { Text("Lasso Selection") },
+                             leadingIcon = { Icon(Icons.Default.Gesture, null) },
+                             onClick = {
+                                 onSelectionModeChanged(SketcherViewModel.SelectionMode.FREEHAND)
+                                 showSelectionMenu = false
+                             }
+                         )
+                     }
+                 }
+
+                 // ACTION PLACEHOLDERS
+                 IconButton(onClick = onCopy) {
+                     Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = Color.Black)
+                 }
+                 IconButton(onClick = onCut) {
+                     Icon(Icons.Default.ContentCut, contentDescription = "Cut", tint = Color.Black)
+                 }
+                 IconButton(onClick = onPaste, enabled = canPaste) {
+                     Icon(
+                         Icons.Default.ContentPaste, 
+                         contentDescription = "Paste", 
+                         tint = if (canPaste) Color.Blue else Color.Gray
+                     )
+                 }
+
+                 VerticalDivider(modifier = Modifier.height(24.dp))
+
+                 IconButton(onClick = { /* Group */ }) {
+                     Icon(Icons.Default.Group, contentDescription = "Group", tint = Color.Gray)
+                 }
+                 IconButton(onClick = { /* Component */ }) {
+                     Icon(Icons.Default.Extension, contentDescription = "Make Component", tint = Color.Gray)
+                 }
+
+                 VerticalDivider(modifier = Modifier.height(24.dp))
+
+                 // DELETE SELECTION
+                 IconButton(onClick = onDeleteSelection) {
+                     Icon(Icons.Default.Delete, contentDescription = "Delete Selection", tint = Color.Red)
+                 }
+
+                 VerticalDivider(modifier = Modifier.height(24.dp))
+
+                 // ASPECT RATIO TOGGLE
+                 IconButton(onClick = onToggleAspectRatioLock) {
+                     Icon(
+                         if (isAspectRatioLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                         contentDescription = "Lock Aspect Ratio",
+                         tint = if (isAspectRatioLocked) Color.Blue else Color.Gray
+                     )
                  }
              }
         }
@@ -1542,11 +1902,11 @@ fun SizeSelectorPopup(
     onDismiss: () -> Unit
 ) {
     // Visibility Logic
-    val showSize = activeToolType != ToolType.FILL_SHAPE
-    val showOpacity = true
-    val showStabilizer = activeToolType != ToolType.FILL_SHAPE && activeToolType != ToolType.ERASER
-    val showPressure = activeToolType != ToolType.FILL_SHAPE && activeToolType != ToolType.ERASER
-    val showMinSize = activeToolType == ToolType.TECHNICAL_PEN || activeToolType == ToolType.PRESSURE_PEN
+    val showSize = activeToolType != ToolType.FILL_SHAPE && activeToolType != ToolType.SELECTION
+    val showOpacity = activeToolType != ToolType.SELECTION
+    val showStabilizer = activeToolType != ToolType.ERASER && activeToolType != ToolType.SELECTION
+    val showPressure = activeToolType != ToolType.FILL_SHAPE && activeToolType != ToolType.ERASER && activeToolType != ToolType.SELECTION
+    val showMinSize = (activeToolType == ToolType.TECHNICAL_PEN || activeToolType == ToolType.PRESSURE_PEN) && activeToolType != ToolType.SELECTION
 
     // Non-linear Slider Logic (Quadratic)
     val minSize = 1f

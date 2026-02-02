@@ -2,7 +2,10 @@ package com.skecher.sketchercompanionv1
 
 import android.graphics.Path
 
-data class StrokePoint(val x: Float, val y: Float, val pressure: Float)
+import android.graphics.Matrix
+import android.graphics.RectF
+
+data class StrokePoint(var x: Float, var y: Float, val pressure: Float)
 
 data class VectorStroke(
     val points: List<StrokePoint>,
@@ -11,5 +14,34 @@ data class VectorStroke(
     val path: Path,
     val leftPoints: List<android.graphics.PointF> = emptyList(),
     val rightPoints: List<android.graphics.PointF> = emptyList()
-) : LayerElement
+) : LayerElement {
+    override fun getBounds(): RectF {
+        val rect = RectF()
+        path.computeBounds(rect, true)
+        return rect
+    }
+
+    override fun transform(matrix: Matrix) {
+        path.transform(matrix)
+        val pts = FloatArray(2)
+        points.forEach { p ->
+            pts[0] = p.x
+            pts[1] = p.y
+            matrix.mapPoints(pts)
+            p.x = pts[0]
+            p.y = pts[1]
+        }
+    }
+
+    override fun copyElement(): LayerElement {
+        return VectorStroke(
+            points = points.map { it.copy() },
+            color = color,
+            maxWidth = maxWidth,
+            path = Path(path),
+            leftPoints = leftPoints.map { android.graphics.PointF(it.x, it.y) },
+            rightPoints = rightPoints.map { android.graphics.PointF(it.x, it.y) }
+        )
+    }
+}
 
