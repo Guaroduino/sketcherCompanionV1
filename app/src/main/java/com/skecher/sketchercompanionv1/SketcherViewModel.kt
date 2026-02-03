@@ -29,6 +29,8 @@ import com.skecher.sketchercompanionv1.utils.toLayer
 import com.skecher.sketchercompanionv1.FillData
 import com.skecher.sketchercompanionv1.AndroidInkElement
 import java.util.ArrayDeque
+import com.skecher.sketchercompanionv1.GroupElement
+import com.skecher.sketchercompanionv1.Transformable
 
 data class ToolConfig(
     val size: Float,
@@ -133,6 +135,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     var selectionScope by mutableStateOf(SelectionScope.CURRENT_LAYER)
     var isSelectionAspectRatioLocked by mutableStateOf(true)
 
+    val isGroupSelected: Boolean get() = selectionManager.selectedElements.any { it is GroupElement }
+    val isSelectionEmpty: Boolean get() = selectionManager.selectedElements.isEmpty()
+
     fun deleteSelection() {
         if (selectionManager.selectedElements.isEmpty()) return
         saveStateForUndo()
@@ -147,6 +152,106 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         }
         if (changed) {
             selectionManager.clearSelection()
+            updateUndoRedoSupport()
+        }
+    }
+
+    // --- GROUP / UNGROUP ---
+    fun groupSelection() {
+        val selected = selectionManager.selectedElements
+        if (selected.isEmpty()) return
+        
+        saveStateForUndo()
+
+        // 1. Create Group
+        val group = GroupElement(
+            id = UUID.randomUUID().toString(),
+            elements = selected.toList(), // Copy list
+            matrix = Matrix() // Start with identity
+        )
+        
+        // 2. Remove originals from Active Layer (assuming single layer selection for now, or scan all)
+        // Complexity: Selected items might be across layers? 
+        // Current SelectionManager handles multi-layer? "SelectionScope { CURRENT_LAYER, ALL_LAYERS }"
+        // If ALL_LAYERS, we might be pulling items from multiple layers.
+        // Simplification: We add the group to the ACTIVE layer, and remove parts from their respective layers.
+        
+        var changed = false
+        val activeLayer = layers[activeLayerIndex] // Default target for new group
+        
+        // Remove from source layers
+        layers.forEachIndexed { index, layer ->
+             if (layer.elements.removeAll(selected)) {
+                 layers[index] = layer.copy() // Trigger update
+                 changed = true
+             }
+        }
+        
+        if (changed || selected.isNotEmpty()) {
+             // Add Group to Active Layer
+             activeLayer.elements.add(group)
+             layers[activeLayerIndex] = activeLayer.copy()
+             
+             // Update Selection
+             selectionManager.clearSelection()
+             selectionManager.selectedElements.add(group)
+             selectionManager.recalculateBaseBounds()
+             
+             updateUndoRedoSupport()
+        }
+    }
+
+    fun ungroupSelection() {
+        val selected = selectionManager.selectedElements
+        // Only if we have distinct group elements selected
+        val groups = selected.filterIsInstance<GroupElement>()
+        if (groups.isEmpty()) return
+        
+        saveStateForUndo()
+        
+        var changed = false
+        
+        // For each group, we "explode" it
+        groups.forEach { group ->
+             // 1. Find which layer contains this group
+             layers.forEachIndexed { params, layer ->
+                 if (layer.elements.contains(group)) {
+                     // 2. Remove Group
+                     layer.elements.remove(group)
+                     
+                     // 3. Add Children back, with Transform applied
+                     val children = group.elements.map { child ->
+                         // If child is transformable, apply the group matrix
+                         if (child is Transformable) {
+                             // We need a deep copy or just modify if we own it now?
+                             // child is technically owned by the group. 
+                             // We should copy it to be safe, or just mutate if it's unique.
+                             // LayerElement has `copyElement`.
+                             val newChild = child.copyElement()
+                             if (newChild is Transformable) {
+                                  newChild.transform(group.matrix)
+                             }
+                             newChild
+                         } else {
+                             child // Should not happen based on types, but safe fallback
+                         }
+                     }
+                     
+                     layer.elements.addAll(children)
+                     layers[params] = layer.copy()
+                     changed = true
+                     
+                     // Update selection (add children)
+                     // limitation: ConcurrentModification if we touch selectionManager.selectedElements here?
+                     // We doing it outside loop? No, we filter before.
+                 }
+             }
+        }
+        
+        if (changed) {
+            selectionManager.clearSelection()
+            // We could try to select the children, but finding them might be tricky unless we tracked them.
+            // For now, clear selection is safe. Or we can collect all 'children' and select them.
             updateUndoRedoSupport()
         }
     }
@@ -870,6 +975,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     val bounds = element.getBounds()
                     shouldRemove = bounds.contains(x, y)
                 }
+                is GroupElement -> {
+                    val bounds = element.getBounds()
+                    shouldRemove = bounds.contains(x, y)
+                }
             }
 
             if (shouldRemove) {
@@ -967,22 +1076,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     private fun createLayersSnapshot(): List<Layer> {
         return layers.map { layer ->
             layer.copy(
-                elements = layer.elements.map { element ->
-                    when (element) {
-                        is VectorStroke -> element.copy(
-                            points = element.points.map { it.copy() },
-                            path = android.graphics.Path(element.path)
-                        )
-                        is FillData -> element.copy(path = android.graphics.Path(element.path))
-                        is AndroidInkElement -> {
-                            AndroidInkElement(element.stroke).apply {
-                                localMatrix = android.graphics.Matrix(element.localMatrix)
-                            }
-                        }
-                        is ImageElement -> element.copyElement()
-                        is SvgElement -> element.copyElement()
-                    }
-                }.toMutableList()
+                elements = layer.elements.map { it.copyElement() }.toMutableList()
             )
         }
     }

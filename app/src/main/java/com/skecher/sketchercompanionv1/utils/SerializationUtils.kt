@@ -13,6 +13,7 @@ import com.skecher.sketchercompanionv1.FillData
 import com.skecher.sketchercompanionv1.Layer
 import com.skecher.sketchercompanionv1.VectorStroke
 import com.skecher.sketchercompanionv1.StrokePoint
+import com.skecher.sketchercompanionv1.GroupElement
 import com.skecher.sketchercompanionv1.dto.*
 
 // --- PROJECT LEVEL ---
@@ -21,37 +22,7 @@ import com.skecher.sketchercompanionv1.dto.*
 // --- LAYER MAPPERS ---
 
 fun Layer.toLayerJson(): LayerJson {
-    val elementsJson = this.elements.mapNotNull { element ->
-        when (element) {
-            is com.skecher.sketchercompanionv1.AndroidInkElement -> LayerElementJson(
-                type = "INK",
-                inkStroke = element.stroke.toStrokeJson()
-            )
-            is com.skecher.sketchercompanionv1.VectorStroke -> LayerElementJson(
-                type = "VECTOR",
-                vectorStroke = element.toVectorStrokeJson()
-            )
-            is com.skecher.sketchercompanionv1.FillData -> LayerElementJson(
-                type = "FILL",
-                fill = element.toFillDataJson()
-            )
-            is com.skecher.sketchercompanionv1.ImageElement -> LayerElementJson(
-                type = "IMAGE",
-                image = ImageElementJson(
-                    fileName = element.imageFileName,
-                    matrixValues = element.matrixValues.toList()
-                )
-            )
-            is com.skecher.sketchercompanionv1.SvgElement -> LayerElementJson(
-                type = "SVG",
-                svg = SvgElementJson(
-                    fileName = element.svgFileName,
-                    id = element.id,
-                    matrixValues = element.matrixValues.toList()
-                )
-            )
-        }
-    }
+    val elementsJson = this.elements.map { it.toLayerElementJson() }
     
     return LayerJson(
         id = this.id,
@@ -61,6 +32,92 @@ fun Layer.toLayerJson(): LayerJson {
         elements = elementsJson
     )
 }
+
+fun com.skecher.sketchercompanionv1.LayerElement.toLayerElementJson(): LayerElementJson {
+    return when (this) {
+        is com.skecher.sketchercompanionv1.AndroidInkElement -> LayerElementJson(
+            type = "INK",
+            inkStroke = this.stroke.toStrokeJson()
+        )
+        is com.skecher.sketchercompanionv1.VectorStroke -> LayerElementJson(
+            type = "VECTOR",
+            vectorStroke = this.toVectorStrokeJson()
+        )
+        is com.skecher.sketchercompanionv1.FillData -> LayerElementJson(
+            type = "FILL",
+            fill = this.toFillDataJson()
+        )
+        is com.skecher.sketchercompanionv1.ImageElement -> LayerElementJson(
+            type = "IMAGE",
+            image = ImageElementJson(
+                fileName = this.imageFileName,
+                matrixValues = this.matrixValues.toList()
+            )
+        )
+        is com.skecher.sketchercompanionv1.SvgElement -> LayerElementJson(
+            type = "SVG",
+            svg = SvgElementJson(
+                fileName = this.svgFileName,
+                id = this.id,
+                matrixValues = this.matrixValues.toList()
+            )
+        )
+        is com.skecher.sketchercompanionv1.GroupElement -> {
+            val mValues = FloatArray(9)
+            this.matrix.getValues(mValues)
+            LayerElementJson(
+                type = "GROUP",
+                group = GroupElementJson(
+                    id = this.id,
+                    elements = this.elements.map { it.toLayerElementJson() },
+                    matrixValues = mValues.toList()
+                )
+            )
+        }
+    }
+}
+
+fun LayerElementJson.toLayerElement(
+    bitmapLoader: (String) -> android.graphics.Bitmap?,
+    svgLoader: (String) -> String?
+): com.skecher.sketchercompanionv1.LayerElement {
+    return when (this.type) {
+        "INK" -> com.skecher.sketchercompanionv1.AndroidInkElement(this.inkStroke!!.toStroke())
+        "VECTOR" -> this.vectorStroke!!.toVectorStroke()
+        "FILL" -> this.fill!!.toFillData()
+        "IMAGE" -> {
+            val imgJson = this.image!!
+            val matrix = Matrix()
+            matrix.setValues(imgJson.matrixValues.toFloatArray())
+            com.skecher.sketchercompanionv1.ImageElement(
+                bitmap = bitmapLoader(imgJson.fileName)!!,
+                imageFileName = imgJson.fileName,
+                matrix = matrix
+            )
+        }
+        "SVG" -> {
+            val svgJson = this.svg!!
+            com.skecher.sketchercompanionv1.SvgElement(
+                id = svgJson.id,
+                svgFileName = svgJson.fileName,
+                svgContent = svgLoader(svgJson.fileName)!!,
+                matrixValues = svgJson.matrixValues.toFloatArray()
+            )
+        }
+        "GROUP" -> {
+            val groupJson = this.group!!
+            val matrix = Matrix()
+            matrix.setValues(groupJson.matrixValues.toFloatArray())
+            com.skecher.sketchercompanionv1.GroupElement(
+                id = groupJson.id,
+                elements = groupJson.elements.map { it.toLayerElement(bitmapLoader, svgLoader) },
+                matrix = matrix
+            )
+        }
+        else -> throw IllegalArgumentException("Unknown type: ${this.type}")
+    }
+}
+
 
 fun VectorStroke.toVectorStrokeJson(): VectorStrokeJson {
     // Basic mapping
@@ -120,6 +177,20 @@ fun LayerJson.toLayer(
                             matrixValues = svgJson.matrixValues.toFloatArray()
                         ))
                     }
+                }
+            }
+            "GROUP" -> {
+                elJson.group?.let { groupJson ->
+                    val children = groupJson.elements.map { childJson ->
+                        childJson.toLayerElement(bitmapLoader, svgLoader)
+                    }
+                    val matrix = Matrix()
+                    matrix.setValues(groupJson.matrixValues.toFloatArray())
+                    customElements.add(com.skecher.sketchercompanionv1.GroupElement(
+                        id = groupJson.id,
+                        elements = children,
+                        matrix = matrix
+                    ))
                 }
             }
         }

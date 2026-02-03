@@ -401,13 +401,15 @@ class SketcherCanvasView(context: Context) : View(context) {
             canvas.concat(viewMatrix)
             
             for (element in layer.elements) {
-                when(element) {
-                    is FillData -> drawFill(element, canvas)
-                    is VectorStroke -> drawVectorStroke(element, canvas)
-                    is AndroidInkElement -> drawInkStroke(element, canvas)
-                    is ImageElement -> drawImage(element, canvas)
-                    is SvgElement -> element.render(canvas)
-                }
+                 com.skecher.sketchercompanionv1.ui.utils.RenderHelper.drawElementRecursive(
+                     canvas, 
+                     element,
+                     drawVector = { v, c -> drawVectorStroke(v, c) },
+                     drawInk = { i, c -> drawInkStroke(i, c) },
+                     drawFill = { f, c -> drawFill(f, c) },
+                     drawImage = { i, c -> drawImage(i, c) },
+                     drawSvg = { s, c -> s.render(c) }
+                 )
             }
             
             canvas.restore()

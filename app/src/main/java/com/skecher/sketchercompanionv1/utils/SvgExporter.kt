@@ -10,6 +10,7 @@ import com.skecher.sketchercompanionv1.ImageElement
 import com.skecher.sketchercompanionv1.Layer
 import com.skecher.sketchercompanionv1.SvgElement
 import com.skecher.sketchercompanionv1.VectorStroke
+import com.skecher.sketchercompanionv1.GroupElement
 import com.skecher.sketchercompanionv1.dto.ProjectData
 import androidx.ink.strokes.Stroke
 import java.io.ByteArrayOutputStream
@@ -46,6 +47,7 @@ object SvgExporter {
                     is ImageElement -> exportImage(sb, element)
                     is SvgElement -> exportSvgElement(sb, element)
                     is AndroidInkElement -> exportInk(sb, element)
+                    is GroupElement -> exportGroup(sb, element)
                 }
             }
             
@@ -54,6 +56,34 @@ object SvgExporter {
 
         sb.append("</svg>")
         return sb.toString()
+    }
+
+    private fun exportGroup(sb: StringBuilder, group: GroupElement) {
+        val matrix = group.matrix
+        val values = FloatArray(9)
+        matrix.getValues(values)
+        
+        val a = values[Matrix.MSCALE_X]
+        val b = values[Matrix.MSKEW_Y]
+        val c = values[Matrix.MSKEW_X]
+        val d = values[Matrix.MSCALE_Y]
+        val e = values[Matrix.MTRANS_X]
+        val f = values[Matrix.MTRANS_Y]
+        
+        sb.append("    <g id=\"${group.id}\" transform=\"matrix($a, $b, $c, $d, $e, $f)\">\n")
+        
+        for (child in group.elements) {
+            when (child) {
+                is FillData -> exportFill(sb, child)
+                is VectorStroke -> exportVectorStroke(sb, child)
+                is ImageElement -> exportImage(sb, child)
+                is SvgElement -> exportSvgElement(sb, child)
+                is AndroidInkElement -> exportInk(sb, child)
+                is GroupElement -> exportGroup(sb, child)
+            }
+        }
+        
+        sb.append("    </g>\n")
     }
 
     private fun exportFill(sb: StringBuilder, fill: FillData) {

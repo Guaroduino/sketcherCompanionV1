@@ -1,4 +1,4 @@
-﻿package com.skecher.sketchercompanionv1
+package com.skecher.sketchercompanionv1
 
 import android.annotation.SuppressLint
 import android.app.Activity
@@ -58,6 +58,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.core.view.WindowCompat
 import com.skecher.sketchercompanionv1.ui.FileMenu
 import com.skecher.sketchercompanionv1.ui.theme.SketcherCompanionV1Theme
+import com.skecher.sketchercompanionv1.GroupElement
 import androidx.ink.authoring.InProgressStrokeId
 import androidx.ink.authoring.InProgressStrokesFinishedListener
 import androidx.ink.authoring.InProgressStrokesView
@@ -105,6 +106,7 @@ import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Schema
 import androidx.compose.ui.res.stringResource
 import android.graphics.BitmapFactory
 import java.io.InputStream
@@ -1329,6 +1331,14 @@ fun SketcherSurface(
                 onSelectionModeChanged = { sketchViewModel.currentSelectionMode = it },
                 isAspectRatioLocked = sketchViewModel.isSelectionAspectRatioLocked,
                 onToggleAspectRatioLock = { sketchViewModel.isSelectionAspectRatioLocked = !sketchViewModel.isSelectionAspectRatioLocked },
+                onGroup = { 
+                    sketchViewModel.groupSelection()
+                    canvasViewRef?.invalidate()
+                },
+                onUngroup = { 
+                    sketchViewModel.ungroupSelection()
+                    canvasViewRef?.invalidate()
+                },
                 onCopy = { sketchViewModel.copy() },
                 onCut = { 
                     sketchViewModel.cut()
@@ -1350,6 +1360,8 @@ fun SketcherSurface(
                     else 
                         SketcherViewModel.SelectionScope.CURRENT_LAYER
                 },
+                isGroupSelected = sketchViewModel.isGroupSelected,
+                isSelectionEmpty = sketchViewModel.isSelectionEmpty,
                 toolbarBackgroundColor = sketchViewModel.toolbarBackgroundColor,
                 toolbarAlpha = sketchViewModel.toolbarAlpha,
                 isToolbarBlurEnabled = sketchViewModel.isToolbarBlurEnabled
@@ -1526,12 +1538,16 @@ fun BottomMenuBar(
     onSelectionModeChanged: (SketcherViewModel.SelectionMode) -> Unit,
     isAspectRatioLocked: Boolean,
     onToggleAspectRatioLock: () -> Unit,
+    onGroup: () -> Unit,
+    onUngroup: () -> Unit,
     onCopy: () -> Unit,
     onCut: () -> Unit,
     onPaste: () -> Unit,
     canPaste: Boolean,
     selectionScope: SketcherViewModel.SelectionScope,
     onToggleSelectionScope: () -> Unit,
+    isGroupSelected: Boolean,
+    isSelectionEmpty: Boolean,
     toolbarBackgroundColor: Int,
     toolbarAlpha: Float,
     isToolbarBlurEnabled: Boolean
@@ -1753,11 +1769,11 @@ fun BottomMenuBar(
 
 
                  // ACTION PLACEHOLDERS
-                 IconButton(onClick = onCopy) {
-                     Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = Color.Black)
+                 IconButton(onClick = onCopy, enabled = !isSelectionEmpty) {
+                     Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = if (!isSelectionEmpty) Color.Black else Color.Gray)
                  }
-                 IconButton(onClick = onCut) {
-                     Icon(Icons.Default.ContentCut, contentDescription = "Cut", tint = Color.Black)
+                 IconButton(onClick = onCut, enabled = !isSelectionEmpty) {
+                     Icon(Icons.Default.ContentCut, contentDescription = "Cut", tint = if (!isSelectionEmpty) Color.Black else Color.Gray)
                  }
                  IconButton(onClick = onPaste, enabled = canPaste) {
                      Icon(
@@ -1769,18 +1785,23 @@ fun BottomMenuBar(
 
                  VerticalDivider(modifier = Modifier.height(24.dp))
 
-                 IconButton(onClick = { /* Group */ }) {
-                     Icon(Icons.Default.Group, contentDescription = "Group", tint = Color.Gray)
+                 IconButton(onClick = onGroup, enabled = !isSelectionEmpty) {
+                     Icon(Icons.Default.Group, contentDescription = "Group", tint = if (!isSelectionEmpty) Color.Black else Color.Gray)
                  }
-                 IconButton(onClick = { /* Component */ }) {
-                     Icon(Icons.Default.Extension, contentDescription = "Make Component", tint = Color.Gray)
+
+                 IconButton(onClick = { /* Component */ }, enabled = !isSelectionEmpty) {
+                     Icon(Icons.Default.Extension, contentDescription = "Make Component", tint = if (!isSelectionEmpty) Color.Gray else Color.LightGray)
+                 }
+
+                 IconButton(onClick = onUngroup, enabled = isGroupSelected) {
+                     Icon(Icons.Default.Schema, contentDescription = "Ungroup", tint = if (isGroupSelected) Color.Black else Color.Gray)
                  }
 
                  VerticalDivider(modifier = Modifier.height(24.dp))
 
                  // DELETE SELECTION
-                 IconButton(onClick = onDeleteSelection) {
-                     Icon(Icons.Default.Delete, contentDescription = "Delete Selection", tint = Color.Red)
+                 IconButton(onClick = onDeleteSelection, enabled = !isSelectionEmpty) {
+                     Icon(Icons.Default.Delete, contentDescription = "Delete Selection", tint = if (!isSelectionEmpty) Color.Red else Color.Gray)
                  }
 
                  VerticalDivider(modifier = Modifier.height(24.dp))
