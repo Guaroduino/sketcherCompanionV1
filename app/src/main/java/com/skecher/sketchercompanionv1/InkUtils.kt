@@ -73,4 +73,27 @@ object InkUtils {
             return null
         }
     }
+    fun transformStroke(stroke: Stroke, matrix: Matrix): Stroke {
+        val inputs = stroke.inputs
+        val builder = MutableStrokeInputBatch()
+        val pts = FloatArray(2)
+
+        for (i in 0 until inputs.size) {
+            val input = inputs.get(i)
+            pts[0] = input.x
+            pts[1] = input.y
+            matrix.mapPoints(pts)
+
+            builder.add(
+                type = input.toolType,
+                x = pts[0],
+                y = pts[1],
+                elapsedTimeMillis = input.elapsedTimeMillis,
+                pressure = input.pressure,
+                orientationRadians = input.orientationRadians,
+                tiltRadians = input.tiltRadians
+            )
+        }
+        return Stroke(stroke.brush, builder)
+    }
 }

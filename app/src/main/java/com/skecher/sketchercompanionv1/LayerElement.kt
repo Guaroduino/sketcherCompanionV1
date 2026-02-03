@@ -11,14 +11,14 @@ sealed interface LayerElement : Transformable {
 }
 
 interface Transformable {
-    fun getBounds(): RectF
+    fun getBounds(library: Map<String, ComponentDefinition> = emptyMap()): RectF
     fun transform(matrix: Matrix) // Mutates the element's data
 }
 
 class AndroidInkElement(val stroke: androidx.ink.strokes.Stroke) : LayerElement {
     var localMatrix: Matrix = Matrix()
     
-    override fun getBounds(): RectF {
+    override fun getBounds(library: Map<String, ComponentDefinition>): RectF {
         val rect = RectF()
         // Compute bounds of the stroke inputs
         var minX = Float.MAX_VALUE
@@ -57,7 +57,7 @@ class AndroidInkElement(val stroke: androidx.ink.strokes.Stroke) : LayerElement 
 }
 
 data class FillData(val path: Path, val color: Int) : LayerElement {
-    override fun getBounds(): RectF {
+    override fun getBounds(library: Map<String, ComponentDefinition>): RectF {
         val rect = RectF()
         path.computeBounds(rect, true)
         return rect

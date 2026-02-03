@@ -53,13 +53,25 @@ data class LayerElementJson(
     val fill: FillJson? = null,
     val image: ImageElementJson? = null,
     val svg: SvgElementJson? = null,
-    val group: GroupElementJson? = null
+    val group: GroupElementJson? = null,
+    val componentInstance: ComponentInstanceJson? = null
+)
+
+data class ComponentInstanceJson(
+    val id: String,
+    val definitionId: String,
+    val matrixValues: List<Float>
 )
 
 data class GroupElementJson(
     val id: String,
     val elements: List<LayerElementJson>,
     val matrixValues: List<Float>
+)
+
+data class ComponentDefinitionJson(
+    val id: String,
+    val elements: List<LayerElementJson>
 )
 
 data class SvgElementJson(
@@ -90,7 +102,8 @@ data class StrokeJson(
     val brushColor: Long,       // ARGB Long
     val brushSize: Float,
     val brushEpsilon: Float,
-    val inputs: List<StrokeInputJson>
+    val inputs: List<StrokeInputJson>,
+    val matrixValues: List<Float>? = null // Local transform for isolation mode support
 )
 
 data class StrokeInputJson(

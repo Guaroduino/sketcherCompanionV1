@@ -26,11 +26,14 @@ import com.skecher.sketchercompanionv1.dto.GridConfig
 import com.skecher.sketchercompanionv1.dto.DistanceUnit
 import com.skecher.sketchercompanionv1.utils.toLayerJson
 import com.skecher.sketchercompanionv1.utils.toLayer
+import com.skecher.sketchercompanionv1.utils.toComponentDefinitionJson
+import com.skecher.sketchercompanionv1.utils.toComponentDefinition
 import com.skecher.sketchercompanionv1.FillData
 import com.skecher.sketchercompanionv1.AndroidInkElement
 import java.util.ArrayDeque
 import com.skecher.sketchercompanionv1.GroupElement
 import com.skecher.sketchercompanionv1.Transformable
+
 
 data class ToolConfig(
     val size: Float,
@@ -86,6 +89,69 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     var projectId by mutableStateOf(UUID.randomUUID().toString())
     var currentFileUri: android.net.Uri? by mutableStateOf(null)
 
+    // --- COMPONENTS & ISOLATION ---
+    val componentLibrary = mutableMapOf<String, ComponentDefinition>()
+    
+    // editingContext tracks if we are inside a Group or Component Definition
+    // Null = Main Layer, List = elements of a Group or Definition
+    var editingContext by mutableStateOf<MutableList<LayerElement>?>(null)
+        private set
+
+    val activeContainer: MutableList<LayerElement>
+        get() = editingContext ?: layers[activeLayerIndex].elements
+
+    fun makeComponent() {
+        if (selectionManager.selectedElements.isEmpty()) return
+        
+        saveStateForUndo()
+        val elementsToComponent = selectionManager.selectedElements.toList()
+        val defId = "comp_${UUID.randomUUID()}"
+        val definition = ComponentDefinition(defId, elementsToComponent.map { it.copyElement() }.toMutableList())
+        componentLibrary[defId] = definition
+        
+        // Remove from current container and add instance
+        activeContainer.removeAll(elementsToComponent)
+        val instance = ComponentInstance(
+            id = "inst_${UUID.randomUUID()}",
+            definitionId = defId
+        )
+        activeContainer.add(instance)
+        
+        selectionManager.clearSelection()
+        if (editingContext == null) {
+            layers[activeLayerIndex] = layers[activeLayerIndex].copy()
+        }
+        redoStack.clear()
+        updateUndoRedoSupport()
+    }
+
+    var editingContainerMatrix by mutableStateOf<Matrix?>(null)
+        private set
+
+    fun enterEditMode() {
+        if (selectionManager.selectedElements.size != 1) return
+        val selected = selectionManager.selectedElements.first()
+        
+        if (selected is GroupElement) {
+            editingContext = selected.elements as? MutableList<LayerElement>
+            editingContainerMatrix = Matrix(selected.matrix)
+            selectionManager.clearSelection()
+        } else if (selected is ComponentInstance) {
+            val definition = componentLibrary[selected.definitionId]
+            if (definition != null) {
+                editingContext = definition.elements
+                editingContainerMatrix = Matrix(selected.matrix)
+                selectionManager.clearSelection()
+            }
+        }
+    }
+
+    fun exitEditMode() {
+        editingContext = null
+        editingContainerMatrix = null
+        selectionManager.clearSelection()
+    }
+
 
     // --- TOOL STATE & CONFIG ---
     var currentTool by mutableStateOf(ToolType.PRESSURE_PEN)
@@ -135,7 +201,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     var selectionScope by mutableStateOf(SelectionScope.CURRENT_LAYER)
     var isSelectionAspectRatioLocked by mutableStateOf(true)
 
-    val isGroupSelected: Boolean get() = selectionManager.selectedElements.any { it is GroupElement }
+    val isGroupSelected: Boolean
+        get() = selectionManager.selectedElements.size == 1 && (selectionManager.selectedElements.first() is GroupElement)
+
+    val canEnterEditMode: Boolean
+        get() = selectionManager.selectedElements.size == 1 && (selectionManager.selectedElements.first() is GroupElement || selectionManager.selectedElements.first() is ComponentInstance)
+
     val isSelectionEmpty: Boolean get() = selectionManager.selectedElements.isEmpty()
 
     fun deleteSelection() {
@@ -195,11 +266,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
              // Update Selection
              selectionManager.clearSelection()
              selectionManager.selectedElements.add(group)
-             selectionManager.recalculateBaseBounds()
+             selectionManager.recalculateBaseBounds(componentLibrary)
              
              updateUndoRedoSupport()
         }
     }
+
+
 
     fun ungroupSelection() {
         val selected = selectionManager.selectedElements
@@ -297,7 +370,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         // Select pasted items
         selectionManager.clearSelection()
         selectionManager.selectedElements.addAll(pasted)
-        selectionManager.recalculateBaseBounds()
+        selectionManager.recalculateBaseBounds(componentLibrary)
         
         updateUndoRedoSupport()
     }
@@ -540,11 +613,15 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     fun addStroke(stroke: Stroke) {
         saveStateForUndo()
-        if (activeLayerIndex in layers.indices) {
-            val layer = layers[activeLayerIndex]
-            layer.elements.add(AndroidInkElement(stroke))
-            // Fix: Replace layer with copy to trigger Compose Recomposition
-            layers[activeLayerIndex] = layer.copy()
+        val finalStroke = editingContainerMatrix?.let { containerM ->
+            val inverse = Matrix()
+            containerM.invert(inverse)
+            InkUtils.transformStroke(stroke, inverse)
+        } ?: stroke
+        
+        activeContainer.add(AndroidInkElement(finalStroke))
+        if (editingContext == null) {
+            layers[activeLayerIndex] = layers[activeLayerIndex].copy()
         }
         redoStack.clear()
         updateUndoRedoSupport()
@@ -552,11 +629,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     
     fun addFill(fill: FillData) {
         saveStateForUndo() // We want to undo fills too now
-        if (activeLayerIndex in layers.indices) {
-            val layer = layers[activeLayerIndex]
-            layer.elements.add(fill)
-            // Fix: Replace layer with copy to trigger Compose Recomposition
-            layers[activeLayerIndex] = layer.copy()
+        editingContainerMatrix?.let { containerM ->
+            val inverse = Matrix()
+            containerM.invert(inverse)
+            fill.transform(inverse)
+        }
+        activeContainer.add(fill)
+        if (editingContext == null) {
+            layers[activeLayerIndex] = layers[activeLayerIndex].copy()
         }
         redoStack.clear()
         updateUndoRedoSupport()
@@ -565,10 +645,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     fun addVectorStroke(stroke: VectorStroke) {
         saveStateForUndo()
-        if (activeLayerIndex in layers.indices) {
-            val layer = layers[activeLayerIndex]
-            layer.elements.add(stroke)
-            layers[activeLayerIndex] = layer.copy()
+        editingContainerMatrix?.let { containerM ->
+            val inverse = Matrix()
+            containerM.invert(inverse)
+            stroke.transform(inverse)
+        }
+        activeContainer.add(stroke)
+        if (editingContext == null) {
+            layers[activeLayerIndex] = layers[activeLayerIndex].copy()
         }
         redoStack.clear()
         updateUndoRedoSupport()
@@ -618,7 +702,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                      // Center logic
                      val matrix = android.graphics.Matrix()
                      // Get Bounds
-                     val bounds = svgElement.getBounds()
+                     val bounds = svgElement.getBounds(componentLibrary)
                      
                      if (lastViewportWidth > 0 && lastViewportHeight > 0) {
                         val cx = lastViewportWidth / 2f
@@ -642,7 +726,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                      
                      selectionManager.clearSelection()
                      selectionManager.selectedElements.add(svgElement)
-                     selectionManager.recalculateBaseBounds()
+                     selectionManager.recalculateBaseBounds(componentLibrary)
                      
                      selectTool(ToolType.SELECTION)
                  }
@@ -689,7 +773,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             
             selectionManager.clearSelection()
             selectionManager.selectedElements.add(imageElement)
-            selectionManager.recalculateBaseBounds()
+            selectionManager.recalculateBaseBounds(componentLibrary)
             
             selectTool(ToolType.SELECTION)
         }
@@ -716,7 +800,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     height = lastViewportHeight,
                     cameraMatrix = cameraMatrixValues.toList(),
                     scaleConfig = scaleConfig.copy(unitName = currentUnit.symbol)
-                )
+                ),
+                componentLibrary = componentLibrary.mapValues { it.value.toComponentDefinitionJson() }
             )
             
             com.skecher.sketchercompanionv1.utils.ZipStorageManager.saveProject(context, projectData, layers, uri)
@@ -755,7 +840,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     height = lastViewportHeight,
                     cameraMatrix = cameraMatrixValues.toList(),
                     scaleConfig = scaleConfig.copy(unitName = currentUnit.symbol)
-                )
+                ),
+                componentLibrary = componentLibrary.mapValues { it.value.toComponentDefinitionJson() }
             )
             TemplateManager.saveAsTemplate(context, projectData, layers, name)
         } catch (e: Exception) {
@@ -787,7 +873,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                      height = lastViewportHeight,
                      cameraMatrix = cameraMatrixValues.toList(),
                      scaleConfig = scaleConfig.copy(unitName = currentUnit.symbol)
-                 )
+                 ),
+                 componentLibrary = componentLibrary.mapValues { it.value.toComponentDefinitionJson() }
              )
              
              // Generate content
@@ -814,6 +901,15 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         // Restore ID
         projectId = projectData.id
+
+        // Restore Components
+        componentLibrary.clear()
+        projectData.componentLibrary.forEach { (id, json) ->
+            componentLibrary[id] = json.toComponentDefinition(
+                bitmapLoader = { fileName -> bitmapMap[fileName] },
+                svgLoader = { fileName -> svgMap[fileName] }
+            )
+        }
 
         // Restore Layers
         projectData.layers.forEach { layerDto ->
@@ -968,17 +1064,22 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                      shouldRemove = com.skecher.sketchercompanionv1.StrokeGeometry.isStrokeTouched(element.stroke, x, y, radius)
                 }
                 is ImageElement -> {
-                    val bounds = element.getBounds()
+                    val bounds = element.getBounds(componentLibrary)
                     shouldRemove = bounds.contains(x, y)
                 }
                 is SvgElement -> {
-                    val bounds = element.getBounds()
+                    val bounds = element.getBounds(componentLibrary)
                     shouldRemove = bounds.contains(x, y)
                 }
                 is GroupElement -> {
-                    val bounds = element.getBounds()
+                    val bounds = element.getBounds(componentLibrary)
                     shouldRemove = bounds.contains(x, y)
                 }
+                is ComponentInstance -> {
+                    val bounds = element.getBounds(componentLibrary)
+                    shouldRemove = bounds.contains(x, y)
+                }
+                else -> {}
             }
 
             if (shouldRemove) {
@@ -1168,7 +1269,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         layers.forEach { layer ->
             layer.elements.forEach { element ->
-                val bounds = element.getBounds()
+                val bounds = element.getBounds(componentLibrary)
                 if (bounds.left < minX) minX = bounds.left
                 if (bounds.right > maxX) maxX = bounds.right
                 if (bounds.top < minY) minY = bounds.top

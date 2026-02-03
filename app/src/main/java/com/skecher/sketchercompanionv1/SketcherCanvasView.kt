@@ -141,6 +141,8 @@ class SketcherCanvasView(context: Context) : View(context) {
         }
         
     private val layers = mutableListOf<Layer>()
+    private var componentLibrary: Map<String, ComponentDefinition> = emptyMap()
+    private var editingContext: List<LayerElement>? = null
     
     // PREVIEW STATE (For live drawing/filling)
     private var currentVectorPreviewPath: android.graphics.Path? = null
@@ -160,9 +162,11 @@ class SketcherCanvasView(context: Context) : View(context) {
         isAntiAlias = true
     }
 
-    fun setLayers(newLayers: List<Layer>) {
+    fun setLayers(newLayers: List<Layer>, library: Map<String, ComponentDefinition>, editingCtx: List<LayerElement>?) {
         layers.clear()
         layers.addAll(newLayers)
+        componentLibrary = library
+        editingContext = editingCtx
         invalidate()
     }
 
@@ -222,11 +226,15 @@ class SketcherCanvasView(context: Context) : View(context) {
                     }
                     is AndroidInkElement -> StrokeGeometry.isStrokeTouched(element.stroke, worldX, worldY)
                     is ImageElement -> {
-                        val bounds = element.getBounds()
+                        val bounds = element.getBounds(componentLibrary)
                         bounds.contains(worldX, worldY)
                     }
                     is SvgElement -> {
-                        val bounds = element.getBounds()
+                        val bounds = element.getBounds(componentLibrary)
+                        bounds.contains(worldX, worldY)
+                    }
+                    is ComponentInstance -> {
+                        val bounds = element.getBounds(componentLibrary)
                         bounds.contains(worldX, worldY)
                     }
                     else -> false
@@ -401,14 +409,17 @@ class SketcherCanvasView(context: Context) : View(context) {
             canvas.concat(viewMatrix)
             
             for (element in layer.elements) {
-                 com.skecher.sketchercompanionv1.ui.utils.RenderHelper.drawElementRecursive(
+                 val isDimmed = editingContext != null && !editingContext!!.contains(element)
+                 RenderHelper.drawElementRecursive(
                      canvas, 
                      element,
                      drawVector = { v, c -> drawVectorStroke(v, c) },
                      drawInk = { i, c -> drawInkStroke(i, c) },
                      drawFill = { f, c -> drawFill(f, c) },
                      drawImage = { i, c -> drawImage(i, c) },
-                     drawSvg = { s, c -> s.render(c) }
+                     drawSvg = { s, c -> s.render(c) },
+                     componentLibrary = componentLibrary,
+                     isDimmed = isDimmed
                  )
             }
             

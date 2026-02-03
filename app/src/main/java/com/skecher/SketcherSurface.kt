@@ -271,7 +271,7 @@ fun SketcherSurface(
             try {
                 sketchViewModel.loadProjectFromZip(context, it)
                 // Update View and Redraw Cache
-                canvasViewRef?.setLayers(sketchViewModel.layers)
+                canvasViewRef?.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
                 canvasViewRef?.redrawAllCache()
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -431,7 +431,7 @@ fun SketcherSurface(
                         ) {
                             if ((right - left) > 0 && (bottom - top) > 0) {
                                 (v as? SketcherCanvasView)?.let { cv ->
-                                    cv.setLayers(sketchViewModel.layers)
+                                    cv.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
                                     cv.invalidate()
                                 }
                                 removeOnLayoutChangeListener(this)
@@ -441,7 +441,7 @@ fun SketcherSurface(
                 }
                 canvasViewRef = canvasView
                 
-                canvasView.setLayers(sketchViewModel.layers)
+                canvasView.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
                 canvasView.setCameraMatrix(cameraMatrix)
 
                 val wetView = InProgressStrokesView(ctx).apply {
@@ -799,12 +799,12 @@ fun SketcherSurface(
                                              for (i in sketchViewModel.layers.indices.reversed()) {
                                                  // Try to select on this layer. If hit, it replaced selection (due to false flag) and we break.
                                                  // If miss, it cleared selection, so we continue clean to next layer.
-                                                 if (manager.selectSingleAt(wx, wy, sketchViewModel.layers[i], addToSelection = false)) {
+                                                 if (manager.selectSingleAt(wx, wy, sketchViewModel.layers[i], sketchViewModel.componentLibrary, addToSelection = false)) {
                                                      break 
                                                  }
                                              }
                                         } else {
-                                            manager.selectSingleAt(wx, wy, sketchViewModel.layers[sketchViewModel.activeLayerIndex], addToSelection = false)
+                                            manager.selectSingleAt(wx, wy, sketchViewModel.layers[sketchViewModel.activeLayerIndex], sketchViewModel.componentLibrary, addToSelection = false)
                                         }
                                     } else {
                                         val selectionPath = if (sketchViewModel.currentSelectionMode == SketcherViewModel.SelectionMode.RECTANGLE) {
@@ -821,11 +821,11 @@ fun SketcherSurface(
 
                                         if (isAllLayers) {
                                             manager.clearSelection()
-                                            sketchViewModel.layers.forEach { layer ->
-                                                manager.selectArea(selectionPath, layer, addToSelection = true)
-                                            }
+                                             sketchViewModel.layers.forEach { layer ->
+                                                 manager.selectArea(selectionPath, layer, sketchViewModel.componentLibrary, addToSelection = true)
+                                             }
                                         } else {
-                                            manager.selectArea(selectionPath, sketchViewModel.layers[sketchViewModel.activeLayerIndex], addToSelection = false)
+                                            manager.selectArea(selectionPath, sketchViewModel.layers[sketchViewModel.activeLayerIndex], sketchViewModel.componentLibrary, addToSelection = false)
                                         }
                                     }
                                 }
@@ -854,7 +854,7 @@ fun SketcherSurface(
                                 val erased = sketchViewModel.erase(worldX, worldY, state.size)
                                 
                                 if (erased) {
-                                     canvasView.setLayers(sketchViewModel.layers)
+                                      canvasView.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
                                      canvasView.redrawAllCache()
                                 }
                              }
@@ -1065,7 +1065,7 @@ fun SketcherSurface(
                                               sketchViewModel.addFill(fData)
                                               canvasView.updateCurrentFill(null, 0)
                                               canvasView.bakeFill(fData)
-                                              canvasView.setLayers(sketchViewModel.layers)
+                                              canvasView.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
                                          }
                                          
                                          if (state.toolType == ToolType.TECHNICAL_PEN) {
@@ -1077,7 +1077,7 @@ fun SketcherSurface(
                                               sketchViewModel.addVectorStroke(s)
                                               canvasView.updateCurrentVectorPreview(null, null, 0)
                                               canvasView.bakeStroke(s)
-                                              canvasView.setLayers(sketchViewModel.layers)
+                                              canvasView.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
                                          }
                                     }
                                     
@@ -1185,7 +1185,7 @@ fun SketcherSurface(
                 val state = wetView.tag as RuntimeState
                 
                 // CRITICAL FIX: Ensure layers depend on ViewModel state updates
-                canvasView.setLayers(sketchViewModel.layers)
+                canvasView.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
 
                 val currentConfig = brushTypes.find { it.type == sketchViewModel.currentTool } ?: brushTypes.first()
                 
@@ -1234,9 +1234,9 @@ fun SketcherSurface(
             TopMenuBar(
                 modifier = Modifier.align(Alignment.TopCenter).zIndex(1000f),
                 canUndo = sketchViewModel.canUndo,
-                onUndo = { sketchViewModel.undo(); canvasViewRef?.setLayers(sketchViewModel.layers); canvasViewRef?.redrawAllCache() },
+                onUndo = { sketchViewModel.undo(); canvasViewRef?.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext); canvasViewRef?.redrawAllCache() },
                 canRedo = sketchViewModel.canRedo,
-                onRedo = { sketchViewModel.redo(); canvasViewRef?.setLayers(sketchViewModel.layers); canvasViewRef?.redrawAllCache() },
+                onRedo = { sketchViewModel.redo(); canvasViewRef?.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext); canvasViewRef?.redrawAllCache() },
                 onLayersClick = { showLayerManager = !showLayerManager },
                 onSave = { saveLauncher.launch("project.skc") },
                 onLoad = { loadLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
@@ -1250,7 +1250,7 @@ fun SketcherSurface(
                     cameraMatrix.reset()
                     cameraMatrix.invert(inverseMatrix)
                     canvasViewRef?.setCameraMatrix(cameraMatrix)
-                    canvasViewRef?.setLayers(sketchViewModel.layers)
+                    canvasViewRef?.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
                     canvasViewRef?.redrawAllCache()
                     canvasViewRef?.invalidate()
                     currentZoom = 1f 
@@ -1323,7 +1323,7 @@ fun SketcherSurface(
                 onBackgroundColorChangeRequest = { showBackgroundColorPicker = true },
                 onDeleteSelection = { 
                     sketchViewModel.deleteSelection()
-                    canvasViewRef?.setLayers(sketchViewModel.layers)
+                    canvasViewRef?.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
                     canvasViewRef?.redrawAllCache()
                     canvasViewRef?.invalidate()
                 },
@@ -1339,16 +1339,33 @@ fun SketcherSurface(
                     sketchViewModel.ungroupSelection()
                     canvasViewRef?.invalidate()
                 },
+                onMakeComponent = {
+                    sketchViewModel.makeComponent()
+                    canvasViewRef?.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
+                    canvasViewRef?.invalidate()
+                },
+                onEnterEditMode = {
+                    sketchViewModel.enterEditMode()
+                    canvasViewRef?.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
+                    canvasViewRef?.invalidate()
+                },
+                canEnterEditMode = sketchViewModel.canEnterEditMode,
+                onExitEditMode = {
+                    sketchViewModel.exitEditMode()
+                    canvasViewRef?.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
+                    canvasViewRef?.invalidate()
+                },
+                isEditingContextActive = sketchViewModel.editingContext != null,
                 onCopy = { sketchViewModel.copy() },
                 onCut = { 
                     sketchViewModel.cut()
-                    canvasViewRef?.setLayers(sketchViewModel.layers)
+                    canvasViewRef?.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
                     canvasViewRef?.redrawAllCache()
                     canvasViewRef?.invalidate()
                 },
                 onPaste = { 
                     sketchViewModel.paste()
-                    canvasViewRef?.setLayers(sketchViewModel.layers)
+                    canvasViewRef?.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
                     canvasViewRef?.redrawAllCache()
                     canvasViewRef?.invalidate()
                 },
@@ -1548,6 +1565,11 @@ fun BottomMenuBar(
     onToggleSelectionScope: () -> Unit,
     isGroupSelected: Boolean,
     isSelectionEmpty: Boolean,
+    onMakeComponent: () -> Unit,
+    onEnterEditMode: () -> Unit,
+    canEnterEditMode: Boolean,
+    onExitEditMode: () -> Unit,
+    isEditingContextActive: Boolean,
     toolbarBackgroundColor: Int,
     toolbarAlpha: Float,
     isToolbarBlurEnabled: Boolean
@@ -1573,6 +1595,14 @@ fun BottomMenuBar(
             horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // BACK BUTTON (Exit Isolation)
+            if (isEditingContextActive) {
+                IconButton(onClick = onExitEditMode) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Exit Isolation", tint = Color.Red)
+                }
+                Text("Isolado", color = Color.Red, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                VerticalDivider(modifier = Modifier.height(24.dp))
+            }
             // TOOL SELECTOR
             Box {
                 // Use activeDrawingTool to show the persistent drawing tool
@@ -1789,13 +1819,17 @@ fun BottomMenuBar(
                      Icon(Icons.Default.Group, contentDescription = "Group", tint = if (!isSelectionEmpty) Color.Black else Color.Gray)
                  }
 
-                 IconButton(onClick = { /* Component */ }, enabled = !isSelectionEmpty) {
-                     Icon(Icons.Default.Extension, contentDescription = "Make Component", tint = if (!isSelectionEmpty) Color.Gray else Color.LightGray)
-                 }
+                  IconButton(onClick = onUngroup, enabled = isGroupSelected) {
+                      Icon(Icons.Default.Schema, contentDescription = "Ungroup", tint = if (isGroupSelected) Color.Black else Color.Gray)
+                  }
 
-                 IconButton(onClick = onUngroup, enabled = isGroupSelected) {
-                     Icon(Icons.Default.Schema, contentDescription = "Ungroup", tint = if (isGroupSelected) Color.Black else Color.Gray)
-                 }
+                  IconButton(onClick = onMakeComponent, enabled = !isSelectionEmpty) {
+                      Icon(Icons.Default.Extension, contentDescription = "Make Component", tint = if (!isSelectionEmpty) Color.Black else Color.Gray)
+                  }
+
+                  IconButton(onClick = onEnterEditMode, enabled = canEnterEditMode) {
+                      Icon(Icons.Default.Edit, contentDescription = "Edit Isolated", tint = if (canEnterEditMode) Color.Blue else Color.Gray)
+                  }
 
                  VerticalDivider(modifier = Modifier.height(24.dp))
 

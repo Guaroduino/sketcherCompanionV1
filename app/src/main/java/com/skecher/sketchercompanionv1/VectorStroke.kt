@@ -15,7 +15,7 @@ data class VectorStroke(
     val leftPoints: List<android.graphics.PointF> = emptyList(),
     val rightPoints: List<android.graphics.PointF> = emptyList()
 ) : LayerElement {
-    override fun getBounds(): RectF {
+    override fun getBounds(library: Map<String, ComponentDefinition>): RectF {
         val rect = RectF()
         path.computeBounds(rect, true)
         return rect

@@ -6,6 +6,7 @@ import com.skecher.sketchercompanionv1.ToolConfig
 import com.skecher.sketchercompanionv1.dto.LayerJson
 import com.skecher.sketchercompanionv1.dto.GridConfig
 import com.skecher.sketchercompanionv1.dto.ScaleConfig
+import com.skecher.sketchercompanionv1.ComponentDefinition
 
 data class ProjectData(
     val id: String,
@@ -13,7 +14,8 @@ data class ProjectData(
     val backgroundConfig: BackgroundConfig,
     val paletteColors: List<Int>,
     val toolConfigs: Map<ToolType, ToolConfig>,
-    val canvasMetadata: CanvasMetadata
+    val canvasMetadata: CanvasMetadata,
+    val componentLibrary: Map<String, ComponentDefinitionJson> = emptyMap()
 )
 
 // data class LayerData ... (Removing Custom LayerData, utilizing LayerJson)

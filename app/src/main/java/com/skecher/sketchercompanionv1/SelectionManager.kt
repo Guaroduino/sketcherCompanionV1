@@ -10,15 +10,15 @@ class SelectionManager {
     val selectionMatrix = Matrix()
     var baseBounds = RectF()
 
-    fun selectSingleAt(x: Float, y: Float, layer: Layer, addToSelection: Boolean = false): Boolean {
+    fun selectSingleAt(x: Float, y: Float, layer: Layer, library: Map<String, ComponentDefinition>, addToSelection: Boolean = false): Boolean {
         // Reverse iterate to get top-most (elements at the end of the list are "on top")
         val iterator = layer.elements.listIterator(layer.elements.size)
         while (iterator.hasPrevious()) {
             val element = iterator.previous()
-            if (isHit(element, x, y)) {
+            if (isHit(element, x, y, library)) {
                 if (!addToSelection) selectedElements.clear()
                 selectedElements.add(element)
-                recalculateBaseBounds()
+                recalculateBaseBounds(library)
                 return true
             }
         }
@@ -26,30 +26,30 @@ class SelectionManager {
         return false
     }
 
-    fun selectArea(selectionPath: Path, layer: Layer, addToSelection: Boolean = false) {
+    fun selectArea(selectionPath: Path, layer: Layer, library: Map<String, ComponentDefinition>, addToSelection: Boolean = false) {
         if (!addToSelection) selectedElements.clear()
         val selectionBounds = RectF()
         selectionPath.computeBounds(selectionBounds, true)
 
         layer.elements.forEach { element ->
-            val elementBounds = element.getBounds()
+            val elementBounds = element.getBounds(library)
             if (RectF.intersects(selectionBounds, elementBounds)) {
                 selectedElements.add(element)
             }
         }
-        recalculateBaseBounds()
+        recalculateBaseBounds(library)
     }
 
-    fun recalculateBaseBounds() {
+    fun recalculateBaseBounds(library: Map<String, ComponentDefinition>) {
         selectionMatrix.reset()
         baseBounds.setEmpty()
         if (selectedElements.isEmpty()) return
         
         selectedElements.forEachIndexed { index, element ->
             if (index == 0) {
-                baseBounds.set(element.getBounds())
+                baseBounds.set(element.getBounds(library))
             } else {
-                baseBounds.union(element.getBounds())
+                baseBounds.union(element.getBounds(library))
             }
         }
     }
@@ -72,8 +72,8 @@ class SelectionManager {
         baseBounds.setEmpty()
     }
 
-    private fun isHit(element: LayerElement, x: Float, y: Float): Boolean {
+    private fun isHit(element: LayerElement, x: Float, y: Float, library: Map<String, ComponentDefinition>): Boolean {
         // Simple bounds check for now. Can be refined for strokes.
-        return element.getBounds().contains(x, y)
+        return element.getBounds(library).contains(x, y)
     }
 }

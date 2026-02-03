@@ -20,7 +20,7 @@ data class ImageElement(
             return values
         }
 
-    override fun getBounds(): RectF {
+    override fun getBounds(library: Map<String, ComponentDefinition>): RectF {
         val rect = RectF(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat())
         matrix.mapRect(rect)
         return rect

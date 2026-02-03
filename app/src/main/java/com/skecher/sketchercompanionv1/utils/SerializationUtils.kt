@@ -14,6 +14,13 @@ import com.skecher.sketchercompanionv1.Layer
 import com.skecher.sketchercompanionv1.VectorStroke
 import com.skecher.sketchercompanionv1.StrokePoint
 import com.skecher.sketchercompanionv1.GroupElement
+import com.skecher.sketchercompanionv1.ComponentDefinition
+import com.skecher.sketchercompanionv1.ComponentInstance
+import com.skecher.sketchercompanionv1.LayerElement
+import com.skecher.sketchercompanionv1.AndroidInkElement
+import com.skecher.sketchercompanionv1.SvgElement
+import com.skecher.sketchercompanionv1.ImageElement
+import com.skecher.sketchercompanionv1.PathGenerator
 import com.skecher.sketchercompanionv1.dto.*
 
 // --- PROJECT LEVEL ---
@@ -33,28 +40,32 @@ fun Layer.toLayerJson(): LayerJson {
     )
 }
 
-fun com.skecher.sketchercompanionv1.LayerElement.toLayerElementJson(): LayerElementJson {
+fun LayerElement.toLayerElementJson(): LayerElementJson {
     return when (this) {
-        is com.skecher.sketchercompanionv1.AndroidInkElement -> LayerElementJson(
-            type = "INK",
-            inkStroke = this.stroke.toStrokeJson()
-        )
-        is com.skecher.sketchercompanionv1.VectorStroke -> LayerElementJson(
+        is AndroidInkElement -> {
+            val mValues = FloatArray(9)
+            this.localMatrix.getValues(mValues)
+            LayerElementJson(
+                type = "INK",
+                inkStroke = this.stroke.toStrokeJson(mValues.toList())
+            )
+        }
+        is VectorStroke -> LayerElementJson(
             type = "VECTOR",
             vectorStroke = this.toVectorStrokeJson()
         )
-        is com.skecher.sketchercompanionv1.FillData -> LayerElementJson(
+        is FillData -> LayerElementJson(
             type = "FILL",
             fill = this.toFillDataJson()
         )
-        is com.skecher.sketchercompanionv1.ImageElement -> LayerElementJson(
+        is ImageElement -> LayerElementJson(
             type = "IMAGE",
             image = ImageElementJson(
                 fileName = this.imageFileName,
                 matrixValues = this.matrixValues.toList()
             )
         )
-        is com.skecher.sketchercompanionv1.SvgElement -> LayerElementJson(
+        is SvgElement -> LayerElementJson(
             type = "SVG",
             svg = SvgElementJson(
                 fileName = this.svgFileName,
@@ -62,7 +73,7 @@ fun com.skecher.sketchercompanionv1.LayerElement.toLayerElementJson(): LayerElem
                 matrixValues = this.matrixValues.toList()
             )
         )
-        is com.skecher.sketchercompanionv1.GroupElement -> {
+        is GroupElement -> {
             val mValues = FloatArray(9)
             this.matrix.getValues(mValues)
             LayerElementJson(
@@ -74,22 +85,35 @@ fun com.skecher.sketchercompanionv1.LayerElement.toLayerElementJson(): LayerElem
                 )
             )
         }
+        is ComponentInstance -> {
+            val mValues = FloatArray(9)
+            this.matrix.getValues(mValues)
+            LayerElementJson(
+                type = "COMPONENT_INSTANCE",
+                componentInstance = ComponentInstanceJson(
+                    id = this.id,
+                    definitionId = this.definitionId,
+                    matrixValues = mValues.toList()
+                )
+            )
+        }
+        else -> throw IllegalArgumentException("Unknown LayerElement type: ${this.javaClass.simpleName}")
     }
 }
 
 fun LayerElementJson.toLayerElement(
     bitmapLoader: (String) -> android.graphics.Bitmap?,
     svgLoader: (String) -> String?
-): com.skecher.sketchercompanionv1.LayerElement {
+): LayerElement {
     return when (this.type) {
-        "INK" -> com.skecher.sketchercompanionv1.AndroidInkElement(this.inkStroke!!.toStroke())
+        "INK" -> this.inkStroke!!.toAndroidInkElement()
         "VECTOR" -> this.vectorStroke!!.toVectorStroke()
         "FILL" -> this.fill!!.toFillData()
         "IMAGE" -> {
             val imgJson = this.image!!
             val matrix = Matrix()
             matrix.setValues(imgJson.matrixValues.toFloatArray())
-            com.skecher.sketchercompanionv1.ImageElement(
+            ImageElement(
                 bitmap = bitmapLoader(imgJson.fileName)!!,
                 imageFileName = imgJson.fileName,
                 matrix = matrix
@@ -97,7 +121,7 @@ fun LayerElementJson.toLayerElement(
         }
         "SVG" -> {
             val svgJson = this.svg!!
-            com.skecher.sketchercompanionv1.SvgElement(
+            SvgElement(
                 id = svgJson.id,
                 svgFileName = svgJson.fileName,
                 svgContent = svgLoader(svgJson.fileName)!!,
@@ -108,14 +132,41 @@ fun LayerElementJson.toLayerElement(
             val groupJson = this.group!!
             val matrix = Matrix()
             matrix.setValues(groupJson.matrixValues.toFloatArray())
-            com.skecher.sketchercompanionv1.GroupElement(
+            GroupElement(
                 id = groupJson.id,
                 elements = groupJson.elements.map { it.toLayerElement(bitmapLoader, svgLoader) },
                 matrix = matrix
             )
         }
+        "COMPONENT_INSTANCE" -> {
+            val instJson = this.componentInstance!!
+            val matrix = Matrix()
+            matrix.setValues(instJson.matrixValues.toFloatArray())
+            ComponentInstance(
+                id = instJson.id,
+                definitionId = instJson.definitionId,
+                matrix = matrix
+            )
+        }
         else -> throw IllegalArgumentException("Unknown type: ${this.type}")
     }
+}
+
+fun ComponentDefinition.toComponentDefinitionJson(): ComponentDefinitionJson {
+    return ComponentDefinitionJson(
+        id = this.id,
+        elements = this.elements.map { it.toLayerElementJson() }
+    )
+}
+
+fun ComponentDefinitionJson.toComponentDefinition(
+    bitmapLoader: (String) -> android.graphics.Bitmap?,
+    svgLoader: (String) -> String?
+): ComponentDefinition {
+    return ComponentDefinition(
+        id = this.id,
+        elements = this.elements.map { it.toLayerElement(bitmapLoader, svgLoader) }.toMutableList()
+    )
 }
 
 
@@ -132,69 +183,9 @@ fun LayerJson.toLayer(
     bitmapLoader: (String) -> android.graphics.Bitmap?,
     svgLoader: (String) -> String?
 ): Layer {
-    val customElements = mutableListOf<com.skecher.sketchercompanionv1.LayerElement>()
-    
-    // Map unified elements
-    this.elements.forEach { elJson ->
-        when (elJson.type) {
-            "INK" -> {
-                elJson.inkStroke?.let {
-                    customElements.add(com.skecher.sketchercompanionv1.AndroidInkElement(it.toStroke()))
-                }
-            }
-            "VECTOR" -> {
-                elJson.vectorStroke?.let {
-                    customElements.add(it.toVectorStroke())
-                }
-            }
-            "FILL" -> {
-                elJson.fill?.let {
-                    customElements.add(it.toFillData())
-                }
-            }
-            "IMAGE" -> {
-                elJson.image?.let { imgJson ->
-                    val bitmap = bitmapLoader(imgJson.fileName)
-                    if (bitmap != null) {
-                        val matrix = Matrix()
-                        matrix.setValues(imgJson.matrixValues.toFloatArray())
-                        customElements.add(com.skecher.sketchercompanionv1.ImageElement(
-                            bitmap = bitmap,
-                            imageFileName = imgJson.fileName,
-                            matrix = matrix
-                        ))
-                    }
-                }
-            }
-            "SVG" -> {
-                elJson.svg?.let { svgJson ->
-                    val content = svgLoader(svgJson.fileName)
-                    if (content != null) {
-                        customElements.add(com.skecher.sketchercompanionv1.SvgElement(
-                            id = svgJson.id,
-                            svgFileName = svgJson.fileName,
-                            svgContent = content,
-                            matrixValues = svgJson.matrixValues.toFloatArray()
-                        ))
-                    }
-                }
-            }
-            "GROUP" -> {
-                elJson.group?.let { groupJson ->
-                    val children = groupJson.elements.map { childJson ->
-                        childJson.toLayerElement(bitmapLoader, svgLoader)
-                    }
-                    val matrix = Matrix()
-                    matrix.setValues(groupJson.matrixValues.toFloatArray())
-                    customElements.add(com.skecher.sketchercompanionv1.GroupElement(
-                        id = groupJson.id,
-                        elements = children,
-                        matrix = matrix
-                    ))
-                }
-            }
-        }
-    }
+    val customElements = this.elements.map { elJson ->
+        elJson.toLayerElement(bitmapLoader, svgLoader)
+    }.toMutableList()
     
     return Layer(
         id = this.id,
@@ -224,7 +215,7 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     // Let's import PathGenerator if needed.
     // Assuming com.skecher.sketchercompanionv1.PathGenerator is accessible.
     
-    val (path, _, _) = com.skecher.sketchercompanionv1.PathGenerator.generateStrokePath(pts, this.maxWidth)
+    val (path, _, _) = PathGenerator.generateStrokePath(pts, this.maxWidth)
     
     return VectorStroke(
         points = pts,
@@ -236,7 +227,7 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
 
 // --- STROKE MAPPERS ---
 
-fun Stroke.toStrokeJson(): StrokeJson {
+fun Stroke.toStrokeJson(matrixValues: List<Float>? = null): StrokeJson {
     val inputsJson = mutableListOf<StrokeInputJson>()
     val inputs = this.inputs
     // Iterate manually since StrokeInputBatch is not a simple list
@@ -259,7 +250,8 @@ fun Stroke.toStrokeJson(): StrokeJson {
         brushColor = this.brush.colorLong,
         brushSize = this.brush.size,
         brushEpsilon = this.brush.epsilon,
-        inputs = inputsJson
+        inputs = inputsJson,
+        matrixValues = matrixValues
     )
 }
 
@@ -289,6 +281,17 @@ fun StrokeJson.toStroke(): Stroke {
     )
     
     return Stroke(brush, inputBatch)
+}
+
+fun StrokeJson.toAndroidInkElement(): AndroidInkElement {
+    val stroke = this.toStroke()
+    val element = AndroidInkElement(stroke)
+    this.matrixValues?.let { values ->
+        val m = android.graphics.Matrix()
+        m.setValues(values.toFloatArray())
+        element.localMatrix.set(m)
+    }
+    return element
 }
 
 // --- FILL / PATH MAPPERS ---
