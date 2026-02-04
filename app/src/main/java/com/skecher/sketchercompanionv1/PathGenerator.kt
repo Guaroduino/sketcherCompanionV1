@@ -9,8 +9,13 @@ object PathGenerator {
         points: List<StrokePoint>, 
         maxWidth: Float, 
         minSizeFactor: Float = 0.0f,
-        smoothness: Float = 0.5f
+        smoothness: Float = 0.5f,
+        brushType: String = "TECH_PEN"
     ): Triple<Path, List<PointF>, List<PointF>> {
-        return TechnicalPenGenerator.generate(points, maxWidth, minSizeFactor, smoothness)
+        return if (brushType == "PERFECT_FREEHAND") {
+            PerfectFreehandGenerator.generate(points, maxWidth, minSizeFactor)
+        } else {
+            TechnicalPenGenerator.generate(points, maxWidth, minSizeFactor, smoothness)
+        }
     }
 }

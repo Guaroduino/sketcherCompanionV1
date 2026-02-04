@@ -5,13 +5,14 @@ import android.graphics.Path
 import android.graphics.Matrix
 import android.graphics.RectF
 
-data class StrokePoint(var x: Float, var y: Float, val pressure: Float)
+data class StrokePoint(var x: Float, var y: Float, val pressure: Float, val timestamp: Long = 0L)
 
 data class VectorStroke(
     val points: List<StrokePoint>,
     val color: Int,
     val maxWidth: Float,
     val path: Path,
+    val brushType: String = "TECH_PEN",
     val leftPoints: List<android.graphics.PointF> = emptyList(),
     val rightPoints: List<android.graphics.PointF> = emptyList()
 ) : LayerElement {
@@ -39,6 +40,7 @@ data class VectorStroke(
             color = color,
             maxWidth = maxWidth,
             path = Path(path),
+            brushType = brushType,
             leftPoints = leftPoints.map { android.graphics.PointF(it.x, it.y) },
             rightPoints = rightPoints.map { android.graphics.PointF(it.x, it.y) }
         )

@@ -88,13 +88,15 @@ data class ImageElementJson(
 data class VectorStrokeJson(
     val points: List<StrokePointJson>,
     val color: Int,
-    val maxWidth: Float
+    val maxWidth: Float,
+    val brushType: String = "TECH_PEN"
 )
 
 data class StrokePointJson(
     val x: Float,
     val y: Float,
-    val pressure: Float
+    val pressure: Float,
+    val timestamp: Long = 0L
 )
 
 data class StrokeJson(
@@ -124,4 +126,21 @@ data class FillJson(
 data class PathCommandJson(
     val type: String, // "MOVE", "LINE", "QUAD", "CUBIC", "CLOSE"
     val params: List<Float> // Coordinates
+)
+
+data class FreehandSettings(
+    val pressureInfluence: Float = 0.6f, // Impact of Pressure (0.0 to 1.0)
+    val velocityInfluence: Float = 0.2f, // Impact of Velocity (0.0 to 1.0)
+    val smoothing: Float = 0.5f,  // Edges (0.0 to 3.0+)
+    val streamline: Float = 0.5f, // Input stabilization (0.0 to 3.0+)
+    val taperStart: Float = 0.0f, // Sharpness of start
+    val taperEnd: Float = 0.0f,   // Sharpness of end
+    val capStart: Boolean = true, // Round cap start
+    val capEnd: Boolean = true,   // Round cap end
+    val predictionLatency: Float = 20.0f, // Prediction amount in ms (0-50)
+    val tolerance: Float = 1.0f,   // Point Decimation in px (0.1 to 5.0)
+    val inputStabilization: Float = 0.0f, // Rope Stabilizer (0.0 to 0.95)
+    val useSplines: Boolean = true, // Use Quadratic Beziers for smoother edges
+    val minPredictionVelocity: Float = 0.5f, // Speed (px/ms) below which prediction is 0
+    val maxPredictionVelocity: Float = 4.0f  // Speed (px/ms) above which prediction is full
 )

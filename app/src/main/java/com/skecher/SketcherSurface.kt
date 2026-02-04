@@ -107,6 +107,7 @@ import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Schema
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.ui.res.stringResource
 import android.graphics.BitmapFactory
 import java.io.InputStream
@@ -156,7 +157,7 @@ fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeig
 }
 
 
-enum class ToolType { TECHNICAL_PEN, PRESSURE_PEN, MARKER, HIGHLIGHTER, FILL_SHAPE, ERASER, SELECTION }
+enum class ToolType { TECHNICAL_PEN, PRESSURE_PEN, PERFECT_FREEHAND, MARKER, HIGHLIGHTER, FILL_SHAPE, ERASER, SELECTION }
 enum class SelectionTouchMode { IDLE, SELECTING_AREA, DRAGGING_CONTENT, DRAGGING_CORNER, ROTATING }
 
 data class BrushTypeConfig(
@@ -172,6 +173,7 @@ fun getToolName(type: ToolType): String {
     return when(type) {
         ToolType.TECHNICAL_PEN -> stringResource(R.string.tool_technical_pen)
         ToolType.PRESSURE_PEN -> stringResource(R.string.tool_pressure_pen)
+        ToolType.PERFECT_FREEHAND -> "Perfect Freehand" // Hardcoded for now, or add R.string later
         ToolType.MARKER -> stringResource(R.string.tool_marker)
         ToolType.HIGHLIGHTER -> stringResource(R.string.tool_highlighter)
         ToolType.FILL_SHAPE -> stringResource(R.string.tool_fill)
@@ -297,6 +299,7 @@ fun SketcherSurface(
     var showLayerManager by remember { mutableStateOf(false) }
     var showBackgroundColorPicker by remember { mutableStateOf(false) } 
     var showGridSettings by remember { mutableStateOf(false) }
+    var showFreehandSettings by remember { mutableStateOf(false) }
     var showFillColorPicker by remember { mutableStateOf(false) }
 
     // Convenience accessors (optional, but keep for clarity if used)
@@ -351,6 +354,7 @@ fun SketcherSurface(
     val brushTypes = listOf(
         BrushTypeConfig(ToolType.TECHNICAL_PEN, Icons.Default.Create, StockBrushes.pressurePen(), R.string.tool_technical_pen),
         BrushTypeConfig(ToolType.PRESSURE_PEN, Icons.Default.Brush, StockBrushes.pressurePen(), R.string.tool_pressure_pen),
+        BrushTypeConfig(ToolType.PERFECT_FREEHAND, Icons.Default.Gesture, null, R.string.tool_pressure_pen), // Using generic string for now to avoid build error with missing resource
         BrushTypeConfig(ToolType.MARKER, Icons.Default.Edit, StockBrushes.marker(), R.string.tool_marker),
         BrushTypeConfig(ToolType.HIGHLIGHTER, Icons.Default.Edit, StockBrushes.highlighter(), R.string.tool_highlighter),
         BrushTypeConfig(ToolType.FILL_SHAPE, Icons.Default.FormatPaint, null, R.string.tool_fill),
@@ -391,6 +395,10 @@ fun SketcherSurface(
         isReady = true // Force a recomposition/update
     }
 
+    LaunchedEffect(sketchViewModel.currentTool, canvasViewRef) {
+        canvasViewRef?.currentTool = sketchViewModel.currentTool
+    }
+
     LaunchedEffect(sketchViewModel.isDebugWireframe) {
         canvasViewRef?.isDebugWireframeByVM = sketchViewModel.isDebugWireframe
     }
@@ -417,6 +425,11 @@ fun SketcherSurface(
                     
                     this.onSizeChangedCallback = { w, h ->
                         sketchViewModel.saveDimensions(w.toFloat(), h.toFloat())
+                    }
+                    
+                    // Callback wire-up
+                    this.onStrokeCompleted = { stroke ->
+                        sketchViewModel.addVectorStroke(stroke)
                     }
 
                     // Set initial background color
@@ -563,15 +576,16 @@ fun SketcherSurface(
                          return@setOnTouchListener false
                     }
                     
-                    // ... (rest of the file remains same until Eraser loop)
                     
-                    // ...
-
-
                     // 2. PALM REJECTION CHECK (Blocks Tool Usage only)
                     // If Palm Rejection enabled AND not using a Stylus -> Block drawing
                     if (sketchViewModel.isPalmRejectionEnabled && event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS) {
                          return@setOnTouchListener true // Consume event so it doesn't propagate, but don't draw
+                    }
+
+                    // 3. PERFECT FREEHAND: Allow fallthrough to CanvasView
+                    if (sketchViewModel.currentTool == ToolType.PERFECT_FREEHAND) {
+                         return@setOnTouchListener false
                     }
 
                     val state = v.tag as RuntimeState
@@ -1073,7 +1087,15 @@ fun SketcherSurface(
                                               val (path, left, right) = PathGenerator.generateStrokePath(pts, state.size, sketchViewModel.penMinSizeFactor)
                                               val a = (state.opacity * 255).toInt()
                                               val ca = androidx.core.graphics.ColorUtils.setAlphaComponent(state.color, a)
-                                              val s = VectorStroke(pts.toList(), ca, state.size, path, left, right)
+                                              val s = VectorStroke(
+                                                  points = pts.toList(), 
+                                                  color = ca, 
+                                                  maxWidth = state.size, 
+                                                  path = path, 
+                                                  brushType = "TECH_PEN",
+                                                  leftPoints = left, 
+                                                  rightPoints = right
+                                              )
                                               sketchViewModel.addVectorStroke(s)
                                               canvasView.updateCurrentVectorPreview(null, null, 0)
                                               canvasView.bakeStroke(s)
@@ -1184,6 +1206,7 @@ fun SketcherSurface(
                 val wetView = container.getChildAt(1) as InProgressStrokesView
                 val state = wetView.tag as RuntimeState
                 
+                
                 // CRITICAL FIX: Ensure layers depend on ViewModel state updates
                 canvasView.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
 
@@ -1195,6 +1218,14 @@ fun SketcherSurface(
                 state.size = sketchViewModel.currentSize
                 state.opacity = sketchViewModel.currentOpacity
                 
+                // Sync Active Configs for Perfect Freehand (Front Buffer)
+                val alpha = (sketchViewModel.currentOpacity * 255).toInt()
+                val blendedColor = androidx.core.graphics.ColorUtils.setAlphaComponent(sketchViewModel.currentColor, alpha)
+                canvasView.activeColor = blendedColor
+                canvasView.activeSize = sketchViewModel.currentSize
+                canvasView.activeMinSizeFactor = sketchViewModel.penMinSizeFactor
+                canvasView.activeFreehandSettings = sketchViewModel.currentFreehandSettings
+
                 val currentZoom = InkUtils.getMatrixScale(cameraMatrix)
                 state.updateActiveBrush(currentZoom)
                 
@@ -1381,7 +1412,12 @@ fun SketcherSurface(
                 isSelectionEmpty = sketchViewModel.isSelectionEmpty,
                 toolbarBackgroundColor = sketchViewModel.toolbarBackgroundColor,
                 toolbarAlpha = sketchViewModel.toolbarAlpha,
-                isToolbarBlurEnabled = sketchViewModel.isToolbarBlurEnabled
+                isToolbarBlurEnabled = sketchViewModel.isToolbarBlurEnabled,
+                onConfigureTool = {
+                    if (sketchViewModel.currentTool == ToolType.PERFECT_FREEHAND) {
+                        showFreehandSettings = true
+                    }
+                }
             )
         }
         
@@ -1521,6 +1557,21 @@ fun SketcherSurface(
                onToggleToolbarBlur = { sketchViewModel.toggleToolbarBlur() }
            )
         }
+        
+        // --- FREEHAND SETTINGS POPUP ---
+        
+        // Auto-show logic? No, intrusive.
+        // We need a trigger.
+        // Let's add a "Tune" button to BottomMenuBar whenever Perfect Freehand is active?
+        // Or modify BottomMenuBar to accept an "onConfigureTool" callback.
+        
+        if (showFreehandSettings) {
+             com.skecher.sketchercompanionv1.ui.FreehandOptionsPanel(
+                 currentSettings = sketchViewModel.currentFreehandSettings,
+                 onSettingsChanged = { sketchViewModel.updateFreehandSettings(it) },
+                 onDismiss = { showFreehandSettings = false }
+             )
+        }
     }
 }
 
@@ -1572,7 +1623,8 @@ fun BottomMenuBar(
     isEditingContextActive: Boolean,
     toolbarBackgroundColor: Int,
     toolbarAlpha: Float,
-    isToolbarBlurEnabled: Boolean
+    isToolbarBlurEnabled: Boolean,
+    onConfigureTool: () -> Unit = {} // New Callback
 ) {
     Box(
         modifier = modifier
@@ -1644,6 +1696,14 @@ fun BottomMenuBar(
                         }
                     }
                 }
+            } // End Box (Tool Selector)
+
+            // SETTINGS BUTTON (For Perfect Freehand)
+            if (activeDrawingTool == ToolType.PERFECT_FREEHAND) {
+                 IconButton(onClick = onConfigureTool) {
+                     Icon(androidx.compose.material.icons.Icons.Filled.Build, contentDescription = "Configurar", tint = androidx.compose.material3.MaterialTheme.colorScheme.primary)
+                 }
+                 VerticalDivider(modifier = Modifier.height(24.dp))
             }
 
             // COLOR SLOTS

@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.PointF
 import android.view.View
+import android.view.MotionEvent
 import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
 import androidx.ink.strokes.Stroke
 
@@ -152,7 +153,7 @@ class SketcherCanvasView(context: Context) : View(context) {
     private var currentMinSizeFactor: Float = 0f // Min size factor for prediction
     private var currentFillPath: android.graphics.Path? = null
     private var currentFillColor: Int? = null
-    private var currentPredictedPoint: android.graphics.PointF? = null
+    private var currentPredictedPoint: StrokePoint? = null
     private val fillPaint = android.graphics.Paint().apply {
         style = android.graphics.Paint.Style.FILL
         isAntiAlias = true
@@ -176,7 +177,7 @@ class SketcherCanvasView(context: Context) : View(context) {
         color: Int, 
         maxWidth: Float = 10f,
         minSizeFactor: Float = 0f,
-        predictedPoint: android.graphics.PointF? = null
+        predictedPoint: StrokePoint? = null
     ) {
         currentVectorPreviewPath = path
         currentVectorPreviewPoints = points
@@ -445,63 +446,46 @@ class SketcherCanvasView(context: Context) : View(context) {
              // CRITICAL FIX: explicit color set before drawing preview
              if (currentVectorPreviewColor != 0) vectorPaint.color = currentVectorPreviewColor
              canvas.drawPath(path, vectorPaint)
-             
-             val points = currentVectorPreviewPoints
-             if (points != null && points.isNotEmpty()) {
-                 currentPredictedPoint?.let { pred ->
-                     val last = points.last()
-                     
-                     val predictionPath = android.graphics.Path()
-                     val dynamicRange = 1.0f - currentMinSizeFactor
-                     
-                     val lastScale = currentMinSizeFactor + (dynamicRange * last.pressure)
-                     val lastWidth = currentMaxWidth * lastScale
-                     
-                     val predWidth = lastWidth 
 
-                     predictionPath.moveTo(last.x, last.y)
-                     predictionPath.lineTo(pred.x, pred.y)
-                     
-                     val originalColor = vectorPaint.color
-                     val originalAlpha = vectorPaint.alpha
-                     val originalWidth = vectorPaint.strokeWidth
-                     val originalStyle = vectorPaint.style
-
-                     if (isDebugPredictionEnabled) {
-                         android.util.Log.d("CanvasDebug", "Drawing Prediction Line (DEBUG)")
-                         
-                         vectorPaint.color = android.graphics.Color.RED
-                         vectorPaint.alpha = 255 
-                         vectorPaint.strokeWidth = 5f 
-                         vectorPaint.style = android.graphics.Paint.Style.STROKE 
-                         
-                         canvas.drawPath(predictionPath, vectorPaint)
-                         
-                         vectorPaint.color = android.graphics.Color.BLUE
-                         vectorPaint.strokeWidth = 3f
-                         canvas.drawLine(pred.x - 20, pred.y, pred.x + 20, pred.y, vectorPaint)
-                         canvas.drawLine(pred.x, pred.y - 20, pred.x, pred.y + 20, vectorPaint)
-                         
-                     } else {
-                         vectorPaint.color = originalColor
-                         vectorPaint.alpha = originalAlpha
-                         vectorPaint.style = android.graphics.Paint.Style.STROKE 
-                         vectorPaint.strokeWidth = lastWidth 
-                         
-                         canvas.drawPath(predictionPath, vectorPaint)
-                     }
-
-                     vectorPaint.color = originalColor
-                     vectorPaint.alpha = originalAlpha
-                     vectorPaint.strokeWidth = originalWidth
-                     vectorPaint.style = originalStyle
-
+             // LIVE BLOB (Unified)
+             // The path is now unified (Real + Predicted), so the last point is the "Live Tip".
+             // We draw the blob there to hide the flat mesh edge.
+             if (currentTool == ToolType.PERFECT_FREEHAND && currentVectorPreviewPoints?.isNotEmpty() == true) {
+                 val points = currentVectorPreviewPoints!!
+                 val tipPoint = points.last()
+                 
+                 val tipX = tipPoint.x
+                 val tipY = tipPoint.y
+                 val tipPressure = tipPoint.pressure
+                 val tipTimestamp = tipPoint.timestamp
+                 
+                 // Radius Calculation (Same as Generator)
+                 val realPressure = tipPressure.coerceIn(0f, 1f)
+                 val pFactor = 1.0f - (activeFreehandSettings.pressureInfluence * (1.0f - realPressure))
+                 
+                 var vFactor = 1.0f
+                 if (points.size > 1) {
+                     val prev = points[points.size - 2]
+                     val d = kotlin.math.hypot(tipX - prev.x, tipY - prev.y)
+                     var dt = (tipTimestamp - prev.timestamp).toFloat()
+                     if (dt <= 0) dt = 16f
+                     val velocity = d / dt
+                     val maxSpeed = 3.0f 
+                     val normalizedVel = (velocity / maxSpeed).coerceIn(0f, 1f)
+                     val simPressure = (1f - normalizedVel).coerceIn(0f, 1f)
+                     vFactor = 1.0f - (activeFreehandSettings.velocityInfluence * (1.0f - simPressure))
                  }
+                 
+                 val combinedPressure = pFactor * vFactor
+                 val width = currentMaxWidth * (currentMinSizeFactor + (1f - currentMinSizeFactor) * combinedPressure)
+                 val radius = width / 2f
+                 
+                 canvas.drawCircle(tipX, tipY, radius, vectorPaint)
              }
-        }
+         }
 
         canvas.restore()
-        
+
         // 6. Selection Overlay
         drawSelectionOverlay(canvas)
         
@@ -567,6 +551,211 @@ class SketcherCanvasView(context: Context) : View(context) {
             }
         }
     }
+
+
+    // --- FRONT BUFFERING & PREDICTION ---
+
+    // --- FRONT BUFFERING & PREDICTION ---
+    private val inputHandler = StrokeInputHandler
+    private val predictor = StrokePredictor
+    // We don't store generator here, typically we use it statically or it's stateless?
+    // PerfectFreehandGenerator is an object.
+    
+    // Paths for "Front Buffer" drawing
+    private var currentStrokePath = android.graphics.Path()
+    private var predictedStrokePath = android.graphics.Path()
+    
+    // Data Accumulation
+    private val currentStrokePoints = mutableListOf<StrokePoint>()
+    
+    // Callback
+    var onStrokeCompleted: ((VectorStroke) -> Unit)? = null
+    
+    // Tool State
+    var currentTool: ToolType = ToolType.TECHNICAL_PEN
+    
+    // Active Configuration (Synced from ViewModel)
+    var activeColor: Int = android.graphics.Color.BLACK
+    var activeSize: Float = 10f
+    var activeMinSizeFactor: Float = 0.2f
+    var activeFreehandSettings: com.skecher.sketchercompanionv1.dto.FreehandSettings = com.skecher.sketchercompanionv1.dto.FreehandSettings()
+
+    // Stabilizer State
+    private var stabilizerX: Float = 0f
+    private var stabilizerY: Float = 0f
+
+    // We override onTouchEvent to handle input directly if this view is the active handler
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        // Only handle Perfect Freehand directly (Front Buffering)
+        if (currentTool != ToolType.PERFECT_FREEHAND) {
+            return super.onTouchEvent(event)
+        }
+        
+        val action = event.actionMasked
+
+        // Map Event to Screen Points (InputHandler handles history)
+        val rawScreenPoints = inputHandler.processEvent(event)
+        
+        when (action) {
+            MotionEvent.ACTION_DOWN -> {
+                currentStrokePath.reset()
+                predictedStrokePath.reset()
+                currentStrokePoints.clear()
+                
+                // Initialize Stabilizer
+                val firstPoint = rawScreenPoints.first()
+                stabilizerX = firstPoint.x
+                stabilizerY = firstPoint.y
+                
+                // Add first points transformed to World Space
+                // For DOWN, we just use the raw point as start
+                rawScreenPoints.forEach { p ->
+                    // Update Stabilizer for each point in batch (though usually just one on DOWN)
+                    stabilizerX = p.x
+                    stabilizerY = p.y
+                    
+                    val worldP = transformToWorld(p)
+                    currentStrokePoints.add(worldP)
+                }
+                
+                // Generate Initial (Point)
+                updateCurrentPaths()
+                invalidate()
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                 // Rope Stabilization Logic
+                 val stabilizationFactor = activeFreehandSettings.inputStabilization.coerceIn(0f, 0.95f)
+                 val weight = 1.0f - stabilizationFactor
+                 
+                 rawScreenPoints.forEach { p ->
+                    // Apply Rope Physics
+                    if (stabilizationFactor > 0f) {
+                        stabilizerX += (p.x - stabilizerX) * weight
+                        stabilizerY += (p.y - stabilizerY) * weight
+                    } else {
+                        stabilizerX = p.x
+                        stabilizerY = p.y
+                    }
+                    
+                    // Create stabilized point
+                    val stabilizedP = StrokePoint(stabilizerX, stabilizerY, p.pressure, p.timestamp)
+                    val worldP = transformToWorld(stabilizedP)
+                    currentStrokePoints.add(worldP)
+                }
+                
+                updateCurrentPaths()
+                invalidate()
+                return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                 // Add final points with stabilization catch-up?
+                 // Usually for rope stabilizer, we stop where the rope is, NOT catching up to cursor.
+                 // So we continue using the stabilizer state.
+                 
+                 val stabilizationFactor = activeFreehandSettings.inputStabilization.coerceIn(0f, 0.95f)
+                 val weight = 1.0f - stabilizationFactor
+
+                 rawScreenPoints.forEach { p ->
+                    if (stabilizationFactor > 0f) {
+                        stabilizerX += (p.x - stabilizerX) * weight
+                        stabilizerY += (p.y - stabilizerY) * weight
+                    } else {
+                        stabilizerX = p.x
+                        stabilizerY = p.y
+                    }
+                    
+                    val stabilizedP = StrokePoint(stabilizerX, stabilizerY, p.pressure, p.timestamp)
+                    val worldP = transformToWorld(stabilizedP)
+                    currentStrokePoints.add(worldP)
+                }
+                
+                // Finalize
+                val finalPath = android.graphics.Path()
+                
+                val (path, left, right) = PerfectFreehandGenerator.generate(
+                    currentStrokePoints, 
+                    activeSize, 
+                    activeMinSizeFactor,
+                    activeFreehandSettings
+                )
+                finalPath.set(path)
+                
+                val stroke = VectorStroke(
+                    points = currentStrokePoints.toList(),
+                    color = activeColor,
+                    maxWidth = activeSize,
+                    path = finalPath,
+                    brushType = "PERFECT_FREEHAND",
+                    leftPoints = left,
+                    rightPoints = right
+                )
+                
+                onStrokeCompleted?.invoke(stroke)
+                
+                currentStrokePath.reset()
+                predictedStrokePath.reset()
+                currentStrokePoints.clear()
+                invalidate()
+                return true
+            }
+        }
+        
+        return super.onTouchEvent(event)
+    }
+
+    private fun transformToWorld(p: StrokePoint): StrokePoint {
+        val pts = floatArrayOf(p.x, p.y)
+        val inverse = android.graphics.Matrix()
+        viewMatrix.invert(inverse) // Invert current view matrix
+        inverse.mapPoints(pts)
+        // Keep pressure and timestamp
+        return StrokePoint(pts[0], pts[1], p.pressure, p.timestamp)
+    }
+
+    private fun updateCurrentPaths() {
+        // Unified Live Rendering Strategy
+        // 1. Combine Real + Predicted Points
+        val latencyMs = activeFreehandSettings.predictionLatency.toLong()
+        val predictedPt = predictor.getPredictedPoint(
+            points = currentStrokePoints,
+            maxPredictionMillis = latencyMs,
+            minSpeed = activeFreehandSettings.minPredictionVelocity,
+            maxSpeed = activeFreehandSettings.maxPredictionVelocity
+        )
+        
+        val livePoints = if (predictedPt != null) {
+            currentStrokePoints + predictedPt
+        } else {
+            currentStrokePoints.toList()
+        }
+        
+        if (livePoints.isEmpty()) return
+
+        // 2. Generate Unified Path (Cap End Disabled for Live Blob)
+        val liveSettings = activeFreehandSettings.copy(
+            capEnd = false
+        )
+        
+        val (unifiedPath, _, _) = PerfectFreehandGenerator.generate(
+            livePoints, 
+            activeSize, 
+            activeMinSizeFactor,
+            liveSettings
+        )
+        
+        // 3. Update Preview State directly
+        // We reuse the variables used by onDraw
+        currentVectorPreviewPath = unifiedPath
+        currentVectorPreviewPoints = livePoints
+        currentVectorPreviewColor = activeColor
+        currentPredictedPoint = predictedPt // Keep for reference if needed, though now integrated
+        
+        // Clear unused specific paths to avoid confusion
+        currentStrokePath.reset()
+        predictedStrokePath.reset() 
+    }
+
 
     // --- SELECTION OVERLAY ---
     var selectionManager: SelectionManager? = null

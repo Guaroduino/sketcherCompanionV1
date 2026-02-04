@@ -173,9 +173,10 @@ fun ComponentDefinitionJson.toComponentDefinition(
 fun VectorStroke.toVectorStrokeJson(): VectorStrokeJson {
     // Basic mapping
     return VectorStrokeJson(
-        points = this.points.map { StrokePointJson(it.x, it.y, it.pressure) },
+        points = this.points.map { StrokePointJson(it.x, it.y, it.pressure, it.timestamp) },
         color = this.color,
-        maxWidth = this.maxWidth
+        maxWidth = this.maxWidth,
+        brushType = this.brushType
     )
 }
 
@@ -198,7 +199,7 @@ fun LayerJson.toLayer(
 
 
 fun VectorStrokeJson.toVectorStroke(): VectorStroke {
-    val pts = this.points.map { StrokePoint(it.x, it.y, it.pressure) }
+    val pts = this.points.map { StrokePoint(it.x, it.y, it.pressure, it.timestamp) }
     // Reconstruct Path? 
     // We need to regenerate the Path object from points since JSON doesn't store Path commands directly/easily
     // and we want it editable/re-generatable.
@@ -215,13 +216,16 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     // Let's import PathGenerator if needed.
     // Assuming com.skecher.sketchercompanionv1.PathGenerator is accessible.
     
-    val (path, _, _) = PathGenerator.generateStrokePath(pts, this.maxWidth)
+    val (path, l, r) = PathGenerator.generateStrokePath(pts, this.maxWidth, 0.0f, 0.5f, this.brushType)
     
     return VectorStroke(
         points = pts,
         color = this.color,
         maxWidth = this.maxWidth,
-        path = path
+        path = path,
+        brushType = this.brushType,
+        leftPoints = l,
+        rightPoints = r
     )
 }
 

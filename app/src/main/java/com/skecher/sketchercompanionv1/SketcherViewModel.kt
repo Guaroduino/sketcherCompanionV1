@@ -181,6 +181,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         put(ToolType.TECHNICAL_PEN, ToolConfig(size = 9f, opacity = 1f, smoothing = 0.4f, sensitivity = 0.6f, minSizeFactor = 0.4f))
         // Lápiz (Pressure Pen)
         put(ToolType.PRESSURE_PEN, ToolConfig(size = 4f, opacity = 1f, smoothing = 0.0f, sensitivity = 1.0f, minSizeFactor = 0.4f)) // MinSize Default
+        // Perfect Freehand
+        put(ToolType.PERFECT_FREEHAND, ToolConfig(size = 9f, opacity = 1f, smoothing = 0.0f, sensitivity = 1.0f, minSizeFactor = 0.2f))
         // Marcador (Marker)
         put(ToolType.MARKER, ToolConfig(size = 9f, opacity = 0.6f, smoothing = 0.3f, sensitivity = 0.6f, minSizeFactor = 0.1f))
         // Resaltador (Highlighter)
@@ -465,6 +467,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     
     val cameraMatrixValues = FloatArray(9).apply { 
         Matrix().getValues(this) 
+    }
+    
+    // --- FREEHAND SETTINGS ---
+    var currentFreehandSettings by mutableStateOf(com.skecher.sketchercompanionv1.dto.FreehandSettings())
+        private set
+        
+    fun updateFreehandSettings(newSettings: com.skecher.sketchercompanionv1.dto.FreehandSettings) {
+        currentFreehandSettings = newSettings
     }
     
     // Zoom Controls
