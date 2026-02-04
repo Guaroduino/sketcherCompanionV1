@@ -111,6 +111,26 @@ fun FreehandSettingsContent(
         onValueChange = { onSettingsChanged(currentSettings.copy(smoothing = it)) }
     )
 
+    HorizontalDivider()
+    
+    Text("Predicción de Velocidad", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+
+    // Min Velocity (px/ms)
+    SettingSlider(
+        label = "Umbral Mínimo: ${String.format("%.1f", currentSettings.minPredictionVelocity)} px/ms",
+        value = currentSettings.minPredictionVelocity,
+        valueRange = 0.1f..2.0f,
+        onValueChange = { onSettingsChanged(currentSettings.copy(minPredictionVelocity = it)) }
+    )
+
+    // Max Velocity (px/ms)
+    SettingSlider(
+        label = "Umbral Máximo: ${String.format("%.1f", currentSettings.maxPredictionVelocity)} px/ms",
+        value = currentSettings.maxPredictionVelocity,
+        valueRange = 1.0f..8.0f,
+        onValueChange = { onSettingsChanged(currentSettings.copy(maxPredictionVelocity = it)) }
+    )
+
     // 3. Streamline (Removed)
 
     HorizontalDivider()

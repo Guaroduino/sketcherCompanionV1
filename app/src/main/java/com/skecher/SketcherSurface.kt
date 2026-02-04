@@ -524,6 +524,8 @@ fun SketcherSurface(
                 container.addView(canvasView)
                 container.addView(wetView)
 
+                var isPanning = false // Track panning state for deferred update
+
                 // --- GESTOS ---
                 val scaleDetector = ScaleGestureDetector(ctx, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
                     override fun onScale(detector: ScaleGestureDetector): Boolean {
@@ -535,7 +537,7 @@ fun SketcherSurface(
                         val effectiveScaleFactor = clampedZoom / currentMatrixScale
                         
                         cameraMatrix.postScale(effectiveScaleFactor, effectiveScaleFactor, detector.focusX, detector.focusY)
-                        canvasView.setCameraMatrix(cameraMatrix)
+                        canvasView.setCameraMatrix(cameraMatrix, isIntermediate = true) // Intermediate Draw
                         cameraMatrix.invert(inverseMatrix)
                         sketchViewModel.saveCameraState(cameraMatrix)
                         
@@ -548,6 +550,10 @@ fun SketcherSurface(
 
                         return true
                     }
+
+                    override fun onScaleEnd(detector: ScaleGestureDetector) {
+                         canvasView.refreshView() // High Quality Redraw
+                    }
                 })
 
                 val gestureDetector = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
@@ -557,8 +563,9 @@ fun SketcherSurface(
 
                     override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dX: Float, dY: Float): Boolean {
                         if (e2.pointerCount >= 2) {
+                            isPanning = true
                             cameraMatrix.postTranslate(-dX, -dY)
-                            canvasView.setCameraMatrix(cameraMatrix)
+                            canvasView.setCameraMatrix(cameraMatrix, isIntermediate = true) // Intermediate Draw
                             cameraMatrix.invert(inverseMatrix)
                             sketchViewModel.saveCameraState(cameraMatrix)
                             return true
@@ -596,6 +603,13 @@ fun SketcherSurface(
                     // ... (rest of touch listener logic)
                     scaleDetector.onTouchEvent(event)
                     gestureDetector.onTouchEvent(event)
+
+                    if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                        if (isPanning) {
+                            canvasView.refreshView() // High Quality Redraw after Pan
+                            isPanning = false
+                        }
+                    }
                     
                     // BOTTOM DEAD ZONE ...
                     val density = context.resources.displayMetrics.density

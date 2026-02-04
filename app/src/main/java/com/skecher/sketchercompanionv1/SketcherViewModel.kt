@@ -477,6 +477,43 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         saveFreehandSettings(newSettings)
     }
 
+    fun setFreehandSmoothing(value: Float) {
+        if (currentFreehandSettings.smoothing != value) {
+            updateFreehandSettings(currentFreehandSettings.copy(smoothing = value))
+        }
+    }
+
+    fun setFreehandTolerance(value: Float) {
+         if (currentFreehandSettings.tolerance != value) {
+            updateFreehandSettings(currentFreehandSettings.copy(tolerance = value))
+        }
+    }
+
+    fun setFreehandPredictionLatency(ms: Float) {
+         if (currentFreehandSettings.predictionLatency != ms) {
+            updateFreehandSettings(currentFreehandSettings.copy(predictionLatency = ms))
+        }
+    }
+
+
+
+    fun setFreehandMinWidth(ratio: Float) {
+        if (currentFreehandSettings.minWidthRatio != ratio) {
+            updateFreehandSettings(currentFreehandSettings.copy(minWidthRatio = ratio))
+        }
+    }
+
+    fun setFreehandMinPredictionVelocity(speed: Float) {
+        if (currentFreehandSettings.minPredictionVelocity != speed) {
+            updateFreehandSettings(currentFreehandSettings.copy(minPredictionVelocity = speed))
+        }
+    }
+    
+    fun setFreehandMaxPredictionVelocity(speed: Float) {
+        if (currentFreehandSettings.maxPredictionVelocity != speed) {
+             updateFreehandSettings(currentFreehandSettings.copy(maxPredictionVelocity = speed))
+        }
+    }
 
     
     // PRESETS

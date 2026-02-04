@@ -20,6 +20,7 @@ import kotlin.math.max
 class SketcherCanvasView(context: Context) : View(context) {
 
     private val viewMatrix = Matrix()
+    private val cachedBitmapMatrix = Matrix()
     private val strokeRenderer = CanvasStrokeRenderer.create()
     private var isDrawing: Boolean = false
     
@@ -91,9 +92,12 @@ class SketcherCanvasView(context: Context) : View(context) {
     }
 
     
-    // Helper to completely rebuild the cache (e.g. after Zoom/Pan or Undo)
+    // Helper to completely rebuild the cache (e.g. after Zoom/Pan End or Undo)
     fun redrawAllCache() {
         val canvas = backingCanvas ?: return
+        
+        // Mark cache as valid for current view
+        cachedBitmapMatrix.set(viewMatrix)
         
         // 1. Clear with Background Color
         canvas.drawColor(canvasBackgroundColor)
@@ -316,9 +320,17 @@ class SketcherCanvasView(context: Context) : View(context) {
         return null
     }
 
-    fun setCameraMatrix(matrix: Matrix) {
+    fun setCameraMatrix(matrix: Matrix, isIntermediate: Boolean = false) {
         viewMatrix.set(matrix)
-        redrawAllCache() // Camera changed -> Re-render view-sized bitmap
+        if (isIntermediate) {
+            invalidate() // Fast: Just triggers onDraw to transform existing bitmap
+        } else {
+            redrawAllCache() // Slow: Re-renders vectors for high quality
+        }
+    }
+
+    fun refreshView() {
+        redrawAllCache()
     }
 
     fun clearCanvas() {
@@ -461,9 +473,32 @@ class SketcherCanvasView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         
-        // 1. Draw Background Bitmap (Cache)
-        backingBitmap?.let {
-            canvas.drawBitmap(it, 0f, 0f, null)
+        // 1. Draw Background Bitmap (Deferred Rendering Strategy)
+        backingBitmap?.let { bitmap ->
+            if (viewMatrix == cachedBitmapMatrix) {
+                // Exact match: Draw directly (High Quality)
+                canvas.drawBitmap(bitmap, 0f, 0f, null)
+            } else {
+                // Mismatch (Zooming): Calculate delta and transform (High Performance)
+                val transform = Matrix()
+                // Transform = View * Inverse(Cache)  -> This moves Cache to View
+                // Actually: View * Inverse(Cache) gives the delta? 
+                // We want to draw CachedBitmap such that it matches View.
+                // CachedBitmap is rendered at 'cachedBitmapMatrix'.
+                // To display it at 'viewMatrix', we need: 
+                // Delta = viewMatrix * cachedBitmapMatrix^-1
+                
+                if (cachedBitmapMatrix.invert(transform)) {
+                     transform.postConcat(viewMatrix)
+                     canvas.save()
+                     canvas.concat(transform)
+                     canvas.drawBitmap(bitmap, 0f, 0f, null)
+                     canvas.restore()
+                } else {
+                     // Fallback if non-invertible (rare)
+                     canvas.drawBitmap(bitmap, 0f, 0f, null)
+                }
+            }
         } ?: run {
              canvas.drawColor(canvasBackgroundColor)
         }
