@@ -8,14 +8,19 @@ import android.view.MotionEvent
  */
 object StrokeInputHandler {
 
-    fun processEvent(event: MotionEvent, offsetX: Float = 0f, offsetY: Float = 0f): List<StrokePoint> {
+    fun processEvent(event: MotionEvent): List<StrokePoint> {
         val points = mutableListOf<StrokePoint>()
         val historySize = event.historySize
+        val pointerCount = event.pointerCount
+        
+        // We only care about the primary pointer (index 0) for single-finger drawing for now.
+        // If multi-touch is needed later, we'd need to iterate pointer indices.
+        // Assuming single stroke drawing.
         
         // 1. Process Historical Points (Batched events)
         for (h in 0 until historySize) {
-            val hx = event.getHistoricalX(h) - offsetX
-            val hy = event.getHistoricalY(h) - offsetY
+            val hx = event.getHistoricalX(h)
+            val hy = event.getHistoricalY(h)
             val hp = event.getHistoricalPressure(h)
             val ht = event.getHistoricalEventTime(h)
             
@@ -23,7 +28,7 @@ object StrokeInputHandler {
         }
         
         // 2. Process Current Point
-        points.add(StrokePoint(event.x - offsetX, event.y - offsetY, event.pressure, event.eventTime))
+        points.add(StrokePoint(event.x, event.y, event.pressure, event.eventTime))
         
         return points
     }

@@ -85,33 +85,8 @@ object PerfectFreehandGenerator {
         // 0.5 -> 1 pass at 0.25 strength
         // 1.0 -> 1 pass at 0.5 strength
         // 2.0 -> 2 passes at 0.5 strength
-        var smoothedPoints = decimated
-        if (settings.streamline > 0.01f && decimated.size > 2) {
-             val passes = if (settings.streamline > 1.0f) settings.streamline.toInt() else 1
-             val strength = if (settings.streamline < 1.0f) settings.streamline * 0.5f else 0.5f
-             
-             repeat(passes) {
-                 val currentInput = smoothedPoints
-                 val smoothed = mutableListOf<StrokePoint>()
-                 smoothed.add(currentInput.first())
-                 
-                 for (i in 1 until currentInput.size - 1) {
-                    val prev = currentInput[i - 1]
-                    val curr = currentInput[i]
-                    val next = currentInput[i + 1]
-                    
-                    val avgX = (prev.x + next.x) / 2f
-                    val avgY = (prev.y + next.y) / 2f
-                    
-                    val newX = curr.x * (1 - strength) + avgX * strength
-                    val newY = curr.y * (1 - strength) + avgY * strength
-                    
-                    smoothed.add(StrokePoint(newX, newY, curr.pressure, curr.timestamp))
-                 }
-                 smoothed.add(currentInput.last())
-                 smoothedPoints = smoothed
-             }
-        }
+        // Step Pre-A: Streamline / Smoothing (Laplacian Smoothing) - REMOVED (Legacy)
+        val smoothedPoints = decimated
         
         val points = mutableListOf<StrokePointInternal>()
         var totalDist = 0f
