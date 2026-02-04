@@ -56,6 +56,13 @@ fun FreehandOptionsPanel(
                     value = currentSettings.velocityInfluence,
                     onValueChange = { onSettingsChanged(currentSettings.copy(velocityInfluence = it)) }
                 )
+                
+                // 1b. Min Width (Migrated from Tech Pen)
+                SettingSlider(
+                    label = "Grosor Mínimo: ${(currentSettings.minWidthRatio * 100).toInt()}%",
+                    value = currentSettings.minWidthRatio,
+                    onValueChange = { onSettingsChanged(currentSettings.copy(minWidthRatio = it)) }
+                )
 
                 // 2. Smoothing
                 SettingSlider(

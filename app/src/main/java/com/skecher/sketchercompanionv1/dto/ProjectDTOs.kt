@@ -89,7 +89,7 @@ data class VectorStrokeJson(
     val points: List<StrokePointJson>,
     val color: Int,
     val maxWidth: Float,
-    val brushType: String = "TECH_PEN"
+    val brushType: String = "FREEHAND"
 )
 
 data class StrokePointJson(
@@ -142,5 +142,30 @@ data class FreehandSettings(
     val inputStabilization: Float = 0.0f, // Rope Stabilizer (0.0 to 0.95)
     val useSplines: Boolean = true, // Use Quadratic Beziers for smoother edges
     val minPredictionVelocity: Float = 0.5f, // Speed (px/ms) below which prediction is 0
-    val maxPredictionVelocity: Float = 4.0f  // Speed (px/ms) above which prediction is full
+    val maxPredictionVelocity: Float = 4.0f,  // Speed (px/ms) above which prediction is full
+    val minWidthRatio: Float = 0.1f // Defines minimum width as percentage of brush size (0.0 to 1.0)
 )
+
+data class FillSettings(
+    val stabilization: Float = 0.0f, // 0.0 to 0.95
+    val tolerance: Float = 0.1f      // Simplify fill polygon
+)
+
+data class InkSettings(
+    val stabilization: Float = 0.0f, // 0.0 to 0.95
+    val smoothing: Float = 0.5f      // Post-process smoothing for Ink
+)
+
+enum class ToolType { FREEHAND, PRESSURE_PEN, MARKER, HIGHLIGHTER, FILL_SHAPE, ERASER, SELECTION }
+
+data class ToolConfig(
+    val size: Float = 9f,
+    val opacity: Float = 1f,
+    val isFingerMode: Boolean = false,
+    val fingerOffsetX: Float = 0f,
+    val fingerOffsetY: Float = -150f, // Default to upward offset
+    val freehandSettings: FreehandSettings? = FreehandSettings(),
+    val fillSettings: FillSettings? = FillSettings(),
+    val inkSettings: InkSettings? = InkSettings()
+)
+

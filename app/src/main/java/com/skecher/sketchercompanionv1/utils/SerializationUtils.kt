@@ -20,7 +20,7 @@ import com.skecher.sketchercompanionv1.LayerElement
 import com.skecher.sketchercompanionv1.AndroidInkElement
 import com.skecher.sketchercompanionv1.SvgElement
 import com.skecher.sketchercompanionv1.ImageElement
-import com.skecher.sketchercompanionv1.PathGenerator
+import com.skecher.sketchercompanionv1.PerfectFreehandGenerator
 import com.skecher.sketchercompanionv1.dto.*
 
 // --- PROJECT LEVEL ---
@@ -200,23 +200,12 @@ fun LayerJson.toLayer(
 
 fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     val pts = this.points.map { StrokePoint(it.x, it.y, it.pressure, it.timestamp) }
-    // Reconstruct Path? 
-    // We need to regenerate the Path object from points since JSON doesn't store Path commands directly/easily
-    // and we want it editable/re-generatable.
-    // BUT VectorStroke has a immutable 'path' property.
-    // We need to use PathGenerator here to recreate it!
-    
-    // We assume default generator logic for now.
-    // Ideally we should save the 'type' of stroke (Tech Pen vs Organic).
-    // For now assuming Tech Pen unless we store metadata.
-    // Or we use a generic path generator.
-    
-    // WARNING: This requires PathGenerator dependency here.
-    // If not available, we might return empty path?
-    // Let's import PathGenerator if needed.
-    // Assuming com.skecher.sketchercompanionv1.PathGenerator is accessible.
-    
-    val (path, l, r) = PathGenerator.generateStrokePath(pts, this.maxWidth, 0.0f, 0.5f, this.brushType)
+    // We use PerfectFreehandGenerator for all vector strokes now.
+    // Legacy strokes will be reconstructed using the new engine.
+    val (path, l, r) = PerfectFreehandGenerator.generate(
+        pts, 
+        this.maxWidth
+    )
     
     return VectorStroke(
         points = pts,

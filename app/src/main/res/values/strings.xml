@@ -13,6 +13,8 @@
     <string name="label_smoothing">Stabilizer</string>
     <string name="label_sensitivity">Sensitivity</string>
     <string name="label_min_size">Min Size</string>
+    <string name="label_stabilization">Stabilization</string>
+    <string name="label_min_width">Min Width Ratio</string>
     
     <string name="grid_title">Grid</string>
     <string name="grid_snap">Snap to Grid</string>

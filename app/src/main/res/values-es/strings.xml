@@ -13,6 +13,8 @@
     <string name="label_smoothing">Estabilizador</string>
     <string name="label_sensitivity">Sensibilidad</string>
     <string name="label_min_size">Tamaño Mínimo</string>
+    <string name="label_stabilization">Estabilización</string>
+    <string name="label_min_width">Ratio de Ancho Mínimo</string>
     
     <string name="grid_title">Cuadrícula</string>
     <string name="grid_snap">Ajustar a Cuadrícula</string>

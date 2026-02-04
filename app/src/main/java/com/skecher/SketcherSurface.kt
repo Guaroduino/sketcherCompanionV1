@@ -85,9 +85,7 @@ import androidx.compose.material.icons.filled.Palette // Background Color Icon
 import androidx.compose.material.icons.filled.Straighten // Scale Icon
 import com.skecher.sketchercompanionv1.ui.ColorPickerDialog
 import com.skecher.sketchercompanionv1.ui.ScaleIndicator
-import com.skecher.sketchercompanionv1.dto.ScaleConfig
-import com.skecher.sketchercompanionv1.dto.GridConfig
-import com.skecher.sketchercompanionv1.dto.DistanceUnit
+import com.skecher.sketchercompanionv1.dto.*
 import com.skecher.sketchercompanionv1.utils.UnitUtils
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Grid4x4
@@ -157,7 +155,7 @@ fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeig
 }
 
 
-enum class ToolType { TECHNICAL_PEN, PRESSURE_PEN, PERFECT_FREEHAND, MARKER, HIGHLIGHTER, FILL_SHAPE, ERASER, SELECTION }
+// ToolType moved to ProjectDTOs.kt
 enum class SelectionTouchMode { IDLE, SELECTING_AREA, DRAGGING_CONTENT, DRAGGING_CORNER, ROTATING }
 
 data class BrushTypeConfig(
@@ -171,9 +169,8 @@ data class BrushTypeConfig(
 @Composable
 fun getToolName(type: ToolType): String {
     return when(type) {
-        ToolType.TECHNICAL_PEN -> stringResource(R.string.tool_technical_pen)
+        ToolType.FREEHAND -> "Lápiz" // Default 
         ToolType.PRESSURE_PEN -> stringResource(R.string.tool_pressure_pen)
-        ToolType.PERFECT_FREEHAND -> "Perfect Freehand" // Hardcoded for now, or add R.string later
         ToolType.MARKER -> stringResource(R.string.tool_marker)
         ToolType.HIGHLIGHTER -> stringResource(R.string.tool_highlighter)
         ToolType.FILL_SHAPE -> stringResource(R.string.tool_fill)
@@ -183,7 +180,7 @@ fun getToolName(type: ToolType): String {
 }
 
 private class RuntimeState {
-    var toolType: ToolType = ToolType.TECHNICAL_PEN
+    var toolType: ToolType = ToolType.FREEHAND
     var brushFamily: BrushFamily? = StockBrushes.pressurePen()
     var color: Int = AndroidColor.BLACK
     var size: Float = 15f
@@ -352,9 +349,8 @@ fun SketcherSurface(
     }
 
     val brushTypes = listOf(
-        BrushTypeConfig(ToolType.TECHNICAL_PEN, Icons.Default.Create, StockBrushes.pressurePen(), R.string.tool_technical_pen),
+        BrushTypeConfig(ToolType.FREEHAND, Icons.Default.Gesture, null, R.string.tool_pressure_pen), 
         BrushTypeConfig(ToolType.PRESSURE_PEN, Icons.Default.Brush, StockBrushes.pressurePen(), R.string.tool_pressure_pen),
-        BrushTypeConfig(ToolType.PERFECT_FREEHAND, Icons.Default.Gesture, null, R.string.tool_pressure_pen), // Using generic string for now to avoid build error with missing resource
         BrushTypeConfig(ToolType.MARKER, Icons.Default.Edit, StockBrushes.marker(), R.string.tool_marker),
         BrushTypeConfig(ToolType.HIGHLIGHTER, Icons.Default.Edit, StockBrushes.highlighter(), R.string.tool_highlighter),
         BrushTypeConfig(ToolType.FILL_SHAPE, Icons.Default.FormatPaint, null, R.string.tool_fill),
@@ -395,8 +391,17 @@ fun SketcherSurface(
         isReady = true // Force a recomposition/update
     }
 
-    LaunchedEffect(sketchViewModel.currentTool, canvasViewRef) {
+    LaunchedEffect(sketchViewModel.currentTool, sketchViewModel.toolConfigs, canvasViewRef) {
         canvasViewRef?.currentTool = sketchViewModel.currentTool
+        canvasViewRef?.activeToolConfig = sketchViewModel.toolConfigs[sketchViewModel.currentTool] ?: ToolConfig()
+        canvasViewRef?.activeColor = sketchViewModel.currentColor
+        canvasViewRef?.activeSize = sketchViewModel.currentSize
+    }
+    
+    // Sync settings when they change independently
+    LaunchedEffect(sketchViewModel.currentSize, sketchViewModel.currentColor) {
+        canvasViewRef?.activeColor = sketchViewModel.currentColor
+        canvasViewRef?.activeSize = sketchViewModel.currentSize
     }
 
     LaunchedEffect(sketchViewModel.isDebugWireframe) {
@@ -418,6 +423,9 @@ fun SketcherSurface(
                     ViewGroup.LayoutParams.MATCH_PARENT, 
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
+                
+                val stabilizer = StrokeStabilizer()
+                val strokeIdMap = mutableMapOf<Int, InProgressStrokeId>()
 
                 val canvasView = SketcherCanvasView(ctx).apply {
                     layoutParams = params
@@ -430,6 +438,34 @@ fun SketcherSurface(
                     // Callback wire-up
                     this.onStrokeCompleted = { stroke ->
                         sketchViewModel.addVectorStroke(stroke)
+                    }
+                    this.onFillCompleted = { fill ->
+                        sketchViewModel.addFill(fill)
+                        bakeFill(fill)
+                    }
+                    this.onStabilizedInkEvent = { stabilizedEvent ->
+                        val pointerId = stabilizedEvent.getPointerId(0)
+                        val state = wetViewRef?.tag as? RuntimeState
+                        if (state != null) {
+                            when (stabilizedEvent.actionMasked) {
+                                MotionEvent.ACTION_DOWN -> {
+                                    state.activeBrush?.let { brush ->
+                                        strokeIdMap[pointerId] = wetViewRef?.startStroke(stabilizedEvent, pointerId, brush) ?: return@let
+                                    }
+                                }
+                                MotionEvent.ACTION_MOVE -> {
+                                    strokeIdMap[pointerId]?.let { id ->
+                                        wetViewRef?.addToStroke(stabilizedEvent, pointerId, id, null)
+                                    }
+                                }
+                                MotionEvent.ACTION_UP -> {
+                                    strokeIdMap[pointerId]?.let { id ->
+                                        wetViewRef?.finishStroke(stabilizedEvent, pointerId, id)
+                                        strokeIdMap.remove(pointerId)
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     // Set initial background color
@@ -539,8 +575,7 @@ fun SketcherSurface(
                     }
                 })
 
-                val stabilizer = StrokeStabilizer()
-                val strokeIdMap = mutableMapOf<Int, InProgressStrokeId>()
+                // Stabilizer and strokeIdMap moved to top of factory
                 
                 // SELECTION STATE
                 var selTouchMode = SelectionTouchMode.IDLE
@@ -583,8 +618,15 @@ fun SketcherSurface(
                          return@setOnTouchListener true // Consume event so it doesn't propagate, but don't draw
                     }
 
-                    // 3. PERFECT FREEHAND: Allow fallthrough to CanvasView
-                    if (sketchViewModel.currentTool == ToolType.PERFECT_FREEHAND) {
+                    // 3. DRAWING TOOLS: Allow fallthrough to CanvasView for stabilization
+                    val currentTool = sketchViewModel.currentTool
+                    val isDrawingTool = currentTool == ToolType.FREEHAND || 
+                                       currentTool == ToolType.FILL_SHAPE || 
+                                       currentTool == ToolType.PRESSURE_PEN || 
+                                       currentTool == ToolType.MARKER || 
+                                       currentTool == ToolType.HIGHLIGHTER
+                                       
+                    if (isDrawingTool) {
                          return@setOnTouchListener false
                     }
 
@@ -606,9 +648,8 @@ fun SketcherSurface(
                     }
 
                     // --- TOOL CLASSIFICATION ---
-                    val isTechPen = state.toolType == ToolType.TECHNICAL_PEN
                     val isFillTool = state.toolType == ToolType.FILL_SHAPE
-                    val isVectorTool = isTechPen || isFillTool
+                    val isVectorTool = isFillTool
                     
                     // Ink Tool = Active Brush AND NOT a Vector Tool (Marker, Highlighter, Pressure Pen)
                     val isInkTool = state.activeBrush != null && !isVectorTool
@@ -925,15 +966,13 @@ fun SketcherSurface(
                                 // Vector/Fill Init
                                 if (shouldCaptureVector) {
                                     state.vectorPoints.clear()
-                                    var pressure = adjustPressure(event.pressure, sketchViewModel.currentSensitivity)
+                                    var pressure = adjustPressure(event.pressure, 1.0f)
                                     state.vectorPoints.add(StrokePoint(effectiveX, effectiveY, pressure))
                                     
-                                    if (state.toolType == ToolType.TECHNICAL_PEN) {
-                                        val (path, _, _) = PathGenerator.generateStrokePath(state.vectorPoints, state.size, sketchViewModel.penMinSizeFactor)
-                                        val alpha = (state.opacity * 255).toInt()
-                                        val colorWithAlpha = androidx.core.graphics.ColorUtils.setAlphaComponent(state.color, alpha)
-                                        canvasView.updateCurrentVectorPreview(path, state.vectorPoints.toList(), colorWithAlpha, state.size, sketchViewModel.penMinSizeFactor)
+                                    if (state.toolType == ToolType.FILL_SHAPE || sketchViewModel.isFillModeEnabled) {
+                                        state.vectorPoints.add(StrokePoint(effectiveX, effectiveY, adjustPressure(event.pressure, 1.0f)))
                                     }
+
 
                                     if (sketchViewModel.isFillModeEnabled || state.toolType == ToolType.FILL_SHAPE) {
                                         state.fillPath.reset()
@@ -957,7 +996,7 @@ fun SketcherSurface(
                                     coords[0].x = snapScreenPts[0]
                                     coords[0].y = snapScreenPts[1]
                                     if (state.toolType == ToolType.PRESSURE_PEN) {
-                                        coords[0].pressure = adjustPressure(coords[0].pressure, sketchViewModel.currentSensitivity)
+                                        coords[0].pressure = adjustPressure(coords[0].pressure, 1.0f)
                                     }
                                     
                                     val snappedEvent = MotionEvent.obtain(
@@ -1012,12 +1051,15 @@ fun SketcherSurface(
                                         lastInputY = effectiveY
                                         lastInputPressure = event.getPressure(pointerIndex)
                                         
-                                        val stabilizedPoint = stabilizer.update(effectiveX, effectiveY, sketchViewModel.currentSmoothing)
+                                        val stabilizedPoint = stabilizer.update(effectiveX, effectiveY, 0.1f)
                                         
                                         if (shouldCaptureVector) {
                                              // ... Vector Add & Preview ...
-                                            val p = adjustPressure(event.getPressure(pointerIndex), sketchViewModel.currentSensitivity)
-                                            if (isTechPen) state.vectorPoints.add(StrokePoint(stabilizedPoint.x, stabilizedPoint.y, p))
+                                            val p = adjustPressure(event.getPressure(pointerIndex), 1.0f)
+                                            if (state.toolType == ToolType.FILL_SHAPE || sketchViewModel.isFillModeEnabled) {
+                                                state.vectorPoints.add(StrokePoint(stabilizedPoint.x, stabilizedPoint.y, p))
+                                            }
+
                                             
                                             // Fill
                                             if (sketchViewModel.isFillModeEnabled || state.toolType == ToolType.FILL_SHAPE) {
@@ -1029,13 +1071,7 @@ fun SketcherSurface(
                                                 canvasView.updateCurrentFill(pp, androidx.core.graphics.ColorUtils.setAlphaComponent(c, a))
                                             }
                                             
-                                            // Tech Pen Preview
-                                            if (state.toolType == ToolType.TECHNICAL_PEN) {
-                                                val (path, _, _) = PathGenerator.generateStrokePath(state.vectorPoints, state.size, sketchViewModel.penMinSizeFactor)
-                                                val alpha = (state.opacity * 255).toInt()
-                                                val ca = androidx.core.graphics.ColorUtils.setAlphaComponent(state.color, alpha)
-                                                canvasView.updateCurrentVectorPreview(path, state.vectorPoints.toList(), ca, state.size, sketchViewModel.penMinSizeFactor)
-                                            }
+
                                         }
                                         
                                         if (isInkTool) {
@@ -1051,7 +1087,7 @@ fun SketcherSurface(
                                              coords[0].x = snapScreenPts[0]
                                              coords[0].y = snapScreenPts[1]
                                               if (state.toolType == ToolType.PRESSURE_PEN) {
-                                                 coords[0].pressure = adjustPressure(coords[0].pressure, sketchViewModel.currentSensitivity)
+                                                 coords[0].pressure = adjustPressure(coords[0].pressure, 1.0f)
                                              }
                                              val ev = MotionEvent.obtain(event.downTime, event.eventTime, event.action, 1, props, coords, event.metaState, event.buttonState, event.xPrecision, event.yPrecision, event.deviceId, event.edgeFlags, event.source, event.flags)
                                              try {
@@ -1064,11 +1100,14 @@ fun SketcherSurface(
                             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
                                 if (activePointerId != -1 && event.getPointerId(event.actionIndex) == activePointerId) {
                                     // Finish
-                                    val stabilizedPoint = stabilizer.update(lastInputX, lastInputY, sketchViewModel.currentSmoothing)
+                                    val stabilizedPoint = stabilizer.update(lastInputX, lastInputY, 0.1f)
                                     
                                     if (shouldCaptureVector) {
                                          // Commit Vector/Fill
-                                         if (isTechPen) state.vectorPoints.add(StrokePoint(stabilizedPoint.x, stabilizedPoint.y, adjustPressure(lastInputPressure, sketchViewModel.currentSensitivity)))
+                                         if (state.toolType == ToolType.FILL_SHAPE || sketchViewModel.isFillModeEnabled) {
+                                             state.vectorPoints.add(StrokePoint(stabilizedPoint.x, stabilizedPoint.y, adjustPressure(lastInputPressure, 1.0f)))
+                                         }
+
                                          
                                          if (sketchViewModel.isFillModeEnabled || state.toolType == ToolType.FILL_SHAPE) {
                                               state.fillPath.lineTo(stabilizedPoint.x, stabilizedPoint.y)
@@ -1082,25 +1121,7 @@ fun SketcherSurface(
                                               canvasView.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
                                          }
                                          
-                                         if (state.toolType == ToolType.TECHNICAL_PEN) {
-                                              val pts = state.vectorPoints 
-                                              val (path, left, right) = PathGenerator.generateStrokePath(pts, state.size, sketchViewModel.penMinSizeFactor)
-                                              val a = (state.opacity * 255).toInt()
-                                              val ca = androidx.core.graphics.ColorUtils.setAlphaComponent(state.color, a)
-                                              val s = VectorStroke(
-                                                  points = pts.toList(), 
-                                                  color = ca, 
-                                                  maxWidth = state.size, 
-                                                  path = path, 
-                                                  brushType = "TECH_PEN",
-                                                  leftPoints = left, 
-                                                  rightPoints = right
-                                              )
-                                              sketchViewModel.addVectorStroke(s)
-                                              canvasView.updateCurrentVectorPreview(null, null, 0)
-                                              canvasView.bakeStroke(s)
-                                              canvasView.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
-                                         }
+
                                     }
                                     
                                     if (isInkTool) {
@@ -1223,7 +1244,6 @@ fun SketcherSurface(
                 val blendedColor = androidx.core.graphics.ColorUtils.setAlphaComponent(sketchViewModel.currentColor, alpha)
                 canvasView.activeColor = blendedColor
                 canvasView.activeSize = sketchViewModel.currentSize
-                canvasView.activeMinSizeFactor = sketchViewModel.penMinSizeFactor
                 canvasView.activeFreehandSettings = sketchViewModel.currentFreehandSettings
 
                 val currentZoom = InkUtils.getMatrixScale(cameraMatrix)
@@ -1414,7 +1434,7 @@ fun SketcherSurface(
                 toolbarAlpha = sketchViewModel.toolbarAlpha,
                 isToolbarBlurEnabled = sketchViewModel.isToolbarBlurEnabled,
                 onConfigureTool = {
-                    if (sketchViewModel.currentTool == ToolType.PERFECT_FREEHAND) {
+                    if (sketchViewModel.currentTool == ToolType.FREEHAND) {
                         showFreehandSettings = true
                     }
                 }
@@ -1497,16 +1517,12 @@ fun SketcherSurface(
                 onSizeChanged = { sketchViewModel.setToolSize(it) },
                 currentOpacity = sketchViewModel.currentOpacity,
                 onOpacityChanged = { sketchViewModel.setToolOpacity(it) },
-                stabilizationLevel = sketchViewModel.currentSmoothing,
-                onStabilizationLevelChanged = { sketchViewModel.setToolSmoothing(it) },
-                pressureSensitivity = sketchViewModel.currentSensitivity,
-                onPressureSensitivityChanged = { sketchViewModel.setToolSensitivity(it) },
                 presets = sketchViewModel.brushSizePresets,
                 onPresetSelected = { sketchViewModel.setToolSize(it) },
                 onPresetSave = { index, size -> sketchViewModel.updateBrushSizePreset(index, size) },
-                penMinSizeFactor = sketchViewModel.penMinSizeFactor,
-                onPenMinSizeFactorChanged = { sketchViewModel.setToolMinSizeFactor(it) },
                 activeToolType = sketchViewModel.currentTool,
+                currentToolConfig = sketchViewModel.activeToolConfig,
+                onToolConfigChanged = { sketchViewModel.updateToolConfig(sketchViewModel.currentTool, it) },
                 onDismiss = { showSizePopup = false }
             )
         }
@@ -1698,8 +1714,8 @@ fun BottomMenuBar(
                 }
             } // End Box (Tool Selector)
 
-            // SETTINGS BUTTON (For Perfect Freehand)
-            if (activeDrawingTool == ToolType.PERFECT_FREEHAND) {
+            // SETTINGS BUTTON (For Freehand)
+            if (activeDrawingTool == ToolType.FREEHAND) {
                  IconButton(onClick = onConfigureTool) {
                      Icon(androidx.compose.material.icons.Icons.Filled.Build, contentDescription = "Configurar", tint = androidx.compose.material3.MaterialTheme.colorScheme.primary)
                  }
@@ -2045,24 +2061,21 @@ fun SizeSelectorPopup(
     onSizeChanged: (Float) -> Unit, 
     currentOpacity: Float,
     onOpacityChanged: (Float) -> Unit,
-    stabilizationLevel: Float,
-    onStabilizationLevelChanged: (Float) -> Unit,
-    pressureSensitivity: Float,
-    onPressureSensitivityChanged: (Float) -> Unit,
     presets: List<Float>,
     onPresetSelected: (Float) -> Unit,
     onPresetSave: (Int, Float) -> Unit,
-    penMinSizeFactor: Float,
-    onPenMinSizeFactorChanged: (Float) -> Unit,
     activeToolType: ToolType,
+    currentToolConfig: com.skecher.sketchercompanionv1.dto.ToolConfig,
+    onToolConfigChanged: (com.skecher.sketchercompanionv1.dto.ToolConfig) -> Unit,
     onDismiss: () -> Unit
 ) {
     // Visibility Logic
     val showSize = activeToolType != ToolType.FILL_SHAPE && activeToolType != ToolType.SELECTION
     val showOpacity = activeToolType != ToolType.SELECTION
     val showStabilizer = activeToolType != ToolType.ERASER && activeToolType != ToolType.SELECTION
-    val showPressure = activeToolType != ToolType.FILL_SHAPE && activeToolType != ToolType.ERASER && activeToolType != ToolType.SELECTION
-    val showMinSize = (activeToolType == ToolType.TECHNICAL_PEN || activeToolType == ToolType.PRESSURE_PEN) && activeToolType != ToolType.SELECTION
+    val isFreehand = activeToolType == ToolType.FREEHAND
+    val isInkTool = activeToolType == ToolType.PRESSURE_PEN || activeToolType == ToolType.MARKER || activeToolType == ToolType.HIGHLIGHTER
+    val isFillTool = activeToolType == ToolType.FILL_SHAPE
 
     // Non-linear Slider Logic (Quadratic)
     val minSize = 1f
@@ -2147,34 +2160,58 @@ fun SizeSelectorPopup(
             }
 
             if (showStabilizer) {
-                Text("${stringResource(R.string.label_smoothing)}: ${(stabilizationLevel).toInt()}%")
-                Slider(
-                    value = stabilizationLevel,
-                    onValueChange = onStabilizationLevelChanged,
-                    valueRange = 0f..300f
-                )
-                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-            }
-
-            if (showPressure) {
-                Text("${stringResource(R.string.label_sensitivity)}: $pressureSensitivity")
-                Slider(
-                    value = pressureSensitivity,
-                    onValueChange = onPressureSensitivityChanged,
-                    valueRange = 0.1f..2.0f
-                )
-            }
-
-            if (showMinSize) {
-                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+                val stabilization = when {
+                    isFreehand -> currentToolConfig.freehandSettings?.inputStabilization ?: 0f
+                    isFillTool -> currentToolConfig.fillSettings?.stabilization ?: 0f
+                    isInkTool -> currentToolConfig.inkSettings?.stabilization ?: 0f
+                    else -> 0f
+                }
                 
-                Text("${stringResource(R.string.label_min_size)}: ${(penMinSizeFactor * 100).toInt()}%")
+                Text("${stringResource(R.string.label_stabilization)}: ${(stabilization * 100).toInt()}%")
                 Slider(
-                    value = penMinSizeFactor,
-                    onValueChange = onPenMinSizeFactorChanged,
-                    valueRange = 0f..1f
+                    value = stabilization,
+                    onValueChange = { newVal ->
+                        val updated = when {
+                            isFreehand -> currentToolConfig.copy(freehandSettings = currentToolConfig.freehandSettings?.copy(inputStabilization = newVal))
+                            isFillTool -> currentToolConfig.copy(fillSettings = currentToolConfig.fillSettings?.copy(stabilization = newVal))
+                            isInkTool -> currentToolConfig.copy(inkSettings = currentToolConfig.inkSettings?.copy(stabilization = newVal))
+                            else -> currentToolConfig
+                        }
+                        onToolConfigChanged(updated)
+                    },
+                    valueRange = 0f..0.95f
                 )
+
+                if (isInkTool) {
+                    val smoothing = currentToolConfig.inkSettings?.smoothing ?: 0.5f
+                    Text("${stringResource(R.string.label_smoothing)}: ${(smoothing * 100).toInt()}%")
+                    Slider(
+                        value = smoothing,
+                        onValueChange = { newVal ->
+                             onToolConfigChanged(currentToolConfig.copy(inkSettings = currentToolConfig.inkSettings?.copy(smoothing = newVal)))
+                        },
+                        valueRange = 0f..1f
+                    )
+                }
+
+                if (isFreehand) {
+                    val minWidth = currentToolConfig.freehandSettings?.minWidthRatio ?: 0.1f
+                    Text("${stringResource(R.string.label_min_width)}: ${(minWidth * 100).toInt()}%")
+                    Slider(
+                        value = minWidth,
+                        onValueChange = { newVal ->
+                             onToolConfigChanged(currentToolConfig.copy(freehandSettings = currentToolConfig.freehandSettings?.copy(minWidthRatio = newVal)))
+                        },
+                        valueRange = 0f..1f
+                    )
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
             }
+
+
+
+
         }
     }
 }

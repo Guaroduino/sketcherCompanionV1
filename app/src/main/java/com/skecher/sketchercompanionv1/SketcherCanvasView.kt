@@ -9,9 +9,8 @@ import android.view.MotionEvent
 import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
 import androidx.ink.strokes.Stroke
 
-import com.skecher.sketchercompanionv1.dto.GridConfig
-import com.skecher.sketchercompanionv1.dto.ScaleConfig
-import com.skecher.sketchercompanionv1.dto.DistanceUnit
+import com.skecher.sketchercompanionv1.dto.*
+
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
@@ -22,6 +21,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     private val viewMatrix = Matrix()
     private val strokeRenderer = CanvasStrokeRenderer.create()
+    private var isDrawing: Boolean = false
     
     // BITMAP CACHING
     private var backingBitmap: android.graphics.Bitmap? = null
@@ -150,7 +150,6 @@ class SketcherCanvasView(context: Context) : View(context) {
     private var currentVectorPreviewPoints: List<StrokePoint>? = null // For prediction
     private var currentVectorPreviewColor: Int = 0 // Explicitly store preview color
     private var currentMaxWidth: Float = 10f // Max stroke width for prediction
-    private var currentMinSizeFactor: Float = 0f // Min size factor for prediction
     private var currentFillPath: android.graphics.Path? = null
     private var currentFillColor: Int? = null
     private var currentPredictedPoint: StrokePoint? = null
@@ -176,13 +175,11 @@ class SketcherCanvasView(context: Context) : View(context) {
         points: List<StrokePoint>?, 
         color: Int, 
         maxWidth: Float = 10f,
-        minSizeFactor: Float = 0f,
         predictedPoint: StrokePoint? = null
     ) {
         currentVectorPreviewPath = path
         currentVectorPreviewPoints = points
         currentMaxWidth = maxWidth
-        currentMinSizeFactor = minSizeFactor
         currentPredictedPoint = predictedPoint
         if (color != 0) currentVectorPreviewColor = color 
         invalidate()
@@ -441,46 +438,52 @@ class SketcherCanvasView(context: Context) : View(context) {
             }
         }
 
-        // 5. Vector Preview with Prediction
-        currentVectorPreviewPath?.let { path ->
-             // CRITICAL FIX: explicit color set before drawing preview
-             if (currentVectorPreviewColor != 0) vectorPaint.color = currentVectorPreviewColor
-             canvas.drawPath(path, vectorPaint)
-
-             // LIVE BLOB (Unified)
-             // The path is now unified (Real + Predicted), so the last point is the "Live Tip".
-             // We draw the blob there to hide the flat mesh edge.
-             if (currentTool == ToolType.PERFECT_FREEHAND && currentVectorPreviewPoints?.isNotEmpty() == true) {
-                 val points = currentVectorPreviewPoints!!
-                 val tipPoint = points.last()
-                 
-                 val tipX = tipPoint.x
-                 val tipY = tipPoint.y
-                 val tipPressure = tipPoint.pressure
-                 val tipTimestamp = tipPoint.timestamp
-                 
-                 // Radius Calculation (Same as Generator)
-                 val realPressure = tipPressure.coerceIn(0f, 1f)
-                 val pFactor = 1.0f - (activeFreehandSettings.pressureInfluence * (1.0f - realPressure))
-                 
-                 var vFactor = 1.0f
-                 if (points.size > 1) {
-                     val prev = points[points.size - 2]
-                     val d = kotlin.math.hypot(tipX - prev.x, tipY - prev.y)
-                     var dt = (tipTimestamp - prev.timestamp).toFloat()
-                     if (dt <= 0) dt = 16f
-                     val velocity = d / dt
-                     val maxSpeed = 3.0f 
-                     val normalizedVel = (velocity / maxSpeed).coerceIn(0f, 1f)
-                     val simPressure = (1f - normalizedVel).coerceIn(0f, 1f)
-                     vFactor = 1.0f - (activeFreehandSettings.velocityInfluence * (1.0f - simPressure))
+        // 5. Vector Preview with Prediction (Gated by isDrawing)
+        if (isDrawing) {
+            currentVectorPreviewPath?.let { path ->
+                 // CRITICAL FIX: explicit color set before drawing preview
+                 if (currentVectorPreviewColor != 0) vectorPaint.color = currentVectorPreviewColor
+                 canvas.drawPath(path, vectorPaint)
+    
+                 // LIVE BLOB (Unified)
+                 // The path is now unified (Real + Predicted), so the last point is the "Live Tip".
+                 // We draw the blob there to hide the flat mesh edge.
+                 if (currentTool == ToolType.FREEHAND && currentVectorPreviewPoints?.isNotEmpty() == true) {
+                     val points = currentVectorPreviewPoints!!
+                     val tipPoint = points.last()
+                     
+                     val tipX = tipPoint.x
+                     val tipY = tipPoint.y
+                     val tipPressure = tipPoint.pressure
+                     val tipTimestamp = tipPoint.timestamp
+                     
+                     // Radius Calculation (Same as Generator)
+                     val realPressure = tipPressure.coerceIn(0f, 1f)
+                     val pFactor = 1.0f - (activeFreehandSettings.pressureInfluence * (1.0f - realPressure))
+                     
+                     var vFactor = 1.0f
+                     if (points.size > 1) {
+                         val prev = points[points.size - 2]
+                         val d = kotlin.math.hypot(tipX - prev.x, tipY - prev.y)
+                         var dt = (tipTimestamp - prev.timestamp).toFloat()
+                         if (dt <= 0) dt = 16f
+                         val velocity = d / dt
+                         val maxSpeed = 3.0f 
+                         val normalizedVel = (velocity / maxSpeed).coerceIn(0f, 1f)
+                         val simPressure = (1f - normalizedVel).coerceIn(0f, 1f)
+                         vFactor = 1.0f - (activeFreehandSettings.velocityInfluence * (1.0f - simPressure))
+                     }
+                     
+                      val combinedPressure = pFactor * vFactor
+                      
+                      // Min Width Calculation
+                      val dynamicWidth = currentMaxWidth * combinedPressure
+                      val absoluteMin = currentMaxWidth * activeFreehandSettings.minWidthRatio
+                      val width = kotlin.math.max(dynamicWidth, absoluteMin)
+                      val radius = width / 2f
+                     
+                     canvas.drawCircle(tipX, tipY, radius, vectorPaint)
                  }
-                 
-                 val combinedPressure = pFactor * vFactor
-                 val width = currentMaxWidth * (currentMinSizeFactor + (1f - currentMinSizeFactor) * combinedPressure)
-                 val radius = width / 2f
-                 
-                 canvas.drawCircle(tipX, tipY, radius, vectorPaint)
              }
          }
 
@@ -572,13 +575,19 @@ class SketcherCanvasView(context: Context) : View(context) {
     var onStrokeCompleted: ((VectorStroke) -> Unit)? = null
     
     // Tool State
-    var currentTool: ToolType = ToolType.TECHNICAL_PEN
+    var currentTool: ToolType = ToolType.FREEHAND
     
     // Active Configuration (Synced from ViewModel)
     var activeColor: Int = android.graphics.Color.BLACK
     var activeSize: Float = 10f
-    var activeMinSizeFactor: Float = 0.2f
-    var activeFreehandSettings: com.skecher.sketchercompanionv1.dto.FreehandSettings = com.skecher.sketchercompanionv1.dto.FreehandSettings()
+    var activeToolConfig: ToolConfig = ToolConfig()
+    var activeFreehandSettings: com.skecher.sketchercompanionv1.dto.FreehandSettings 
+        get() = activeToolConfig.freehandSettings ?: com.skecher.sketchercompanionv1.dto.FreehandSettings()
+        set(value) { /* managed via toolConfig */ }
+
+    // Callbacks for other tools
+    var onFillCompleted: ((FillData) -> Unit)? = null
+    var onStabilizedInkEvent: ((MotionEvent) -> Unit)? = null
 
     // Stabilizer State
     private var stabilizerX: Float = 0f
@@ -586,18 +595,30 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     // We override onTouchEvent to handle input directly if this view is the active handler
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        // Only handle Perfect Freehand directly (Front Buffering)
-        if (currentTool != ToolType.PERFECT_FREEHAND) {
+        val isInkTool = currentTool == ToolType.PRESSURE_PEN || currentTool == ToolType.MARKER || currentTool == ToolType.HIGHLIGHTER
+        val isFillTool = currentTool == ToolType.FILL_SHAPE
+        val isFreehand = currentTool == ToolType.FREEHAND
+
+        if (!isFreehand && !isFillTool && !isInkTool) {
             return super.onTouchEvent(event)
         }
         
         val action = event.actionMasked
+
+        // Determine stabilization factor based on active tool
+        val stabilizationFactor = when (currentTool) {
+            ToolType.FREEHAND -> activeToolConfig.freehandSettings?.inputStabilization ?: 0f
+            ToolType.FILL_SHAPE -> activeToolConfig.fillSettings?.stabilization ?: 0f
+            ToolType.PRESSURE_PEN, ToolType.MARKER, ToolType.HIGHLIGHTER -> activeToolConfig.inkSettings?.stabilization ?: 0f
+            else -> 0f
+        }.coerceIn(0f, 0.95f)
 
         // Map Event to Screen Points (InputHandler handles history)
         val rawScreenPoints = inputHandler.processEvent(event)
         
         when (action) {
             MotionEvent.ACTION_DOWN -> {
+                isDrawing = true
                 currentStrokePath.reset()
                 predictedStrokePath.reset()
                 currentStrokePoints.clear()
@@ -616,6 +637,16 @@ class SketcherCanvasView(context: Context) : View(context) {
                     
                     val worldP = transformToWorld(p)
                     currentStrokePoints.add(worldP)
+
+                    if (isFillTool) {
+                         currentFillPath = android.graphics.Path().apply { moveTo(worldP.x, worldP.y) }
+                    }
+
+                    if (isInkTool) {
+                        val stabilizedEvent = synthesizeEvent(event, p, stabilizerX, stabilizerY)
+                        onStabilizedInkEvent?.invoke(stabilizedEvent)
+                        stabilizedEvent.recycle()
+                    }
                 }
                 
                 // Generate Initial (Point)
@@ -624,12 +655,11 @@ class SketcherCanvasView(context: Context) : View(context) {
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
-                 // Rope Stabilization Logic
-                 val stabilizationFactor = activeFreehandSettings.inputStabilization.coerceIn(0f, 0.95f)
+                 // Stabilization Logic
                  val weight = 1.0f - stabilizationFactor
                  
                  rawScreenPoints.forEach { p ->
-                    // Apply Rope Physics
+                    // Apply Physics
                     if (stabilizationFactor > 0f) {
                         stabilizerX += (p.x - stabilizerX) * weight
                         stabilizerY += (p.y - stabilizerY) * weight
@@ -638,22 +668,35 @@ class SketcherCanvasView(context: Context) : View(context) {
                         stabilizerY = p.y
                     }
                     
-                    // Create stabilized point
+                    // Route the Point
                     val stabilizedP = StrokePoint(stabilizerX, stabilizerY, p.pressure, p.timestamp)
                     val worldP = transformToWorld(stabilizedP)
-                    currentStrokePoints.add(worldP)
+
+                    if (isFreehand) {
+                        currentStrokePoints.add(worldP)
+                    } else if (isFillTool) {
+                        currentStrokePoints.add(worldP)
+                        if (currentStrokePoints.size == 1) {
+                            currentFillPath = android.graphics.Path().apply { moveTo(worldP.x, worldP.y) }
+                        } else {
+                            currentFillPath?.lineTo(worldP.x, worldP.y)
+                        }
+                        val previewPath = android.graphics.Path(currentFillPath)
+                        previewPath.close()
+                        updateCurrentFill(previewPath, activeColor)
+                    } else if (isInkTool) {
+                        // For Ink, we need to synthesize an event and send it back
+                        val stabilizedEvent = synthesizeEvent(event, p, stabilizerX, stabilizerY)
+                        onStabilizedInkEvent?.invoke(stabilizedEvent)
+                        stabilizedEvent.recycle()
+                    }
                 }
                 
-                updateCurrentPaths()
+                if (isFreehand) updateCurrentPaths()
                 invalidate()
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                 // Add final points with stabilization catch-up?
-                 // Usually for rope stabilizer, we stop where the rope is, NOT catching up to cursor.
-                 // So we continue using the stabilizer state.
-                 
-                 val stabilizationFactor = activeFreehandSettings.inputStabilization.coerceIn(0f, 0.95f)
                  val weight = 1.0f - stabilizationFactor
 
                  rawScreenPoints.forEach { p ->
@@ -667,34 +710,55 @@ class SketcherCanvasView(context: Context) : View(context) {
                     
                     val stabilizedP = StrokePoint(stabilizerX, stabilizerY, p.pressure, p.timestamp)
                     val worldP = transformToWorld(stabilizedP)
-                    currentStrokePoints.add(worldP)
+
+                    if (isFreehand || isFillTool) {
+                        currentStrokePoints.add(worldP)
+                    }
+                    
+                    if (isInkTool) {
+                        val stabilizedEvent = synthesizeEvent(event, p, stabilizerX, stabilizerY)
+                        onStabilizedInkEvent?.invoke(stabilizedEvent)
+                        stabilizedEvent.recycle()
+                    }
                 }
                 
-                // Finalize
-                val finalPath = android.graphics.Path()
-                
-                val (path, left, right) = PerfectFreehandGenerator.generate(
-                    currentStrokePoints, 
-                    activeSize, 
-                    activeMinSizeFactor,
-                    activeFreehandSettings
-                )
-                finalPath.set(path)
-                
-                val stroke = VectorStroke(
-                    points = currentStrokePoints.toList(),
-                    color = activeColor,
-                    maxWidth = activeSize,
-                    path = finalPath,
-                    brushType = "PERFECT_FREEHAND",
-                    leftPoints = left,
-                    rightPoints = right
-                )
-                
-                onStrokeCompleted?.invoke(stroke)
-                
+                if (isFreehand) {
+                    // Finalize Freehand
+                    val finalPath = android.graphics.Path()
+                    val (path, left, right) = PerfectFreehandGenerator.generate(
+                        currentStrokePoints, 
+                        activeSize, 
+                        activeFreehandSettings
+                    )
+                    finalPath.set(path)
+                    
+                    val stroke = VectorStroke(
+                        points = currentStrokePoints.toList(),
+                        color = activeColor,
+                        maxWidth = activeSize,
+                        path = finalPath,
+                        brushType = "FREEHAND",
+                        leftPoints = left,
+                        rightPoints = right
+                    )
+                    onStrokeCompleted?.invoke(stroke)
+                } else if (isFillTool) {
+                    // Finalize Fill
+                    currentFillPath?.let {
+                        val worldEnd = transformToWorld(StrokePoint(stabilizerX, stabilizerY, 0f, 0L))
+                        it.lineTo(worldEnd.x, worldEnd.y)
+                        it.close()
+                        val fillData = FillData(android.graphics.Path(it), activeColor)
+                        onFillCompleted?.invoke(fillData)
+                    }
+                }
+
+                isDrawing = false
                 currentStrokePath.reset()
                 predictedStrokePath.reset()
+                currentVectorPreviewPath = null
+                currentVectorPreviewPoints = null
+                currentFillPath = null
                 currentStrokePoints.clear()
                 invalidate()
                 return true
@@ -702,6 +766,24 @@ class SketcherCanvasView(context: Context) : View(context) {
         }
         
         return super.onTouchEvent(event)
+    }
+
+    private fun synthesizeEvent(original: MotionEvent, point: StrokePoint, x: Float, y: Float): MotionEvent {
+        val props = arrayOf(MotionEvent.PointerProperties())
+        props[0] = MotionEvent.PointerProperties()
+        original.getPointerProperties(0, props[0])
+        val coords = arrayOf(MotionEvent.PointerCoords())
+        coords[0] = MotionEvent.PointerCoords()
+        original.getPointerCoords(0, coords[0])
+        coords[0].x = x
+        coords[0].y = y
+        coords[0].pressure = point.pressure
+        
+        return MotionEvent.obtain(
+            original.downTime, point.timestamp, original.action, 1, props, coords,
+            original.metaState, original.buttonState, original.xPrecision, original.yPrecision,
+            original.deviceId, original.edgeFlags, original.source, original.flags
+        )
     }
 
     private fun transformToWorld(p: StrokePoint): StrokePoint {
@@ -740,7 +822,6 @@ class SketcherCanvasView(context: Context) : View(context) {
         val (unifiedPath, _, _) = PerfectFreehandGenerator.generate(
             livePoints, 
             activeSize, 
-            activeMinSizeFactor,
             liveSettings
         )
         

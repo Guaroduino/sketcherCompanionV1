@@ -28,7 +28,6 @@ object PerfectFreehandGenerator {
     fun generate(
         rawPoints: List<StrokePoint>,
         maxWidth: Float,
-        minSizeFactor: Float = 0.0f, // Minimum width as factor of maxWidth (0..1)
         settings: com.skecher.sketchercompanionv1.dto.FreehandSettings = com.skecher.sketchercompanionv1.dto.FreehandSettings(), // Default settings
         simulatePressure: Boolean = true
     ): Triple<Path, List<PointF>, List<PointF>> {
@@ -39,7 +38,7 @@ object PerfectFreehandGenerator {
         val processedPoints = processPoints(rawPoints, simulatePressure, settings)
 
         // 2. Generate Ribbon Points (Left/Right)
-        val (leftPts, rightPts) = getStrokeOutlinePoints(processedPoints, maxWidth, minSizeFactor, settings)
+        val (leftPts, rightPts) = getStrokeOutlinePoints(processedPoints, maxWidth, settings)
 
         // 3. Build Path
         if (leftPts.isNotEmpty() && rightPts.isNotEmpty()) {
@@ -200,7 +199,6 @@ object PerfectFreehandGenerator {
     private fun getStrokeOutlinePoints(
         points: List<StrokePointInternal>,
         maxWidth: Float,
-        minSizeFactor: Float,
         settings: com.skecher.sketchercompanionv1.dto.FreehandSettings 
     ): Pair<List<PointF>, List<PointF>> {
         val leftPts = mutableListOf<PointF>()
@@ -235,7 +233,14 @@ object PerfectFreehandGenerator {
             var normal = PointF(-tangent.y, tangent.x)
             normal = normalize(normal)
             
-            val w = maxWidth * (minSizeFactor + (1f - minSizeFactor) * curr.pressure)
+            // Dynamic width based on influence factors
+            val dynamicWidth = maxWidth * curr.pressure
+            
+            // Absolute Minimum based on ratio
+            val absoluteMin = maxWidth * settings.minWidthRatio
+            
+            // Clamp
+            val w = kotlin.math.max(dynamicWidth, absoluteMin)
             val halfW = w / 2f
             
             leftPts.add(PointF(curr.x + normal.x * halfW, curr.y + normal.y * halfW))

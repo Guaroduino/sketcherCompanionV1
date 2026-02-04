@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.lifecycle.AndroidViewModel
 import androidx.ink.strokes.Stroke
@@ -33,15 +34,11 @@ import com.skecher.sketchercompanionv1.AndroidInkElement
 import java.util.ArrayDeque
 import com.skecher.sketchercompanionv1.GroupElement
 import com.skecher.sketchercompanionv1.Transformable
+import com.skecher.sketchercompanionv1.dto.*
 
 
-data class ToolConfig(
-    val size: Float,
-    val opacity: Float,
-    val smoothing: Float,
-    val sensitivity: Float,
-    val minSizeFactor: Float
-)
+// ToolConfig moved to ProjectDTOs.kt
+
 
 class SketcherViewModel(application: Application) : AndroidViewModel(application) {
     // Shared Prefs (Must be first)
@@ -153,20 +150,68 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
 
+    private fun loadFreehandSettings(): com.skecher.sketchercompanionv1.dto.FreehandSettings {
+        val json = prefs.getString("freehand_settings_v2", null) ?: return com.skecher.sketchercompanionv1.dto.FreehandSettings()
+        return try {
+            Gson().fromJson(json, com.skecher.sketchercompanionv1.dto.FreehandSettings::class.java)
+        } catch (e: Exception) {
+            com.skecher.sketchercompanionv1.dto.FreehandSettings()
+        }
+    }
+
+    private fun saveToolConfig(type: ToolType, config: ToolConfig) {
+        prefs.edit().apply {
+            putFloat("tool_size_${type.name}", config.size)
+            putFloat("tool_alpha_${type.name}", config.opacity)
+            
+            config.freehandSettings?.let { putString("freehand_settings_v2", Gson().toJson(it)) }
+            config.fillSettings?.let { putString("fill_settings_${type.name}", Gson().toJson(it)) }
+            config.inkSettings?.let { putString("ink_settings_${type.name}", Gson().toJson(it)) }
+            
+            apply()
+        }
+    }
+
     // --- TOOL STATE & CONFIG ---
-    var currentTool by mutableStateOf(ToolType.PRESSURE_PEN)
+    var currentTool by mutableStateOf(
+        try { ToolType.valueOf(prefs.getString("current_tool", ToolType.FREEHAND.name) ?: ToolType.FREEHAND.name) }
+        catch(e: Exception) { ToolType.FREEHAND }
+    )
         private set
         
-    var currentSize by mutableFloatStateOf(4f)
+    var currentSize by mutableFloatStateOf(9f) // Default initial
         private set
     var currentOpacity by mutableFloatStateOf(1f)
         private set
-    var currentSmoothing by mutableFloatStateOf(0.4f)
+
+    // --- FREEHAND SETTINGS ---
+    var currentFreehandSettings by mutableStateOf(loadFreehandSettings())
+    var activeToolConfig by mutableStateOf(com.skecher.sketchercompanionv1.dto.ToolConfig())
         private set
-    var currentSensitivity by mutableFloatStateOf(0.6f)
-        private set
-    var penMinSizeFactor by mutableFloatStateOf(0.4f)
-        private set
+
+    // Track last drawing tool for toggle back
+    var lastDrawingTool by mutableStateOf(ToolType.FREEHAND) // Default to Freehand
+
+    // COLORS
+    var availableColors = mutableStateListOf(
+        prefs.getInt("color_slot_0", Color.BLACK),
+        prefs.getInt("color_slot_1", Color.RED),
+        prefs.getInt("color_slot_2", Color.BLUE),
+        prefs.getInt("color_slot_3", Color.YELLOW)
+    )
+    var selectedColorIndex by mutableIntStateOf(prefs.getInt("selected_color_index", 0))
+    var currentColor by mutableIntStateOf(prefs.getInt("current_color", Color.BLACK))
+
+    // Additional States moved from Surface
+    var isFillModeEnabled by mutableStateOf(false)
+    
+    private var _fillModeColor by mutableIntStateOf(prefs.getInt("fill_mode_color", Color.GREEN))
+    var fillModeColor: Int
+        get() = _fillModeColor
+        set(value) {
+            _fillModeColor = value
+            prefs.edit().putInt("fill_mode_color", value).apply()
+        }
         
     // Fill Specific (Global or per tool? "Fill Tool Color: Default Green". Implies per tool or separate state)
     // The request said: "Fill Tool ... Color Default: Green". 
@@ -175,24 +220,40 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     // Actually, "Fill Tool Color: Should default to Green when selected, unless user picked another."
     // I'll handle that in selectTool.
         
-    // Tool Config Map
-    private val toolConfigs = mutableMapOf<ToolType, ToolConfig>().apply {
-        // Lápiz Técnico (Technical Pen)
-        put(ToolType.TECHNICAL_PEN, ToolConfig(size = 9f, opacity = 1f, smoothing = 0.4f, sensitivity = 0.6f, minSizeFactor = 0.4f))
-        // Lápiz (Pressure Pen)
-        put(ToolType.PRESSURE_PEN, ToolConfig(size = 4f, opacity = 1f, smoothing = 0.0f, sensitivity = 1.0f, minSizeFactor = 0.4f)) // MinSize Default
-        // Perfect Freehand
-        put(ToolType.PERFECT_FREEHAND, ToolConfig(size = 9f, opacity = 1f, smoothing = 0.0f, sensitivity = 1.0f, minSizeFactor = 0.2f))
-        // Marcador (Marker)
-        put(ToolType.MARKER, ToolConfig(size = 9f, opacity = 0.6f, smoothing = 0.3f, sensitivity = 0.6f, minSizeFactor = 0.1f))
-        // Resaltador (Highlighter)
-        put(ToolType.HIGHLIGHTER, ToolConfig(size = 9f, opacity = 0.6f, smoothing = 0.3f, sensitivity = 0.6f, minSizeFactor = 0.1f))
-        // Relleno (Fill)
-        put(ToolType.FILL_SHAPE, ToolConfig(size = 1f, opacity = 1.0f, smoothing = 0.7f, sensitivity = 1f, minSizeFactor = 1f))
-        // Borrador (Eraser) - Default
-        put(ToolType.ERASER, ToolConfig(size = 30f, opacity = 1f, smoothing = 0f, sensitivity = 1f, minSizeFactor = 1f))
-        // Selección (Selection)
-        put(ToolType.SELECTION, ToolConfig(size = 1f, opacity = 1f, smoothing = 0f, sensitivity = 1f, minSizeFactor = 1f))
+    internal val toolConfigs: MutableMap<ToolType, ToolConfig> = mutableStateMapOf<ToolType, ToolConfig>().apply {
+        val savedFreehand = loadFreehandSettings()
+        
+        fun loadConfig(type: ToolType, defSize: Float, defOpacity: Float): com.skecher.sketchercompanionv1.dto.ToolConfig {
+            val s = prefs.getFloat("tool_size_${type.name}", defSize)
+            val o = prefs.getFloat("tool_alpha_${type.name}", defOpacity)
+
+            val fillJson = prefs.getString("fill_settings_${type.name}", null)
+            val fillObj = fillJson?.let { try { Gson().fromJson(it, com.skecher.sketchercompanionv1.dto.FillSettings::class.java) } catch(e: Exception) { null } } ?: com.skecher.sketchercompanionv1.dto.FillSettings()
+            
+            val inkJson = prefs.getString("ink_settings_${type.name}", null)
+            val inkObj = inkJson?.let { try { Gson().fromJson(it, com.skecher.sketchercompanionv1.dto.InkSettings::class.java) } catch(e: Exception) { null } } ?: com.skecher.sketchercompanionv1.dto.InkSettings()
+
+            return com.skecher.sketchercompanionv1.dto.ToolConfig(
+                size = s, 
+                opacity = o, 
+                freehandSettings = if (type == ToolType.FREEHAND) savedFreehand else com.skecher.sketchercompanionv1.dto.FreehandSettings(),
+                fillSettings = fillObj,
+                inkSettings = inkObj
+            )
+        }
+
+        put(ToolType.FREEHAND, loadConfig(ToolType.FREEHAND, 9f, 1f))
+        put(ToolType.PRESSURE_PEN, loadConfig(ToolType.PRESSURE_PEN, 4f, 1f)) 
+        put(ToolType.MARKER, loadConfig(ToolType.MARKER, 9f, 0.6f))
+        put(ToolType.HIGHLIGHTER, loadConfig(ToolType.HIGHLIGHTER, 9f, 0.6f))
+        put(ToolType.FILL_SHAPE, loadConfig(ToolType.FILL_SHAPE, 1f, 1.0f))
+        put(ToolType.ERASER, loadConfig(ToolType.ERASER, 30f, 1f))
+        put(ToolType.SELECTION, loadConfig(ToolType.SELECTION, 1f, 1f))
+    }
+
+    init {
+        // Restore initial tool state after configs are ready
+        selectTool(currentTool)
     }
 
     // --- SELECTION STATE ---
@@ -377,46 +438,44 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         updateUndoRedoSupport()
     }
 
-    // COLORS
-    var availableColors = mutableStateListOf(Color.BLACK, Color.RED, Color.BLUE, Color.YELLOW)
-    var selectedColorIndex by mutableIntStateOf(0)
-    var currentColor by mutableIntStateOf(Color.BLACK)
 
     fun updateCurrentColorFromSlot() {
         if (selectedColorIndex in availableColors.indices) {
             currentColor = availableColors[selectedColorIndex]
+            prefs.edit().putInt("current_color", currentColor).apply()
+            prefs.edit().putInt("selected_color_index", selectedColorIndex).apply()
         }
     }
     
-    // Additional States moved from Surface
-    var isFillModeEnabled by mutableStateOf(false)
-    var fillModeColor by mutableIntStateOf(Color.GREEN) // Default Fill Color
-
-    // Track last drawing tool for toggle back
-    var lastDrawingTool by mutableStateOf(ToolType.PRESSURE_PEN) // Default to Pressure Pen
+    fun updateColorSlot(index: Int, color: Int) {
+        if (index in availableColors.indices) {
+            availableColors[index] = color
+            prefs.edit().putInt("color_slot_$index", color).apply()
+            if (index == selectedColorIndex) {
+                currentColor = color
+                prefs.edit().putInt("current_color", color).apply()
+            }
+        }
+    }
 
     // Select Tool Logic
     fun selectTool(type: ToolType) {
-        // Save current config to map before switching?
-        // OR do we update map immediately on setter?
-        // The Prompt: "When selectTool(type) is called, update the observable UI state... with the values from that tool's config."
-        // This implies the Map is the source of truth for "restoring".
-        // I will implement setters to update map "live".
-        
         // Update Last Drawing Tool if applicable
         if (type != ToolType.ERASER && type != ToolType.SELECTION && type != ToolType.FILL_SHAPE) {
             lastDrawingTool = type
         }
 
         currentTool = type
-        val config = toolConfigs[type] ?: toolConfigs[ToolType.TECHNICAL_PEN]!!
+        prefs.edit().putString("current_tool", type.name).apply()
+        
+        val config = toolConfigs[type] ?: toolConfigs[ToolType.FREEHAND]!!
         
         // Restore State
         currentSize = config.size
         currentOpacity = config.opacity
-        currentSmoothing = config.smoothing
-        currentSensitivity = config.sensitivity
-        penMinSizeFactor = config.minSizeFactor
+        currentFreehandSettings = config.freehandSettings ?: FreehandSettings()
+        activeToolConfig = config
+
         
         // Color Logic for Fill Tool
         // User requested: "Preserve selected color for stroke and fill when switching tools".
@@ -427,27 +486,16 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     // Setters that persist
     fun setToolSize(size: Float) {
         currentSize = size
-        toolConfigs[currentTool] = toolConfigs[currentTool]!!.copy(size = size)
+        val config = toolConfigs[currentTool]!!
+        toolConfigs[currentTool] = config.copy(size = size)
+        prefs.edit().putFloat("tool_size_${currentTool.name}", size).apply()
     }
     
     fun setToolOpacity(opacity: Float) {
         currentOpacity = opacity
-        toolConfigs[currentTool] = toolConfigs[currentTool]!!.copy(opacity = opacity)
-    }
-    
-    fun setToolSmoothing(smoothing: Float) {
-        currentSmoothing = smoothing
-        toolConfigs[currentTool] = toolConfigs[currentTool]!!.copy(smoothing = smoothing)
-    }
-    
-    fun setToolSensitivity(sensitivity: Float) {
-        currentSensitivity = sensitivity
-        toolConfigs[currentTool] = toolConfigs[currentTool]!!.copy(sensitivity = sensitivity)
-    }
-    
-    fun setToolMinSizeFactor(factor: Float) {
-        penMinSizeFactor = factor
-        toolConfigs[currentTool] = toolConfigs[currentTool]!!.copy(minSizeFactor = factor)
+        val config = toolConfigs[currentTool]!!
+        toolConfigs[currentTool] = config.copy(opacity = opacity)
+        prefs.edit().putFloat("tool_alpha_${currentTool.name}", opacity).apply()
     }
 
     // Vector Pen / Prediction Settings (Global or Config?)
@@ -469,13 +517,23 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         Matrix().getValues(this) 
     }
     
-    // --- FREEHAND SETTINGS ---
-    var currentFreehandSettings by mutableStateOf(com.skecher.sketchercompanionv1.dto.FreehandSettings())
-        private set
         
-    fun updateFreehandSettings(newSettings: com.skecher.sketchercompanionv1.dto.FreehandSettings) {
-        currentFreehandSettings = newSettings
+    fun updateToolConfig(type: ToolType, config: com.skecher.sketchercompanionv1.dto.ToolConfig) {
+        toolConfigs[type] = config
+        saveToolConfig(type, config)
+        if (type == currentTool) {
+            activeToolConfig = config
+            currentSize = config.size
+            currentOpacity = config.opacity
+            currentFreehandSettings = config.freehandSettings ?: com.skecher.sketchercompanionv1.dto.FreehandSettings()
+        }
     }
+
+    fun updateFreehandSettings(newSettings: com.skecher.sketchercompanionv1.dto.FreehandSettings) {
+        val config = toolConfigs[currentTool]?.copy(freehandSettings = newSettings) ?: com.skecher.sketchercompanionv1.dto.ToolConfig(freehandSettings = newSettings)
+        updateToolConfig(currentTool, config)
+    }
+
     
     // Zoom Controls
     fun resetCamera() {

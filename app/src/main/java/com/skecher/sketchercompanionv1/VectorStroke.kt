@@ -12,7 +12,7 @@ data class VectorStroke(
     val color: Int,
     val maxWidth: Float,
     val path: Path,
-    val brushType: String = "TECH_PEN",
+    val brushType: String = "FREEHAND",
     val leftPoints: List<android.graphics.PointF> = emptyList(),
     val rightPoints: List<android.graphics.PointF> = emptyList()
 ) : LayerElement {
