@@ -739,6 +739,7 @@ class SketcherCanvasView(context: Context) : View(context) {
     private var stabilizerY: Float = 0f
     private var lastRecordedX: Float = 0f
     private var lastRecordedY: Float = 0f
+    private var lastRawInput: StrokePoint? = null // For lag-less velocity calculation
     
     // Selection & Fill Handlers
     var onSelectionEvent: ((MotionEvent) -> Boolean)? = null
@@ -845,13 +846,34 @@ class SketcherCanvasView(context: Context) : View(context) {
                 targetX -= fingerOffsetX
                 targetY -= fingerOffsetY
             }
+
+            // DYNAMIC STABILIZATION (Lag Reduction)
+            // Calculate raw velocity to modulate smoothing
+            var dynamicsFactor = 0f
+            lastRawInput?.let { prev ->
+                val dist = kotlin.math.hypot(p.x - prev.x, p.y - prev.y)
+                var dt = (p.timestamp - prev.timestamp).toFloat()
+                if (dt <= 0) dt = 16f
+                val velocity = dist / dt // px/ms
+                
+                // If fast (> 2.5px/ms), reduce stabilization to zero
+                // 0.0 = Slow, 1.0 = Fast
+                dynamicsFactor = (velocity / 2.5f).coerceIn(0f, 1f)
+            }
+            lastRawInput = p
+
+            // Effective Factor:
+            // Base: 1.0 - stabilization (e.g. 0.1 for high stab)
+            // Target: 1.0 (Instant)
+            // Result: Interpolate Base -> Target based on speed
+            val baseFactor = 1f - stabilization
+            val effectiveFactor = baseFactor + (1f - baseFactor) * dynamicsFactor
             
             // Apply Stabilization (Recursive)
             if (stabilization > 0f) {
-                // If it's DOWN, stabilizerX starts at targetX (from init block), so no movement.
-                // For MOVE, we smooth towards target.
-                stabilizerX += (targetX - stabilizerX) * factor
-                stabilizerY += (targetY - stabilizerY) * factor
+                // Determine new position with dynamic factor
+                stabilizerX += (targetX - stabilizerX) * effectiveFactor
+                stabilizerY += (targetY - stabilizerY) * effectiveFactor
             } else {
                 stabilizerX = targetX
                 stabilizerY = targetY
