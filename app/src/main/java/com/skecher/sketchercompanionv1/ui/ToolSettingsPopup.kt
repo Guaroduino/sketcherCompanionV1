@@ -135,14 +135,18 @@ fun FreehandSettingsContent(
 
     // Taper
      SettingSlider(
-        label = "Inicio Afilado",
+        label = if (currentSettings.taperStart >= 0) "Inicio Afilado: ${(currentSettings.taperStart * 100).toInt()}%" 
+                else "Inicio Ensanchado: ${(currentSettings.taperStart * -100).toInt()}%",
         value = currentSettings.taperStart,
+        valueRange = -1f..1f,
         onValueChange = { onSettingsChanged(currentSettings.copy(taperStart = it)) }
     )
     
      SettingSlider(
-        label = "Fin Afilado",
+        label = if (currentSettings.taperEnd >= 0) "Fin Afilado: ${(currentSettings.taperEnd * 100).toInt()}%" 
+                else "Fin Ensanchado: ${(currentSettings.taperEnd * -100).toInt()}%",
         value = currentSettings.taperEnd,
+        valueRange = -1f..1f,
         onValueChange = { onSettingsChanged(currentSettings.copy(taperEnd = it)) }
     )
 

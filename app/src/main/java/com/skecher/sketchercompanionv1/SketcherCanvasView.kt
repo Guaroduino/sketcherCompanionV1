@@ -248,6 +248,8 @@ class SketcherCanvasView(context: Context) : View(context) {
     
     // VISUAL SMOOTHING STATE
     private var currentLiveTipWidth: Float = 0f
+    private var currentVelocityState: Float = 0f // Persistent smoothed velocity
+    private var currentPressureState: Float = 0.5f // Persistent smoothed pressure
     
     private val fillPaint = android.graphics.Paint().apply {
         style = android.graphics.Paint.Style.FILL
@@ -501,7 +503,7 @@ class SketcherCanvasView(context: Context) : View(context) {
         canvas.drawBitmap(element.bitmap, element.matrix, imagePaint)
     }
 
-    private fun calculateSmoothedVelocity(points: List<StrokePoint>, windowSize: Int = 5): Float {
+    private fun calculateSmoothedVelocity(points: List<StrokePoint>, windowSize: Int = 8): Float { // Increased window
         if (points.size < 2) return 0f
         
         // Look back up to 'windowSize' points to average out sensor noise
@@ -518,8 +520,9 @@ class SketcherCanvasView(context: Context) : View(context) {
             val d = kotlin.math.hypot(p1.x - p2.x, p1.y - p2.y)
             var dt = (p1.timestamp - p2.timestamp).toFloat()
             
-            // Sanitize time to prevent division by zero or negative time
-            if (dt <= 0) dt = 1f 
+            // Sanitize time. If dt is 0 (burst event), assume a standard frame time (e.g. 8ms for 120hz)
+            // Using 1ms caused massive velocity spikes.
+            if (dt <= 0f) dt = 8f 
             
             totalDist += d
             totalTime += dt
@@ -594,28 +597,42 @@ class SketcherCanvasView(context: Context) : View(context) {
                      val points = currentVectorPreviewPoints!!
                      val tipPoint = points.last()
                      
-                     // 1. STABILIZED VELOCITY
-                     val velocity = calculateSmoothedVelocity(points)
+                     // 1. STABILIZED VELOCITY (Double Smoothed)
+                     // CRITICAL FIX: Use 'currentStrokePoints' (Real Data) instead of 'points' (Preview Data).
+                     // Preview data includes the "Predicted Point" which jitters wildly, causing velocity spikes.
+                     // We want the velocity of the hand logic, not the extrapolated phantom point.
+                     val sourcePoints = if (currentStrokePoints.isNotEmpty()) currentStrokePoints else points
+                     val measuredVelocity = calculateSmoothedVelocity(sourcePoints)
+                     
+                     // Apply Low-Pass Filter to Velocity State
+                     if (currentVelocityState == 0f) {
+                         currentVelocityState = measuredVelocity
+                     } else {
+                         // Increased reaction to velocity changes (0.1) for better feel
+                         currentVelocityState += (measuredVelocity - currentVelocityState) * 0.1f
+                     }
 
                      // 2. Dynamics Calculation
                      val maxSpeed = activeFreehandSettings.maxPredictionVelocity.coerceAtLeast(1f) 
-                     val normalizedVel = (velocity / maxSpeed).coerceIn(0f, 1f)
+                     val normalizedVel = (currentVelocityState / maxSpeed).coerceIn(0f, 1f)
                      
                      // Invert: Higher speed = Thinner line (simulated low pressure)
                      val simPressure = (1f - normalizedVel).coerceIn(0f, 1f)
                      
-                     // 3. Apply Influences (Existing logic)
-                     val realPressure = tipPoint.pressure.coerceIn(0f, 1f)
+                     // 3. Apply Influences (Smoothed Pressure)
+                     val rawPressure = tipPoint.pressure.coerceIn(0f, 1f)
+                     // Moderate smoothing for pressure (0.2 factor) for better responsiveness
+                     currentPressureState += (rawPressure - currentPressureState) * 0.2f
                      
                      val pInfluence = activeFreehandSettings.pressureInfluence
                      val vInfluence = activeFreehandSettings.velocityInfluence
                      
-                     val pFactor = 1.0f - (pInfluence * (1.0f - realPressure))
+                     val pFactor = 1.0f - (pInfluence * (1.0f - currentPressureState))
                      val vFactor = 1.0f - (vInfluence * (1.0f - simPressure))
                      
                      // Final Width Calculation
                      val combinedFactor = pFactor * vFactor
-                     val baseWidth = currentMaxWidth 
+                     val baseWidth = activeSize // Use activeSize directly
                      val minWidth = baseWidth * activeFreehandSettings.minWidthRatio
                      
                      val dynamicWidth = baseWidth * combinedFactor
@@ -625,8 +642,8 @@ class SketcherCanvasView(context: Context) : View(context) {
                      if (currentLiveTipWidth == 0f) {
                          currentLiveTipWidth = targetWidth
                      } else {
-                         // Lerp factor 0.3 provides smoothness without too much lag
-                         currentLiveTipWidth += (targetWidth - currentLiveTipWidth) * 0.3f
+                         // Lerp factor 0.2 provides responsiveness with smoothness
+                         currentLiveTipWidth += (targetWidth - currentLiveTipWidth) * 0.2f
                      }
                      
                      // Draw the Tip
@@ -740,6 +757,7 @@ class SketcherCanvasView(context: Context) : View(context) {
     private var lastRecordedX: Float = 0f
     private var lastRecordedY: Float = 0f
     private var lastRawInput: StrokePoint? = null // For lag-less velocity calculation
+    private var lastPointTimestamp: Long = 0L // Sanitize timestamps
     
     // Selection & Fill Handlers
     var onSelectionEvent: ((MotionEvent) -> Boolean)? = null
@@ -817,6 +835,9 @@ class SketcherCanvasView(context: Context) : View(context) {
            predictedStrokePath.reset()
            currentStrokePoints.clear()
            currentLiveTipWidth = 0f // Reset smoothing
+           currentVelocityState = 0f // Reset velocity
+           currentPressureState = if (rawEventPoints.isNotEmpty()) rawEventPoints.first().pressure else 0.5f // Init pressure
+           lastPointTimestamp = 0L
            
            // Initialize stabilizer to start point
            if (rawEventPoints.isNotEmpty()) {
@@ -832,11 +853,21 @@ class SketcherCanvasView(context: Context) : View(context) {
                // Force init lastRecorded to ensure first point is handled correctly
                lastRecordedX = startX
                lastRecordedY = startY
+
+               // Initialize timestamp history with start time
+               lastPointTimestamp = rawEventPoints.first().timestamp
            }
         }
         
-        val stabilization = globalStabilizationLevel.coerceIn(0f, 0.95f)
-        val factor = 1f - stabilization
+        val stabilization = globalStabilizationLevel.coerceIn(0f, 0.98f)
+        
+        // Linearized "Laziness" Feel:
+        // Instead of controlling the factor directly, we control the "Weight" or "Delay".
+        // Delay 0 -> Factor 1.0
+        // Delay 60 -> Factor 0.016
+        // This spreads the useful range (0.05 to 0.001) across the entire slider better than a power curve.
+        val lagAmount = stabilization * 60f 
+        val factor = 1f / (1f + lagAmount)
 
         for (p in rawEventPoints) {
             // Apply Finger Offset
@@ -847,33 +878,15 @@ class SketcherCanvasView(context: Context) : View(context) {
                 targetY -= fingerOffsetY
             }
 
-            // DYNAMIC STABILIZATION (Lag Reduction)
-            // Calculate raw velocity to modulate smoothing
-            var dynamicsFactor = 0f
-            lastRawInput?.let { prev ->
-                val dist = kotlin.math.hypot(p.x - prev.x, p.y - prev.y)
-                var dt = (p.timestamp - prev.timestamp).toFloat()
-                if (dt <= 0) dt = 16f
-                val velocity = dist / dt // px/ms
-                
-                // If fast (> 2.5px/ms), reduce stabilization to zero
-                // 0.0 = Slow, 1.0 = Fast
-                dynamicsFactor = (velocity / 2.5f).coerceIn(0f, 1f)
-            }
-            lastRawInput = p
-
-            // Effective Factor:
-            // Base: 1.0 - stabilization (e.g. 0.1 for high stab)
-            // Target: 1.0 (Instant)
-            // Result: Interpolate Base -> Target based on speed
-            val baseFactor = 1f - stabilization
-            val effectiveFactor = baseFactor + (1f - baseFactor) * dynamicsFactor
+            // STANDARD STABILIZATION
+            // We use simple exponential smoothing which inherently creates the "Lazy Stroke" effect.
+            // factor = 1.0 (Instant) ... factor = 0.05 (Very Lazy)
             
             // Apply Stabilization (Recursive)
             if (stabilization > 0f) {
-                // Determine new position with dynamic factor
-                stabilizerX += (targetX - stabilizerX) * effectiveFactor
-                stabilizerY += (targetY - stabilizerY) * effectiveFactor
+                // Determine new position
+                stabilizerX += (targetX - stabilizerX) * factor
+                stabilizerY += (targetY - stabilizerY) * factor
             } else {
                 stabilizerX = targetX
                 stabilizerY = targetY
@@ -890,7 +903,16 @@ class SketcherCanvasView(context: Context) : View(context) {
             val isStart = (action == MotionEvent.ACTION_DOWN && stabilizedPoints.isEmpty() && currentStrokePoints.isEmpty())
             
             if (distSq > minDistSq || isStart) {
-                val stabilizedPoint = StrokePoint(stabilizerX, stabilizerY, p.pressure, p.timestamp)
+                // --- NEW: TIMESTAMP SANITIZATION ---
+                // Prevents dt=0 which causes velocity spikes in PerfectFreehand
+                var sanitizedTime = p.timestamp
+                if (sanitizedTime <= lastPointTimestamp) {
+                    sanitizedTime = lastPointTimestamp + 1
+                }
+                lastPointTimestamp = sanitizedTime
+                // -----------------------------------
+
+                val stabilizedPoint = StrokePoint(stabilizerX, stabilizerY, p.pressure, sanitizedTime)
                 stabilizedPoints.add(stabilizedPoint)
                 lastRecordedX = stabilizerX
                 lastRecordedY = stabilizerY

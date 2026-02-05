@@ -164,21 +164,37 @@ object PerfectFreehandGenerator {
         
         // 4. Tapering
         val MAX_TAPER_PX = 100f
-        val taperLenStart = min(totalLength * 0.5f, settings.taperStart * MAX_TAPER_PX)
-        val taperLenEnd = min(totalLength * 0.5f, settings.taperEnd * MAX_TAPER_PX)
+        val taperLenStart = min(totalLength * 0.5f, kotlin.math.abs(settings.taperStart) * MAX_TAPER_PX)
+        val taperLenEnd = min(totalLength * 0.5f, kotlin.math.abs(settings.taperEnd) * MAX_TAPER_PX)
         
         if (taperLenStart > 1f || taperLenEnd > 1f) {
             for (pt in points) {
                 val distFromStart = pt.runningLength
                 val distFromEnd = totalLength - pt.runningLength
                 var taperFactor = 1.0f
+                
+                // Start Taper / Flare
                 if (distFromStart < taperLenStart) {
                     val t = distFromStart / taperLenStart
-                    taperFactor *= (t * (2 - t))
+                    if (settings.taperStart >= 0f) {
+                        taperFactor *= (t * (2 - t))
+                    } else {
+                        // Flare: Start at (1 + abs(tStart)) and settle to 1.0
+                        val amount = kotlin.math.abs(settings.taperStart)
+                        taperFactor *= (1.0f + amount * (1.0f - t).pow(2))
+                    }
                 }
+                
+                // End Taper / Flare
                 if (distFromEnd < taperLenEnd) {
                     val t = distFromEnd / taperLenEnd
-                    taperFactor *= (t * (2 - t))
+                    if (settings.taperEnd >= 0f) {
+                        taperFactor *= (t * (2 - t))
+                    } else {
+                        // Flare: End at (1 + abs(tEnd))
+                        val amount = kotlin.math.abs(settings.taperEnd)
+                        taperFactor *= (1.0f + amount * (1.0f - t).pow(2))
+                    }
                 }
                 pt.pressure *= taperFactor
             }
@@ -258,28 +274,47 @@ object PerfectFreehandGenerator {
             val lastL = left.last()
             val lastR = right.last()
             
-            // Tangent at End
+            // Vector from Left edge to Right edge
             val dx = lastR.x - lastL.x
             val dy = lastR.y - lastL.y
-            val wVec = PointF(dx, dy)
-            val tipTangent = normalize(PointF(-wVec.y, wVec.x))
-            
             val width = hypot(dx, dy)
             val radius = width / 2f
-            val k = radius * 0.55228f 
             
-            val c1 = PointF(lastL.x + tipTangent.x * k, lastL.y + tipTangent.y * k)
-            val c2 = PointF(lastR.x + tipTangent.x * k, lastR.y + tipTangent.y * k)
+            // Tangent pointing out of the stroke end
+            val tipTangent = normalize(PointF(-dy, dx))
+            // Orthogonal vector (along the width line)
+            val normal = normalize(PointF(dx, dy))
             
-            path.cubicTo(c1.x, c1.y, c2.x, c2.y, lastR.x, lastR.y)
+            val kappa = 0.55228f
+            val handleLen = radius * kappa
+            
+            val midPoint = PointF(
+                (lastL.x + lastR.x) / 2f + tipTangent.x * radius,
+                (lastL.y + lastR.y) / 2f + tipTangent.y * radius
+            )
+            
+            // Segment 1: Left -> Mid (Top half of cap)
+            path.cubicTo(
+                lastL.x + tipTangent.x * handleLen,
+                lastL.y + tipTangent.y * handleLen,
+                midPoint.x - normal.x * handleLen,
+                midPoint.y - normal.y * handleLen,
+                midPoint.x, midPoint.y
+            )
+            
+            // Segment 2: Mid -> Right (Bottom half of cap)
+            path.cubicTo(
+                midPoint.x + normal.x * handleLen,
+                midPoint.y + normal.y * handleLen,
+                lastR.x + tipTangent.x * handleLen,
+                lastR.y + tipTangent.y * handleLen,
+                lastR.x, lastR.y
+            )
         } else {
              path.lineTo(right.last().x, right.last().y)
         }
         
         // Connect Right Side (Backwards)
-        // Note: right list is Start->End order. We need to draw End->Start.
-        // connectPoints handles forward connection.
-        // So we reverse the list first.
         val reversedRight = right.reversed()
         connectPoints(path, reversedRight, settings.useSplines)
         
@@ -288,19 +323,42 @@ object PerfectFreehandGenerator {
             val firstL = left[0]
             val firstR = right[0]
             
-            val dxS = firstL.x - firstR.x 
-            val dyS = firstL.y - firstR.y
-            val wVecS = PointF(dxS, dyS)
-            val startTangent = normalize(PointF(-wVecS.y, wVecS.x))
+            // Vector from Right edge to Left edge
+            val dx = firstL.x - firstR.x
+            val dy = firstL.y - firstR.y
+            val width = hypot(dx, dy)
+            val radius = width / 2f
             
-            val widthS = hypot(dxS, dyS)
-            val radiusS = widthS / 2f
-            val kS = radiusS * 0.55228f
+            // Tangent pointing out of the stroke start
+            val startTangent = normalize(PointF(-dy, dx))
+            // Orthogonal vector
+            val normal = normalize(PointF(dx, dy))
             
-            val c3 = PointF(firstR.x + startTangent.x * kS, firstR.y + startTangent.y * kS)
-            val c4 = PointF(firstL.x + startTangent.x * kS, firstL.y + startTangent.y * kS)
+            val kappa = 0.55228f
+            val handleLen = radius * kappa
             
-            path.cubicTo(c3.x, c3.y, c4.x, c4.y, firstL.x, firstL.y)
+            val midPoint = PointF(
+                (firstL.x + firstR.x) / 2f + startTangent.x * radius,
+                (firstL.y + firstR.y) / 2f + startTangent.y * radius
+            )
+            
+            // Segment 1: Right -> Mid
+            path.cubicTo(
+                firstR.x + startTangent.x * handleLen,
+                firstR.y + startTangent.y * handleLen,
+                midPoint.x - normal.x * handleLen,
+                midPoint.y - normal.y * handleLen,
+                midPoint.x, midPoint.y
+            )
+            
+            // Segment 2: Mid -> Left
+            path.cubicTo(
+                midPoint.x + normal.x * handleLen,
+                midPoint.y + normal.y * handleLen,
+                firstL.x + startTangent.x * handleLen,
+                firstL.y + startTangent.y * handleLen,
+                firstL.x, firstL.y
+            )
         } else {
              path.lineTo(left[0].x, left[0].y)
         }
