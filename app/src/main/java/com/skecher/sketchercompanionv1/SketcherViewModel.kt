@@ -30,15 +30,6 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     // STATE
     // --- UI/DEBUG SETTINGS (Restored) ---
     var isDebugWireframe by mutableStateOf(false)
-    var isDebugPredictionEnabled by mutableStateOf(false)
-    var isPredictionEnabled by mutableStateOf(true)
-    var predictionLagMs by mutableFloatStateOf(20f)
-    var predictionSmoothing by mutableFloatStateOf(0.5f)
-    var predictionVelocityMin by mutableFloatStateOf(0.5f)
-    var predictionVelocityMax by mutableFloatStateOf(4.0f)
-    var simplificationTolerance by mutableFloatStateOf(1.0f)
-    var pressureTolerance by mutableFloatStateOf(0.05f)
-    var simplificationAngleThreshold by mutableFloatStateOf(10f)
     
 
     var canUndo by mutableStateOf(false)
@@ -188,15 +179,27 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         put(ToolType.FILL, loadConfig(ToolType.FILL, 1f, 1.0f))
         put(ToolType.ERASER, loadConfig(ToolType.ERASER, 30f, 1f))
         put(ToolType.SELECTION, loadConfig(ToolType.SELECTION, 1f, 1f))
-        // put(ToolType.ANDROID_INK, loadConfig(ToolType.ANDROID_INK, 5f, 1f))
     }
+    
+    // --- EXPOSED CONFIGS ---
+    var fingerModeActive by mutableStateOf(false)
+        private set
+    var fingerOffsetXValue by mutableFloatStateOf(0f)
+        private set
+    var fingerOffsetYValue by mutableFloatStateOf(50f)
+        private set
 
     init {
+        val freehandConfig = toolConfigs[ToolType.FREEHAND]!!
+        fingerModeActive = freehandConfig.isFingerMode
+        fingerOffsetXValue = freehandConfig.fingerOffsetX
+        fingerOffsetYValue = freehandConfig.fingerOffsetY
         selectTool(currentTool)
     }
 
     // --- GLOBAL OFFSET SETTERS ---
     fun setFingerMode(enabled: Boolean) {
+        fingerModeActive = enabled
         val currentConfigs = toolConfigs.toMap()
         toolConfigs.clear()
         currentConfigs.forEach { (type, config) ->
@@ -205,6 +208,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun setFingerOffset(x: Float, y: Float) {
+        fingerOffsetXValue = x
+        fingerOffsetYValue = y
         val currentConfigs = toolConfigs.toMap()
         toolConfigs.clear()
         currentConfigs.forEach { (type, config) ->
@@ -469,6 +474,18 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         toolConfigs[currentTool] = config.copy(opacity = opacity)
         prefs.edit().putFloat("tool_alpha_${currentTool.name}", opacity).apply()
     }
+    
+    // --- GLOBAL STABILIZER ---
+    var globalStabilizationLevel by mutableFloatStateOf(prefs.getFloat("global_stabilization", 0f))
+        private set
+
+    fun setGlobalStabilization(level: Float) {
+        val clamped = level.coerceIn(0f, 1f)
+        if (globalStabilizationLevel != clamped) {
+            globalStabilizationLevel = clamped
+            prefs.edit().putFloat("global_stabilization", clamped).apply()
+        }
+    }
 
     fun updateFreehandSettings(newSettings: FreehandSettings) {
         currentFreehandSettings = newSettings
@@ -512,6 +529,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun setFreehandMaxPredictionVelocity(speed: Float) {
         if (currentFreehandSettings.maxPredictionVelocity != speed) {
              updateFreehandSettings(currentFreehandSettings.copy(maxPredictionVelocity = speed))
+        }
+    }
+
+    fun setFreehandSimplificationEnabled(enabled: Boolean) {
+        if (currentFreehandSettings.isSimplificationEnabled != enabled) {
+            updateFreehandSettings(currentFreehandSettings.copy(isSimplificationEnabled = enabled))
         }
     }
 

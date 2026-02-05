@@ -153,11 +153,38 @@ class SketcherCanvasView(context: Context) : View(context) {
     }
 
     private fun drawVectorStroke(vStroke: VectorStroke, canvas: Canvas) {
+        // 1. Draw the beautiful filled shape (Normal)
+        vectorPaint.color = vStroke.color
+        canvas.drawPath(vStroke.path, vectorPaint)
+
+        // 2. Debug Overlay
         if (isDebugWireframeByVM) {
-            drawDebugStroke(canvas, vStroke)
-        } else {
-            vectorPaint.color = vStroke.color
-            canvas.drawPath(vStroke.path, vectorPaint)
+            val transformValues = FloatArray(9)
+            viewMatrix.getValues(transformValues)
+            val zoom = kotlin.math.sqrt(transformValues[Matrix.MSCALE_X] * transformValues[Matrix.MSCALE_X] + transformValues[Matrix.MSKEW_X] * transformValues[Matrix.MSKEW_X])
+
+            val debugPaint = android.graphics.Paint().apply {
+                style = android.graphics.Paint.Style.STROKE
+                strokeWidth = 2f / zoom // Hairline
+                color = android.graphics.Color.GREEN
+            }
+            val pointPaint = android.graphics.Paint().apply {
+                style = android.graphics.Paint.Style.FILL
+                color = android.graphics.Color.RED
+            }
+            
+            // Draw Skeleton (Centerline)
+            val points = vStroke.points
+            if (points.isNotEmpty()) {
+                val path = android.graphics.Path()
+                path.moveTo(points.first().x, points.first().y)
+                for (p in points) {
+                    path.lineTo(p.x, p.y)
+                    // Draw Vertex (Simplified Points)
+                    canvas.drawCircle(p.x, p.y, 4f / zoom, pointPaint)
+                }
+                canvas.drawPath(path, debugPaint)
+            }
         }
     }
 
@@ -218,6 +245,10 @@ class SketcherCanvasView(context: Context) : View(context) {
     private var currentFillPath: android.graphics.Path? = null
     private var currentFillColor: Int? = null
     private var currentPredictedPoint: StrokePoint? = null
+    
+    // VISUAL SMOOTHING STATE
+    private var currentLiveTipWidth: Float = 0f
+    
     private val fillPaint = android.graphics.Paint().apply {
         style = android.graphics.Paint.Style.FILL
         isAntiAlias = true
@@ -470,6 +501,33 @@ class SketcherCanvasView(context: Context) : View(context) {
         canvas.drawBitmap(element.bitmap, element.matrix, imagePaint)
     }
 
+    private fun calculateSmoothedVelocity(points: List<StrokePoint>, windowSize: Int = 5): Float {
+        if (points.size < 2) return 0f
+        
+        // Look back up to 'windowSize' points to average out sensor noise
+        val endIndex = (points.size - 1)
+        val startIndex = kotlin.math.max(0, points.size - windowSize)
+        
+        var totalDist = 0f
+        var totalTime = 0f
+        
+        for (i in endIndex downTo startIndex + 1) {
+            val p1 = points[i]
+            val p2 = points[i - 1]
+            
+            val d = kotlin.math.hypot(p1.x - p2.x, p1.y - p2.y)
+            var dt = (p1.timestamp - p2.timestamp).toFloat()
+            
+            // Sanitize time to prevent division by zero or negative time
+            if (dt <= 0) dt = 1f 
+            
+            totalDist += d
+            totalTime += dt
+        }
+        
+        return if (totalTime > 0) totalDist / totalTime else 0f
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         
@@ -518,38 +576,61 @@ class SketcherCanvasView(context: Context) : View(context) {
         // 4. Draw Live Vector Stroke (Preview)
         if (isDrawing && currentTool == ToolType.FREEHAND) {
             currentVectorPreviewPath?.let { path ->
-                 if (currentVectorPreviewColor != 0) vectorPaint.color = currentVectorPreviewColor
                  canvas.drawPath(path, vectorPaint)
     
+                 // Debug Draw
+                 if (isDebugWireframeByVM) {
+                     val debugPaint = android.graphics.Paint().apply {
+                         color = android.graphics.Color.CYAN
+                         strokeWidth = 5f
+                     }
+                     for (p in currentStrokePoints) {
+                         canvas.drawPoint(p.x, p.y, debugPaint)
+                     }
+                 }
+
                  // Dynamic Live Blob (Tip Prediction)
                  if (currentVectorPreviewPoints?.isNotEmpty() == true) {
                      val points = currentVectorPreviewPoints!!
                      val tipPoint = points.last()
                      
-                     // Tip Dynamics logic matches generator
-                     val realPressure = tipPoint.pressure.coerceIn(0f, 1f)
-                     val pFactor = 1.0f - (activeFreehandSettings.pressureInfluence * (1.0f - realPressure))
+                     // 1. STABILIZED VELOCITY
+                     val velocity = calculateSmoothedVelocity(points)
+
+                     // 2. Dynamics Calculation
+                     val maxSpeed = activeFreehandSettings.maxPredictionVelocity.coerceAtLeast(1f) 
+                     val normalizedVel = (velocity / maxSpeed).coerceIn(0f, 1f)
                      
-                     // Velocity factor logic (simplified from Generator)
-                     var vFactor = 1.0f
-                     if (points.size > 1) {
-                         val prev = points[points.size - 2]
-                         val d = kotlin.math.hypot(tipPoint.x - prev.x, tipPoint.y - prev.y)
-                         var dt = (tipPoint.timestamp - prev.timestamp).toFloat()
-                         if (dt <= 0) dt = 16f
-                         val velocity = d / dt
-                         val maxSpeed = 3.0f 
-                         val normalizedVel = (velocity / maxSpeed).coerceIn(0f, 1f)
-                         val simPressure = (1f - normalizedVel).coerceIn(0f, 1f)
-                         vFactor = 1.0f - (activeFreehandSettings.velocityInfluence * (1.0f - simPressure))
+                     // Invert: Higher speed = Thinner line (simulated low pressure)
+                     val simPressure = (1f - normalizedVel).coerceIn(0f, 1f)
+                     
+                     // 3. Apply Influences (Existing logic)
+                     val realPressure = tipPoint.pressure.coerceIn(0f, 1f)
+                     
+                     val pInfluence = activeFreehandSettings.pressureInfluence
+                     val vInfluence = activeFreehandSettings.velocityInfluence
+                     
+                     val pFactor = 1.0f - (pInfluence * (1.0f - realPressure))
+                     val vFactor = 1.0f - (vInfluence * (1.0f - simPressure))
+                     
+                     // Final Width Calculation
+                     val combinedFactor = pFactor * vFactor
+                     val baseWidth = currentMaxWidth 
+                     val minWidth = baseWidth * activeFreehandSettings.minWidthRatio
+                     
+                     val dynamicWidth = baseWidth * combinedFactor
+                     val targetWidth = kotlin.math.max(dynamicWidth, minWidth)
+                     
+                     // VISUAL INTERPOLATION (Eliminates Jitter)
+                     if (currentLiveTipWidth == 0f) {
+                         currentLiveTipWidth = targetWidth
+                     } else {
+                         // Lerp factor 0.3 provides smoothness without too much lag
+                         currentLiveTipWidth += (targetWidth - currentLiveTipWidth) * 0.3f
                      }
                      
-                     val combinedPressure = pFactor * vFactor
-                     val dynamicWidth = currentMaxWidth * combinedPressure
-                     val absoluteMin = currentMaxWidth * activeFreehandSettings.minWidthRatio
-                     val width = kotlin.math.max(dynamicWidth, absoluteMin)
-                     
-                     canvas.drawCircle(tipPoint.x, tipPoint.y, width / 2f, vectorPaint)
+                     // Draw the Tip
+                     canvas.drawCircle(tipPoint.x, tipPoint.y, currentLiveTipWidth / 2f, vectorPaint)
                  }
              }
          }
@@ -651,6 +732,13 @@ class SketcherCanvasView(context: Context) : View(context) {
     var isFingerMode: Boolean = false
     var fingerOffsetX: Float = 0f
     var fingerOffsetY: Float = 50f
+    var globalStabilizationLevel: Float = 0f // 0.0 to 1.0 (Synced from VM)
+
+    // STABILIZER STATE (Lazy Stroke)
+    private var stabilizerX: Float = 0f
+    private var stabilizerY: Float = 0f
+    private var lastRecordedX: Float = 0f
+    private var lastRecordedY: Float = 0f
     
     // Selection & Fill Handlers
     var onSelectionEvent: ((MotionEvent) -> Boolean)? = null
@@ -660,76 +748,187 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     // We override onTouchEvent to handle input directly if this view is the active handler
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        // 1. Apply Global Offset
-        val offsetEvent = if (isFingerMode) {
-            val offsetE = MotionEvent.obtain(event)
-            offsetE.offsetLocation(fingerOffsetX, fingerOffsetY)
-            offsetE
-        } else {
-            event
+        val action = event.actionMasked
+        
+        // Handling Freehand separately to properly manage history and stabilization per-point
+        if (currentTool == ToolType.FREEHAND) {
+            return handleFreehandInput(event)
+        }
+        
+        // 1. Calculate Target Point (Raw - Offset)
+        var targetX = event.x
+        var targetY = event.y
+        
+        if (isFingerMode) {
+            targetX -= fingerOffsetX
+            targetY -= fingerOffsetY
         }
 
-        // 2. Route by Tool
+        // 2. Apply Global Stabilization (Lazy Stroke)
+        if (action == MotionEvent.ACTION_DOWN) {
+            // Reset stabilizer on new stroke
+            stabilizerX = targetX
+            stabilizerY = targetY
+        } else if (action == MotionEvent.ACTION_MOVE || action == MotionEvent.ACTION_UP) {
+            val stabilization = globalStabilizationLevel.coerceIn(0f, 0.95f)
+            if (stabilization > 0f) {
+                // Exponential Smoothing
+                val factor = 1f - stabilization
+                stabilizerX += (targetX - stabilizerX) * factor
+                stabilizerY += (targetY - stabilizerY) * factor
+            } else {
+                stabilizerX = targetX
+                stabilizerY = targetY
+            }
+        }
+
+        // 3. Create Stabilized Event (Shifted to Stabilizer Coords)
+        val stabilizedEvent = MotionEvent.obtain(event)
+        stabilizedEvent.setLocation(stabilizerX, stabilizerY)
+
+        // 4. Route by Tool
         val result = when (currentTool) {
-            ToolType.FREEHAND -> handleFreehandInput(offsetEvent)
+            // FREEHAND handled above
             ToolType.FILL -> {
-                onFillEvent?.invoke(offsetEvent.x, offsetEvent.y, offsetEvent.actionMasked)
+                onFillEvent?.invoke(stabilizedEvent.x, stabilizedEvent.y, stabilizedEvent.actionMasked)
                 true
             }
             ToolType.SELECTION -> {
-                onSelectionEvent?.invoke(offsetEvent) ?: super.onTouchEvent(event)
+                onSelectionEvent?.invoke(stabilizedEvent) ?: super.onTouchEvent(event)
             }
             else -> super.onTouchEvent(event)
         }
 
-        if (isFingerMode && offsetEvent !== event) {
-            offsetEvent.recycle()
-        }
+        stabilizedEvent.recycle()
         return result
     }
 
     private fun handleFreehandInput(event: MotionEvent): Boolean {
         val action = event.actionMasked
-        val rawScreenPoints = inputHandler.processEvent(event)
+        // Get generic raw points (ignoring finger offset for now, as handler is generic)
+        val rawEventPoints = inputHandler.processEvent(event)
+        val stabilizedPoints = mutableListOf<StrokePoint>()
 
-        when (action) {
-            MotionEvent.ACTION_DOWN -> {
-                isDrawing = true
-                currentStrokePath.reset()
-                predictedStrokePath.reset()
-                currentStrokePoints.clear()
-                
-                rawScreenPoints.forEach { p ->
-                    currentStrokePoints.add(transformToWorld(p))
-                }
-                updateCurrentPaths()
-                invalidate()
-                return true
+        // 1. Process Points (Offset + Stabilization)
+        if (action == MotionEvent.ACTION_DOWN) {
+           isDrawing = true
+           currentStrokePath.reset()
+           predictedStrokePath.reset()
+           currentStrokePoints.clear()
+           currentLiveTipWidth = 0f // Reset smoothing
+           
+           // Initialize stabilizer to start point
+           if (rawEventPoints.isNotEmpty()) {
+               var startX = rawEventPoints.first().x
+               var startY = rawEventPoints.first().y
+               if (isFingerMode) {
+                   startX -= fingerOffsetX
+                   startY -= fingerOffsetY
+               }
+               stabilizerX = startX
+               stabilizerY = startY
+               
+               // Force init lastRecorded to ensure first point is handled correctly
+               lastRecordedX = startX
+               lastRecordedY = startY
+           }
+        }
+        
+        val stabilization = globalStabilizationLevel.coerceIn(0f, 0.95f)
+        val factor = 1f - stabilization
+
+        for (p in rawEventPoints) {
+            // Apply Finger Offset
+            var targetX = p.x
+            var targetY = p.y
+            if (isFingerMode) {
+                targetX -= fingerOffsetX
+                targetY -= fingerOffsetY
             }
-            MotionEvent.ACTION_MOVE -> {
-                rawScreenPoints.forEach { p ->
-                    currentStrokePoints.add(transformToWorld(p))
+            
+            // Apply Stabilization (Recursive)
+            if (stabilization > 0f) {
+                // If it's DOWN, stabilizerX starts at targetX (from init block), so no movement.
+                // For MOVE, we smooth towards target.
+                stabilizerX += (targetX - stabilizerX) * factor
+                stabilizerY += (targetY - stabilizerY) * factor
+            } else {
+                stabilizerX = targetX
+                stabilizerY = targetY
+            }
+            
+            // FILTER: Only add point if it moved > 2.0px or is the very start
+            // This prevents "droplets" caused by velocity jitter on ultra-dense points
+            val dx = stabilizerX - lastRecordedX
+            val dy = stabilizerY - lastRecordedY
+            val distSq = dx * dx + dy * dy
+            val minDistSq = 4.0f // 2.0px threshold
+            
+            // Check if it's the very first point of the stroke
+            val isStart = (action == MotionEvent.ACTION_DOWN && stabilizedPoints.isEmpty() && currentStrokePoints.isEmpty())
+            
+            if (distSq > minDistSq || isStart) {
+                val stabilizedPoint = StrokePoint(stabilizerX, stabilizerY, p.pressure, p.timestamp)
+                stabilizedPoints.add(stabilizedPoint)
+                lastRecordedX = stabilizerX
+                lastRecordedY = stabilizerY
+            }
+        }
+
+        // 2. Add to stroke with World Transform
+        stabilizedPoints.forEach { p ->
+            currentStrokePoints.add(transformToWorld(p))
+        }
+
+        // 3. Update & Render
+        when (action) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                if (stabilizedPoints.isNotEmpty()) {
+                    updateCurrentPaths()
+                    invalidate()
                 }
-                updateCurrentPaths()
-                invalidate()
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                rawScreenPoints.forEach { p ->
-                    currentStrokePoints.add(transformToWorld(p))
+                
+                // 1. Get Tolerance
+                val tolerance = activeFreehandSettings.tolerance.coerceAtLeast(0.5f)
+                val isSimplified = activeFreehandSettings.isSimplificationEnabled
+                
+                // 2. Simplify Points (RDP)
+                val finalPoints = if (isSimplified && currentStrokePoints.size > 2) {
+                    val pressureWeight = activeSize * 2.0f // Pressure diff of 0.5 = 1x Brush Size diff
+                    com.skecher.sketchercompanionv1.utils.StrokeSimplifier.simplify(
+                        currentStrokePoints, 
+                        tolerance,
+                        pressureWeight
+                    )
+                } else {
+                    currentStrokePoints.toList() // Copy
+                }
+
+
+                // Finalize using Simplified Points
+                val finalPath = android.graphics.Path()
+                
+                // IMPORTANT: Disable smoothing ONLY for simplified strokes.
+                // For simplified strokes, EMA lags on sparse points causing thinning. Pressure is already averaged.
+                // For raw strokes (isSimplified = false), keep original smoothing to handle input noise.
+                val finalSettings = if (isSimplified) {
+                    activeFreehandSettings.copy(smoothing = 0f)
+                } else {
+                    activeFreehandSettings
                 }
                 
-                // Finalize
-                val finalPath = android.graphics.Path()
                 val (path, left, right) = PerfectFreehandGenerator.generate(
-                    currentStrokePoints, 
+                    finalPoints, // Use simplified points
                     activeSize, 
-                    activeFreehandSettings
+                    finalSettings
                 )
                 finalPath.set(path)
                 
                 val stroke = VectorStroke(
-                    points = currentStrokePoints.toList(),
+                    points = finalPoints, // Use simplified points
                     color = activeColor,
                     maxWidth = activeSize,
                     path = finalPath,

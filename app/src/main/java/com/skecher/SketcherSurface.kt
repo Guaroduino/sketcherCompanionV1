@@ -1,4 +1,4 @@
-package com.skecher.sketchercompanionv1
+﻿package com.skecher.sketchercompanionv1
 
 import android.annotation.SuppressLint
 import android.app.Activity
@@ -98,6 +98,9 @@ import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Tune
+import com.skecher.sketchercompanionv1.ui.InputSettingsPopup
+import com.skecher.sketchercompanionv1.ui.ToolSettingsPopup
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.ContentPaste
@@ -169,7 +172,7 @@ data class BrushTypeConfig(
 @Composable
 fun getToolName(type: ToolType): String {
     return when(type) {
-        ToolType.FREEHAND -> "Lápiz" // Default 
+        ToolType.FREEHAND -> "LÃ¡piz" // Default 
         ToolType.FILL -> stringResource(R.string.tool_fill)
         ToolType.ERASER -> stringResource(R.string.tool_eraser)
         ToolType.SELECTION -> stringResource(R.string.tool_selection)
@@ -282,8 +285,10 @@ fun SketcherSurface(
         }
     }
     
-    // Detectamos cambio de configuración (rotación) automáticamente con Compose
+    // Detectamos cambio de configuraciÃ³n (rotaciÃ³n) automÃ¡ticamente con Compose
     val configuration = LocalConfiguration.current
+    var showInputSettings by rememberSaveable { mutableStateOf(false) }
+    
     val screenWidth = configuration.screenWidthDp
     val screenHeight = configuration.screenHeightDp
 
@@ -301,9 +306,7 @@ fun SketcherSurface(
     val isFillModeEnabled = sketchViewModel.isFillModeEnabled
     val fillModeColor = sketchViewModel.fillModeColor
     
-    // Simplification Vars (Keep Local for now)
-    var simplificationTolerance by rememberSaveable { mutableFloatStateOf(1.5f) } 
-    var pressureTolerance by rememberSaveable { mutableFloatStateOf(0.05f) }
+    // Simplification Vars (Removed)
     
     // Rotation Lock Effect
     LaunchedEffect(sketchViewModel.isRotationLocked) {
@@ -326,18 +329,6 @@ fun SketcherSurface(
     var currentZoom by remember { mutableFloatStateOf(InkUtils.getMatrixScale(cameraMatrix)) }
 
     // --- VIEWMODEL DELEGATIONS (Fix Unresolved References) ---
-    val predictionLagMs = sketchViewModel.predictionLagMs
-    val predictionSmoothing = sketchViewModel.predictionSmoothing
-    val predictionVelocityMin = sketchViewModel.predictionVelocityMin
-    val predictionVelocityMax = sketchViewModel.predictionVelocityMax
-    val simplificationAngleThreshold = sketchViewModel.simplificationAngleThreshold
-    
-    // Callbacks for Settings
-    val onPredictionLagChanged: (Float) -> Unit = { sketchViewModel.predictionLagMs = it }
-    val onPredictionSmoothingChanged: (Float) -> Unit = { sketchViewModel.predictionSmoothing = it }
-    val onPredictionVelocityMinChanged: (Float) -> Unit = { sketchViewModel.predictionVelocityMin = it }
-    val onPredictionVelocityMaxChanged: (Float) -> Unit = { sketchViewModel.predictionVelocityMax = it }
-    val onSimplificationAngleThresholdChanged: (Float) -> Unit = { sketchViewModel.simplificationAngleThreshold = it }
     
     val onToggleRotationLock: () -> Unit = { sketchViewModel.toggleRotationLock() }
     val onTogglePalmRejection: () -> Unit = { sketchViewModel.togglePalmRejection() }
@@ -345,8 +336,6 @@ fun SketcherSurface(
     val onToolbarAlphaChanged: (Float) -> Unit = { sketchViewModel.updateToolbarAlpha(it) }
     val onToggleToolbarBlur: () -> Unit = { sketchViewModel.toggleToolbarBlur() }
     val onToggleDebugWireframe: () -> Unit = { sketchViewModel.isDebugWireframe = !sketchViewModel.isDebugWireframe }
-    val onTogglePrediction: () -> Unit = { sketchViewModel.isPredictionEnabled = !sketchViewModel.isPredictionEnabled }
-    val onToggleDebugPrediction: () -> Unit = { sketchViewModel.isDebugPredictionEnabled = !sketchViewModel.isDebugPredictionEnabled }
     
     val isRotationLocked = sketchViewModel.isRotationLocked
     val isPalmRejectionEnabled = sketchViewModel.isPalmRejectionEnabled
@@ -354,8 +343,6 @@ fun SketcherSurface(
     val toolbarAlpha = sketchViewModel.toolbarAlpha
     val isToolbarBlurEnabled = sketchViewModel.isToolbarBlurEnabled
     val isDebugWireframe = sketchViewModel.isDebugWireframe
-    val isPredictionEnabled = sketchViewModel.isPredictionEnabled
-    val isDebugPredictionEnabled = sketchViewModel.isDebugPredictionEnabled
     val toolbarBackgroundColor = sketchViewModel.toolbarBackgroundColor
     val onToolbarBackgroundColorChanged: (Int) -> Unit = { sketchViewModel.updateToolbarBackgroundColor(it) }
     
@@ -509,6 +496,12 @@ fun SketcherSurface(
                         size = sketchViewModel.currentSize
                         opacity = sketchViewModel.currentOpacity
                         
+                        // Sync Global Settings to CanvasView
+                        canvasView.isFingerMode = sketchViewModel.fingerModeActive
+                        canvasView.fingerOffsetX = sketchViewModel.fingerOffsetXValue
+                        canvasView.fingerOffsetY = sketchViewModel.fingerOffsetYValue
+                        canvasView.globalStabilizationLevel = sketchViewModel.globalStabilizationLevel
+
                          val currentConfig = brushTypes.find { it.type == sketchViewModel.currentTool } ?: brushTypes.first()
                          brushFamily = currentConfig.family
  
@@ -592,6 +585,8 @@ fun SketcherSurface(
                 // INPUT FILTERING STATE
                 var lastInputX = 0f
                 var lastInputY = 0f
+                var stabilizerX = 0f
+                var stabilizerY = 0f
                 var lastInputPressure = 0f
                 
                 // Active Pointer Tracking for Robust Single-Touch
@@ -961,7 +956,8 @@ fun SketcherSurface(
                                 state.smoothedVelocityX = 0f
                                 state.smoothedVelocityY = 0f
 
-                                // stabilizer.reset(effectiveX, effectiveY)
+                                stabilizerX = effectiveX
+                                stabilizerY = effectiveY
                                 
                                 // Vector/Fill Init
                                 if (shouldCaptureVector) {
@@ -1040,6 +1036,19 @@ fun SketcherSurface(
                                             effectiveX = (kotlin.math.round(effectiveX / gridStepPx) * gridStepPx)
                                             effectiveY = (kotlin.math.round(effectiveY / gridStepPx) * gridStepPx)
                                         }
+                                    }
+
+                                    // Apply Stabilization
+                                    val stabilization = sketchViewModel.globalStabilizationLevel.coerceIn(0f, 0.95f)
+                                    if (stabilization > 0f) {
+                                        val factor = 1f - stabilization
+                                        stabilizerX += (effectiveX - stabilizerX) * factor
+                                        stabilizerY += (effectiveY - stabilizerY) * factor
+                                        effectiveX = stabilizerX
+                                        effectiveY = stabilizerY
+                                    } else {
+                                        stabilizerX = effectiveX
+                                        stabilizerY = effectiveY
                                     }
 
                                     val dist = kotlin.math.hypot(effectiveX - lastInputX, effectiveY - lastInputY)
@@ -1262,7 +1271,9 @@ fun SketcherSurface(
                 
                 // Sync Debug Flags
                 canvasView.isDebugWireframe = sketchViewModel.isDebugWireframe
-                canvasView.isDebugPredictionEnabled = sketchViewModel.isDebugPredictionEnabled
+                
+                // Sync Input Config
+                canvasView.globalStabilizationLevel = sketchViewModel.globalStabilizationLevel
             }
         )
 
@@ -1428,11 +1439,21 @@ fun SketcherSurface(
                 },
                 isGroupSelected = sketchViewModel.isGroupSelected,
                 isSelectionEmpty = sketchViewModel.isSelectionEmpty,
+                 isDebugWireframe = sketchViewModel.isDebugWireframe,
+                onToggleDebugWireframe = { sketchViewModel.isDebugWireframe = !sketchViewModel.isDebugWireframe },
+                currentScaleConfig = sketchViewModel.scaleConfig,
+                onUpdateProjectConfig = { unit, resolution -> 
+                    sketchViewModel.updateScaleConfig(unit, resolution)
+                },
                 toolbarBackgroundColor = sketchViewModel.toolbarBackgroundColor,
+                onToolbarBackgroundColorChanged = { sketchViewModel.updateToolbarBackgroundColor(it) },
                 toolbarAlpha = sketchViewModel.toolbarAlpha,
                 isToolbarBlurEnabled = sketchViewModel.isToolbarBlurEnabled,
                 onConfigureTool = {
                     showToolSettingsPopup = true
+                },
+                onInputSettingsClick = {
+                    showInputSettings = true
                 }
             )
         }
@@ -1530,31 +1551,8 @@ fun SketcherSurface(
                onTogglePalmRejection = { sketchViewModel.togglePalmRejection() },
                interfaceScale = sketchViewModel.interfaceScale,
                onInterfaceScaleChanged = { sketchViewModel.updateInterfaceScale(it) },
-               simplificationAngleThreshold = sketchViewModel.simplificationAngleThreshold,
-               onSimplificationAngleThresholdChanged = { 
-                   sketchViewModel.simplificationAngleThreshold = it
-                   // Persist
-                   context.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE)
-                       .edit().putFloat("simplification_angle_threshold", it).apply()
-               },
                isDebugWireframe = sketchViewModel.isDebugWireframe,
                onToggleDebugWireframe = { sketchViewModel.isDebugWireframe = !sketchViewModel.isDebugWireframe },
-               isDebugPredictionEnabled = sketchViewModel.isDebugPredictionEnabled,
-               onToggleDebugPrediction = { sketchViewModel.isDebugPredictionEnabled = !sketchViewModel.isDebugPredictionEnabled },
-               isPredictionEnabled = sketchViewModel.isPredictionEnabled,
-               onTogglePrediction = { sketchViewModel.isPredictionEnabled = !sketchViewModel.isPredictionEnabled },
-               predictionLagMs = sketchViewModel.predictionLagMs,
-               onPredictionLagChanged = { sketchViewModel.predictionLagMs = it },
-               predictionSmoothing = sketchViewModel.predictionSmoothing,
-               onPredictionSmoothingChanged = { sketchViewModel.predictionSmoothing = it},
-               predictionVelocityMin = sketchViewModel.predictionVelocityMin,
-               onPredictionVelocityMinChanged = { sketchViewModel.predictionVelocityMin = it },
-               predictionVelocityMax = sketchViewModel.predictionVelocityMax,
-               onPredictionVelocityMaxChanged = { sketchViewModel.predictionVelocityMax = it },
-               simplificationTolerance = simplificationTolerance,
-               onSimplificationToleranceChanged = { simplificationTolerance = it },
-               pressureTolerance = pressureTolerance,
-               onPressureToleranceChanged = { pressureTolerance = it },
                currentScaleConfig = sketchViewModel.scaleConfig,
                onUpdateProjectConfig = { unit, resolution -> 
                    sketchViewModel.updateScaleConfig(unit, resolution)
@@ -1575,14 +1573,16 @@ fun SketcherSurface(
                  toolType = sketchViewModel.currentTool,
                  freehandSettings = sketchViewModel.currentFreehandSettings,
                  onFreehandSettingsChanged = { sketchViewModel.updateFreehandSettings(it) },
-                 isPredictionEnabled = sketchViewModel.isPredictionEnabled,
-                 onTogglePrediction = { sketchViewModel.isPredictionEnabled = !sketchViewModel.isPredictionEnabled },
-                 predictionLatency = sketchViewModel.predictionLagMs,
-                 onPredictionLatencyChanged = { sketchViewModel.predictionLagMs = it },
-                 predictionSmoothing = sketchViewModel.predictionSmoothing,
-                 onPredictionSmoothingChanged = { sketchViewModel.predictionSmoothing = it},
                  onDismiss = { showToolSettingsPopup = false }
              )
+        }
+
+        // --- INPUT SETTINGS POPUP ---
+        if (showInputSettings) {
+            InputSettingsPopup(
+                viewModel = sketchViewModel,
+                onDismiss = { showInputSettings = false }
+            )
         }
     }
 }
@@ -1609,10 +1609,12 @@ fun BottomMenuBar(
     onShowToolPopupChange: (Boolean) -> Unit,
     isFillModeEnabled: Boolean,
     onToggleFillMode: () -> Unit,
-    fillColor: Int,
-    onFillColorChangeRequest: () -> Unit,
-    backgroundColor: Int,
-    onBackgroundColorChangeRequest: () -> Unit,
+    isDebugWireframe: Boolean,
+    onToggleDebugWireframe: () -> Unit,
+    currentScaleConfig: ScaleConfig,
+    onUpdateProjectConfig: (String, Float) -> Unit,
+    toolbarBackgroundColor: Int,
+    onToolbarBackgroundColorChanged: (Int) -> Unit,
     onDeleteSelection: () -> Unit,
     selectionMode: SketcherViewModel.SelectionMode,
     onSelectionModeChanged: (SketcherViewModel.SelectionMode) -> Unit,
@@ -1633,10 +1635,14 @@ fun BottomMenuBar(
     canEnterEditMode: Boolean,
     onExitEditMode: () -> Unit,
     isEditingContextActive: Boolean,
-    toolbarBackgroundColor: Int,
+    fillColor: Int,
+    onFillColorChangeRequest: () -> Unit,
+    backgroundColor: Int,
+    onBackgroundColorChangeRequest: () -> Unit,
     toolbarAlpha: Float,
     isToolbarBlurEnabled: Boolean,
-    onConfigureTool: () -> Unit = {} // New Callback
+    onConfigureTool: () -> Unit = {}, // New Callback
+    onInputSettingsClick: () -> Unit = {}
 ) {
     Box(
         modifier = modifier
@@ -1718,6 +1724,12 @@ fun BottomMenuBar(
                  }
                  VerticalDivider(modifier = Modifier.height(24.dp))
             }
+
+            // GLOBAL INPUT SETTINGS (Tune Icon)
+            IconButton(onClick = onInputSettingsClick) {
+                 Icon(Icons.Default.Tune, contentDescription = "Ajustes de Entrada", tint = MaterialTheme.colorScheme.secondary)
+            }
+            VerticalDivider(modifier = Modifier.height(24.dp))
 
             // COLOR SLOTS
             if (selectedTool != ToolType.SELECTION && selectedTool != ToolType.ERASER) {
@@ -2167,26 +2179,8 @@ fun SettingsDialog(
     onTogglePalmRejection: () -> Unit,
     interfaceScale: Float,
     onInterfaceScaleChanged: (Float) -> Unit,
-    simplificationAngleThreshold: Float,
-    onSimplificationAngleThresholdChanged: (Float) -> Unit,
     isDebugWireframe: Boolean,
     onToggleDebugWireframe: () -> Unit,
-    isDebugPredictionEnabled: Boolean,
-    onToggleDebugPrediction: () -> Unit,
-    isPredictionEnabled: Boolean,
-    onTogglePrediction: () -> Unit,
-    predictionLagMs: Float,
-    onPredictionLagChanged: (Float) -> Unit,
-    predictionSmoothing: Float,
-    onPredictionSmoothingChanged: (Float) -> Unit,
-    predictionVelocityMin: Float,
-    onPredictionVelocityMinChanged: (Float) -> Unit,
-    predictionVelocityMax: Float,
-    onPredictionVelocityMaxChanged: (Float) -> Unit,
-    simplificationTolerance: Float,
-    onSimplificationToleranceChanged: (Float) -> Unit,
-    pressureTolerance: Float,
-    onPressureToleranceChanged: (Float) -> Unit,
     currentScaleConfig: ScaleConfig,
     onUpdateProjectConfig: (String, Float) -> Unit,
     toolbarBackgroundColor: Int,
@@ -2358,88 +2352,6 @@ fun SettingsDialog(
                 Switch(checked = isDebugWireframe, onCheckedChange = { onToggleDebugWireframe() })
             }
             
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(stringResource(R.string.settings_enable_prediction))
-                Switch(checked = isPredictionEnabled, onCheckedChange = { onTogglePrediction() })
-            }
-
-            if (isPredictionEnabled) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(stringResource(R.string.settings_debug_prediction))
-                    Switch(checked = isDebugPredictionEnabled, onCheckedChange = { onToggleDebugPrediction() })
-                }
-                
-                if (isDebugPredictionEnabled) {
-                Column {
-                    Text("${stringResource(R.string.settings_max_prediction_lag)}: ${predictionLagMs.toInt()} ms")
-                    Slider(
-                        value = predictionLagMs,
-                        onValueChange = onPredictionLagChanged,
-                        valueRange = 0f..150f
-                    )
-                    
-                    Text("${stringResource(R.string.settings_prediction_smoothing)}: ${(predictionSmoothing * 100).toInt()}%")
-                    Slider(
-                        value = predictionSmoothing,
-                        onValueChange = onPredictionSmoothingChanged,
-                        valueRange = 0.0f..0.99f
-                    )
-                    Text(stringResource(R.string.settings_prediction_hint), fontSize = 10.sp, color = Color.Gray)
-                    
-                    HorizontalDivider()
-                    Text(stringResource(R.string.settings_velocity_thresholds), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    
-                    Text("${stringResource(R.string.settings_min_velocity)}: ${predictionVelocityMin.toInt()} px/s")
-                    Slider(
-                        value = predictionVelocityMin,
-                        onValueChange = onPredictionVelocityMinChanged,
-                        valueRange = 0f..1000f
-                    )
-                    
-                    Text("${stringResource(R.string.settings_max_velocity)}: ${predictionVelocityMax.toInt()} px/s")
-                    Slider(
-                         value = predictionVelocityMax,
-                         onValueChange = onPredictionVelocityMaxChanged,
-                         valueRange = 1000f..5000f
-                    )
-                }
-            }
-            }
-            
-            Column {
-                Text(stringResource(R.string.settings_simplification_title), style = MaterialTheme.typography.titleSmall)
-                Text("${stringResource(R.string.settings_distance_tolerance)}: ${String.format("%.1f", simplificationTolerance)}px")
-                Slider(
-                    value = simplificationTolerance,
-                    onValueChange = onSimplificationToleranceChanged,
-                    valueRange = 0f..5f
-                )
-                Text(stringResource(R.string.settings_distance_hint), fontSize = 10.sp, color = Color.Gray)
-
-                Text("${stringResource(R.string.settings_pressure_tolerance)}: ${String.format("%.2f", pressureTolerance)}")
-                Slider(
-                    value = pressureTolerance,
-                    onValueChange = onPressureToleranceChanged,
-                    valueRange = 0.01f..0.2f
-                )
-                Text(stringResource(R.string.settings_pressure_hint), fontSize = 10.sp, color = Color.Gray)
-
-                Text("${stringResource(R.string.settings_corner_angle)}: ${simplificationAngleThreshold.toInt()}°")
-                Slider(
-                    value = simplificationAngleThreshold,
-                    onValueChange = onSimplificationAngleThresholdChanged,
-                    valueRange = 0f..90f
-                )
-                Text(stringResource(R.string.settings_corner_hint), fontSize = 10.sp, color = Color.Gray)
-            }
             
             Row(
                 modifier = Modifier.fillMaxWidth(),

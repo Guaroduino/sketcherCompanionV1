@@ -140,7 +140,8 @@ data class FreehandSettings(
     val tolerance: Float = 1.0f,   // Point Decimation in px (0.1 to 5.0)
     val useSplines: Boolean = true, // Use Quadratic Beziers for smoother edges
     val minPredictionVelocity: Float = 0.5f, // Speed (px/ms) below which prediction is 0
-    val maxPredictionVelocity: Float = 4.0f,  // Speed (px/ms) above which prediction is full
+    val maxPredictionVelocity: Float = 3.5f,  // Speed (px/ms) above which prediction is full
+    val isSimplificationEnabled: Boolean = true,
     val minWidthRatio: Float = 0.1f, // Defines minimum width as percentage of brush size (0.0 to 1.0)
     val isMonoline: Boolean = false
 )

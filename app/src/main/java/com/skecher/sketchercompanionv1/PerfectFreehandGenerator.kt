@@ -101,13 +101,29 @@ object PerfectFreehandGenerator {
             
             var vFactor = 1.0f
             if (i > 0) {
-                val prev = smoothedPoints[i - 1]
-                val d = dist(prev, curr)
-                var dt = (curr.timestamp - prev.timestamp).toFloat()
-                if (dt <= 0) dt = 16f // 60hz fallback
+                // ROLLING AVERAGE VELOCITY (Smoothed)
+                val windowSize = 5
+                val startIdx = max(0, i - windowSize)
                 
-                val velocity = d / dt
-                val maxSpeed = 3.0f 
+                var totalDist = 0f
+                var totalTime = 0f
+                
+                // Calculate average over the window ending at 'i'
+                // We restart from startIdx+1 up to i
+                for (k in i downTo startIdx + 1) {
+                    val p2 = smoothedPoints[k]
+                    val p1 = smoothedPoints[k - 1]
+                    val d = dist(p1, p2)
+                    var dt = (p2.timestamp - p1.timestamp).toFloat()
+                    if (dt <= 0) dt = 16f
+                    
+                    totalDist += d
+                    totalTime += dt
+                }
+
+                val velocity = if (totalTime > 0) totalDist / totalTime else 0f
+                val maxSpeed = settings.maxPredictionVelocity.coerceAtLeast(1f) // Use setting instead of hardcoded 3.0f
+                
                 val normalizedVel = (velocity / maxSpeed).coerceIn(0f, 1f)
                 val simPressure = (1f - normalizedVel).coerceIn(0f, 1f) // Fast = Thin
                 
