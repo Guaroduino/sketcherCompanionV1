@@ -2,430 +2,242 @@ package com.skecher.sketchercompanionv1
 
 import android.graphics.Path
 import android.graphics.PointF
-import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
-import kotlin.math.min
-import kotlin.math.pow
+import kotlin.math.abs
 
 object PerfectFreehandGenerator {
 
-    // --- CONFIGURATION ---
-    // Removed hardcoded constants in favor of dynamic settings passed to generate()
-
-    // Internal data structure for calculations
     private data class StrokePointInternal(
         val x: Float,
         val y: Float,
-        var pressure: Float = 0.5f, // 0..1
-        val distance: Float = 0f, // Distance from start
-        val vector: PointF = PointF(0f, 0f), // Tangent vector
-        val runningLength: Float = 0f // Accum length
+        var width: Float = 0f, // Store computed WIDTH, not pressure
+        val runningLength: Float = 0f
     )
-
-    // --- PUBLIC API ---
 
     fun generate(
         rawPoints: List<StrokePoint>,
-        maxWidth: Float,
-        settings: com.skecher.sketchercompanionv1.dto.FreehandSettings = com.skecher.sketchercompanionv1.dto.FreehandSettings(), // Default settings
-        simulatePressure: Boolean = true
+        baseWidth: Float,
+        settings: com.skecher.sketchercompanionv1.dto.FreehandSettings = com.skecher.sketchercompanionv1.dto.FreehandSettings(),
+        simulatePressure: Boolean = false // Ignored now, we use dynamics logic
     ): Triple<Path, List<PointF>, List<PointF>> {
         val path = Path()
         if (rawPoints.size < 2) return Triple(path, emptyList(), emptyList())
 
-        // 1. Process Points (Clean, Simulate Pressure, Calculate Distances)
-        val processedPoints = processPoints(rawPoints, simulatePressure, settings)
+        // 1. Process: Decimate -> Calculate Dynamics -> Smooth Width
+        val processedPoints = processPoints(rawPoints, baseWidth, settings)
+        
+        if (processedPoints.size < 2) return Triple(path, emptyList(), emptyList())
 
-        // 2. Generate Ribbon Points (Left/Right)
-        val (leftPts, rightPts) = getStrokeOutlinePoints(processedPoints, maxWidth, settings)
+        // 2. Geometry
+        val (leftPts, rightPts) = getStrokeOutlinePoints(processedPoints)
 
-        // 3. Build Path
-        if (leftPts.isNotEmpty() && rightPts.isNotEmpty()) {
-            buildPath(path, leftPts, rightPts, settings)
-        }
+        // 3. Caps (Start/End)
+        // Check if we have enough points for caps
+        val startCap = if (settings.capStart && leftPts.isNotEmpty()) getCapPoints(leftPts.first(), rightPts.first(), true) else emptyList()
+        val endCap = if (settings.capEnd && leftPts.isNotEmpty()) getCapPoints(leftPts.last(), rightPts.last(), false) else emptyList()
 
-        return Triple(path, leftPts, rightPts)
+        // 4. Polygon
+        val polygon = mutableListOf<PointF>()
+        polygon.addAll(startCap)
+        polygon.addAll(leftPts)
+        polygon.addAll(endCap)
+        polygon.addAll(rightPts.reversed())
+
+        return Triple(createPathFromPolygon(polygon), leftPts, rightPts)
     }
-
-    // --- STEPS ---
 
     private fun processPoints(
         input: List<StrokePoint>,
-        simulatePressure: Boolean,
+        baseWidth: Float,
         settings: com.skecher.sketchercompanionv1.dto.FreehandSettings
     ): List<StrokePointInternal> {
         if (input.isEmpty()) return emptyList()
 
-        // 1. Decimation (Dynamic Tolerance)
+        // A. Decimation (Conservative)
+        // We use a tighter tolerance to keep curves smooth, relying on width-smoothing to fix pearls.
         val decimated = mutableListOf<StrokePoint>()
         decimated.add(input.first())
-        
-        // Tolerance determines min distance. Default 1.0px.
-        val minDistance = settings.tolerance.coerceAtLeast(0.1f)
-        val minDistSq = minDistance * minDistance
+        val tolSq = settings.tolerance.coerceAtLeast(0.1f).times(settings.tolerance.coerceAtLeast(0.1f)) // tolerance^2
         
         for (i in 1 until input.size - 1) {
             val prev = decimated.last()
             val curr = input[i]
-            if (distSq(prev, curr) >= minDistSq) {
-                decimated.add(curr)
-            }
+            if (distSq(prev, curr) >= tolSq) decimated.add(curr)
         }
-        if (input.size > 1) {
-            val last = input.last()
-            if (decimated.size == 1 || distSq(decimated.last(), last) > 0.1f) {
-                decimated.add(last)
-            }
-        }
+        decimated.add(input.last())
+
+        // B. Dynamics & Width Calculation
+        val internalPoints = ArrayList<StrokePointInternal>(decimated.size)
+        var runningLen = 0f
         
-        // Step Pre-A: Streamline / Smoothing (Laplacian Smoothing)
-        // If streamline > 1.0, we apply multiple passes of smoothing
-        // 0.0 -> 0 passes
-        // 0.5 -> 1 pass at 0.25 strength
-        // 1.0 -> 1 pass at 0.5 strength
-        // 2.0 -> 2 passes at 0.5 strength
-        // Step Pre-A: Streamline / Smoothing (Laplacian Smoothing) - REMOVED (Legacy)
-        val smoothedPoints = decimated
-        
-        val points = mutableListOf<StrokePointInternal>()
-        var totalDist = 0f
-        
-        for (i in smoothedPoints.indices) {
-            val curr = smoothedPoints[i]
+        // Window for smooth velocity calculation
+        val velocityWindow = 4 
+
+        for (i in decimated.indices) {
+            val curr = decimated[i]
             
-            // Influence 0 -> Factor 1
-            // Influence 1 -> Factor = Real Pressure
-            val realPressure = curr.pressure.coerceIn(0f, 1f)
-            val pFactor = 1.0f - (settings.pressureInfluence * (1.0f - realPressure))
-            
-            var vFactor = 1.0f
+            // 1. Calculate Real Velocity (Smoothed over window)
+            var velocity01 = 0f
             if (i > 0) {
-                // ROLLING AVERAGE VELOCITY (Smoothed)
-                val windowSize = 5
-                val startIdx = max(0, i - windowSize)
+                val startIdx = max(0, i - velocityWindow)
+                val pStart = decimated[startIdx]
+                val d = hypot(curr.x - pStart.x, curr.y - pStart.y)
+                var dt = (curr.timestamp - pStart.timestamp).toFloat()
+                if (dt <= 0) dt = 16f // Fallback to ~60fps frame time
                 
-                var totalDist = 0f
-                var totalTime = 0f
-                
-                // Calculate average over the window ending at 'i'
-                // We restart from startIdx+1 up to i
-                for (k in i downTo startIdx + 1) {
-                    val p2 = smoothedPoints[k]
-                    val p1 = smoothedPoints[k - 1]
-                    val d = dist(p1, p2)
-                    var dt = (p2.timestamp - p1.timestamp).toFloat()
-                    if (dt <= 0) dt = 16f
-                    
-                    totalDist += d
-                    totalTime += dt
-                }
+                // Max speed heuristic: 3.0 px/ms is very fast
+                val rawVelocity = d / dt 
+                velocity01 = (rawVelocity / 3.0f).coerceIn(0f, 1f)
+            }
 
-                val velocity = if (totalTime > 0) totalDist / totalTime else 0f
-                val maxSpeed = settings.maxPredictionVelocity.coerceAtLeast(1f) // Use setting instead of hardcoded 3.0f
-                
-                val normalizedVel = (velocity / maxSpeed).coerceIn(0f, 1f)
-                val simPressure = (1f - normalizedVel).coerceIn(0f, 1f) // Fast = Thin
-                
-                vFactor = 1.0f - (settings.velocityInfluence * (1.0f - simPressure))
+            // 2. Normalize Pressure
+            val pressure01 = curr.pressure.coerceIn(0f, 1f)
+
+            // 3. Apply Signed Influence
+            // Pressure: + (More=Thick), - (More=Thin)
+            val pSign = settings.pressureInfluence
+            val pAmount = abs(pSign)
+            // If +: target = pressure. If -: target = 1-pressure.
+            val effectiveP = if (pSign >= 0) pressure01 else (1f - pressure01)
+            // Interpolate: 0 (Base Width) -> 1 (Max Effect based on effectiveP) 
+            // Wait, standard logic is: Width = Base * (1 - Influence * (1 - P))
+            // If Influence=1, P=1 -> Width=Base. P=0 -> Width=0.
+            // So factor = 1 - (Amount * (1 - effectiveP)) 
+            val pFactor = 1f - (pAmount * (1f - effectiveP))
+
+            // Velocity: + (Fast=Thin), - (Fast=Thick)
+            val vSign = settings.velocityInfluence
+            val vAmount = abs(vSign)
+            // If +: Fast(1) should be Thin. So target is Low(0). 
+            // If -: Fast(1) should be Thick. So target is High(1).
+            val effectiveV = if (vSign >= 0) (1f - velocity01) else velocity01
+            val vFactor = 1f - (vAmount * (1f - effectiveV))
+
+            // 5. Calculate Target Width
+            var targetWidth = baseWidth * pFactor * vFactor
+            targetWidth = max(targetWidth, baseWidth * settings.minWidthRatio)
+
+            // Track Length
+            if (i > 0) {
+                val prev = decimated[i - 1]
+                runningLen += hypot(curr.x - prev.x, curr.y - prev.y)
+            }
+
+            internalPoints.add(StrokePointInternal(curr.x, curr.y, targetWidth, runningLen))
+        }
+
+        // C. Width Smoothing (The Anti-Pearl Filter)
+        // Instead of calculating width independently per point, we smooth the widths.
+        // Heavy smoothing (0.8+) eliminates pearls but lags thickness changes.
+        // We link it to the 'smoothing' setting.
+        
+        val alpha = 0.6f + (settings.smoothing * 0.35f) // Range 0.6 to 0.95
+        
+        // Pass 1: Forward Smoothing
+        if (internalPoints.isNotEmpty()) {
+            var smoothW = internalPoints.first().width
+            for (p in internalPoints) {
+                smoothW = smoothW * alpha + p.width * (1f - alpha)
+                p.width = smoothW
             }
             
-            val rawPressure = pFactor * vFactor
-            
-            points.add(StrokePointInternal(
-                x = curr.x,
-                y = curr.y,
-                pressure = rawPressure,
-                runningLength = totalDist
-            ))
-
-            if (i < smoothedPoints.size - 1) {
-                totalDist += dist(smoothedPoints[i], smoothedPoints[i+1])
-            }
-        }
-        
-        val totalLength = totalDist
-
-        // 3. Pressure Smoothing (EMA)
-        // New Formula for Extended Range (0.0 to 3.0)
-        // 0.0 -> Alpha 0.7 (Fast code)
-        // 1.0 -> Alpha 0.175
-        // 3.0 -> Alpha 0.07 (Trace changes very slowly)
-        val alpha = 0.7f / (1.0f + settings.smoothing * 3.0f)
-        
-        if (points.isNotEmpty()) {
-            var smoothedP = points.first().pressure
-            for (i in 1 until points.size) {
-                val currP = points[i].pressure
-                smoothedP = smoothedP + (currP - smoothedP) * alpha
-                points[i].pressure = smoothedP
-            }
-        }
-        
-        // 4. Tapering
-        val MAX_TAPER_PX = 100f
-        val taperLenStart = min(totalLength * 0.5f, kotlin.math.abs(settings.taperStart) * MAX_TAPER_PX)
-        val taperLenEnd = min(totalLength * 0.5f, kotlin.math.abs(settings.taperEnd) * MAX_TAPER_PX)
-        
-        if (taperLenStart > 1f || taperLenEnd > 1f) {
-            for (pt in points) {
-                val distFromStart = pt.runningLength
-                val distFromEnd = totalLength - pt.runningLength
-                var taperFactor = 1.0f
-                
-                // Start Taper / Flare
-                if (distFromStart < taperLenStart) {
-                    val t = distFromStart / taperLenStart
-                    if (settings.taperStart >= 0f) {
-                        taperFactor *= (t * (2 - t))
-                    } else {
-                        // Flare: Start at (1 + abs(tStart)) and settle to 1.0
-                        val amount = kotlin.math.abs(settings.taperStart)
-                        taperFactor *= (1.0f + amount * (1.0f - t).pow(2))
-                    }
-                }
-                
-                // End Taper / Flare
-                if (distFromEnd < taperLenEnd) {
-                    val t = distFromEnd / taperLenEnd
-                    if (settings.taperEnd >= 0f) {
-                        taperFactor *= (t * (2 - t))
-                    } else {
-                        // Flare: End at (1 + abs(tEnd))
-                        val amount = kotlin.math.abs(settings.taperEnd)
-                        taperFactor *= (1.0f + amount * (1.0f - t).pow(2))
-                    }
-                }
-                pt.pressure *= taperFactor
+            // Pass 2: Backward Smoothing (Fixes lag caused by Pass 1, keeps peaks centered)
+            smoothW = internalPoints.last().width
+            for (i in internalPoints.indices.reversed()) {
+                val p = internalPoints[i]
+                smoothW = smoothW * alpha + p.width * (1f - alpha)
+                // Blend forward and backward passes
+                p.width = (p.width + smoothW) / 2f
             }
         }
 
-        return points
+        return internalPoints
     }
 
-    private fun getStrokeOutlinePoints(
-        points: List<StrokePointInternal>,
-        maxWidth: Float,
-        settings: com.skecher.sketchercompanionv1.dto.FreehandSettings 
-    ): Pair<List<PointF>, List<PointF>> {
+    private fun getStrokeOutlinePoints(points: List<StrokePointInternal>): Pair<List<PointF>, List<PointF>> {
         val leftPts = mutableListOf<PointF>()
         val rightPts = mutableListOf<PointF>()
+        val count = points.size
         
-        if (points.size < 2) return Pair(emptyList(), emptyList())
-        
+        if (count == 0) return Pair(leftPts, rightPts)
+
+        // Start Glitch Fix: Threshold
+        val startThreshold = max(points.first().width / 2f, 2f)
+
         for (i in points.indices) {
             val curr = points[i]
-            
-            // Step C: Geometry Construction (Normals from Decimated Points)
-            val prev = if (i > 0) points[i - 1] else null
-            val next = if (i < points.size - 1) points[i + 1] else null
-            
-            val tangent: PointF
-            if (prev != null && next != null) {
-                val vectorFromPrev = PointF(curr.x - prev.x, curr.y - prev.y)
-                val vectorToNext = PointF(next.x - curr.x, next.y - curr.y)
-                val v1 = normalize(vectorFromPrev)
-                val v2 = normalize(vectorToNext)
-                val tx = v1.x + v2.x
-                val ty = v1.y + v2.y
-                tangent = PointF(tx, ty)
-            } else if (prev == null && next != null) {
-                 tangent = PointF(next.x - curr.x, next.y - curr.y)
-            } else if (prev != null && next == null) {
-                tangent = PointF(curr.x - prev.x, curr.y - prev.y)
+            var tangent = PointF(1f, 0f)
+
+            if (i == 0) {
+                // Look ahead for stable vector
+                for (k in 1 until count) {
+                    val d = hypot(points[k].x - curr.x, points[k].y - curr.y)
+                    if (d > startThreshold) {
+                        tangent = normalize(points[k].x - curr.x, points[k].y - curr.y)
+                        break
+                    }
+                }
+            } else if (i == count - 1) {
+                tangent = normalize(curr.x - points[i-1].x, curr.y - points[i-1].y)
             } else {
-                tangent = PointF(1f, 0f)
+                val prev = points[i-1]; val next = points[i+1]
+                val v1 = normalize(curr.x - prev.x, curr.y - prev.y)
+                val v2 = normalize(next.x - curr.x, next.y - curr.y)
+                tangent = normalize(v1.x + v2.x, v1.y + v2.y)
             }
-            
-            var normal = PointF(-tangent.y, tangent.x)
-            normal = normalize(normal)
-            
-            // Dynamic width based on influence factors
-            val dynamicWidth = maxWidth * curr.pressure
-            
-            // Absolute Minimum based on ratio
-            val absoluteMin = maxWidth * settings.minWidthRatio
-            
-            // Clamp
-            val w = kotlin.math.max(dynamicWidth, absoluteMin)
-            val halfW = w / 2f
-            
+
+            val normal = PointF(-tangent.y, tangent.x)
+            val halfW = curr.width / 2f // Width is already computed and smoothed!
+
             leftPts.add(PointF(curr.x + normal.x * halfW, curr.y + normal.y * halfW))
             rightPts.add(PointF(curr.x - normal.x * halfW, curr.y - normal.y * halfW))
         }
-        
         return Pair(leftPts, rightPts)
     }
 
-    private fun buildPath(
-        path: Path, 
-        left: List<PointF>, 
-        right: List<PointF>,
-        settings: com.skecher.sketchercompanionv1.dto.FreehandSettings
-    ) {
-        // Step D: Path Building
-        path.moveTo(left[0].x, left[0].y)
+    // --- HELPERS ---
+    private fun getCapPoints(p1: PointF, p2: PointF, isStart: Boolean): List<PointF> {
+        val midX = (p1.x + p2.x) / 2f; val midY = (p1.y + p2.y) / 2f
+        val dx = p2.x - p1.x; val dy = p2.y - p1.y
         
-        // Connect Left Side
-        connectPoints(path, left, settings.useSplines)
+        // Normal pointing OUT
+        var nx = -dy; var ny = dx
+        if (!isStart) { nx = dy; ny = -dx } // Invert for end cap? 
+        // Logic: Start Cap connects Right->Left. Vector is P2-P1. Normal is (-dy, dx).
+        // End Cap connects Left->Right. Vector is P2-P1. 
+        // Let's rely on simple outward projection.
         
-        // Cap End
-        if (settings.capEnd) {
-            val lastL = left.last()
-            val lastR = right.last()
-            
-            // Vector from Left edge to Right edge
-            val dx = lastR.x - lastL.x
-            val dy = lastR.y - lastL.y
-            val width = hypot(dx, dy)
-            val radius = width / 2f
-            
-            // Tangent pointing out of the stroke end
-            val tipTangent = normalize(PointF(-dy, dx))
-            // Orthogonal vector (along the width line)
-            val normal = normalize(PointF(dx, dy))
-            
-            val kappa = 0.55228f
-            val handleLen = radius * kappa
-            
-            val midPoint = PointF(
-                (lastL.x + lastR.x) / 2f + tipTangent.x * radius,
-                (lastL.y + lastR.y) / 2f + tipTangent.y * radius
-            )
-            
-            // Segment 1: Left -> Mid (Top half of cap)
-            path.cubicTo(
-                lastL.x + tipTangent.x * handleLen,
-                lastL.y + tipTangent.y * handleLen,
-                midPoint.x - normal.x * handleLen,
-                midPoint.y - normal.y * handleLen,
-                midPoint.x, midPoint.y
-            )
-            
-            // Segment 2: Mid -> Right (Bottom half of cap)
-            path.cubicTo(
-                midPoint.x + normal.x * handleLen,
-                midPoint.y + normal.y * handleLen,
-                lastR.x + tipTangent.x * handleLen,
-                lastR.y + tipTangent.y * handleLen,
-                lastR.x, lastR.y
-            )
-        } else {
-             path.lineTo(right.last().x, right.last().y)
+        val radius = hypot(dx, dy) / 2f
+        val len = hypot(nx, ny)
+        if (len > 0) { nx/=len; ny/=len }
+        
+        // If End Cap, flip normal to point forward
+        if (!isStart) { nx = -nx; ny = -ny }
+
+        return listOf(PointF(midX + nx * radius, midY + ny * radius))
+    }
+
+    private fun createPathFromPolygon(points: List<PointF>): Path {
+        val path = Path()
+        if (points.size < 3) return path
+        val p0 = points[0]; val pLast = points.last()
+        path.moveTo((p0.x + pLast.x) / 2f, (p0.y + pLast.y) / 2f)
+        for (i in points.indices) {
+            val curr = points[i]
+            val next = points[(i + 1) % points.size]
+            path.quadTo(curr.x, curr.y, (curr.x + next.x) / 2f, (curr.y + next.y) / 2f)
         }
-        
-        // Connect Right Side (Backwards)
-        val reversedRight = right.reversed()
-        connectPoints(path, reversedRight, settings.useSplines)
-        
-        // Cap Start
-        if (settings.capStart) {
-            val firstL = left[0]
-            val firstR = right[0]
-            
-            // Vector from Right edge to Left edge
-            val dx = firstL.x - firstR.x
-            val dy = firstL.y - firstR.y
-            val width = hypot(dx, dy)
-            val radius = width / 2f
-            
-            // Tangent pointing out of the stroke start
-            val startTangent = normalize(PointF(-dy, dx))
-            // Orthogonal vector
-            val normal = normalize(PointF(dx, dy))
-            
-            val kappa = 0.55228f
-            val handleLen = radius * kappa
-            
-            val midPoint = PointF(
-                (firstL.x + firstR.x) / 2f + startTangent.x * radius,
-                (firstL.y + firstR.y) / 2f + startTangent.y * radius
-            )
-            
-            // Segment 1: Right -> Mid
-            path.cubicTo(
-                firstR.x + startTangent.x * handleLen,
-                firstR.y + startTangent.y * handleLen,
-                midPoint.x - normal.x * handleLen,
-                midPoint.y - normal.y * handleLen,
-                midPoint.x, midPoint.y
-            )
-            
-            // Segment 2: Mid -> Left
-            path.cubicTo(
-                midPoint.x + normal.x * handleLen,
-                midPoint.y + normal.y * handleLen,
-                firstL.x + startTangent.x * handleLen,
-                firstL.y + startTangent.y * handleLen,
-                firstL.x, firstL.y
-            )
-        } else {
-             path.lineTo(left[0].x, left[0].y)
-        }
-        
         path.close()
-    }
-    
-    // Helper to connect points with either straight lines or splines
-    private fun connectPoints(path: Path, points: List<PointF>, useSplines: Boolean) {
-        if (points.isEmpty()) return
-        
-        // Ideally we assume path is already at points[0], but let's be safe for first segment
-        // Actually, if we just did moveTo outside, we can just lineTo the first point if we aren't there?
-        // But for safety of a general 'connector', we assume we proceed FROM current pos TO points.
-        
-        // However, standard use is: we are AT points[0] already.
-        // So we iterate from 1..end.
-        
-        if (!useSplines || points.size < 3) {
-            for (i in 1 until points.size) {
-                path.lineTo(points[i].x, points[i].y)
-            }
-        } else {
-            // Quadratic Bezier (Midpoint Strategy)
-            for (i in 1 until points.size - 1) {
-                val current = points[i]
-                val next = points[i + 1]
-                val midX = (current.x + next.x) / 2f
-                val midY = (current.y + next.y) / 2f
-                
-                // Curve from [previous] through [current] to [midpoint]
-                // Wait, midpoint strategy usually goes:
-                // Start -> (Control: P1) -> End: Midpoint(P1, P2)
-                // Here: Start is P[i-1] (or previous anchor). 
-                // Control is P[i].
-                // Anchor is Mid(P[i], P[i+1]).
-                
-                path.quadTo(current.x, current.y, midX, midY)
-            }
-            // Connect last
-            path.lineTo(points.last().x, points.last().y)
-        }
+        return path
     }
 
-    // --- MATH HELPERS ---
-
+    private fun normalize(x: Float, y: Float): PointF {
+        val l = hypot(x, y)
+        return if (l > 0.001f) PointF(x/l, y/l) else PointF(0f, 0f)
+    }
     private fun distSq(p1: StrokePoint, p2: StrokePoint): Float {
-        val dx = p2.x - p1.x
-        val dy = p2.y - p1.y
-        return dx * dx + dy * dy
-    }
-
-    private fun dist(p1: StrokePoint, p2: StrokePoint) = kotlin.math.sqrt(distSq(p1, p2))
-    
-    // Dist for internal points
-    private fun dist(p1: StrokePointInternal, p2: StrokePointInternal): Float {
-         return hypot(p2.x - p1.x, p2.y - p1.y)
-    }
-
-    private fun getTangent(p1: StrokePointInternal, p2: StrokePointInternal): PointF {
-        val dx = p2.x - p1.x
-        val dy = p2.y - p1.y
-        return normalize(PointF(dx, dy))
-    }
-
-    private fun normalize(p: PointF): PointF {
-        val len = hypot(p.x, p.y)
-        return if (len > 0.0001f) PointF(p.x / len, p.y / len) else PointF(0f, 0f)
+        val dx = p1.x - p2.x; val dy = p1.y - p2.y
+        return dx*dx + dy*dy
     }
 }

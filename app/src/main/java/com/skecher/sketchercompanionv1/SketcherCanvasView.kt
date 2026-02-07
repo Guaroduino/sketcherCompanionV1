@@ -935,44 +935,44 @@ class SketcherCanvasView(context: Context) : View(context) {
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 
+                // --- RAW POINT PREPARATION ---
+                // The new PerfectFreehandGenerator handles all dynamics (pressure, velocity, smoothing) internally.
+                // We just pass the raw points to it.
+                // No need to pre-calculate pressure here anymore.
+
                 // 1. Get Tolerance
                 val tolerance = activeFreehandSettings.tolerance.coerceAtLeast(0.5f)
                 val isSimplified = activeFreehandSettings.isSimplificationEnabled
                 
-                // 2. Simplify Points (RDP)
+                // --- GENERATE HIGH-FIDELITY PATH (Visuals) ---
+                // We use the full, raw points. The Generator handles dynamics and smoothing internally.
+                val (highFidelityPath, left, right) = PerfectFreehandGenerator.generate(
+                    currentStrokePoints, 
+                    activeSize, // baseWidth
+                    activeFreehandSettings // settings
+                )
+                
+                // 2. Simplify Points (Data Optimization)
+                // We still simplify the points stored in the VectorStroke to save memory/storage,
+                // but the visual Path is baked from the high-quality raw data.
                 val finalPoints = if (isSimplified && currentStrokePoints.size > 2) {
-                    val pressureWeight = activeSize * 2.0f // Pressure diff of 0.5 = 1x Brush Size diff
+                    val pressureWeight = activeSize * 2.0f 
                     com.skecher.sketchercompanionv1.utils.StrokeSimplifier.simplify(
                         currentStrokePoints, 
                         tolerance,
                         pressureWeight
                     )
                 } else {
-                    currentStrokePoints.toList() // Copy
+                    currentStrokePoints.toList() 
                 }
 
-
-                // Finalize using Simplified Points
+                // Finalize
                 val finalPath = android.graphics.Path()
+                finalPath.set(highFidelityPath)
                 
-                // IMPORTANT: Disable smoothing ONLY for simplified strokes.
-                // For simplified strokes, EMA lags on sparse points causing thinning. Pressure is already averaged.
-                // For raw strokes (isSimplified = false), keep original smoothing to handle input noise.
-                val finalSettings = if (isSimplified) {
-                    activeFreehandSettings.copy(smoothing = 0f)
-                } else {
-                    activeFreehandSettings
-                }
-                
-                val (path, left, right) = PerfectFreehandGenerator.generate(
-                    finalPoints, // Use simplified points
-                    activeSize, 
-                    finalSettings
-                )
-                finalPath.set(path)
-                
+                // Note: The 'path' in VectorStroke is the high-fidelity one.
                 val stroke = VectorStroke(
-                    points = finalPoints, // Use simplified points
+                    points = finalPoints, 
                     color = activeColor,
                     maxWidth = activeSize,
                     path = finalPath,

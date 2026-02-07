@@ -129,9 +129,12 @@ data class PathCommandJson(
 )
 
 data class FreehandSettings(
-    val pressureInfluence: Float = 0.6f, // Impact of Pressure (0.0 to 1.0)
-    val velocityInfluence: Float = 0.2f, // Impact of Velocity (0.0 to 1.0)
-    val smoothing: Float = 0.5f,  // Edges (0.0 to 3.0+)
+    // Dynamics (-1.0 to 1.0)
+    // Pressure: +1.0 (Heavy=Thick), -1.0 (Heavy=Thin)
+    // Velocity: +1.0 (Fast=Thin), -1.0 (Fast=Thick)
+    val pressureInfluence: Float = 0.5f, 
+    val velocityInfluence: Float = 0.5f,
+    val smoothing: Float = 0.65f, // Controls the width smoothing
     val taperStart: Float = 0.0f, // Sharpness of start
     val taperEnd: Float = 0.0f,   // Sharpness of end
     val capStart: Boolean = true, // Round cap start
