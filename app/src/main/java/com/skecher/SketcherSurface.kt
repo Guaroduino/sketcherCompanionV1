@@ -422,6 +422,18 @@ fun SketcherSurface(
         canvasViewRef?.selectionManager = sketchViewModel.selectionManager
     }
 
+    LaunchedEffect(sketchViewModel.currentFreehandSettings, canvasViewRef) {
+        canvasViewRef?.activeFreehandSettings = sketchViewModel.currentFreehandSettings
+    }
+
+    LaunchedEffect(sketchViewModel.currentSize, canvasViewRef) {
+        canvasViewRef?.activeSize = sketchViewModel.currentSize
+    }
+    
+    LaunchedEffect(sketchViewModel.currentColor, canvasViewRef) {
+        canvasViewRef?.activeColor = sketchViewModel.currentColor
+    }
+
     // --- FIX: STARTUP AWAKENER REMOVED (Replaced by OnLayoutChangeListener in Factory) ---
 
     Box(modifier = Modifier.fillMaxSize()) {

@@ -202,7 +202,7 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     val pts = this.points.map { StrokePoint(it.x, it.y, it.pressure, it.timestamp) }
     // We use PerfectFreehandGenerator for all vector strokes now.
     // Legacy strokes will be reconstructed using the new engine.
-    val (path, l, r) = PerfectFreehandGenerator.generate(
+    val result = PerfectFreehandGenerator.generate(
         pts, 
         this.maxWidth
     )
@@ -211,10 +211,10 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         points = pts,
         color = this.color,
         maxWidth = this.maxWidth,
-        path = path,
+        path = result.path,
         brushType = this.brushType,
-        leftPoints = l,
-        rightPoints = r
+        leftPoints = result.left,
+        rightPoints = result.right
     )
 }
 

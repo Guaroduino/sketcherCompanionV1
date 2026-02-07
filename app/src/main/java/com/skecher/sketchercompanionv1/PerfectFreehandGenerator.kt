@@ -2,242 +2,437 @@ package com.skecher.sketchercompanionv1
 
 import android.graphics.Path
 import android.graphics.PointF
-import kotlin.math.hypot
+import com.skecher.sketchercompanionv1.dto.FreehandSettings
+import com.skecher.sketchercompanionv1.StrokePoint
+
+import com.skecher.sketchercompanionv1.PerfectFreehandUtils.add
+import com.skecher.sketchercompanionv1.PerfectFreehandUtils.sub
+import com.skecher.sketchercompanionv1.PerfectFreehandUtils.mul
+import com.skecher.sketchercompanionv1.PerfectFreehandUtils.div
+import com.skecher.sketchercompanionv1.PerfectFreehandUtils.per
+import com.skecher.sketchercompanionv1.PerfectFreehandUtils.dpr
+import com.skecher.sketchercompanionv1.PerfectFreehandUtils.uni
+import com.skecher.sketchercompanionv1.PerfectFreehandUtils.dist
+import com.skecher.sketchercompanionv1.PerfectFreehandUtils.dist2
+import com.skecher.sketchercompanionv1.PerfectFreehandUtils.lrp
+import com.skecher.sketchercompanionv1.PerfectFreehandUtils.prj
+import com.skecher.sketchercompanionv1.PerfectFreehandUtils.rotAround
+import com.skecher.sketchercompanionv1.PerfectFreehandUtils.simulatePressure
+import com.skecher.sketchercompanionv1.PerfectFreehandUtils.getStrokeRadius
+import com.skecher.sketchercompanionv1.PerfectFreehandUtils.neg
 import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.pow
 import kotlin.math.abs
 
 object PerfectFreehandGenerator {
 
+    // Constants from reference
+    private const val MIN_STREAMLINE_T = 0.15f
+    private const val STREAMLINE_T_RANGE = 0.85f
+    private const val END_NOISE_THRESHOLD = 0.85f // Approximate reference (checked TS usually 0.95 or similar based on unit)
+    private const val STOP = 0.001f // Epsilon
+    private const val PI = Math.PI.toFloat()
+    private const val FIXED_PI = PI + 0.0001f // To avoid floating point issues with perfect PI 
+    
+    private const val START_CAP_SEGMENTS = 12
+    private const val END_CAP_SEGMENTS = 12
+    private const val CORNER_CAP_SEGMENTS = 12
+
+    // Internal data structure for processed points
     private data class StrokePointInternal(
-        val x: Float,
-        val y: Float,
-        var width: Float = 0f, // Store computed WIDTH, not pressure
-        val runningLength: Float = 0f
+        val point: Vec2,
+        val pressure: Float,
+        val distance: Float,
+        var vector: Vec2 = Vec2(0f, 0f),
+        val runningLength: Float
+    )
+
+    private data class OutlineResult(
+        val left: List<Vec2>,
+        val right: List<Vec2>,
+        val polygon: List<Vec2>
+    )
+
+    // Public Result Data Class
+    data class FreehandResult(
+        val path: Path,
+        val left: List<PointF>,
+        val right: List<PointF>,
+        val center: List<PointF>
     )
 
     fun generate(
         rawPoints: List<StrokePoint>,
-        baseWidth: Float,
-        settings: com.skecher.sketchercompanionv1.dto.FreehandSettings = com.skecher.sketchercompanionv1.dto.FreehandSettings(),
-        simulatePressure: Boolean = false // Ignored now, we use dynamics logic
-    ): Triple<Path, List<PointF>, List<PointF>> {
+        baseWidth: Float, // Used as 'size'
+        settings: FreehandSettings = FreehandSettings()
+    ): FreehandResult {
         val path = Path()
-        if (rawPoints.size < 2) return Triple(path, emptyList(), emptyList())
+        if (rawPoints.isEmpty()) return FreehandResult(path, emptyList(), emptyList(), emptyList())
 
-        // 1. Process: Decimate -> Calculate Dynamics -> Smooth Width
-        val processedPoints = processPoints(rawPoints, baseWidth, settings)
+        // 1. Get Stroke Points
+        val strokePoints = getStrokePoints(rawPoints, baseWidth, settings)
+
+        // 2. Get Outline Points
+        val outline = getStrokeOutlinePoints(strokePoints, baseWidth, settings)
+
+        if (outline.polygon.size < 3) return FreehandResult(path, emptyList(), emptyList(), emptyList())
+
+        val polygonPoints = outline.polygon
         
-        if (processedPoints.size < 2) return Triple(path, emptyList(), emptyList())
+        // Strict Polygon Construction (lineTo)
+        path.moveTo(polygonPoints[0].x, polygonPoints[0].y)
+        for (i in 1 until polygonPoints.size) {
+            path.lineTo(polygonPoints[i].x, polygonPoints[i].y)
+        }
+        path.close()
 
-        // 2. Geometry
-        val (leftPts, rightPts) = getStrokeOutlinePoints(processedPoints)
-
-        // 3. Caps (Start/End)
-        // Check if we have enough points for caps
-        val startCap = if (settings.capStart && leftPts.isNotEmpty()) getCapPoints(leftPts.first(), rightPts.first(), true) else emptyList()
-        val endCap = if (settings.capEnd && leftPts.isNotEmpty()) getCapPoints(leftPts.last(), rightPts.last(), false) else emptyList()
-
-        // 4. Polygon
-        val polygon = mutableListOf<PointF>()
-        polygon.addAll(startCap)
-        polygon.addAll(leftPts)
-        polygon.addAll(endCap)
-        polygon.addAll(rightPts.reversed())
-
-        return Triple(createPathFromPolygon(polygon), leftPts, rightPts)
+        val leftConv = outline.left.map { PointF(it.x, it.y) }
+        val rightConv = outline.right.map { PointF(it.x, it.y) }
+        val centerConv = strokePoints.map { PointF(it.point.x, it.point.y) }
+        
+        return FreehandResult(path, leftConv, rightConv, centerConv)
     }
 
-    private fun processPoints(
+    // --- Strict Implementation ---
+
+    private fun getStrokePoints(
         input: List<StrokePoint>,
-        baseWidth: Float,
-        settings: com.skecher.sketchercompanionv1.dto.FreehandSettings
+        size: Float,
+        settings: FreehandSettings
     ): List<StrokePointInternal> {
         if (input.isEmpty()) return emptyList()
 
-        // A. Decimation (Conservative)
-        // We use a tighter tolerance to keep curves smooth, relying on width-smoothing to fix pearls.
-        val decimated = mutableListOf<StrokePoint>()
-        decimated.add(input.first())
-        val tolSq = settings.tolerance.coerceAtLeast(0.1f).times(settings.tolerance.coerceAtLeast(0.1f)) // tolerance^2
-        
-        for (i in 1 until input.size - 1) {
-            val prev = decimated.last()
-            val curr = input[i]
-            if (distSq(prev, curr) >= tolSq) decimated.add(curr)
+        val streamline = settings.streamline
+        val t = MIN_STREAMLINE_T + (1f - streamline) * STREAMLINE_T_RANGE
+
+        var pts = input.toMutableList()
+
+        // Handle "dash" lines (2 points) -> interpolate
+        if (pts.size == 2) {
+            val last = pts[1]
+            pts = pts.subList(0, 1) // Slice 0,-1 equivalent
+            for (i in 1 until 5) {
+                val lerped = lrp(
+                     Vec2(pts[0].x, pts[0].y),
+                     Vec2(last.x, last.y),
+                     i / 4f
+                )
+                pts.add(StrokePoint(lerped.x, lerped.y, last.pressure, last.timestamp))
+            }
         }
-        decimated.add(input.last())
-
-        // B. Dynamics & Width Calculation
-        val internalPoints = ArrayList<StrokePointInternal>(decimated.size)
-        var runningLen = 0f
         
-        // Window for smooth velocity calculation
-        val velocityWindow = 4 
+        // 1pt case: Add offset
+        if (pts.size == 1) {
+            val p = pts[0]
+            pts.add(StrokePoint(p.x + 1f, p.y + 1f, p.pressure, p.timestamp))
+        }
 
-        for (i in decimated.indices) {
-            val curr = decimated[i]
+        val strokePoints = ArrayList<StrokePointInternal>()
+        
+        // First point
+        val p0 = pts[0]
+        strokePoints.add(StrokePointInternal(
+            point = Vec2(p0.x, p0.y),
+            pressure = if (p0.pressure >= 0) p0.pressure else 0.5f,
+            distance = 0f,
+            vector = Vec2(1f, 1f), // Placeholder
+            runningLength = 0f
+        ))
+
+        var runningLength = 0f
+        var prev = strokePoints[0]
+        var hasReachedMinimumLength = false
+        
+        for (i in 1 until pts.size) {
+            // Logic for 'isComplete' omitted (assumed live/complete handled same for now)
+            // Interpolation
+            val point = lrp(prev.point, Vec2(pts[i].x, pts[i].y), t)
             
-            // 1. Calculate Real Velocity (Smoothed over window)
-            var velocity01 = 0f
-            if (i > 0) {
-                val startIdx = max(0, i - velocityWindow)
-                val pStart = decimated[startIdx]
-                val d = hypot(curr.x - pStart.x, curr.y - pStart.y)
-                var dt = (curr.timestamp - pStart.timestamp).toFloat()
-                if (dt <= 0) dt = 16f // Fallback to ~60fps frame time
-                
-                // Max speed heuristic: 3.0 px/ms is very fast
-                val rawVelocity = d / dt 
-                velocity01 = (rawVelocity / 3.0f).coerceIn(0f, 1f)
-            }
-
-            // 2. Normalize Pressure
-            val pressure01 = curr.pressure.coerceIn(0f, 1f)
-
-            // 3. Apply Signed Influence
-            // Pressure: + (More=Thick), - (More=Thin)
-            val pSign = settings.pressureInfluence
-            val pAmount = abs(pSign)
-            // If +: target = pressure. If -: target = 1-pressure.
-            val effectiveP = if (pSign >= 0) pressure01 else (1f - pressure01)
-            // Interpolate: 0 (Base Width) -> 1 (Max Effect based on effectiveP) 
-            // Wait, standard logic is: Width = Base * (1 - Influence * (1 - P))
-            // If Influence=1, P=1 -> Width=Base. P=0 -> Width=0.
-            // So factor = 1 - (Amount * (1 - effectiveP)) 
-            val pFactor = 1f - (pAmount * (1f - effectiveP))
-
-            // Velocity: + (Fast=Thin), - (Fast=Thick)
-            val vSign = settings.velocityInfluence
-            val vAmount = abs(vSign)
-            // If +: Fast(1) should be Thin. So target is Low(0). 
-            // If -: Fast(1) should be Thick. So target is High(1).
-            val effectiveV = if (vSign >= 0) (1f - velocity01) else velocity01
-            val vFactor = 1f - (vAmount * (1f - effectiveV))
-
-            // 5. Calculate Target Width
-            var targetWidth = baseWidth * pFactor * vFactor
-            targetWidth = max(targetWidth, baseWidth * settings.minWidthRatio)
-
-            // Track Length
-            if (i > 0) {
-                val prev = decimated[i - 1]
-                runningLen += hypot(curr.x - prev.x, curr.y - prev.y)
-            }
-
-            internalPoints.add(StrokePointInternal(curr.x, curr.y, targetWidth, runningLen))
-        }
-
-        // C. Width Smoothing (The Anti-Pearl Filter)
-        // Instead of calculating width independently per point, we smooth the widths.
-        // Heavy smoothing (0.8+) eliminates pearls but lags thickness changes.
-        // We link it to the 'smoothing' setting.
-        
-        val alpha = 0.6f + (settings.smoothing * 0.35f) // Range 0.6 to 0.95
-        
-        // Pass 1: Forward Smoothing
-        if (internalPoints.isNotEmpty()) {
-            var smoothW = internalPoints.first().width
-            for (p in internalPoints) {
-                smoothW = smoothW * alpha + p.width * (1f - alpha)
-                p.width = smoothW
+            if (point == prev.point) continue // Exact equality check (Vec2 data class)
+            
+            val d = dist(point, prev.point)
+            runningLength += d
+            
+            // Noise filter at start
+            if (i < pts.size - 1 && !hasReachedMinimumLength) {
+                if (runningLength < size) continue
+                hasReachedMinimumLength = true
             }
             
-            // Pass 2: Backward Smoothing (Fixes lag caused by Pass 1, keeps peaks centered)
-            smoothW = internalPoints.last().width
-            for (i in internalPoints.indices.reversed()) {
-                val p = internalPoints[i]
-                smoothW = smoothW * alpha + p.width * (1f - alpha)
-                // Blend forward and backward passes
-                p.width = (p.width + smoothW) / 2f
-            }
+            val vector = uni(sub(point, prev.point))
+            
+            val newPoint = StrokePointInternal(
+                point = point,
+                pressure = if (pts[i].pressure >= 0) pts[i].pressure else 0.5f,
+                distance = d,
+                vector = vector,
+                runningLength = runningLength
+            )
+            
+            strokePoints.add(newPoint)
+            prev = newPoint
         }
-
-        return internalPoints
+        
+        // Fix first vector
+        if (strokePoints.size > 1) {
+            strokePoints[0].vector = strokePoints[1].vector
+        }
+        
+        return strokePoints
     }
 
-    private fun getStrokeOutlinePoints(points: List<StrokePointInternal>): Pair<List<PointF>, List<PointF>> {
-        val leftPts = mutableListOf<PointF>()
-        val rightPts = mutableListOf<PointF>()
-        val count = points.size
-        
-        if (count == 0) return Pair(leftPts, rightPts)
+    private fun getStrokeOutlinePoints(
+        points: List<StrokePointInternal>,
+        size: Float,
+        settings: FreehandSettings
+    ): OutlineResult {
+        if (points.isEmpty() || size <= 0) return OutlineResult(emptyList(), emptyList(), emptyList())
 
-        // Start Glitch Fix: Threshold
-        val startThreshold = max(points.first().width / 2f, 2f)
+        val smoothing = settings.smoothing
+        val thinning = settings.thinning
+        val simulatePressure = settings.simulatePressure
+        val easing: (Float) -> Float = { t -> t } // Linear pressure easing
+
+        val capStart = settings.capStart
+        val capEnd = settings.capEnd
+        
+        // Correct Easing for Taper (Quad/Cubic approximations from reference)
+        val taperStartEase: (Float) -> Float = { t -> t * (2 - t) } 
+        val taperEndEase: (Float) -> Float = { t -> val tm = t - 1; tm * tm * tm + 1 }
+
+        val totalLength = points.last().runningLength
+        val taperStart = computeTaperDistance(settings.taperStart, size, totalLength)
+        val taperEnd = computeTaperDistance(settings.taperEnd, size, totalLength)
+
+        val minDistance = (size * smoothing).pow(2)
+        
+        val leftPts = ArrayList<Vec2>()
+        val rightPts = ArrayList<Vec2>()
+        
+        var prevPressure = computeInitialPressure(points, simulatePressure, size)
+        var radius = getStrokeRadius(size, thinning, points.last().pressure, easing)
+        var firstRadius: Float? = null
+        
+        var prevVector = points[0].vector
+        var prevLeft = points[0].point
+        var prevRight = prevLeft
+        var isPrevPointSharpCorner = false
 
         for (i in points.indices) {
             val curr = points[i]
-            var tangent = PointF(1f, 0f)
+            var pressure = curr.pressure
+            val isLastPoint = i == points.size - 1
 
-            if (i == 0) {
-                // Look ahead for stable vector
-                for (k in 1 until count) {
-                    val d = hypot(points[k].x - curr.x, points[k].y - curr.y)
-                    if (d > startThreshold) {
-                        tangent = normalize(points[k].x - curr.x, points[k].y - curr.y)
-                        break
-                    }
-                }
-            } else if (i == count - 1) {
-                tangent = normalize(curr.x - points[i-1].x, curr.y - points[i-1].y)
+            if (!isLastPoint && (totalLength - curr.runningLength) < 3f /* END_NOISE_THRESHOLD approx 3px or similar? Reference uses constant */) {
+                // strict reference check:
+                // if (!isLastPoint && totalLength - runningLength < END_NOISE_THRESHOLD) continue
+            }
+
+            // Calculate Radius
+            if (thinning > 0) {
+                 if (simulatePressure) {
+                     pressure = simulatePressure(prevPressure, curr.distance, size)
+                 }
+                 radius = getStrokeRadius(size, thinning, pressure, easing)
             } else {
-                val prev = points[i-1]; val next = points[i+1]
-                val v1 = normalize(curr.x - prev.x, curr.y - prev.y)
-                val v2 = normalize(next.x - curr.x, next.y - curr.y)
-                tangent = normalize(v1.x + v2.x, v1.y + v2.y)
+                 radius = size / 2f
+            }
+            
+            if (firstRadius == null) firstRadius = radius
+            
+            // Tapering
+            val ts = if (curr.runningLength < taperStart) taperStartEase(curr.runningLength / taperStart) else 1f
+            val te = if (totalLength - curr.runningLength < taperEnd) taperEndEase((totalLength - curr.runningLength) / taperEnd) else 1f
+            
+            radius = max(0.01f, radius * min(ts, te))
+
+            // Sharp Corners
+            val nextVector = if (i < points.size - 1) points[i + 1].vector else points[i].vector
+            val nextDpr = if (i < points.size - 1) dpr(curr.vector, nextVector) else 1.0f
+            val prevDpr = dpr(curr.vector, prevVector)
+
+            val isPointSharpCorner = prevDpr < 0 && !isPrevPointSharpCorner
+            val isNextPointSharpCorner = nextDpr < 0
+
+            if (isPointSharpCorner || isNextPointSharpCorner) {
+                val offset = mul(per(prevVector), radius)
+                
+                // Draw Round Cap at Corner
+                val step = 1f / CORNER_CAP_SEGMENTS
+                for (k in 0..CORNER_CAP_SEGMENTS) { // <= 1
+                    val t = k * step
+                    val tl = rotAround(sub(curr.point, offset), curr.point, FIXED_PI * t)
+                    val tr = rotAround(add(curr.point, offset), curr.point, FIXED_PI * -t)
+                    
+                    leftPts.add(tl)
+                    rightPts.add(tr)
+                    
+                    // Update temp/prev
+                    prevLeft = tl
+                    prevRight = tr
+                }
+                
+                if (isNextPointSharpCorner) isPrevPointSharpCorner = true
+                continue
             }
 
-            val normal = PointF(-tangent.y, tangent.x)
-            val halfW = curr.width / 2f // Width is already computed and smoothed!
+            isPrevPointSharpCorner = false
 
-            leftPts.add(PointF(curr.x + normal.x * halfW, curr.y + normal.y * halfW))
-            rightPts.add(PointF(curr.x - normal.x * halfW, curr.y - normal.y * halfW))
+            // Last Point
+            if (isLastPoint) {
+                val offset = mul(per(curr.vector), radius)
+                leftPts.add(sub(curr.point, offset))
+                rightPts.add(add(curr.point, offset))
+                continue
+            }
+
+            // Regular Points
+            val offset = mul(per(lrp(nextVector, curr.vector, nextDpr)), radius)
+            
+            val tl = sub(curr.point, offset)
+            if (i <= 1 || dist2(prevLeft, tl) > minDistance) {
+                leftPts.add(tl)
+                prevLeft = tl
+            }
+
+            val tr = add(curr.point, offset)
+            if (i <= 1 || dist2(prevRight, tr) > minDistance) {
+                rightPts.add(tr)
+                prevRight = tr
+            }
+
+            prevPressure = pressure
+            prevVector = curr.vector
         }
-        return Pair(leftPts, rightPts)
-    }
-
-    // --- HELPERS ---
-    private fun getCapPoints(p1: PointF, p2: PointF, isStart: Boolean): List<PointF> {
-        val midX = (p1.x + p2.x) / 2f; val midY = (p1.y + p2.y) / 2f
-        val dx = p2.x - p1.x; val dy = p2.y - p1.y
         
-        // Normal pointing OUT
-        var nx = -dy; var ny = dx
-        if (!isStart) { nx = dy; ny = -dx } // Invert for end cap? 
-        // Logic: Start Cap connects Right->Left. Vector is P2-P1. Normal is (-dy, dx).
-        // End Cap connects Left->Right. Vector is P2-P1. 
-        // Let's rely on simple outward projection.
+        // Construct Caps
+        val firstPoint = points[0].point
+        val lastPoint = if (points.size > 1) points.last().point else add(points[0].point, Vec2(1f, 1f))
         
-        val radius = hypot(dx, dy) / 2f
-        val len = hypot(nx, ny)
-        if (len > 0) { nx/=len; ny/=len }
-        
-        // If End Cap, flip normal to point forward
-        if (!isStart) { nx = -nx; ny = -ny }
+        val startCap = ArrayList<Vec2>()
+        val endCap = ArrayList<Vec2>()
 
-        return listOf(PointF(midX + nx * radius, midY + ny * radius))
-    }
-
-    private fun createPathFromPolygon(points: List<PointF>): Path {
-        val path = Path()
-        if (points.size < 3) return path
-        val p0 = points[0]; val pLast = points.last()
-        path.moveTo((p0.x + pLast.x) / 2f, (p0.y + pLast.y) / 2f)
-        for (i in points.indices) {
-            val curr = points[i]
-            val next = points[(i + 1) % points.size]
-            path.quadTo(curr.x, curr.y, (curr.x + next.x) / 2f, (curr.y + next.y) / 2f)
+        // 1pt / Dot
+        if (points.size == 1) {
+            val r = firstRadius ?: radius
+            return if (!(taperStart > 0 || taperEnd > 0)) { // isComplete assumed false or irrel
+                 val dot = drawDot(firstPoint, r)
+                 OutlineResult(dot, emptyList(), dot) // Roughly correct return structure
+            } else {
+                 OutlineResult(emptyList(), emptyList(), emptyList())
+            }
         }
-        path.close()
-        return path
+        
+        // Start Cap
+        if (taperStart > 0 || (taperEnd > 0 && points.size == 1)) {
+            // No cap
+        } else if (capStart) {
+            val firstRight = rightPts.firstOrNull() ?: firstPoint
+            startCap.addAll(drawRoundStartCap(firstPoint, firstRight, START_CAP_SEGMENTS))
+        } else {
+            val firstLeft = leftPts.firstOrNull() ?: firstPoint
+            val firstRight = rightPts.firstOrNull() ?: firstPoint
+            startCap.addAll(drawFlatStartCap(firstPoint, firstLeft, firstRight))
+        }
+
+        // End Cap
+        val direction = per(neg(points.last().vector))
+        if (taperEnd > 0 || (taperStart > 0 && points.size == 1)) {
+            endCap.add(lastPoint)
+        } else if (capEnd) {
+             endCap.addAll(drawRoundEndCap(lastPoint, direction, radius, END_CAP_SEGMENTS))
+        } else {
+             endCap.addAll(drawFlatEndCap(lastPoint, direction, radius))
+        }
+
+        val polygon = ArrayList<Vec2>()
+        polygon.addAll(leftPts)
+        polygon.addAll(endCap)
+        polygon.addAll(rightPts.reversed())
+        polygon.addAll(startCap)
+        
+        return OutlineResult(leftPts, rightPts, polygon)
     }
 
-    private fun normalize(x: Float, y: Float): PointF {
-        val l = hypot(x, y)
-        return if (l > 0.001f) PointF(x/l, y/l) else PointF(0f, 0f)
+    // --- Helpers ---
+
+    private fun computeTaperDistance(taper: Float, size: Float, totalLength: Float): Float {
+        // Taper is float in settings (px)
+        // If 0 -> 0
+        // If we want to simulate "true" (max taper), we'd need a flag or special value.
+        // For now trusting the float value.
+        // Ref: if (taper === true) return Math.max(size, totalLength)
+        return taper
     }
-    private fun distSq(p1: StrokePoint, p2: StrokePoint): Float {
-        val dx = p1.x - p2.x; val dy = p1.y - p2.y
-        return dx*dx + dy*dy
+
+    private fun computeInitialPressure(points: List<StrokePointInternal>, simulate: Boolean, size: Float): Float {
+        if (points.isEmpty()) return 0.5f
+        var acc = points[0].pressure
+        val count = min(10, points.size)
+        for (i in 0 until count) {
+            var p = points[i].pressure
+            if (simulate) {
+                p = simulatePressure(acc, points[i].distance, size)
+            }
+            acc = (acc + p) / 2f
+        }
+        return acc
+    }
+
+    private fun drawDot(center: Vec2, radius: Float): List<Vec2> {
+        val offsetPoint = add(center, Vec2(1f, 1f))
+        val start = prj(center, uni(per(sub(center, offsetPoint))), -radius)
+        val dotPts = ArrayList<Vec2>()
+        val step = 1f / START_CAP_SEGMENTS
+        for (k in 1..START_CAP_SEGMENTS) {
+             val t = k * step 
+             // <= 1 implied by range
+             dotPts.add(rotAround(start, center, FIXED_PI * 2 * t))
+        }
+        return dotPts
+    }
+
+    private fun drawRoundStartCap(center: Vec2, rightPoint: Vec2, segments: Int): List<Vec2> {
+        val cap = ArrayList<Vec2>()
+        val step = 1f / segments
+        for (k in 1..segments) {
+            val t = k * step
+            cap.add(rotAround(rightPoint, center, FIXED_PI * t))
+        }
+        return cap
+    }
+
+    private fun drawFlatStartCap(center: Vec2, leftPoint: Vec2, rightPoint: Vec2): List<Vec2> {
+        val cornersVector = sub(leftPoint, rightPoint)
+        val offsetA = mul(cornersVector, 0.5f)
+        val offsetB = mul(cornersVector, 0.51f)
+        return listOf(
+            sub(center, offsetA),
+            sub(center, offsetB),
+            add(center, offsetB),
+            add(center, offsetA)
+        )
+    }
+
+    private fun drawRoundEndCap(center: Vec2, direction: Vec2, radius: Float, segments: Int): List<Vec2> {
+        val cap = ArrayList<Vec2>()
+        val start = prj(center, direction, radius)
+        val step = 1f / segments
+        for (k in 1 until segments) { // < 1
+            val t = k * step
+            cap.add(rotAround(start, center, FIXED_PI * 3 * t))
+        }
+        // Explicitly close or rely on polygon? Ref uses < 1
+        return cap
+    }
+
+    private fun drawFlatEndCap(center: Vec2, direction: Vec2, radius: Float): List<Vec2> {
+        return listOf(
+            add(center, mul(direction, radius)),
+            add(center, mul(direction, radius * 0.99f)),
+            sub(center, mul(direction, radius * 0.99f)),
+            sub(center, mul(direction, radius))
+        )
     }
 }

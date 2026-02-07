@@ -581,15 +581,32 @@ class SketcherCanvasView(context: Context) : View(context) {
             currentVectorPreviewPath?.let { path ->
                  canvas.drawPath(path, vectorPaint)
     
+
                  // Debug Draw
                  if (isDebugWireframeByVM) {
                      val debugPaint = android.graphics.Paint().apply {
-                         color = android.graphics.Color.CYAN
-                         strokeWidth = 5f
+                         color = android.graphics.Color.RED
+                         strokeWidth = 8f
+                         style = android.graphics.Paint.Style.STROKE
+                         isAntiAlias = true
                      }
-                     for (p in currentStrokePoints) {
+                     
+                     // 1. Draw Center Line Points (Red)
+                     currentVectorPreviewCenterPoints?.forEach { p ->
                          canvas.drawPoint(p.x, p.y, debugPaint)
                      }
+                     
+                     // 2. Draw Outline Points (Green)
+                     debugPaint.color = android.graphics.Color.GREEN
+                     debugPaint.strokeWidth = 5f
+                     currentVectorPreviewOutlinePoints?.forEach { p ->
+                         canvas.drawPoint(p.x, p.y, debugPaint)
+                     }
+
+                     // 3. Draw Polygon Wireframe (Magenta)
+                     debugPaint.color = android.graphics.Color.MAGENTA
+                     debugPaint.strokeWidth = 2f
+                     canvas.drawPath(path, debugPaint)
                  }
 
                  // Dynamic Live Blob (Tip Prediction)
@@ -616,27 +633,28 @@ class SketcherCanvasView(context: Context) : View(context) {
                      val maxSpeed = activeFreehandSettings.maxPredictionVelocity.coerceAtLeast(1f) 
                      val normalizedVel = (currentVelocityState / maxSpeed).coerceIn(0f, 1f)
                      
-                     // Invert: Higher speed = Thinner line (simulated low pressure)
+                     // Invert: Higher speed = Less Pressure (Simulated)
                      val simPressure = (1f - normalizedVel).coerceIn(0f, 1f)
                      
-                     // 3. Apply Influences (Smoothed Pressure)
+                     // 3. Physical Pressure Smoothing
                      val rawPressure = tipPoint.pressure.coerceIn(0f, 1f)
-                     // Moderate smoothing for pressure (0.2 factor) for better responsiveness
                      currentPressureState += (rawPressure - currentPressureState) * 0.2f
                      
-                     val pInfluence = activeFreehandSettings.pressureInfluence
-                     val vInfluence = activeFreehandSettings.velocityInfluence
-                     
-                     val pFactor = 1.0f - (pInfluence * (1.0f - currentPressureState))
-                     val vFactor = 1.0f - (vInfluence * (1.0f - simPressure))
-                     
-                     // Final Width Calculation
-                     val combinedFactor = pFactor * vFactor
-                     val baseWidth = activeSize // Use activeSize directly
-                     val minWidth = baseWidth * activeFreehandSettings.minWidthRatio
-                     
-                     val dynamicWidth = baseWidth * combinedFactor
-                     val targetWidth = kotlin.math.max(dynamicWidth, minWidth)
+                     // 4. Determine Effective Pressure
+                     val effectivePressure = if (activeFreehandSettings.simulatePressure) {
+                         simPressure
+                     } else {
+                         currentPressureState
+                     }
+
+                     // 5. Calculate Target Width
+                     // Use Perfect Freehand Utils to match generator logic
+                     val targetRadius = PerfectFreehandUtils.getStrokeRadius(
+                         activeSize, 
+                         activeFreehandSettings.thinning, 
+                         effectivePressure
+                     )
+                     val targetWidth = targetRadius * 2f
                      
                      // VISUAL INTERPOLATION (Eliminates Jitter)
                      if (currentLiveTipWidth == 0f) {
@@ -1005,6 +1023,10 @@ class SketcherCanvasView(context: Context) : View(context) {
         return StrokePoint(pts[0], pts[1], p.pressure, p.timestamp)
     }
 
+    // Debug Variables
+    private var currentVectorPreviewCenterPoints: List<PointF>? = null
+    private var currentVectorPreviewOutlinePoints: List<PointF>? = null 
+
     private fun updateCurrentPaths() {
         // Unified Live Rendering Strategy
         // 1. Combine Real + Predicted Points
@@ -1029,7 +1051,7 @@ class SketcherCanvasView(context: Context) : View(context) {
             capEnd = false
         )
         
-        val (unifiedPath, _, _) = PerfectFreehandGenerator.generate(
+        val result = PerfectFreehandGenerator.generate(
             livePoints, 
             activeSize, 
             liveSettings
@@ -1037,9 +1059,14 @@ class SketcherCanvasView(context: Context) : View(context) {
         
         // 3. Update Preview State directly
         // We reuse the variables used by onDraw
-        currentVectorPreviewPath = unifiedPath
+        currentVectorPreviewPath = result.path
         currentVectorPreviewPoints = livePoints
         currentVectorPreviewColor = activeColor
+        currentPredictedPoint = predictedPt 
+        
+        // Debug Data
+        currentVectorPreviewCenterPoints = result.center
+        currentVectorPreviewOutlinePoints = result.left + result.right
         currentPredictedPoint = predictedPt // Keep for reference if needed, though now integrated
         
         // Clear unused specific paths to avoid confusion

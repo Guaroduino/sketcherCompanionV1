@@ -129,24 +129,33 @@ data class PathCommandJson(
 )
 
 data class FreehandSettings(
-    // Dynamics (-1.0 to 1.0)
-    // Pressure: +1.0 (Heavy=Thick), -1.0 (Heavy=Thin)
-    // Velocity: +1.0 (Fast=Thin), -1.0 (Fast=Thick)
-    val pressureInfluence: Float = 0.5f, 
-    val velocityInfluence: Float = 0.5f,
-    val smoothing: Float = 0.65f, // Controls the width smoothing
-    val taperStart: Float = 0.0f, // Sharpness of start
-    val taperEnd: Float = 0.0f,   // Sharpness of end
-    val capStart: Boolean = true, // Round cap start
-    val capEnd: Boolean = true,   // Round cap end
-    val predictionLatency: Float = 20.0f, // Prediction amount in ms (0-50)
-    val tolerance: Float = 1.0f,   // Point Decimation in px (0.1 to 5.0)
-    val useSplines: Boolean = true, // Use Quadratic Beziers for smoother edges
-    val minPredictionVelocity: Float = 0.5f, // Speed (px/ms) below which prediction is 0
-    val maxPredictionVelocity: Float = 3.5f,  // Speed (px/ms) above which prediction is full
+    // New Params matching Perfect Freehand
+    val thinning: Float = 0.5f,
+    val smoothing: Float = 0.5f,
+    val streamline: Float = 0.5f,
+    val simulatePressure: Boolean = true,
+    
+    // Tapering (Lengths)
+    val taperStart: Float = 0.0f,
+    val taperEnd: Float = 0.0f,
+    
+    // Caps
+    val capStart: Boolean = true, 
+    val capEnd: Boolean = true,
+
+    // Legacy / Other
+    val predictionLatency: Float = 20.0f,
+    val tolerance: Float = 1.0f,
     val isSimplificationEnabled: Boolean = true,
-    val minWidthRatio: Float = 0.1f, // Defines minimum width as percentage of brush size (0.0 to 1.0)
-    val isMonoline: Boolean = false
+    val minPredictionVelocity: Float = 0.5f,
+    val maxPredictionVelocity: Float = 3.5f,
+    val minWidthRatio: Float = 0.1f, // Kept for compat/UI
+    val useSplines: Boolean = true, // Kept for generator logic
+    val isMonoline: Boolean = false, // Kept if needed later
+
+    // Deprecating old influence fields
+    val pressureInfluence: Float = 0.0f, // Deprecated
+    val velocityInfluence: Float = 0.0f  // Deprecated
 )
 
 enum class ToolType { FREEHAND, FILL, ERASER, SELECTION, ANDROID_INK }

@@ -78,56 +78,43 @@ fun FreehandSettingsContent(
 ) {
     Text("Ajustes de Pincel (Perfect Freehand)", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
 
-    // 0. Pressure Influence
+    // 1. Thinning
     SettingSlider(
-        label = "Influencia Presión: ${(currentSettings.pressureInfluence * 100).toInt()}%",
-        value = currentSettings.pressureInfluence,
-        onValueChange = { onSettingsChanged(currentSettings.copy(pressureInfluence = it)) }
+        label = "Adelgazamiento (Presión): ${(currentSettings.thinning * 100).toInt()}%",
+        value = currentSettings.thinning,
+        onValueChange = { onSettingsChanged(currentSettings.copy(thinning = it)) }
     )
 
-    // 1. Velocity Influence
+    // 2. Streamline
     SettingSlider(
-        label = "Influencia Velocidad: ${(currentSettings.velocityInfluence * 100).toInt()}%",
-        value = currentSettings.velocityInfluence,
-        onValueChange = { onSettingsChanged(currentSettings.copy(velocityInfluence = it)) }
-    )
-    
-    // 1b. Min Width
-    SettingSlider(
-        label = "Grosor Mínimo: ${(currentSettings.minWidthRatio * 100).toInt()}%",
-        value = currentSettings.minWidthRatio,
-        onValueChange = { onSettingsChanged(currentSettings.copy(minWidthRatio = it)) }
+        label = "Estabilización (Streamline): ${(currentSettings.streamline * 100).toInt()}%",
+        value = currentSettings.streamline,
+        onValueChange = { onSettingsChanged(currentSettings.copy(streamline = it)) }
     )
 
-    // 2. Smoothing
+    // 3. Smoothing
     SettingSlider(
-        label = "Suavizado",
+        label = "Suavizado (Bordes)",
         value = currentSettings.smoothing,
-        valueRange = 0f..3.0f,
+        valueRange = 0f..1.0f, // Perfect Freehand usually 0-1
         onValueChange = { onSettingsChanged(currentSettings.copy(smoothing = it)) }
     )
 
-    HorizontalDivider()
+    // 4. Simulate Pressure
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text("Simular Presión (Velocidad)")
+        Switch(
+            checked = currentSettings.simulatePressure,
+            onCheckedChange = { onSettingsChanged(currentSettings.copy(simulatePressure = it)) }
+        )
+    }
     
-    Text("Predicción de Velocidad", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+    // Min Width (Optional but nice)
 
-    // Min Velocity (px/ms)
-    SettingSlider(
-        label = "Umbral Mínimo: ${String.format("%.1f", currentSettings.minPredictionVelocity)} px/ms",
-        value = currentSettings.minPredictionVelocity,
-        valueRange = 0.1f..2.0f,
-        onValueChange = { onSettingsChanged(currentSettings.copy(minPredictionVelocity = it)) }
-    )
-
-    // Max Velocity (px/ms)
-    SettingSlider(
-        label = "Umbral Máximo: ${String.format("%.1f", currentSettings.maxPredictionVelocity)} px/ms",
-        value = currentSettings.maxPredictionVelocity,
-        valueRange = 1.0f..8.0f,
-        onValueChange = { onSettingsChanged(currentSettings.copy(maxPredictionVelocity = it)) }
-    )
-
-    // 3. Streamline (Removed)
 
     HorizontalDivider()
     
@@ -135,18 +122,16 @@ fun FreehandSettingsContent(
 
     // Taper
      SettingSlider(
-        label = if (currentSettings.taperStart >= 0) "Inicio Afilado: ${(currentSettings.taperStart * 100).toInt()}%" 
-                else "Inicio Ensanchado: ${(currentSettings.taperStart * -100).toInt()}%",
+        label = "Inicio Afilado (Taper): ${currentSettings.taperStart.toInt()}px",
         value = currentSettings.taperStart,
-        valueRange = -1f..1f,
+        valueRange = 0f..150f,
         onValueChange = { onSettingsChanged(currentSettings.copy(taperStart = it)) }
     )
     
      SettingSlider(
-        label = if (currentSettings.taperEnd >= 0) "Fin Afilado: ${(currentSettings.taperEnd * 100).toInt()}%" 
-                else "Fin Ensanchado: ${(currentSettings.taperEnd * -100).toInt()}%",
+        label = "Fin Afilado (Taper): ${currentSettings.taperEnd.toInt()}px",
         value = currentSettings.taperEnd,
-        valueRange = -1f..1f,
+        valueRange = 0f..150f,
         onValueChange = { onSettingsChanged(currentSettings.copy(taperEnd = it)) }
     )
 
@@ -174,6 +159,19 @@ fun FreehandSettingsContent(
             onCheckedChange = { onSettingsChanged(currentSettings.copy(capEnd = it)) }
         )
     }
+
+    HorizontalDivider()
+    
+    Text("Predicción de Entrada", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+
+    // Min/Max prediction
+    SettingSlider(
+        label = "Predicción: ${currentSettings.predictionLatency.toInt()}ms",
+        value = currentSettings.predictionLatency,
+        valueRange = 0f..50f,
+        onValueChange = { onSettingsChanged(currentSettings.copy(predictionLatency = it)) }
+    )
+
 }
 
 @Composable
