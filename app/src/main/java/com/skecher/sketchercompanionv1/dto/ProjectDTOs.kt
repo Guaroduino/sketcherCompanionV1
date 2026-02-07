@@ -131,17 +131,20 @@ data class PathCommandJson(
 data class FreehandSettings(
     // New Params matching Perfect Freehand
     val thinning: Float = 0.5f,
+    val velocityThinning: Float = 0.0f, // New: Thinning based on speed
+    val velocityMaxInput: Float = 1.0f, // New: Speed sensitivity (px/ms)
     val smoothing: Float = 0.5f,
     val streamline: Float = 0.5f,
     val simulatePressure: Boolean = true,
     
-    // Tapering (Lengths)
+    // Tapering (Lengths) - Negative values will simulate widening
     val taperStart: Float = 0.0f,
     val taperEnd: Float = 0.0f,
     
     // Caps
     val capStart: Boolean = true, 
     val capEnd: Boolean = true,
+    val useCurveForPolygon: Boolean = false, // New Toggle: Flat (false) or Curved (true) polygon
 
     // Legacy / Other
     val predictionLatency: Float = 20.0f,

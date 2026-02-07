@@ -108,6 +108,8 @@ import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Schema
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.ui.res.stringResource
 import android.graphics.BitmapFactory
@@ -285,7 +287,13 @@ fun SketcherSurface(
         }
     }
     
-    // Detectamos cambio de configuraciÃ³n (rotaciÃ³n) automÃ¡ticamente con Compose
+    val exportPngLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/png")) { uri ->
+        uri?.let {
+             sketchViewModel.exportPng(context, it, sketchViewModel.lastExportPngConfig)
+        }
+    }
+    
+    // Detectamos cambio de configuración (rotación) automáticamente con Compose
     val configuration = LocalConfiguration.current
     var showInputSettings by rememberSaveable { mutableStateOf(false) }
     
@@ -301,6 +309,8 @@ fun SketcherSurface(
     var showGridSettings by remember { mutableStateOf(false) }
     var showToolSettingsPopup by remember { mutableStateOf(false) }
     var showFillColorPicker by remember { mutableStateOf(false) }
+    var showHomeSavedFeedback by remember { mutableStateOf(false) }
+    var showExportPngDialog by remember { mutableStateOf(false) }
 
     // Convenience accessors (optional, but keep for clarity if used)
     val isFillModeEnabled = sketchViewModel.isFillModeEnabled
@@ -314,6 +324,14 @@ fun SketcherSurface(
              ActivityInfo.SCREEN_ORIENTATION_LOCKED
         } else {
              ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+    
+    // Auto-hide Home Saved Feedback
+    LaunchedEffect(showHomeSavedFeedback) {
+        if (showHomeSavedFeedback) {
+            kotlinx.coroutines.delay(2000)
+            showHomeSavedFeedback = false
         }
     }
 
@@ -433,6 +451,14 @@ fun SketcherSurface(
     LaunchedEffect(sketchViewModel.currentColor, canvasViewRef) {
         canvasViewRef?.activeColor = sketchViewModel.currentColor
     }
+    
+    LaunchedEffect(sketchViewModel.isFillModeEnabled, canvasViewRef) {
+        canvasViewRef?.isFillModeEnabled = sketchViewModel.isFillModeEnabled
+    }
+    
+    LaunchedEffect(sketchViewModel.fillModeColor, canvasViewRef) {
+        canvasViewRef?.fillModeColor = sketchViewModel.fillModeColor
+    }
 
     // --- FIX: STARTUP AWAKENER REMOVED (Replaced by OnLayoutChangeListener in Factory) ---
 
@@ -457,6 +483,10 @@ fun SketcherSurface(
                     // Callback wire-up
                     this.onStrokeCompleted = { stroke ->
                         sketchViewModel.addVectorStroke(stroke)
+                    }
+                    
+                    this.onHybridStrokeCompleted = { stroke, fill ->
+                        sketchViewModel.addHybridStroke(stroke, fill)
                     }
 
                     // Set initial background color
@@ -705,6 +735,7 @@ fun SketcherSurface(
                                             pivotX = pts[10]
                                             pivotY = pts[11]
                                             startAngle = Math.toDegrees(Math.atan2((wy - pivotY).toDouble(), (wx - pivotX).toDouble())).toFloat()
+                                            canvasView.redrawAllCache() // Clear background for live rotation
                                         } else {
                                             // Hit test corners
                                             if (kotlin.math.hypot(wx - pts[0], wy - pts[1]) < handleSize) activeHandle = 0
@@ -719,6 +750,7 @@ fun SketcherSurface(
 
                                             if (activeHandle != -1) {
                                                 selTouchMode = SelectionTouchMode.DRAGGING_CORNER
+                                                canvasView.redrawAllCache() // Clear background for live scale
                                                 // Set Pivot (Opposite point)
                                                 val oppIdx = when(activeHandle) {
                                                     0 -> 3 // TL -> BR
@@ -741,6 +773,7 @@ fun SketcherSurface(
                                                 invM.mapPoints(localTouch)
                                                 if (bounds.contains(localTouch[0], localTouch[1])) {
                                                     selTouchMode = SelectionTouchMode.DRAGGING_CONTENT
+                                                    canvasView.redrawAllCache() // Clear background for live drag
                                                 }
                                             }
                                         }
@@ -892,6 +925,7 @@ fun SketcherSurface(
                                     }
                                 }
                                 selTouchMode = SelectionTouchMode.IDLE
+                                canvasView.redrawAllCache() // REBUILD: Bake new positions OR Remove old selections from background
                                 canvasView.invalidate()
                             }
                         }
@@ -1316,6 +1350,7 @@ fun SketcherSurface(
                 onSaveTemplate = { name -> sketchViewModel.saveTemplate(context, name) },
                 onLoadTemplate = { file -> sketchViewModel.loadFromTemplate(context, file) },
                 onExportSvg = { exportSvgLauncher.launch("drawing.svg") },
+                onExportPng = { showExportPngDialog = true },
                 onNewDrawing = {
                     sketchViewModel.clear()
                     // Reset View Camera
@@ -1333,6 +1368,10 @@ fun SketcherSurface(
                     sketchViewModel.resetCamera()
                     // sketchViewModel will trigger update via state change in update block
                 },
+                onSetHomeCamera = {
+                    sketchViewModel.saveHomeCamera()
+                    showHomeSavedFeedback = true
+                },
                 onZoomExtend = {
                     sketchViewModel.fitContent()
                 },
@@ -1343,6 +1382,25 @@ fun SketcherSurface(
                 toolbarAlpha = sketchViewModel.toolbarAlpha,
                 isToolbarBlurEnabled = sketchViewModel.isToolbarBlurEnabled
             )
+
+            // --- SUBTLE CONFIRMATION OVERLAY ---
+            if (showHomeSavedFeedback) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 80.dp) // Below TopMenuBar
+                        .zIndex(2000f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "Vista de inicio guardada",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
             
             // SCALE INDICATOR (Top Left)
             ScaleIndicator(
@@ -1435,13 +1493,13 @@ fun SketcherSurface(
                     canvasViewRef?.redrawAllCache()
                     canvasViewRef?.invalidate()
                 },
+                canPaste = sketchViewModel.canPaste,
                 onPaste = { 
-                    sketchViewModel.paste()
+                    sketchViewModel.paste() 
                     canvasViewRef?.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
                     canvasViewRef?.redrawAllCache()
                     canvasViewRef?.invalidate()
                 },
-                canPaste = sketchViewModel.canPaste,
                 selectionScope = sketchViewModel.selectionScope,
                 onToggleSelectionScope = {
                     sketchViewModel.selectionScope = if (sketchViewModel.selectionScope == SketcherViewModel.SelectionScope.CURRENT_LAYER) 
@@ -1449,8 +1507,16 @@ fun SketcherSurface(
                     else 
                         SketcherViewModel.SelectionScope.CURRENT_LAYER
                 },
-                isGroupSelected = sketchViewModel.isGroupSelected,
-                isSelectionEmpty = sketchViewModel.isSelectionEmpty,
+                isGroupSelected = sketchViewModel.selectionManager.selectedElements.any { it is GroupElement },
+                isSelectionEmpty = sketchViewModel.selectionManager.selectedElements.isEmpty(),
+                selectionLayerInfo = sketchViewModel.getSelectionLayerInfo(),
+                onMoveToLayer = { index ->
+                    sketchViewModel.moveSelectionToLayer(index)
+                    canvasViewRef?.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
+                    canvasViewRef?.redrawAllCache()
+                    canvasViewRef?.invalidate()
+                },
+                allLayers = sketchViewModel.layers,
                  isDebugWireframe = sketchViewModel.isDebugWireframe,
                 onToggleDebugWireframe = { sketchViewModel.isDebugWireframe = !sketchViewModel.isDebugWireframe },
                 currentScaleConfig = sketchViewModel.scaleConfig,
@@ -1580,7 +1646,18 @@ fun SketcherSurface(
         
         // --- TOOL SETTINGS POPUP ---
         
-        if (showToolSettingsPopup) {
+        if (showExportPngDialog) {
+        ExportPngDialog(
+            onDismiss = { showExportPngDialog = false },
+            onExport = { config ->
+                sketchViewModel.lastExportPngConfig = config
+                exportPngLauncher.launch("drawing.png")
+                showExportPngDialog = false
+            }
+        )
+    }
+
+    if (showToolSettingsPopup) {
              com.skecher.sketchercompanionv1.ui.ToolSettingsPopup(
                  toolType = sketchViewModel.currentTool,
                  freehandSettings = sketchViewModel.currentFreehandSettings,
@@ -1642,6 +1719,9 @@ fun BottomMenuBar(
     onToggleSelectionScope: () -> Unit,
     isGroupSelected: Boolean,
     isSelectionEmpty: Boolean,
+    selectionLayerInfo: String = "",
+    onMoveToLayer: (Int) -> Unit = {},
+    allLayers: List<Layer> = emptyList(),
     onMakeComponent: () -> Unit,
     onEnterEditMode: () -> Unit,
     canEnterEditMode: Boolean,
@@ -1927,8 +2007,55 @@ fun BottomMenuBar(
                   IconButton(onClick = onEnterEditMode, enabled = canEnterEditMode) {
                       Icon(Icons.Default.Edit, contentDescription = "Edit Isolated", tint = if (canEnterEditMode) Color.Blue else Color.Gray)
                   }
+ 
+                  VerticalDivider(modifier = Modifier.height(24.dp))
 
-                 VerticalDivider(modifier = Modifier.height(24.dp))
+                  // --- LAYER REASSIGNMENT ---
+                  if (!isSelectionEmpty) {
+                      var showLayerMenu by remember { mutableStateOf(false) }
+                      Box {
+                          TextButton(
+                              onClick = { showLayerMenu = true },
+                              contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                          ) {
+                              Row(verticalAlignment = Alignment.CenterVertically) {
+                                  Icon(
+                                      Icons.Default.Layers, 
+                                      contentDescription = null, 
+                                      modifier = Modifier.size(18.dp),
+                                      tint = Color.Blue
+                                  )
+                                  Spacer(modifier = Modifier.width(4.dp))
+                                  Text(
+                                      text = selectionLayerInfo,
+                                      style = MaterialTheme.typography.labelMedium,
+                                      color = Color.Blue,
+                                      maxLines = 1
+                                  )
+                              }
+                          }
+ 
+                          DropdownMenu(
+                              expanded = showLayerMenu,
+                              onDismissRequest = { showLayerMenu = false }
+                          ) {
+                              allLayers.forEachIndexed { index, layer ->
+                                  DropdownMenuItem(
+                                      text = { Text(layer.name) },
+                                      onClick = {
+                                          onMoveToLayer(index)
+                                          showLayerMenu = false
+                                      },
+                                      leadingIcon = {
+                                          Icon(Icons.Default.Check, null, modifier = Modifier.size(16.dp),
+                                               tint = Color.Transparent) // Placeholder or logic for check
+                                      }
+                                  )
+                              }
+                          }
+                      }
+                      VerticalDivider(modifier = Modifier.height(24.dp))
+                  }
 
                  // DELETE SELECTION
                  IconButton(onClick = onDeleteSelection, enabled = !isSelectionEmpty) {
@@ -1964,10 +2091,12 @@ fun TopMenuBar(
     onSaveTemplate: (String) -> Unit,
     onLoadTemplate: (java.io.File) -> Unit,
     onExportSvg: () -> Unit,
+    onExportPng: () -> Unit,
     onNewDrawing: () -> Unit,
     onSettingsClick: () -> Unit,
     onGridClick: () -> Unit,
     onZoomReset: () -> Unit,
+    onSetHomeCamera: () -> Unit = {},
     onZoomExtend: () -> Unit,
     activeLayerName: String,
     toolbarBackgroundColor: Int,
@@ -2006,7 +2135,8 @@ fun TopMenuBar(
                 onSettingsClick = onSettingsClick,
                 onSaveTemplate = onSaveTemplate,
                 onLoadTemplate = onLoadTemplate,
-                onExportSvg = onExportSvg
+                onExportSvg = onExportSvg,
+                onExportPng = onExportPng
             )
 
             // Grid
@@ -2014,18 +2144,23 @@ fun TopMenuBar(
                 Icon(Icons.Default.GridOn, contentDescription = "Grid")
             }
 
-             // Zoom Controls
-             IconButton(onClick = onZoomReset) {
-                 // "100%" Icon usually text
-                 Box(contentAlignment = Alignment.Center) {
-                     Icon(Icons.Default.Search, contentDescription = "Zoom 100%")
-                     Text("1:1", fontSize = 8.sp, fontWeight = FontWeight.Bold)
-                 }
-             }
-             
-             IconButton(onClick = onZoomExtend) {
-                 Icon(Icons.Default.AspectRatio, contentDescription = "Zoom Extend")
-             }
+              // Zoom Controls
+              Box(
+                  modifier = Modifier
+                      .size(40.dp)
+                      .clip(CircleShape)
+                      .combinedClickable(
+                          onClick = onZoomReset,
+                          onLongClick = onSetHomeCamera
+                      ),
+                  contentAlignment = Alignment.Center
+              ) {
+                  Icon(Icons.Default.Home, contentDescription = "Home View")
+              }
+              
+              IconButton(onClick = onZoomExtend) {
+                  Icon(Icons.Default.AspectRatio, contentDescription = "Zoom Extend")
+              }
         }
 
         // 2. CENTER: Undo/Redo (Perfectly Centered)
@@ -2579,7 +2714,6 @@ fun GridSettingsDialog(
             }
         )
     }
-
     Dialog(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
@@ -2769,5 +2903,51 @@ private fun adjustPressure(pressure: Float, sensitivity: Float): Float {
         pressure
     }
 }
+@Composable
+fun ExportPngDialog(
+    onDismiss: () -> Unit,
+    onExport: (ExportPngConfig) -> Unit
+) {
+    var transparent by remember { mutableStateOf(false) }
+    var useHomeView by remember { mutableStateOf(true) }
 
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Exportar como PNG") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Opciones de fondo:", style = MaterialTheme.typography.labelMedium)
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { transparent = false }) {
+                    RadioButton(selected = !transparent, onClick = { transparent = false })
+                    Text("Con fondo (Color del proyecto)")
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { transparent = true }) {
+                    RadioButton(selected = transparent, onClick = { transparent = true })
+                    Text("Transparente")
+                }
 
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text("Área a exportar:", style = MaterialTheme.typography.labelMedium)
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { useHomeView = true }) {
+                    RadioButton(selected = useHomeView, onClick = { useHomeView = true })
+                    Text("Vista Home (Lo que ves)")
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { useHomeView = false }) {
+                    RadioButton(selected = !useHomeView, onClick = { useHomeView = false })
+                    Text("Ajustar a contenido (Todo lo dibujado)")
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onExport(ExportPngConfig(transparent, useHomeView)) }) {
+                Text("Exportar")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_cancel))
+            }
+        }
+    )
+}

@@ -60,6 +60,7 @@ fun FileMenu(
     onLoad: () -> Unit,
     onImportImage: () -> Unit,
     onExportSvg: () -> Unit,
+    onExportPng: () -> Unit,
     onSettingsClick: () -> Unit,
     onSaveTemplate: (String) -> Unit,
     onLoadTemplate: (File) -> Unit
@@ -133,9 +134,30 @@ fun FileMenu(
                 }
             )
 
+            HorizontalDivider()
+            
+            // EXPORT SECTION
             DropdownMenuItem(
-                text = { Text("Export SVG") },
-                leadingIcon = { Icon(Icons.Default.Share, null) }, // Using Share or similar for export
+                text = { 
+                    Text(
+                        "Exportar", 
+                        style = MaterialTheme.typography.labelSmall, 
+                        color = Color.Gray 
+                    ) 
+                },
+                onClick = { },
+                enabled = false
+            )
+
+            DropdownMenuItem(
+                text = { Text("Exportar como PNG") },
+                leadingIcon = { Icon(Icons.Default.Share, null) },
+                onClick = { onExportPng(); showMenu = false }
+            )
+
+            DropdownMenuItem(
+                text = { Text("Exportar como SVG") },
+                leadingIcon = { Icon(Icons.Default.Share, null) },
                 onClick = { onExportSvg(); showMenu = false }
             )
 

@@ -84,6 +84,19 @@ fun FreehandSettingsContent(
         value = currentSettings.thinning,
         onValueChange = { onSettingsChanged(currentSettings.copy(thinning = it)) }
     )
+    
+    SettingSlider(
+        label = "Adelgazamiento (Velocidad): ${(currentSettings.velocityThinning * 100).toInt()}%",
+        value = currentSettings.velocityThinning,
+        onValueChange = { onSettingsChanged(currentSettings.copy(velocityThinning = it)) }
+    )
+    
+    SettingSlider(
+        label = "Sensibilidad (Velocidad): ${String.format("%.1f", currentSettings.velocityMaxInput)} px/ms",
+        value = currentSettings.velocityMaxInput,
+        valueRange = 0.1f..5.0f,
+        onValueChange = { onSettingsChanged(currentSettings.copy(velocityMaxInput = it)) }
+    )
 
     // 2. Streamline
     SettingSlider(
@@ -99,6 +112,14 @@ fun FreehandSettingsContent(
         valueRange = 0f..1.0f, // Perfect Freehand usually 0-1
         onValueChange = { onSettingsChanged(currentSettings.copy(smoothing = it)) }
     )
+    
+    // Min Width
+    SettingSlider(
+        label = "Grosor Mínimo: ${(currentSettings.minWidthRatio * 100).toInt()}%",
+        value = currentSettings.minWidthRatio,
+        valueRange = 0f..1.0f,
+        onValueChange = { onSettingsChanged(currentSettings.copy(minWidthRatio = it)) }
+    )
 
     // 4. Simulate Pressure
     Row(
@@ -113,25 +134,25 @@ fun FreehandSettingsContent(
         )
     }
     
-    // Min Width (Optional but nice)
-
 
     HorizontalDivider()
     
     Text("Opciones de Punta", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
 
     // Taper
+    val taperStartText = if (currentSettings.taperStart > 0) "Afilado" else if (currentSettings.taperStart < 0) "Ensanchado" else "-"
      SettingSlider(
-        label = "Inicio Afilado (Taper): ${currentSettings.taperStart.toInt()}px",
+        label = "Inicio ($taperStartText): ${currentSettings.taperStart.toInt()}px",
         value = currentSettings.taperStart,
-        valueRange = 0f..150f,
+        valueRange = -150f..150f,
         onValueChange = { onSettingsChanged(currentSettings.copy(taperStart = it)) }
     )
     
+    val taperEndText = if (currentSettings.taperEnd > 0) "Afilado" else if (currentSettings.taperEnd < 0) "Ensanchado" else "-"
      SettingSlider(
-        label = "Fin Afilado (Taper): ${currentSettings.taperEnd.toInt()}px",
+        label = "Fin ($taperEndText): ${currentSettings.taperEnd.toInt()}px",
         value = currentSettings.taperEnd,
-        valueRange = 0f..150f,
+        valueRange = -150f..150f,
         onValueChange = { onSettingsChanged(currentSettings.copy(taperEnd = it)) }
     )
 
@@ -157,6 +178,18 @@ fun FreehandSettingsContent(
         Switch(
             checked = currentSettings.capEnd,
             onCheckedChange = { onSettingsChanged(currentSettings.copy(capEnd = it)) }
+        )
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text("Curvas Poligonales")
+        Switch(
+            checked = currentSettings.useCurveForPolygon,
+            onCheckedChange = { onSettingsChanged(currentSettings.copy(useCurveForPolygon = it)) }
         )
     }
 

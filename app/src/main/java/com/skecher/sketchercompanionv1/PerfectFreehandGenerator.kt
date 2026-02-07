@@ -44,6 +44,7 @@ object PerfectFreehandGenerator {
         val point: Vec2,
         val pressure: Float,
         val distance: Float,
+        val normalizedVelocity: Float, // New: 0..1
         var vector: Vec2 = Vec2(0f, 0f),
         val runningLength: Float
     )
@@ -80,10 +81,24 @@ object PerfectFreehandGenerator {
 
         val polygonPoints = outline.polygon
         
-        // Strict Polygon Construction (lineTo)
-        path.moveTo(polygonPoints[0].x, polygonPoints[0].y)
-        for (i in 1 until polygonPoints.size) {
-            path.lineTo(polygonPoints[i].x, polygonPoints[i].y)
+        // Polygonal Construction
+        if (settings.useCurveForPolygon) {
+            // Curve Strategy
+            val p0 = polygonPoints[0]
+            val pLast = polygonPoints.last()
+            
+            path.moveTo((p0.x + pLast.x) / 2f, (p0.y + pLast.y) / 2f)
+            for (i in polygonPoints.indices) {
+                val curr = polygonPoints[i]
+                val next = polygonPoints[(i + 1) % polygonPoints.size]
+                path.quadTo(curr.x, curr.y, (curr.x + next.x) / 2f, (curr.y + next.y) / 2f)
+            }
+        } else {
+             // Strict Linear Strategy
+             path.moveTo(polygonPoints[0].x, polygonPoints[0].y)
+             for (i in 1 until polygonPoints.size) {
+                 path.lineTo(polygonPoints[i].x, polygonPoints[i].y)
+             }
         }
         path.close()
 
@@ -105,6 +120,7 @@ object PerfectFreehandGenerator {
 
         val streamline = settings.streamline
         val t = MIN_STREAMLINE_T + (1f - streamline) * STREAMLINE_T_RANGE
+        val maxVel = max(0.1f, settings.velocityMaxInput) // User controlled max velocity (px/ms)
 
         var pts = input.toMutableList()
 
@@ -113,12 +129,16 @@ object PerfectFreehandGenerator {
             val last = pts[1]
             pts = pts.subList(0, 1) // Slice 0,-1 equivalent
             for (i in 1 until 5) {
+                val factor = i / 4f
                 val lerped = lrp(
                      Vec2(pts[0].x, pts[0].y),
                      Vec2(last.x, last.y),
-                     i / 4f
+                     factor
                 )
-                pts.add(StrokePoint(lerped.x, lerped.y, last.pressure, last.timestamp))
+                // Interpolate Time
+                val lerpTime = (pts[0].timestamp + (last.timestamp - pts[0].timestamp) * factor).toLong()
+                
+                pts.add(StrokePoint(lerped.x, lerped.y, last.pressure, lerpTime))
             }
         }
         
@@ -128,6 +148,9 @@ object PerfectFreehandGenerator {
             pts.add(StrokePoint(p.x + 1f, p.y + 1f, p.pressure, p.timestamp))
         }
 
+        // PRE-CALCULATE VELOCITIES (Raw Input Dynamics)
+        val velocities = computeSmoothedVelocities(pts)
+
         val strokePoints = ArrayList<StrokePointInternal>()
         
         // First point
@@ -136,20 +159,21 @@ object PerfectFreehandGenerator {
             point = Vec2(p0.x, p0.y),
             pressure = if (p0.pressure >= 0) p0.pressure else 0.5f,
             distance = 0f,
+            normalizedVelocity = 0f,
             vector = Vec2(1f, 1f), // Placeholder
             runningLength = 0f
         ))
-
+        
         var runningLength = 0f
         var prev = strokePoints[0]
+        
         var hasReachedMinimumLength = false
         
         for (i in 1 until pts.size) {
-            // Logic for 'isComplete' omitted (assumed live/complete handled same for now)
-            // Interpolation
-            val point = lrp(prev.point, Vec2(pts[i].x, pts[i].y), t)
+            val rawP = pts[i]
+            val point = lrp(prev.point, Vec2(rawP.x, rawP.y), t)
             
-            if (point == prev.point) continue // Exact equality check (Vec2 data class)
+            if (point == prev.point) continue 
             
             val d = dist(point, prev.point)
             runningLength += d
@@ -162,10 +186,15 @@ object PerfectFreehandGenerator {
             
             val vector = uni(sub(point, prev.point))
             
+            // Velocity Lookup (Smoothed from Raw)
+            val velocity = velocities.getOrElse(i) { 0f }
+            val normVel = min(1f, velocity / maxVel)
+
             val newPoint = StrokePointInternal(
                 point = point,
-                pressure = if (pts[i].pressure >= 0) pts[i].pressure else 0.5f,
+                pressure = if (rawP.pressure >= 0) rawP.pressure else 0.5f,
                 distance = d,
+                normalizedVelocity = normVel,
                 vector = vector,
                 runningLength = runningLength
             )
@@ -182,6 +211,40 @@ object PerfectFreehandGenerator {
         return strokePoints
     }
 
+    private fun computeSmoothedVelocities(points: List<StrokePoint>): List<Float> {
+        val vels = ArrayList<Float>()
+        var lastVel = 0f
+        
+        // Loop over the list
+        for (i in points.indices) {
+            if (i == 0) {
+                vels.add(0f)
+                continue
+            }
+            
+            val curr = points[i]
+            val prev = points[i-1]
+            
+            val d = dist(Vec2(curr.x, curr.y), Vec2(prev.x, prev.y))
+            val dt = max(1L, curr.timestamp - prev.timestamp).toFloat()
+            val instantVel = d / dt
+            
+            // EMWA Smoothing (Strong Smoothing to prevent pearls)
+            // If instantVel spikes (e.g. 1ms dt), dampen it.
+            // If dt < 5ms (very fast input event), instantVel is unreliable.
+            
+            // Smooth Factor
+            val alpha = 0.2f // 20% influence from new sample
+            
+            val smoothVel = lastVel * (1f - alpha) + instantVel * alpha
+            
+            vels.add(smoothVel)
+            lastVel = smoothVel
+        }
+        
+        return vels
+    }
+
     private fun getStrokeOutlinePoints(
         points: List<StrokePointInternal>,
         size: Float,
@@ -191,7 +254,10 @@ object PerfectFreehandGenerator {
 
         val smoothing = settings.smoothing
         val thinning = settings.thinning
+        val velocityThinning = settings.velocityThinning
         val simulatePressure = settings.simulatePressure
+        val minWidthRatio = settings.minWidthRatio
+        
         val easing: (Float) -> Float = { t -> t } // Linear pressure easing
 
         val capStart = settings.capStart
@@ -202,16 +268,24 @@ object PerfectFreehandGenerator {
         val taperEndEase: (Float) -> Float = { t -> val tm = t - 1; tm * tm * tm + 1 }
 
         val totalLength = points.last().runningLength
-        val taperStart = computeTaperDistance(settings.taperStart, size, totalLength)
-        val taperEnd = computeTaperDistance(settings.taperEnd, size, totalLength)
+        val taperStart = settings.taperStart // Allow negative
+        val taperEnd = settings.taperEnd
 
         val minDistance = (size * smoothing).pow(2)
+        val minWidth = size * minWidthRatio
         
         val leftPts = ArrayList<Vec2>()
         val rightPts = ArrayList<Vec2>()
         
         var prevPressure = computeInitialPressure(points, simulatePressure, size)
-        var radius = getStrokeRadius(size, thinning, points.last().pressure, easing)
+        
+        // Initial Radius Calculation
+        var baseRadius = getStrokeRadius(size, thinning, points.last().pressure, easing)
+        if (velocityThinning > 0) {
+            baseRadius *= (1f - velocityThinning * points.last().normalizedVelocity)
+        }
+        var radius = max(minWidth / 2f, baseRadius)
+        
         var firstRadius: Float? = null
         
         var prevVector = points[0].vector
@@ -224,12 +298,11 @@ object PerfectFreehandGenerator {
             var pressure = curr.pressure
             val isLastPoint = i == points.size - 1
 
-            if (!isLastPoint && (totalLength - curr.runningLength) < 3f /* END_NOISE_THRESHOLD approx 3px or similar? Reference uses constant */) {
-                // strict reference check:
-                // if (!isLastPoint && totalLength - runningLength < END_NOISE_THRESHOLD) continue
+            if (!isLastPoint && (totalLength - curr.runningLength) < 3f) {
+                // strict reference check
             }
 
-            // Calculate Radius
+            // Calculate Base Radius via Pressure/Velocity
             if (thinning > 0) {
                  if (simulatePressure) {
                      pressure = simulatePressure(prevPressure, curr.distance, size)
@@ -239,12 +312,49 @@ object PerfectFreehandGenerator {
                  radius = size / 2f
             }
             
+            // Apply Velocity Thinning
+            if (velocityThinning > 0) {
+                radius *= (1f - velocityThinning * curr.normalizedVelocity)
+            }
+
+            // Apply Min Width (Before Taper to allow Taper to sharpen tip if needed? 
+            // User request: "Thickness must not go below min". Usually means body. 
+            // If Taper forces 0, it violates min width. But Taper is specific.
+            // Let's enforce min width here on the BODY radius.
+            radius = max(minWidth / 2f, radius)
+
             if (firstRadius == null) firstRadius = radius
             
             // Tapering
-            val ts = if (curr.runningLength < taperStart) taperStartEase(curr.runningLength / taperStart) else 1f
-            val te = if (totalLength - curr.runningLength < taperEnd) taperEndEase((totalLength - curr.runningLength) / taperEnd) else 1f
+            // Handle Start
+            var ts = 1f
+            if (taperStart > 0) {
+                // Standard Taper (Thinning)
+                if (curr.runningLength < taperStart) ts = taperStartEase(curr.runningLength / taperStart)
+            } else if (taperStart < 0) {
+                // Widening Taper (Ensanchamiento)
+                val absTaper = -taperStart
+                if (curr.runningLength < absTaper) {
+                    // Start thick (e.g. 3x) and decay to 1x
+                    val t = curr.runningLength / absTaper
+                    // Boost: 1 + 2 * (1 - ease) -> Starts at 3, ends at 1
+                    ts = 1f + (2f * (1f - taperStartEase(t))) 
+                }
+            }
             
+            // Handle End
+            var te = 1f
+            if (taperEnd > 0) {
+                if (totalLength - curr.runningLength < taperEnd) te = taperEndEase((totalLength - curr.runningLength) / taperEnd)
+            } else if (taperEnd < 0) {
+                val absTaper = -taperEnd
+                if (totalLength - curr.runningLength < absTaper) {
+                    val t = (totalLength - curr.runningLength) / absTaper
+                    te = 1f + (2f * (1f - taperEndEase(t)))
+                }
+            }
+            
+            // Fuse Taper
             radius = max(0.01f, radius * min(ts, te))
 
             // Sharp Corners
@@ -306,7 +416,7 @@ object PerfectFreehandGenerator {
             prevVector = curr.vector
         }
         
-        // Construct Caps
+        // Caps
         val firstPoint = points[0].point
         val lastPoint = if (points.size > 1) points.last().point else add(points[0].point, Vec2(1f, 1f))
         
@@ -316,7 +426,7 @@ object PerfectFreehandGenerator {
         // 1pt / Dot
         if (points.size == 1) {
             val r = firstRadius ?: radius
-            return if (!(taperStart > 0 || taperEnd > 0)) { // isComplete assumed false or irrel
+            return if (!(taperStart != 0f || taperEnd != 0f)) { // isComplete assumed false or irrel
                  val dot = drawDot(firstPoint, r)
                  OutlineResult(dot, emptyList(), dot) // Roughly correct return structure
             } else {
@@ -325,8 +435,13 @@ object PerfectFreehandGenerator {
         }
         
         // Start Cap
-        if (taperStart > 0 || (taperEnd > 0 && points.size == 1)) {
-            // No cap
+        // Do not draw cap if Tapering (Thinning OR Widening) is active
+        // Actually, if Widening, we likely WANT a cap because it's thick!
+        // Standard P.F. disables cap if Taper > 0 (sharp tip).
+        // If Taper < 0 (Wide tip), we definitely need a cap.
+        val startTaperingActive = taperStart > 0f // Only skip cap if "Sharp" taper
+        if (startTaperingActive) {
+             // No cap
         } else if (capStart) {
             val firstRight = rightPts.firstOrNull() ?: firstPoint
             startCap.addAll(drawRoundStartCap(firstPoint, firstRight, START_CAP_SEGMENTS))
@@ -337,8 +452,9 @@ object PerfectFreehandGenerator {
         }
 
         // End Cap
+        val endTaperingActive = taperEnd > 0f
         val direction = per(neg(points.last().vector))
-        if (taperEnd > 0 || (taperStart > 0 && points.size == 1)) {
+        if (endTaperingActive) {
             endCap.add(lastPoint)
         } else if (capEnd) {
              endCap.addAll(drawRoundEndCap(lastPoint, direction, radius, END_CAP_SEGMENTS))
@@ -358,11 +474,8 @@ object PerfectFreehandGenerator {
     // --- Helpers ---
 
     private fun computeTaperDistance(taper: Float, size: Float, totalLength: Float): Float {
-        // Taper is float in settings (px)
-        // If 0 -> 0
-        // If we want to simulate "true" (max taper), we'd need a flag or special value.
-        // For now trusting the float value.
-        // Ref: if (taper === true) return Math.max(size, totalLength)
+        // Updated to handle negative values logic inside main loop, this helper was for simple positive case
+        // We use settings.taperStart directly now
         return taper
     }
 

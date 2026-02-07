@@ -2,7 +2,7 @@ package com.skecher.sketchercompanionv1
 
 import android.app.Application
 import android.content.Context
-import android.graphics.Color
+import android.graphics.Color as AndroidColor
 import android.graphics.Matrix
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -23,6 +23,14 @@ import com.skecher.sketchercompanionv1.utils.toLayer
 import com.skecher.sketchercompanionv1.utils.toComponentDefinitionJson
 import com.skecher.sketchercompanionv1.utils.toComponentDefinition
 import java.util.ArrayDeque
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.RectF
+
+data class ExportPngConfig(
+    val transparentBackground: Boolean,
+    val useHomeView: Boolean
+)
 
 class SketcherViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE)
@@ -60,11 +68,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     // BACKGROUND COLOR
-    var backgroundColor by mutableIntStateOf(Color.WHITE)
+    var backgroundColor by mutableIntStateOf(AndroidColor.WHITE)
 
     // Toolbar Appearance
     // Toolbar Appearance
-    var toolbarBackgroundColor by mutableIntStateOf(prefs.getInt("toolbar_background_color", Color.WHITE))
+    var toolbarBackgroundColor by mutableIntStateOf(prefs.getInt("toolbar_background_color", AndroidColor.WHITE))
     fun updateToolbarBackgroundColor(color: Int) { 
         toolbarBackgroundColor = color
         prefs.edit().putInt("toolbar_background_color", color).apply()
@@ -105,6 +113,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     var editingContainerMatrix by mutableStateOf<Matrix?>(null)
         private set
+
+    var lastExportPngConfig by mutableStateOf(ExportPngConfig(transparentBackground = false, useHomeView = true))
 
     // --- SETTINGS LOADERS ---
     private fun loadFreehandSettings(): FreehandSettings {
@@ -147,17 +157,17 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     // COLORS
     var availableColors = mutableStateListOf(
-        prefs.getInt("color_slot_0", Color.BLACK),
-        prefs.getInt("color_slot_1", Color.RED),
-        prefs.getInt("color_slot_2", Color.BLUE),
-        prefs.getInt("color_slot_3", Color.YELLOW)
+        prefs.getInt("color_slot_0", AndroidColor.BLACK),
+        prefs.getInt("color_slot_1", AndroidColor.RED),
+        prefs.getInt("color_slot_2", AndroidColor.BLUE),
+        prefs.getInt("color_slot_3", AndroidColor.YELLOW)
     )
     var selectedColorIndex by mutableIntStateOf(prefs.getInt("selected_color_index", 0))
-    var currentColor by mutableIntStateOf(prefs.getInt("current_color", Color.BLACK))
+    var currentColor by mutableIntStateOf(prefs.getInt("current_color", AndroidColor.BLACK))
 
     var isFillModeEnabled by mutableStateOf(false)
     
-    private var _fillModeColor by mutableIntStateOf(prefs.getInt("fill_mode_color", Color.GREEN))
+    private var _fillModeColor by mutableIntStateOf(prefs.getInt("fill_mode_color", AndroidColor.GREEN))
     var fillModeColor: Int
         get() = _fillModeColor
         set(value) {
@@ -312,7 +322,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         // 1. Create Group
         val group = GroupElement(
             id = UUID.randomUUID().toString(),
-            elements = selected.toList(),
+            elements = selected.toMutableList(),
             matrix = Matrix()
         )
         
@@ -654,10 +664,24 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     
     // --- CAMERA ---
     val cameraMatrixValues = FloatArray(9).apply { Matrix().getValues(this) }
+    private val homeCameraMatrixValues = FloatArray(9).apply {
+        val saved = prefs.getString("home_camera_matrix", null)
+        if (saved != null) {
+            val arr = saved.split(",").map { it.toFloat() }.toFloatArray()
+            if (arr.size == 9) arr.copyInto(this) else Matrix().getValues(this)
+        } else {
+            Matrix().getValues(this)
+        }
+    }
     var cameraUpdateTrigger by mutableIntStateOf(0)
+    
     fun resetCamera() { 
-        Matrix().getValues(cameraMatrixValues)
+        homeCameraMatrixValues.copyInto(cameraMatrixValues)
         cameraUpdateTrigger++ 
+    }
+    fun saveHomeCamera() {
+        cameraMatrixValues.copyInto(homeCameraMatrixValues)
+        prefs.edit().putString("home_camera_matrix", homeCameraMatrixValues.joinToString(",")).apply()
     }
     fun saveCameraState(matrix: Matrix) { matrix.getValues(cameraMatrixValues) }
     fun saveDimensions(w: Float, h: Float) { lastViewportWidth = w; lastViewportHeight = h }
@@ -735,6 +759,102 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         if (editingContext == null) layers[activeLayerIndex] = layers[activeLayerIndex].copy()
         redoStack.clear()
         updateUndoRedoSupport()
+    }
+
+    fun addHybridStroke(stroke: VectorStroke, fill: FillData?) {
+        saveStateForUndo()
+        val inverse = Matrix()
+        editingContainerMatrix?.let { containerM ->
+            containerM.invert(inverse)
+        }
+        
+        // Add Fill first (Background)
+        fill?.let {
+            if (editingContainerMatrix != null) it.transform(inverse)
+            activeContainer.add(it)
+        }
+        
+        // Add Stroke second (Foreground)
+        if (editingContainerMatrix != null) stroke.transform(inverse)
+        activeContainer.add(stroke)
+        
+        if (editingContext == null) layers[activeLayerIndex] = layers[activeLayerIndex].copy()
+        redoStack.clear()
+        updateUndoRedoSupport()
+    }
+
+    fun getSelectionLayerInfo(): String {
+        val selected = selectionManager.selectedElements
+        if (selected.isEmpty()) return ""
+
+        val layersFound = mutableSetOf<Int>()
+        for (i in layers.indices) {
+            val layer = layers[i]
+            if (selected.any { isElementInHierarchy(layer.elements, it) }) {
+                layersFound.add(i)
+            }
+        }
+
+        return when {
+            layersFound.isEmpty() -> "Capa desconocida"
+            layersFound.size == 1 -> layers[layersFound.first()].name
+            else -> "Múltiples capas"
+        }
+    }
+
+    private fun isElementInHierarchy(container: List<LayerElement>, target: LayerElement): Boolean {
+        for (e in container) {
+            if (e === target) return true
+            if (e is GroupElement) {
+                if (isElementInHierarchy(e.elements, target)) return true
+            }
+        }
+        return false
+    }
+
+    fun moveSelectionToLayer(targetLayerIndex: Int) {
+        if (targetLayerIndex !in layers.indices) return
+        val selected = selectionManager.selectedElements.toList() // Copy to avoid concurrent modification
+        if (selected.isEmpty()) return
+
+        saveStateForUndo()
+
+        // 1. Remove from wherever they are
+        for (element in selected) {
+            removeElementFromHierarchy(element)
+        }
+
+        // 2. Add to target layer
+        layers[targetLayerIndex].elements.addAll(selected)
+
+        // 3. Mark layers as changed to trigger UI update
+        for (i in layers.indices) {
+            layers[i] = layers[i].copy()
+        }
+
+        redoStack.clear()
+        updateUndoRedoSupport()
+    }
+
+    private fun removeElementFromHierarchy(element: LayerElement) {
+        for (layer in layers) {
+            if (removeRecursive(layer.elements, element)) return
+        }
+    }
+
+    private fun removeRecursive(elements: MutableList<LayerElement>, target: LayerElement): Boolean {
+        val iterator = elements.iterator()
+        while (iterator.hasNext()) {
+            val e = iterator.next()
+            if (e === target) {
+                iterator.remove()
+                return true
+            }
+            if (e is GroupElement) {
+                if (removeRecursive(e.elements, target)) return true
+            }
+        }
+        return false
     }
     
     fun insertImage(context: Context, uri: android.net.Uri) {
@@ -852,6 +972,100 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
 
     // --- MISSING METHODS ---
+
+    fun exportPng(context: Context, uri: android.net.Uri, config: ExportPngConfig) {
+        try {
+            // 1. Determine Output Size and Transform
+            var targetWidth = 2048
+            var targetHeight = 2048
+            val exportMatrix = Matrix()
+
+            if (config.useHomeView) {
+                // Use Home View perspective
+                targetWidth = lastViewportWidth.toInt().coerceAtLeast(100)
+                targetHeight = lastViewportHeight.toInt().coerceAtLeast(100)
+                exportMatrix.setValues(homeCameraMatrixValues)
+            } else {
+                // Fit Content
+                val bounds = calculateVisibleBounds()
+                if (bounds.isEmpty) {
+                    // Nothing to export
+                    return
+                }
+                
+                // Add some padding (5%)
+                val padding = bounds.width() * 0.05f
+                bounds.inset(-padding, -padding)
+                
+                targetWidth = bounds.width().toInt().coerceAtLeast(100)
+                targetHeight = bounds.height().toInt().coerceAtLeast(100)
+                
+                // Move content to 0,0
+                exportMatrix.postTranslate(-bounds.left, -bounds.top)
+            }
+
+            // 2. Create Bitmap
+            val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+
+            // 3. Draw Background
+            if (!config.transparentBackground) {
+                canvas.drawColor(backgroundColor)
+            } else {
+                canvas.drawColor(AndroidColor.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
+            }
+
+            // 4. Draw Content
+            canvas.save()
+            canvas.concat(exportMatrix)
+            
+            for (layer in layers) {
+                if (!layer.isVisible) continue
+                
+                val layerAlpha = if (layer.opacity < 1f) (layer.opacity * 255).toInt() else 255
+                val saveCount = if (layerAlpha < 255) {
+                    canvas.saveLayerAlpha(null, layerAlpha)
+                } else {
+                    canvas.save()
+                }
+
+                for (element in layer.elements) {
+                    RenderHelper.drawElementRecursive(canvas, element, componentLibrary)
+                }
+                
+                canvas.restoreToCount(saveCount)
+            }
+            canvas.restore()
+
+            // 5. Save to URI
+            context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
+            }
+            
+            bitmap.recycle()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun calculateVisibleBounds(): RectF {
+        val totalBounds = RectF()
+        var first = true
+        
+        for (layer in layers) {
+            if (!layer.isVisible) continue
+            for (element in layer.elements) {
+                val bounds = element.getBounds(componentLibrary)
+                if (first) {
+                    totalBounds.set(bounds)
+                    first = false
+                } else {
+                    totalBounds.union(bounds)
+                }
+            }
+        }
+        return totalBounds
+    }
 
     fun exportSvg(context: Context, uri: android.net.Uri) {
         try {

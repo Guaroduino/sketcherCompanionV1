@@ -127,14 +127,13 @@ class SketcherCanvasView(context: Context) : View(context) {
             
             for (element in layer.elements) {
                  val isDimmed = editingContext != null && !editingContext!!.contains(element)
+                 val isSelected = selectionManager?.selectedElements?.contains(element) == true
+                 
+                 if (isSelected) continue // Skip selected elements, they are drawn live in onDraw
+                 
                  RenderHelper.drawElementRecursive(
                      canvas, 
                      element,
-                     drawVector = { v, c -> drawVectorStroke(v, c) },
-                     drawInk = { i, c -> drawInkStroke(i, c) },
-                     drawFill = { f, c -> drawFill(f, c) },
-                     drawImage = { i, c -> drawImage(i, c) },
-                     drawSvg = { s, c -> s.render(c) },
                      componentLibrary = componentLibrary,
                      isDimmed = isDimmed
                  )
@@ -579,6 +578,7 @@ class SketcherCanvasView(context: Context) : View(context) {
         // 4. Draw Live Vector Stroke (Preview)
         if (isDrawing && currentTool == ToolType.FREEHAND) {
             currentVectorPreviewPath?.let { path ->
+                 vectorPaint.color = currentVectorPreviewColor
                  canvas.drawPath(path, vectorPaint)
     
 
@@ -672,7 +672,20 @@ class SketcherCanvasView(context: Context) : View(context) {
 
         canvas.restore()
 
-        // 5. Selection Overlay (Handles its own coordinates usually, or passed canvas)
+        // 5. Draw Selection (Dynamic)
+        // These are skipped in redrawAllCache, so we draw them live here
+        selectionManager?.let { manager ->
+            for (element in manager.selectedElements) {
+                RenderHelper.drawElementRecursive(
+                    canvas, 
+                    element,
+                    componentLibrary = componentLibrary,
+                    isDimmed = false
+                )
+            }
+        }
+
+        // 6. Selection Overlay
         drawSelectionOverlay(canvas)
         
         onDrawAction?.invoke()
@@ -754,15 +767,18 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     // Callback
     var onStrokeCompleted: ((VectorStroke) -> Unit)? = null
-
-    // Tool State
+    var onFillCompleted: ((FillData) -> Unit)? = null
+    var onHybridStrokeCompleted: ((VectorStroke, FillData?) -> Unit)? = null
     var currentTool: ToolType = ToolType.FREEHAND
 
     // Active Configuration (Synced from ViewModel)
     var activeColor: Int = android.graphics.Color.BLACK
     var activeSize: Float = 10f
     var activeFreehandSettings: FreehandSettings = FreehandSettings()
-
+    
+    var isFillModeEnabled: Boolean = false
+    var fillModeColor: Int = android.graphics.Color.TRANSPARENT
+    
     // Global Input Config
     var isFingerMode: Boolean = false
     var fingerOffsetX: Float = 0f
@@ -999,8 +1015,27 @@ class SketcherCanvasView(context: Context) : View(context) {
                     rightPoints = right
                 )
                 
-                bakeStroke(stroke)
-                onStrokeCompleted?.invoke(stroke)
+                // --- AUTO FILL COMMITMENT ---
+                var fill: FillData? = null
+                if (isFillModeEnabled && currentStrokePoints.size >= 3) {
+                    val fPath = android.graphics.Path()
+                    fPath.moveTo(currentStrokePoints[0].x, currentStrokePoints[0].y)
+                    for (i in 1 until currentStrokePoints.size) {
+                        fPath.lineTo(currentStrokePoints[i].x, currentStrokePoints[i].y)
+                    }
+                    fPath.close()
+                    fill = FillData(fPath, fillModeColor)
+                    bakeFill(fill) // Bake Fill First (Below)
+                }
+                
+                bakeStroke(stroke) // Bake Stroke Second (Above)
+                
+                if (onHybridStrokeCompleted != null) {
+                    onHybridStrokeCompleted?.invoke(stroke, fill)
+                } else {
+                    onStrokeCompleted?.invoke(stroke)
+                    fill?.let { onFillCompleted?.invoke(it) }
+                }
                 
                 isDrawing = false
                 currentStrokePath.reset()
@@ -1008,6 +1043,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                 currentVectorPreviewPath = null
                 currentVectorPreviewPoints = null
                 currentStrokePoints.clear()
+                updateCurrentFill(null, 0) // Clear preview
                 return true
             }
         }
@@ -1063,6 +1099,19 @@ class SketcherCanvasView(context: Context) : View(context) {
         currentVectorPreviewPoints = livePoints
         currentVectorPreviewColor = activeColor
         currentPredictedPoint = predictedPt 
+        
+        // --- LIVE FILL PREVIEW ---
+        if (isFillModeEnabled && livePoints.size >= 3) {
+            val fPath = android.graphics.Path()
+            fPath.moveTo(livePoints[0].x, livePoints[0].y)
+            for (i in 1 until livePoints.size) {
+                fPath.lineTo(livePoints[i].x, livePoints[i].y)
+            }
+            fPath.close()
+            updateCurrentFill(fPath, fillModeColor)
+        } else if (!isFillModeEnabled) {
+            updateCurrentFill(null, 0)
+        }
         
         // Debug Data
         currentVectorPreviewCenterPoints = result.center

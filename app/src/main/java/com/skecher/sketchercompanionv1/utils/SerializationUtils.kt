@@ -134,7 +134,7 @@ fun LayerElementJson.toLayerElement(
             matrix.setValues(groupJson.matrixValues.toFloatArray())
             GroupElement(
                 id = groupJson.id,
-                elements = groupJson.elements.map { it.toLayerElement(bitmapLoader, svgLoader) },
+                elements = groupJson.elements.map { it.toLayerElement(bitmapLoader, svgLoader) }.toMutableList(),
                 matrix = matrix
             )
         }
