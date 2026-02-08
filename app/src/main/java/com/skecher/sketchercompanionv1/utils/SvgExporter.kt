@@ -14,27 +14,54 @@ import com.skecher.sketchercompanionv1.GroupElement
 import com.skecher.sketchercompanionv1.ComponentDefinition
 import com.skecher.sketchercompanionv1.ComponentInstance
 import com.skecher.sketchercompanionv1.dto.ProjectData
+import com.skecher.sketchercompanionv1.ExportSvgConfig
 import androidx.ink.strokes.Stroke
 import java.io.ByteArrayOutputStream
 
 object SvgExporter {
 
-    fun export(projectData: ProjectData, layers: List<Layer>): String {
-        val width = projectData.canvasMetadata.width.takeIf { it > 0 } ?: 1920f 
-        val height = projectData.canvasMetadata.height.takeIf { it > 0 } ?: 1080f
+    fun export(projectData: ProjectData, layers: List<Layer>, config: ExportSvgConfig): String {
+        val width = config.width
+        val height = config.height
         
         val sb = StringBuilder()
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>\n")
         sb.append("<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" ")
-        sb.append("width=\"$width\" height=\"$height\" viewBox=\"0 0 $width $height\">\n")
+        
+        // Calculate ViewBox based on Home View vs Fit Content
+        val viewBox: String
+        
+        if (config.useHomeView) {
+            // In Home View, we match the viewport dimensions
+            viewBox = "0 0 ${projectData.canvasMetadata.width} ${projectData.canvasMetadata.height}"
+        } else {
+            // Fit Content: The config width/height already represent the bounds
+            viewBox = "0 0 $width $height"
+        }
+
+        sb.append("width=\"$width\" height=\"$height\" viewBox=\"$viewBox\">\n")
         
         sb.append("  <defs>\n")
         sb.append("  </defs>\n")
         
         // Background
-        val bgColor = projectData.backgroundConfig.color
-        val paramHex = colorToHex(bgColor)
-        sb.append("  <rect width=\"$width\" height=\"$height\" fill=\"$paramHex\" />\n")
+        if (config.includeBackground) {
+            val bgColor = projectData.backgroundConfig.color
+            val paramHex = colorToHex(bgColor)
+            sb.append("  <rect width=\"$width\" height=\"$height\" fill=\"$paramHex\" />\n")
+        }
+
+        // Apply Transform if using Home View to match perspective
+        if (config.useHomeView && projectData.canvasMetadata.cameraMatrix.size == 9) {
+            val vals = projectData.canvasMetadata.cameraMatrix.toFloatArray()
+            val a = vals[Matrix.MSCALE_X]
+            val b = vals[Matrix.MSKEW_Y]
+            val c = vals[Matrix.MSKEW_X]
+            val d = vals[Matrix.MSCALE_Y]
+            val e = vals[Matrix.MTRANS_X]
+            val f = vals[Matrix.MTRANS_Y]
+            sb.append("  <g transform=\"matrix($a, $b, $c, $d, $e, $f)\">\n")
+        }
 
         // Iterate Layers (Bottom to Top)
         for (layer in layers) {
@@ -55,6 +82,10 @@ object SvgExporter {
                 }
             }
             
+            sb.append("  </g>\n")
+        }
+
+        if (config.useHomeView && projectData.canvasMetadata.cameraMatrix.size == 9) {
             sb.append("  </g>\n")
         }
 

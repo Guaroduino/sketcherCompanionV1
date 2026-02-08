@@ -22,14 +22,25 @@ import com.skecher.sketchercompanionv1.utils.toLayerJson
 import com.skecher.sketchercompanionv1.utils.toLayer
 import com.skecher.sketchercompanionv1.utils.toComponentDefinitionJson
 import com.skecher.sketchercompanionv1.utils.toComponentDefinition
+import com.skecher.sketchercompanionv1.utils.SvgExporter
 import java.util.ArrayDeque
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.RectF
+import android.net.Uri
 
 data class ExportPngConfig(
     val transparentBackground: Boolean,
-    val useHomeView: Boolean
+    val useHomeView: Boolean,
+    val width: Int,
+    val height: Int
+)
+
+data class ExportSvgConfig(
+    val includeBackground: Boolean,
+    val useHomeView: Boolean,
+    val width: Float,
+    val height: Float
 )
 
 class SketcherViewModel(application: Application) : AndroidViewModel(application) {
@@ -59,6 +70,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     // SETTINGS
     var isRotationLocked by mutableStateOf(prefs.getBoolean("rotation_lock", false))
     var isPalmRejectionEnabled by mutableStateOf(prefs.getBoolean("palm_rejection", false))
+    var showTooltips by mutableStateOf(prefs.getBoolean("show_tooltips", true))
     
     var interfaceScale by mutableStateOf(prefs.getFloat("interface_scale", 1.0f))
         private set
@@ -92,6 +104,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     fun toggleRotationLock() { isRotationLocked = !isRotationLocked; prefs.edit().putBoolean("rotation_lock", isRotationLocked).apply() }
     fun togglePalmRejection() { isPalmRejectionEnabled = !isPalmRejectionEnabled; prefs.edit().putBoolean("palm_rejection", isPalmRejectionEnabled).apply() }
+    fun toggleTooltips() { showTooltips = !showTooltips; prefs.edit().putBoolean("show_tooltips", showTooltips).apply() }
     
     fun updateScaleConfig(u: String, b: Float) { scaleConfig = ScaleConfig(u, b); currentUnit = DistanceUnit.fromSymbol(u) }
     fun updateGridConfig(v: Boolean, s: Float, c: Int, c2: Int, c3: Int) { gridConfig = GridConfig(v, s, c, c2, c3) }
@@ -114,7 +127,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     var editingContainerMatrix by mutableStateOf<Matrix?>(null)
         private set
 
-    var lastExportPngConfig by mutableStateOf(ExportPngConfig(transparentBackground = false, useHomeView = true))
+    var lastExportPngConfig by mutableStateOf(ExportPngConfig(transparentBackground = false, useHomeView = true, width = 1920, height = 1080))
+    var lastExportSvgConfig by mutableStateOf(ExportSvgConfig(includeBackground = true, useHomeView = true, width = 1920f, height = 1080f))
 
     // --- SETTINGS LOADERS ---
     private fun loadFreehandSettings(): FreehandSettings {
@@ -512,7 +526,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     fun setFreehandTolerance(value: Float) {
          if (currentFreehandSettings.tolerance != value) {
-            updateFreehandSettings(currentFreehandSettings.copy(tolerance = value))
+            val enabled = value > 0f
+            updateFreehandSettings(currentFreehandSettings.copy(
+                tolerance = value,
+                isSimplificationEnabled = enabled
+            ))
         }
     }
 
@@ -542,11 +560,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun setFreehandSimplificationEnabled(enabled: Boolean) {
-        if (currentFreehandSettings.isSimplificationEnabled != enabled) {
-            updateFreehandSettings(currentFreehandSettings.copy(isSimplificationEnabled = enabled))
-        }
-    }
+
 
     
     // PRESETS
@@ -665,7 +679,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     // --- CAMERA ---
     val cameraMatrixValues = FloatArray(9).apply { Matrix().getValues(this) }
     private val homeCameraMatrixValues = FloatArray(9).apply {
-        val saved = prefs.getString("home_camera_matrix", null)
+        val saved = prefs.getString("home_camera_matrix_v3", null)
         if (saved != null) {
             val arr = saved.split(",").map { it.toFloat() }.toFloatArray()
             if (arr.size == 9) arr.copyInto(this) else Matrix().getValues(this)
@@ -674,14 +688,16 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         }
     }
     var cameraUpdateTrigger by mutableIntStateOf(0)
+    var showHomeRestoredFeedback by mutableStateOf(false)
     
     fun resetCamera() { 
         homeCameraMatrixValues.copyInto(cameraMatrixValues)
         cameraUpdateTrigger++ 
+        showHomeRestoredFeedback = true
     }
     fun saveHomeCamera() {
         cameraMatrixValues.copyInto(homeCameraMatrixValues)
-        prefs.edit().putString("home_camera_matrix", homeCameraMatrixValues.joinToString(",")).apply()
+        prefs.edit().putString("home_camera_matrix_v3", homeCameraMatrixValues.joinToString(",")).apply()
     }
     fun saveCameraState(matrix: Matrix) { matrix.getValues(cameraMatrixValues) }
     fun saveDimensions(w: Float, h: Float) { lastViewportWidth = w; lastViewportHeight = h }
@@ -729,6 +745,118 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
              m.getValues(cameraMatrixValues)
              cameraUpdateTrigger++
          }
+    }
+
+    fun setZoomOneHundred() {
+        if (lastViewportWidth <= 0 || lastViewportHeight <= 0) return
+        
+        val m = Matrix()
+        m.setValues(cameraMatrixValues)
+        
+        val values = FloatArray(9)
+        m.getValues(values)
+        val currentScale = values[Matrix.MSCALE_X]
+        val currentTx = values[Matrix.MTRANS_X]
+        val currentTy = values[Matrix.MTRANS_Y]
+        
+        // Center of viewport
+        val cx = lastViewportWidth / 2f
+        val cy = lastViewportHeight / 2f
+        
+        // World coordinates of center
+        val worldX = (cx - currentTx) / currentScale
+        val worldY = (cy - currentTy) / currentScale
+        
+        // New Matrix: Scale 1.0, preserve center
+        m.setScale(1f, 1f)
+        m.postTranslate(cx - worldX, cy - worldY)
+        
+        m.getValues(cameraMatrixValues)
+        cameraUpdateTrigger++
+    }
+
+    // Export Helpers
+    fun getExportDefaults(useHomeView: Boolean): Pair<Int, Int> {
+        return if (useHomeView) {
+            Pair(lastViewportWidth.toInt().coerceAtLeast(100), lastViewportHeight.toInt().coerceAtLeast(100))
+        } else {
+            val bounds = calculateVisibleBounds()
+            if (bounds.isEmpty) return Pair(800, 600)
+            val padding = kotlin.math.max(bounds.width(), bounds.height()) * 0.05f
+            bounds.inset(-padding, -padding)
+            Pair(bounds.width().toInt().coerceAtLeast(100), bounds.height().toInt().coerceAtLeast(100))
+        }
+    }
+
+    private fun getExportSource(useHomeView: Boolean): Pair<RectF, Float> {
+        val bounds = RectF()
+        
+        if (useHomeView) {
+            bounds.set(0f, 0f, lastViewportWidth, lastViewportHeight)
+        } else {
+             val visibleBounds = calculateVisibleBounds()
+             if (visibleBounds.isEmpty) return Pair(RectF(0f,0f,100f,100f), 1f)
+             val padding = kotlin.math.max(visibleBounds.width(), visibleBounds.height()) * 0.05f
+             visibleBounds.inset(-padding, -padding)
+             bounds.set(visibleBounds)
+        }
+        return Pair(bounds, 1f)
+    }
+
+    fun renderExportBitmap(config: ExportPngConfig): Bitmap? {
+        try {
+             val (sourceBounds, _) = getExportSource(config.useHomeView)
+             if (config.width <= 0 || config.height <= 0) return null
+             
+             val bitmap = Bitmap.createBitmap(config.width, config.height, Bitmap.Config.ARGB_8888)
+             val canvas = Canvas(bitmap)
+             
+             if (!config.transparentBackground) {
+                 canvas.drawColor(backgroundColor)
+             } else {
+                 canvas.drawColor(AndroidColor.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
+             }
+             
+             val matrix = Matrix()
+             if (config.useHomeView) {
+                 matrix.setValues(homeCameraMatrixValues)
+                 val scaleX = config.width.toFloat() / lastViewportWidth
+                 val scaleY = config.height.toFloat() / lastViewportHeight
+                 matrix.postScale(scaleX, scaleY)
+             } else {
+                 matrix.postTranslate(-sourceBounds.left, -sourceBounds.top)
+                 val scaleX = config.width.toFloat() / sourceBounds.width()
+                 val scaleY = config.height.toFloat() / sourceBounds.height()
+                 matrix.postScale(scaleX, scaleY)
+             }
+             
+             canvas.save()
+             canvas.concat(matrix)
+             for (layer in layers) {
+                 if (!layer.isVisible) continue
+                 val layerAlpha = if (layer.opacity < 1f) (layer.opacity * 255).toInt() else 255
+                 val saveCount = if (layerAlpha < 255) canvas.saveLayerAlpha(null, layerAlpha) else canvas.save()
+                 for (element in layer.elements) RenderHelper.drawElementRecursive(canvas, element, componentLibrary)
+                 canvas.restoreToCount(saveCount)
+             }
+             canvas.restore()
+             return bitmap
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return null
+        }
+    }
+
+    fun exportPng(context: Context, uri: android.net.Uri, config: ExportPngConfig) {
+        try {
+            val bitmap = renderExportBitmap(config) ?: return
+            context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
+            }
+            bitmap.recycle()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     // --- ADD METHODS (Missing from Step 93 truncation) ---
@@ -890,16 +1018,24 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
     
     fun insertSvg(context: Context, uri: android.net.Uri) {
-        // Basic impl
+        // Modified to wrap SVG in GroupElement
         try {
             val stream = context.contentResolver.openInputStream(uri)
             val bytes = stream?.readBytes()
             stream?.close()
             if (bytes != null) {
                 val content = String(bytes, Charsets.UTF_8)
-                val element = SvgElement("svg_${UUID.randomUUID()}", "import.svg", content)
+                val svgElement = SvgElement("svg_${UUID.randomUUID()}", "import.svg", content)
+                
+                // Wrap in GroupElement as requested
+                val group = GroupElement(
+                    id = UUID.randomUUID().toString(),
+                    elements = mutableListOf(svgElement),
+                    matrix = Matrix()
+                )
+                
                 saveStateForUndo()
-                activeContainer.add(element)
+                activeContainer.add(group)
                 if (editingContext == null) layers[activeLayerIndex] = layers[activeLayerIndex].copy()
                 redoStack.clear()
                 updateUndoRedoSupport()
@@ -973,80 +1109,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     // --- MISSING METHODS ---
 
-    fun exportPng(context: Context, uri: android.net.Uri, config: ExportPngConfig) {
-        try {
-            // 1. Determine Output Size and Transform
-            var targetWidth = 2048
-            var targetHeight = 2048
-            val exportMatrix = Matrix()
 
-            if (config.useHomeView) {
-                // Use Home View perspective
-                targetWidth = lastViewportWidth.toInt().coerceAtLeast(100)
-                targetHeight = lastViewportHeight.toInt().coerceAtLeast(100)
-                exportMatrix.setValues(homeCameraMatrixValues)
-            } else {
-                // Fit Content
-                val bounds = calculateVisibleBounds()
-                if (bounds.isEmpty) {
-                    // Nothing to export
-                    return
-                }
-                
-                // Add some padding (5%)
-                val padding = bounds.width() * 0.05f
-                bounds.inset(-padding, -padding)
-                
-                targetWidth = bounds.width().toInt().coerceAtLeast(100)
-                targetHeight = bounds.height().toInt().coerceAtLeast(100)
-                
-                // Move content to 0,0
-                exportMatrix.postTranslate(-bounds.left, -bounds.top)
-            }
-
-            // 2. Create Bitmap
-            val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bitmap)
-
-            // 3. Draw Background
-            if (!config.transparentBackground) {
-                canvas.drawColor(backgroundColor)
-            } else {
-                canvas.drawColor(AndroidColor.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
-            }
-
-            // 4. Draw Content
-            canvas.save()
-            canvas.concat(exportMatrix)
-            
-            for (layer in layers) {
-                if (!layer.isVisible) continue
-                
-                val layerAlpha = if (layer.opacity < 1f) (layer.opacity * 255).toInt() else 255
-                val saveCount = if (layerAlpha < 255) {
-                    canvas.saveLayerAlpha(null, layerAlpha)
-                } else {
-                    canvas.save()
-                }
-
-                for (element in layer.elements) {
-                    RenderHelper.drawElementRecursive(canvas, element, componentLibrary)
-                }
-                
-                canvas.restoreToCount(saveCount)
-            }
-            canvas.restore()
-
-            // 5. Save to URI
-            context.contentResolver.openOutputStream(uri)?.use { outputStream ->
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
-            }
-            
-            bitmap.recycle()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
 
     private fun calculateVisibleBounds(): RectF {
         val totalBounds = RectF()
@@ -1067,32 +1130,35 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         return totalBounds
     }
 
-    fun exportSvg(context: Context, uri: android.net.Uri) {
+    fun generateSvgContent(config: ExportSvgConfig): String {
+        val projectData = ProjectData(
+            id = projectId,
+            layers = layers.map { it.toLayerJson() },
+            backgroundConfig = BackgroundConfig(color = backgroundColor, gridConfig = gridConfig),
+            paletteColors = availableColors.toList(),
+            toolConfigs = toolConfigs.toMap(),
+            canvasMetadata = CanvasMetadata(
+                width = config.width,
+                height = config.height,
+                cameraMatrix = emptyList(), // Not used directly in SvgExporter.export for coordinates if using homeView logic in exporter
+                scaleConfig = scaleConfig
+            ),
+            componentLibrary = componentLibrary.mapValues { it.value.toComponentDefinitionJson() }
+        )
+        return SvgExporter.export(projectData, layers, config)
+    }
+
+    fun exportSvg(context: Context, uri: android.net.Uri, config: ExportSvgConfig) {
         try {
-             // Construct ProjectData
-             val projectData = com.skecher.sketchercompanionv1.dto.ProjectData(
-                 id = projectId,
-                 layers = layers.map { it.toLayerJson() },
-                 backgroundConfig = com.skecher.sketchercompanionv1.dto.BackgroundConfig(backgroundColor, gridConfig),
-                 paletteColors = availableColors.toList(),
-                 toolConfigs = emptyMap(),
-                 canvasMetadata = com.skecher.sketchercompanionv1.dto.CanvasMetadata(
-                     width = 2000f,
-                     height = 2000f,
-                     cameraMatrix = emptyList(),
-                     scaleConfig = scaleConfig
-                 )
-             )
-             
-            val svgString = com.skecher.sketchercompanionv1.utils.SvgExporter.export(projectData, layers)
-            
+            val svgString = generateSvgContent(config)
             context.contentResolver.openOutputStream(uri)?.use { outputStream ->
                 outputStream.write(svgString.toByteArray())
             }
-        } catch(e: Exception) {
+        } catch (e: Exception) {
             e.printStackTrace()
         }
     }
+
 
     fun erase(x: Float, y: Float, radius: Float): Boolean {
        if (activeLayerIndex !in layers.indices) return false
@@ -1138,6 +1204,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         updateUndoRedoSupport()
     }
     
+
     fun saveTemplate(context: Context, name: String) {
          // Construct ProjectData from current state for saving
          val projectData = com.skecher.sketchercompanionv1.dto.ProjectData(

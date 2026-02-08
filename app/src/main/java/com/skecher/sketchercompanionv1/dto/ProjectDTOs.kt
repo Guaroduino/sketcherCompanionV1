@@ -16,7 +16,7 @@ data class ProjectJson(
 )
 
 data class ScaleConfig(
-    val unitName: String = "m",
+    val unitName: String = "mm",
     val basePixelsPerMillimeter: Float = 5.0f // Manual calibration
 )
 
@@ -140,6 +140,12 @@ data class FreehandSettings(
     // Tapering (Lengths) - Negative values will simulate widening
     val taperStart: Float = 0.0f,
     val taperEnd: Float = 0.0f,
+    
+    // Tapering (Intensity/Limits)
+    val taperStartTipRatio: Float = 0.0f, // 0 = sharp, 1 = no taper
+    val taperEndTipRatio: Float = 0.0f,
+    val wideningStartRatio: Float = 2.0f, // Multiplier for thickness if taper < 0
+    val wideningEndRatio: Float = 2.0f,
     
     // Caps
     val capStart: Boolean = true, 

@@ -1,0 +1,164 @@
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:checkDebugAarMetadata UP-TO-DATE
+> Task :app:processDebugNavigationResources UP-TO-DATE
+> Task :app:compileDebugNavigationResources UP-TO-DATE
+> Task :app:generateDebugResValues UP-TO-DATE
+> Task :app:mapDebugSourceSetPaths UP-TO-DATE
+> Task :app:generateDebugResources UP-TO-DATE
+> Task :app:mergeDebugResources UP-TO-DATE
+> Task :app:packageDebugResources UP-TO-DATE
+> Task :app:parseDebugLocalResources UP-TO-DATE
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksDebug UP-TO-DATE
+> Task :app:processDebugMainManifest UP-TO-DATE
+> Task :app:processDebugManifest UP-TO-DATE
+> Task :app:processDebugManifestForPackage UP-TO-DATE
+> Task :app:processDebugResources UP-TO-DATE
+
+> Task :app:compileDebugKotlin FAILED
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/SketcherSurface.kt:367:63 Unresolved reference 'isDebugWireframe'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/SketcherSurface.kt:367:99 Unresolved reference 'isDebugWireframe'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/SketcherSurface.kt:374:43 Unresolved reference 'isDebugWireframe'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/SketcherSurface.kt:446:35 Unresolved reference 'isDebugWireframe'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/SketcherSurface.kt:447:62 Unresolved reference 'isDebugWireframe'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/SketcherSurface.kt:1337:62 Unresolved reference 'isDebugWireframe'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/SketcherSurface.kt:1360:42 Unresolved reference 'canUndo'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/SketcherSurface.kt:1549:52 Unresolved reference 'isDebugWireframe'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/SketcherSurface.kt:1550:59 Unresolved reference 'isDebugWireframe'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/SketcherSurface.kt:1550:95 Unresolved reference 'isDebugWireframe'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/SketcherSurface.kt:1661:50 Unresolved reference 'isDebugWireframe'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/SketcherSurface.kt:1662:58 Unresolved reference 'isDebugWireframe'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/SketcherSurface.kt:1662:94 Unresolved reference 'isDebugWireframe'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/SketcherSurface.kt:2993:31 Suspension functions can only be called within coroutine body.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/SketcherSurface.kt:3020:66 Unresolved reference 'asImageBitmap'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/SketcherSurface.kt:3099:71 Unresolved reference 'format'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/SketcherSurface.kt:3105:69 No value passed for parameter 'width'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/SketcherSurface.kt:3105:69 No value passed for parameter 'height'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:174:29 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:174:29 Not enough information to infer type argument for 'T'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:174:29 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:174:29 Property delegate must have a 'getValue(SketcherViewModel, KMutableProperty1<SketcherViewModel, ERROR CLASS: Cannot infer argument for type parameter T>)' method. None of the following functions is applicable:
+fun <T> State<T>.getValue(thisObj: Any?, property: KProperty<*>): T
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:174:29 Property delegate must have a 'setValue(SketcherViewModel, KMutableProperty1<SketcherViewModel, ERROR CLASS: Cannot infer argument for type parameter T>, ERROR CLASS: Cannot infer argument for type parameter T)' method. None of the following functions is applicable:
+fun <T> MutableState<T>.setValue(thisObj: Any?, property: KProperty<*>, value: T): Unit
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:174:29 Not enough information to infer type argument for 'T'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:174:44 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:175:35 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:175:35 Not enough information to infer type argument for 'T'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:175:35 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:175:35 Property delegate must have a 'getValue(SketcherViewModel, KMutableProperty1<SketcherViewModel, ERROR CLASS: Cannot infer argument for type parameter T>)' method. None of the following functions is applicable:
+fun <T> State<T>.getValue(thisObj: Any?, property: KProperty<*>): T
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:175:35 Property delegate must have a 'setValue(SketcherViewModel, KMutableProperty1<SketcherViewModel, ERROR CLASS: Cannot infer argument for type parameter T>, ERROR CLASS: Cannot infer argument for type parameter T)' method. None of the following functions is applicable:
+fun <T> MutableState<T>.setValue(thisObj: Any?, property: KProperty<*>, value: T): Unit
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:175:35 Not enough information to infer type argument for 'T'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:175:50 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:177:27 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:177:27 Not enough information to infer type argument for 'T'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:177:27 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:177:27 Property delegate must have a 'getValue(SketcherViewModel, KMutableProperty1<SketcherViewModel, ERROR CLASS: Cannot infer argument for type parameter T>)' method. None of the following functions is applicable:
+fun <T> State<T>.getValue(thisObj: Any?, property: KProperty<*>): T
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:177:27 Property delegate must have a 'setValue(SketcherViewModel, KMutableProperty1<SketcherViewModel, ERROR CLASS: Cannot infer argument for type parameter T>, ERROR CLASS: Cannot infer argument for type parameter T)' method. None of the following functions is applicable:
+fun <T> MutableState<T>.setValue(thisObj: Any?, property: KProperty<*>, value: T): Unit
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:177:27 Not enough information to infer type argument for 'T'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:177:42 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:181:9 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:181:57 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:189:53 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:192:9 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:192:64 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:195:25 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:195:25 Not enough information to infer type argument for 'T'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:195:25 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:195:25 Property delegate must have a 'getValue(SketcherViewModel, KMutableProperty1<SketcherViewModel, ERROR CLASS: Cannot infer argument for type parameter T>)' method. None of the following functions is applicable:
+fun <T> State<T>.getValue(thisObj: Any?, property: KProperty<*>): T
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:195:25 Property delegate must have a 'setValue(SketcherViewModel, KMutableProperty1<SketcherViewModel, ERROR CLASS: Cannot infer argument for type parameter T>, ERROR CLASS: Cannot infer argument for type parameter T)' method. None of the following functions is applicable:
+fun <T> MutableState<T>.setValue(thisObj: Any?, property: KProperty<*>, value: T): Unit
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:195:25 Not enough information to infer type argument for 'T'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:195:40 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:198:9 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:198:55 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:201:33 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:201:33 Not enough information to infer type argument for 'T'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:201:33 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:201:33 Property delegate must have a 'getValue(SketcherViewModel, KMutableProperty1<SketcherViewModel, ERROR CLASS: Cannot infer argument for type parameter T>)' method. None of the following functions is applicable:
+fun <T> State<T>.getValue(thisObj: Any?, property: KProperty<*>): T
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:201:33 Property delegate must have a 'setValue(SketcherViewModel, KMutableProperty1<SketcherViewModel, ERROR CLASS: Cannot infer argument for type parameter T>, ERROR CLASS: Cannot infer argument for type parameter T)' method. None of the following functions is applicable:
+fun <T> MutableState<T>.setValue(thisObj: Any?, property: KProperty<*>, value: T): Unit
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:201:33 Not enough information to infer type argument for 'T'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:201:48 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:203:32 Unresolved reference 'not' for operator '!'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:204:9 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:204:79 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:207:51 Unresolved reference 'not' for operator '!'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:207:70 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:207:129 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:208:58 Unresolved reference 'not' for operator '!'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:208:83 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:208:149 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:238:20 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:248:9 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:248:62 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:255:29 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:276:27 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:277:9 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:277:9 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:278:9 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:279:9 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:280:9 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:282:49 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:283:43 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:287:53 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:292:13 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:292:59 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:300:21 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:301:21 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:556:13 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:556:64 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:557:13 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:557:77 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:564:13 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:564:61 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:567:17 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:567:61 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:579:9 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:579:59 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:595:9 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:595:70 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:602:9 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:602:74 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:606:57 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:613:13 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:613:68 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:672:13 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:673:13 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:674:13 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:683:13 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:683:63 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:752:9 Unresolved reference 'canUndo'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:785:21 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:787:29 Unresolved reference 'split'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:787:46 Unresolved reference 'it'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:787:61 Overload resolution ambiguity between candidates:
+fun Array<out Float>.toFloatArray(): FloatArray
+fun Collection<Float>.toFloatArray(): FloatArray
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:788:21 Unresolved reference 'size'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:802:9 Unresolved reference 'prefs'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:802:99 Cannot infer type for this parameter. Please specify it explicitly.
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileDebugKotlin'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 2s
+16 actionable tasks: 1 executed, 15 up-to-date

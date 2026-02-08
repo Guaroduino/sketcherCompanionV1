@@ -52,7 +52,8 @@ object PerfectFreehandGenerator {
     private data class OutlineResult(
         val left: List<Vec2>,
         val right: List<Vec2>,
-        val polygon: List<Vec2>
+        val polygon: List<Vec2>,
+        val lastRadius: Float
     )
 
     // Public Result Data Class
@@ -60,7 +61,8 @@ object PerfectFreehandGenerator {
         val path: Path,
         val left: List<PointF>,
         val right: List<PointF>,
-        val center: List<PointF>
+        val center: List<PointF>,
+        val lastRadius: Float
     )
 
     fun generate(
@@ -69,7 +71,7 @@ object PerfectFreehandGenerator {
         settings: FreehandSettings = FreehandSettings()
     ): FreehandResult {
         val path = Path()
-        if (rawPoints.isEmpty()) return FreehandResult(path, emptyList(), emptyList(), emptyList())
+        if (rawPoints.isEmpty()) return FreehandResult(path, emptyList(), emptyList(), emptyList(), 0f)
 
         // 1. Get Stroke Points
         val strokePoints = getStrokePoints(rawPoints, baseWidth, settings)
@@ -77,7 +79,7 @@ object PerfectFreehandGenerator {
         // 2. Get Outline Points
         val outline = getStrokeOutlinePoints(strokePoints, baseWidth, settings)
 
-        if (outline.polygon.size < 3) return FreehandResult(path, emptyList(), emptyList(), emptyList())
+        if (outline.polygon.size < 3) return FreehandResult(path, emptyList(), emptyList(), emptyList(), 0f)
 
         val polygonPoints = outline.polygon
         
@@ -106,7 +108,7 @@ object PerfectFreehandGenerator {
         val rightConv = outline.right.map { PointF(it.x, it.y) }
         val centerConv = strokePoints.map { PointF(it.point.x, it.point.y) }
         
-        return FreehandResult(path, leftConv, rightConv, centerConv)
+        return FreehandResult(path, leftConv, rightConv, centerConv, outline.lastRadius)
     }
 
     // --- Strict Implementation ---
@@ -250,7 +252,7 @@ object PerfectFreehandGenerator {
         size: Float,
         settings: FreehandSettings
     ): OutlineResult {
-        if (points.isEmpty() || size <= 0) return OutlineResult(emptyList(), emptyList(), emptyList())
+        if (points.isEmpty() || size <= 0) return OutlineResult(emptyList(), emptyList(), emptyList(), 0f)
 
         val smoothing = settings.smoothing
         val thinning = settings.thinning
@@ -330,32 +332,36 @@ object PerfectFreehandGenerator {
             var ts = 1f
             if (taperStart > 0) {
                 // Standard Taper (Thinning)
-                if (curr.runningLength < taperStart) ts = taperStartEase(curr.runningLength / taperStart)
+                if (curr.runningLength < taperStart) {
+                    val t = curr.runningLength / taperStart
+                    ts = lrp(settings.taperStartTipRatio, 1f, taperStartEase(t))
+                }
             } else if (taperStart < 0) {
                 // Widening Taper (Ensanchamiento)
                 val absTaper = -taperStart
                 if (curr.runningLength < absTaper) {
-                    // Start thick (e.g. 3x) and decay to 1x
                     val t = curr.runningLength / absTaper
-                    // Boost: 1 + 2 * (1 - ease) -> Starts at 3, ends at 1
-                    ts = 1f + (2f * (1f - taperStartEase(t))) 
+                    ts = lrp(1f, settings.wideningStartRatio, 1f - taperStartEase(t))
                 }
             }
             
             // Handle End
             var te = 1f
             if (taperEnd > 0) {
-                if (totalLength - curr.runningLength < taperEnd) te = taperEndEase((totalLength - curr.runningLength) / taperEnd)
+                if (totalLength - curr.runningLength < taperEnd) {
+                    val t = (totalLength - curr.runningLength) / taperEnd
+                    te = lrp(settings.taperEndTipRatio, 1f, taperEndEase(t))
+                }
             } else if (taperEnd < 0) {
                 val absTaper = -taperEnd
                 if (totalLength - curr.runningLength < absTaper) {
                     val t = (totalLength - curr.runningLength) / absTaper
-                    te = 1f + (2f * (1f - taperEndEase(t)))
+                    te = lrp(1f, settings.wideningEndRatio, 1f - taperEndEase(t))
                 }
             }
             
-            // Fuse Taper
-            radius = max(0.01f, radius * min(ts, te))
+            // Fuse Taper/Widening (Multiply to allow both to coexist)
+            radius = max(0.01f, radius * ts * te)
 
             // Sharp Corners
             val nextVector = if (i < points.size - 1) points[i + 1].vector else points[i].vector
@@ -428,9 +434,9 @@ object PerfectFreehandGenerator {
             val r = firstRadius ?: radius
             return if (!(taperStart != 0f || taperEnd != 0f)) { // isComplete assumed false or irrel
                  val dot = drawDot(firstPoint, r)
-                 OutlineResult(dot, emptyList(), dot) // Roughly correct return structure
+                 OutlineResult(dot, emptyList(), dot, r) // Roughly correct return structure
             } else {
-                 OutlineResult(emptyList(), emptyList(), emptyList())
+                 OutlineResult(emptyList(), emptyList(), emptyList(), 0f)
             }
         }
         
@@ -468,7 +474,7 @@ object PerfectFreehandGenerator {
         polygon.addAll(rightPts.reversed())
         polygon.addAll(startCap)
         
-        return OutlineResult(leftPts, rightPts, polygon)
+        return OutlineResult(leftPts, rightPts, polygon, radius)
     }
 
     // --- Helpers ---

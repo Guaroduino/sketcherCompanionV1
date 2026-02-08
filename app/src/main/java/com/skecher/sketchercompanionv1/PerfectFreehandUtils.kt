@@ -47,6 +47,7 @@ object PerfectFreehandUtils {
         return if (l != 0f) a / l else Vec2(0f, 0f)
     }
     
+    fun lrp(a: Float, b: Float, t: Float) = a + (b - a) * t
     fun lrp(a: Vec2, b: Vec2, t: Float) = add(a, mul(sub(b, a), t))
     
     fun prj(a: Vec2, b: Vec2, c: Float) = add(a, mul(b, c))

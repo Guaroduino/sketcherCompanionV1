@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">sketcherCompanionV1</string>
+    <string name="app_name">SCompanion</string>
     <string name="tool_technical_pen">Technical Pen</string>
     <string name="tool_pressure_pen">Pressure Pen</string>
     <string name="tool_marker">Marker</string>

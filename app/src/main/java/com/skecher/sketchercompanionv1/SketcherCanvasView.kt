@@ -24,6 +24,13 @@ class SketcherCanvasView(context: Context) : View(context) {
     private val strokeRenderer = CanvasStrokeRenderer.create()
     private var isDrawing: Boolean = false
     
+    // SELECTION STATE
+    var isSelectionDragging: Boolean = false
+        set(value) {
+            field = value
+            redrawAllCache() // Rebuild cache when drag state changes (lift/drop)
+        }
+    
     // BITMAP CACHING
     private var backingBitmap: android.graphics.Bitmap? = null
     private var backingCanvas: Canvas? = null
@@ -129,7 +136,8 @@ class SketcherCanvasView(context: Context) : View(context) {
                  val isDimmed = editingContext != null && !editingContext!!.contains(element)
                  val isSelected = selectionManager?.selectedElements?.contains(element) == true
                  
-                 if (isSelected) continue // Skip selected elements, they are drawn live in onDraw
+                 // Only skip drawing if selected AND we are currently dragging/transforming
+                 if (isSelected && isSelectionDragging) continue 
                  
                  RenderHelper.drawElementRecursive(
                      canvas, 
@@ -249,6 +257,7 @@ class SketcherCanvasView(context: Context) : View(context) {
     private var currentLiveTipWidth: Float = 0f
     private var currentVelocityState: Float = 0f // Persistent smoothed velocity
     private var currentPressureState: Float = 0.5f // Persistent smoothed pressure
+    private var currentLiveGeneratedRadius: Float = 0f // New: Accurate radius from generator
     
     private val fillPaint = android.graphics.Paint().apply {
         style = android.graphics.Paint.Style.FILL
@@ -629,59 +638,57 @@ class SketcherCanvasView(context: Context) : View(context) {
                          currentVelocityState += (measuredVelocity - currentVelocityState) * 0.1f
                      }
 
-                     // 2. Dynamics Calculation
-                     val maxSpeed = activeFreehandSettings.maxPredictionVelocity.coerceAtLeast(1f) 
-                     val normalizedVel = (currentVelocityState / maxSpeed).coerceIn(0f, 1f)
-                     
-                     // Invert: Higher speed = Less Pressure (Simulated)
-                     val simPressure = (1f - normalizedVel).coerceIn(0f, 1f)
-                     
-                     // 3. Physical Pressure Smoothing
-                     val rawPressure = tipPoint.pressure.coerceIn(0f, 1f)
-                     currentPressureState += (rawPressure - currentPressureState) * 0.2f
-                     
-                     // 4. Determine Effective Pressure
-                     val effectivePressure = if (activeFreehandSettings.simulatePressure) {
-                         simPressure
-                     } else {
-                         currentPressureState
-                     }
 
-                     // 5. Calculate Target Width
-                     // Use Perfect Freehand Utils to match generator logic
-                     val targetRadius = PerfectFreehandUtils.getStrokeRadius(
-                         activeSize, 
-                         activeFreehandSettings.thinning, 
-                         effectivePressure
-                     )
-                     val targetWidth = targetRadius * 2f
+                     // 6. ADAPTIVE RENDERING (Zoom-Aware Cursor)
+                     val mValues = FloatArray(9)
+                     viewMatrix.getValues(mValues)
+                     val zoom = kotlin.math.sqrt(mValues[Matrix.MSCALE_X] * mValues[Matrix.MSCALE_X] + mValues[Matrix.MSKEW_X] * mValues[Matrix.MSKEW_X])
                      
-                     // VISUAL INTERPOLATION (Eliminates Jitter)
-                     if (currentLiveTipWidth == 0f) {
-                         currentLiveTipWidth = targetWidth
-                     } else {
-                         // Lerp factor 0.2 provides responsiveness with smoothness
-                         currentLiveTipWidth += (targetWidth - currentLiveTipWidth) * 0.2f
+                     // Minimum visible "GUIDE" radius in screen coordinates (subtle marker)
+                     val minScreenRadius = 1.5f * (resources.displayMetrics.density) // 1.5dp
+                     val minWorldRadius = minScreenRadius / zoom
+                     
+                     // Base Properties
+                     vectorPaint.color = currentVectorPreviewColor
+                     val baseAlpha = android.graphics.Color.alpha(currentVectorPreviewColor)
+                     
+                     // --- DRAW GUIDE RING ---
+                     // Only draw if the actual radius is significantly smaller than the minimum visibility marker
+                     if (currentLiveGeneratedRadius < minWorldRadius) {
+                         vectorPaint.style = android.graphics.Paint.Style.STROKE
+                         vectorPaint.strokeWidth = 1f / zoom
+                         vectorPaint.alpha = (baseAlpha * 0.3f).toInt().coerceIn(0, 255) // Faint transparency
+                         canvas.drawCircle(tipPoint.x, tipPoint.y, minWorldRadius, vectorPaint)
                      }
                      
-                     // Draw the Tip
-                     canvas.drawCircle(tipPoint.x, tipPoint.y, currentLiveTipWidth / 2f, vectorPaint)
+                     // --- DRAW PHYSICAL CORE ---
+                     // This is the EXACT size of the ink deposition
+                     vectorPaint.style = android.graphics.Paint.Style.FILL
+                     vectorPaint.alpha = baseAlpha
+                     canvas.drawCircle(tipPoint.x, tipPoint.y, currentLiveGeneratedRadius, vectorPaint)
                  }
              }
          }
 
-        canvas.restore()
+         canvas.restore()
 
-        // 5. Draw Selection (Dynamic)
-        // These are skipped in redrawAllCache, so we draw them live here
-        selectionManager?.let { manager ->
-            for (element in manager.selectedElements) {
-                RenderHelper.drawElementRecursive(
-                    canvas, 
-                    element,
-                    componentLibrary = componentLibrary,
-                    isDimmed = false
-                )
+        // 5. Draw Selection (Dynamic - Only when dragging)
+        // When not dragging, they are baked into backingBitmap for correct Z-order
+        if (isSelectionDragging) {
+            selectionManager?.let { manager ->
+                for (element in manager.selectedElements) {
+                    canvas.save()
+                    manager.activeTransform?.let { transform ->
+                        canvas.concat(transform)
+                    }
+                    RenderHelper.drawElementRecursive(
+                        canvas, 
+                        element,
+                        componentLibrary = componentLibrary,
+                        isDimmed = false
+                    )
+                    canvas.restore()
+                }
             }
         }
 
@@ -980,11 +987,14 @@ class SketcherCanvasView(context: Context) : View(context) {
                 
                 // --- GENERATE HIGH-FIDELITY PATH (Visuals) ---
                 // We use the full, raw points. The Generator handles dynamics and smoothing internally.
-                val (highFidelityPath, left, right) = PerfectFreehandGenerator.generate(
+                val genResult = PerfectFreehandGenerator.generate(
                     currentStrokePoints, 
                     activeSize, // baseWidth
                     activeFreehandSettings // settings
                 )
+                val highFidelityPath = genResult.path
+                val left = genResult.left
+                val right = genResult.right
                 
                 // 2. Simplify Points (Data Optimization)
                 // We still simplify the points stored in the VectorStroke to save memory/storage,
@@ -1099,6 +1109,7 @@ class SketcherCanvasView(context: Context) : View(context) {
         currentVectorPreviewPoints = livePoints
         currentVectorPreviewColor = activeColor
         currentPredictedPoint = predictedPt 
+        currentLiveGeneratedRadius = result.lastRadius // Sync radius
         
         // --- LIVE FILL PREVIEW ---
         if (isFillModeEnabled && livePoints.size >= 3) {

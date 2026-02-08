@@ -148,6 +148,21 @@ fun FreehandSettingsContent(
         onValueChange = { onSettingsChanged(currentSettings.copy(taperStart = it)) }
     )
     
+    if (currentSettings.taperStart > 0) {
+        SettingSlider(
+            label = "   └─ Grueso Punta: ${(currentSettings.taperStartTipRatio * 100).toInt()}%",
+            value = currentSettings.taperStartTipRatio,
+            onValueChange = { onSettingsChanged(currentSettings.copy(taperStartTipRatio = it)) }
+        )
+    } else if (currentSettings.taperStart < 0) {
+        SettingSlider(
+            label = "   └─ Intensidad: ${String.format("%.1f", currentSettings.wideningStartRatio)}x",
+            value = currentSettings.wideningStartRatio,
+            valueRange = 1f..5f,
+            onValueChange = { onSettingsChanged(currentSettings.copy(wideningStartRatio = it)) }
+        )
+    }
+    
     val taperEndText = if (currentSettings.taperEnd > 0) "Afilado" else if (currentSettings.taperEnd < 0) "Ensanchado" else "-"
      SettingSlider(
         label = "Fin ($taperEndText): ${currentSettings.taperEnd.toInt()}px",
@@ -155,6 +170,21 @@ fun FreehandSettingsContent(
         valueRange = -150f..150f,
         onValueChange = { onSettingsChanged(currentSettings.copy(taperEnd = it)) }
     )
+
+    if (currentSettings.taperEnd > 0) {
+        SettingSlider(
+            label = "   └─ Grueso Punta: ${(currentSettings.taperEndTipRatio * 100).toInt()}%",
+            value = currentSettings.taperEndTipRatio,
+            onValueChange = { onSettingsChanged(currentSettings.copy(taperEndTipRatio = it)) }
+        )
+    } else if (currentSettings.taperEnd < 0) {
+        SettingSlider(
+            label = "   └─ Intensidad: ${String.format("%.1f", currentSettings.wideningEndRatio)}x",
+            value = currentSettings.wideningEndRatio,
+            valueRange = 1f..5f,
+            onValueChange = { onSettingsChanged(currentSettings.copy(wideningEndRatio = it)) }
+        )
+    }
 
     // Caps
     Row(
@@ -205,91 +235,31 @@ fun FreehandSettingsContent(
         onValueChange = { onSettingsChanged(currentSettings.copy(predictionLatency = it)) }
     )
 
-}
-
-@Composable
-fun InputSettingsPopup(
-    viewModel: SketcherViewModel,
-    onDismiss: () -> Unit
-) {
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-        ) {
-            Column(
-                modifier = Modifier
-                    .padding(16.dp)
-                    .fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Text(
-                    text = "Procesamiento de Trazo",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.primary
-                )
-
-                // --- SECTION: INPUT ---
-                Text("Entrada (Input)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                
-                Text("Estabilización (Lazy Stroke): ${(viewModel.globalStabilizationLevel * 100).toInt()}%")
-                Slider(
-                    value = viewModel.globalStabilizationLevel,
-                    onValueChange = { viewModel.setGlobalStabilization(it) },
-                    valueRange = 0f..0.90f
-                )
-                Text("Suaviza el pulso antes de dibujar.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-                // --- SECTION: OUTPUT ---
-                Text("Salida (Compresión)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Habilitar Simplificación")
-                    Switch(
-                        checked = viewModel.currentFreehandSettings.isSimplificationEnabled,
-                        onCheckedChange = { viewModel.setFreehandSimplificationEnabled(it) }
-                    )
-                }
-
-                if (viewModel.currentFreehandSettings.isSimplificationEnabled) {
-                    val tolerance = viewModel.currentFreehandSettings.tolerance
-                    Text("Simplificación: ${String.format("%.1f", tolerance)}")
-                    Slider(
-                        value = tolerance,
-                        onValueChange = { viewModel.setFreehandTolerance(it) },
-                        valueRange = 0.0f..2.0f,
-                        steps = 19
-                    )
-                    
-                    if (tolerance < 0.2f) {
-                        Text("Máxima fidelidad (Muchos puntos)", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
-                    } else if (tolerance > 1.0f) {
-                        Text("Alta compresión (Formas geométricas)", color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.bodySmall)
-                    } else {
-                        Text("Equilibrado - Recomendado", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                    }
-                } else {
-                     Text("Modo RAW: Se guardan todos los puntos del evento.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("Cerrar")
-                    }
-                }
-            }
+    HorizontalDivider()
+    Text("Compresión (Salida)", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+    
+    val tolerance = currentSettings.tolerance
+    val toleranceLabel = if (tolerance == 0f) "Desactivado (Raw)" else String.format("%.1f", tolerance)
+    
+    SettingSlider(
+        label = "Simplificación: $toleranceLabel",
+        value = tolerance,
+        valueRange = 0.0f..2.0f,
+        steps = 19,
+        onValueChange = { 
+            val enabled = it > 0f
+            onSettingsChanged(currentSettings.copy(tolerance = it, isSimplificationEnabled = enabled))
         }
+    )
+    
+    if (tolerance == 0f) {
+        Text("Modo RAW: Se guardan todos los puntos del evento.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+    } else if (tolerance < 0.2f) {
+        Text("Máxima fidelidad (Muchos puntos)", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+    } else if (tolerance > 1.0f) {
+        Text("Alta compresión (Formas geométricas)", color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.bodySmall)
+    } else {
+        Text("Equilibrado - Recomendado", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
     }
 }
+

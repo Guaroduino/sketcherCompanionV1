@@ -44,6 +44,8 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.asImageBitmap
+import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -85,6 +87,8 @@ import androidx.compose.material.icons.filled.Palette // Background Color Icon
 import androidx.compose.material.icons.filled.Straighten // Scale Icon
 import com.skecher.sketchercompanionv1.ui.ColorPickerDialog
 import com.skecher.sketchercompanionv1.ui.ScaleIndicator
+import com.skecher.sketchercompanionv1.ui.ToolSettingsPopup
+import com.skecher.sketchercompanionv1.ui.LazyStrokePopup
 import com.skecher.sketchercompanionv1.dto.*
 import com.skecher.sketchercompanionv1.utils.UnitUtils
 import androidx.compose.material.icons.filled.GridOn
@@ -99,8 +103,8 @@ import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Tune
-import com.skecher.sketchercompanionv1.ui.InputSettingsPopup
-import com.skecher.sketchercompanionv1.ui.ToolSettingsPopup
+import androidx.compose.material.icons.filled.Close
+
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.ContentPaste
@@ -253,12 +257,13 @@ fun SketcherSurface(
     // --- SAVE / LOAD HANDLERS (SAF) ---
     val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
-            val type = context.contentResolver.getType(it) ?: ""
-            if (type.contains("svg") || it.toString().endsWith(".svg", ignoreCase = true)) {
-                sketchViewModel.insertSvg(context, it)
-            } else {
-                sketchViewModel.insertImage(context, it)
-            }
+            sketchViewModel.insertImage(context, it)
+        }
+    }
+    
+    val svgPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let {
+            sketchViewModel.insertSvg(context, it)
         }
     }
 
@@ -283,7 +288,7 @@ fun SketcherSurface(
     
     val exportSvgLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/svg+xml")) { uri ->
         uri?.let {
-             sketchViewModel.exportSvg(context, it)
+             sketchViewModel.exportSvg(context, it, sketchViewModel.lastExportSvgConfig)
         }
     }
     
@@ -295,7 +300,7 @@ fun SketcherSurface(
     
     // Detectamos cambio de configuración (rotación) automáticamente con Compose
     val configuration = LocalConfiguration.current
-    var showInputSettings by rememberSaveable { mutableStateOf(false) }
+    var showLazyStrokePopup by rememberSaveable { mutableStateOf(false) }
     
     val screenWidth = configuration.screenWidthDp
     val screenHeight = configuration.screenHeightDp
@@ -311,6 +316,16 @@ fun SketcherSurface(
     var showFillColorPicker by remember { mutableStateOf(false) }
     var showHomeSavedFeedback by remember { mutableStateOf(false) }
     var showExportPngDialog by remember { mutableStateOf(false) }
+    var showExportSvgDialog by remember { mutableStateOf(false) }
+    
+    // UI Feedback State
+    val showHomeRestoredFeedback = sketchViewModel.showHomeRestoredFeedback
+    LaunchedEffect(showHomeRestoredFeedback) {
+        if (showHomeRestoredFeedback) {
+            kotlinx.coroutines.delay(2000)
+            sketchViewModel.showHomeRestoredFeedback = false
+        }
+    }
 
     // Convenience accessors (optional, but keep for clarity if used)
     val isFillModeEnabled = sketchViewModel.isFillModeEnabled
@@ -354,9 +369,11 @@ fun SketcherSurface(
     val onToolbarAlphaChanged: (Float) -> Unit = { sketchViewModel.updateToolbarAlpha(it) }
     val onToggleToolbarBlur: () -> Unit = { sketchViewModel.toggleToolbarBlur() }
     val onToggleDebugWireframe: () -> Unit = { sketchViewModel.isDebugWireframe = !sketchViewModel.isDebugWireframe }
+    val onToggleTooltips: () -> Unit = { sketchViewModel.toggleTooltips() }
     
     val isRotationLocked = sketchViewModel.isRotationLocked
     val isPalmRejectionEnabled = sketchViewModel.isPalmRejectionEnabled
+    val showTooltips = sketchViewModel.showTooltips
     val interfaceScale = sketchViewModel.interfaceScale
     val toolbarAlpha = sketchViewModel.toolbarAlpha
     val isToolbarBlurEnabled = sketchViewModel.isToolbarBlurEnabled
@@ -812,6 +829,7 @@ fun SketcherSurface(
                                         }
                                     }
                                     SelectionTouchMode.DRAGGING_CONTENT -> {
+                                        if (!canvasView.isSelectionDragging) canvasView.isSelectionDragging = true
                                         val m = Matrix()
                                         m.postTranslate(dx, dy)
                                         manager.applyTransform(m)
@@ -835,6 +853,8 @@ fun SketcherSurface(
                                         val oldDY = locLast[1] - locPivot[1]
                                         val newDX = locCurr[0] - locPivot[0]
                                         val newDY = locCurr[1] - locPivot[1]
+                                        
+                                        if (!canvasView.isSelectionDragging) canvasView.isSelectionDragging = true
 
                                         // Calculate scale factors in local space
                                         var sx = if (kotlin.math.abs(oldDX) > 0.01f) newDX / oldDX else 1f
@@ -874,6 +894,7 @@ fun SketcherSurface(
                                         
                                         val m = Matrix()
                                         m.postRotate(deltaAngle, pivotX, pivotY)
+                                        if (!canvasView.isSelectionDragging) canvasView.isSelectionDragging = true
                                         manager.applyTransform(m)
                                         startAngle = currentAngle
                                     }
@@ -924,6 +945,9 @@ fun SketcherSurface(
                                         }
                                     }
                                 }
+                                manager.commitTransform() // Commit the transient transform to data
+                                manager.recalculateBaseBounds(sketchViewModel.componentLibrary) // Reset selection matrix to prevent drift
+                                if (canvasView.isSelectionDragging) canvasView.isSelectionDragging = false
                                 selTouchMode = SelectionTouchMode.IDLE
                                 canvasView.redrawAllCache() // REBUILD: Bake new positions OR Remove old selections from background
                                 canvasView.invalidate()
@@ -1346,10 +1370,11 @@ fun SketcherSurface(
                 onLayersClick = { showLayerManager = !showLayerManager },
                 onSave = { saveLauncher.launch("project.skc") },
                 onLoad = { loadLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
-                onImportImage = { imagePickerLauncher.launch(arrayOf("image/*", "image/svg+xml")) },
+                onImportImage = { imagePickerLauncher.launch(arrayOf("image/*")) },
+                onImportSvg = { svgPickerLauncher.launch(arrayOf("image/svg+xml")) },
                 onSaveTemplate = { name -> sketchViewModel.saveTemplate(context, name) },
                 onLoadTemplate = { file -> sketchViewModel.loadFromTemplate(context, file) },
-                onExportSvg = { exportSvgLauncher.launch("drawing.svg") },
+                onExportSvg = { showExportSvgDialog = true },
                 onExportPng = { showExportPngDialog = true },
                 onNewDrawing = {
                     sketchViewModel.clear()
@@ -1375,12 +1400,20 @@ fun SketcherSurface(
                 onZoomExtend = {
                     sketchViewModel.fitContent()
                 },
+                onZoom100 = { sketchViewModel.setZoomOneHundred() },
                 activeLayerName = if (sketchViewModel.layers.isNotEmpty() && sketchViewModel.activeLayerIndex in sketchViewModel.layers.indices) {
                     sketchViewModel.layers[sketchViewModel.activeLayerIndex].name
                 } else "Layer",
                 toolbarBackgroundColor = sketchViewModel.toolbarBackgroundColor,
                 toolbarAlpha = sketchViewModel.toolbarAlpha,
-                isToolbarBlurEnabled = sketchViewModel.isToolbarBlurEnabled
+                isToolbarBlurEnabled = sketchViewModel.isToolbarBlurEnabled,
+                showTooltips = showTooltips,
+                onMinimize = {
+                    activity?.moveTaskToBack(true)
+                },
+                onExit = {
+                    activity?.finishAndRemoveTask()
+                }
             )
 
             // --- SUBTLE CONFIRMATION OVERLAY ---
@@ -1388,17 +1421,27 @@ fun SketcherSurface(
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .padding(top = 80.dp) // Below TopMenuBar
+                        .padding(top = 80.dp)
                         .zIndex(2000f)
                         .clip(RoundedCornerShape(16.dp))
-                        .background(Color.Black.copy(alpha = 0.6f))
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .background(Color.Black.copy(alpha = 0.7f))
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
-                    Text(
-                        text = "Vista de inicio guardada",
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelSmall
-                    )
+                    Text("Vista Home Guardada", color = Color.White)
+                }
+            }
+            
+            if (showHomeRestoredFeedback) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 80.dp)
+                        .zIndex(2000f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.Black.copy(alpha = 0.7f))
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Text("Vista Restaurada", color = Color.White)
                 }
             }
             
@@ -1427,6 +1470,9 @@ fun SketcherSurface(
                     }
                     sketchViewModel.selectTool(newTool)
                 },
+                showLazyStrokePopup = showLazyStrokePopup,
+                lazyStrokeValue = sketchViewModel.globalStabilizationLevel,
+                onLazyStrokeValueChange = { sketchViewModel.setGlobalStabilization(it) },
                 colorSlots = sketchViewModel.availableColors,
                 selectedColorSlotIndex = sketchViewModel.selectedColorIndex,
                 onColorSlotSelected = { sketchViewModel.selectedColorIndex = it; sketchViewModel.updateCurrentColorFromSlot() },
@@ -1531,8 +1577,9 @@ fun SketcherSurface(
                     showToolSettingsPopup = true
                 },
                 onInputSettingsClick = {
-                    showInputSettings = true
-                }
+                    showLazyStrokePopup = !showLazyStrokePopup
+                },
+                showTooltips = showTooltips
             )
         }
         
@@ -1640,22 +1687,37 @@ fun SketcherSurface(
                toolbarAlpha = sketchViewModel.toolbarAlpha,
                onToolbarAlphaChanged = { sketchViewModel.updateToolbarAlpha(it) },
                isToolbarBlurEnabled = sketchViewModel.isToolbarBlurEnabled,
-               onToggleToolbarBlur = { sketchViewModel.toggleToolbarBlur() }
+               onToggleToolbarBlur = { sketchViewModel.toggleToolbarBlur() },
+               showTooltips = showTooltips,
+               onToggleTooltips = onToggleTooltips
            )
         }
         
         // --- TOOL SETTINGS POPUP ---
         
         if (showExportPngDialog) {
-        ExportPngDialog(
-            onDismiss = { showExportPngDialog = false },
-            onExport = { config ->
-                sketchViewModel.lastExportPngConfig = config
-                exportPngLauncher.launch("drawing.png")
-                showExportPngDialog = false
-            }
-        )
-    }
+            ExportPngDialog(
+                viewModel = sketchViewModel,
+                onDismiss = { showExportPngDialog = false },
+                onExport = { config ->
+                    sketchViewModel.lastExportPngConfig = config
+                    exportPngLauncher.launch("drawing.png")
+                    showExportPngDialog = false
+                }
+            )
+        }
+
+        if (showExportSvgDialog) {
+            ExportSvgDialog(
+                viewModel = sketchViewModel,
+                onDismiss = { showExportSvgDialog = false },
+                onExport = { config ->
+                    sketchViewModel.lastExportSvgConfig = config
+                    exportSvgLauncher.launch("drawing.svg")
+                    showExportSvgDialog = false
+                }
+            )
+        }
 
     if (showToolSettingsPopup) {
              com.skecher.sketchercompanionv1.ui.ToolSettingsPopup(
@@ -1666,13 +1728,7 @@ fun SketcherSurface(
              )
         }
 
-        // --- INPUT SETTINGS POPUP ---
-        if (showInputSettings) {
-            InputSettingsPopup(
-                viewModel = sketchViewModel,
-                onDismiss = { showInputSettings = false }
-            )
-        }
+
     }
 }
 
@@ -1734,7 +1790,11 @@ fun BottomMenuBar(
     toolbarAlpha: Float,
     isToolbarBlurEnabled: Boolean,
     onConfigureTool: () -> Unit = {}, // New Callback
-    onInputSettingsClick: () -> Unit = {}
+    onInputSettingsClick: () -> Unit = {},
+    showLazyStrokePopup: Boolean = false,
+    lazyStrokeValue: Float = 0f,
+    onLazyStrokeValueChange: (Float) -> Unit = {},
+    showTooltips: Boolean = true
 ) {
     Box(
         modifier = modifier
@@ -1782,7 +1842,9 @@ fun BottomMenuBar(
                          ),
                      contentAlignment = Alignment.Center
                 ) {
-                    Icon(icon, contentDescription = "Tool", tint = Color.Black)
+                    TooltipWrapper(text = "Herramienta: ${getToolName(activeDrawingTool)}", enabled = showTooltips) {
+                        Icon(icon, contentDescription = "Tool", tint = Color.Black)
+                    }
                 }
                 
                 DropdownMenu(
@@ -1811,16 +1873,31 @@ fun BottomMenuBar(
             // SETTINGS BUTTON (For All Active Drawing Tools)
             // SETTINGS BUTTON (For All Active Drawing Tools)
             if (activeDrawingTool == ToolType.FREEHAND) {
-                 IconButton(onClick = onConfigureTool) {
-                     Icon(androidx.compose.material.icons.Icons.Filled.Build, contentDescription = "Configurar", tint = androidx.compose.material3.MaterialTheme.colorScheme.primary)
-                 }
-                 VerticalDivider(modifier = Modifier.height(24.dp))
+                TooltipWrapper(text = "Configurar Pincel", enabled = showTooltips) {
+                    IconButton(onClick = onConfigureTool) {
+                        Icon(androidx.compose.material.icons.Icons.Filled.Build, contentDescription = "Configurar", tint = androidx.compose.material3.MaterialTheme.colorScheme.primary)
+                    }
+                }
+                VerticalDivider(modifier = Modifier.height(24.dp))
             }
 
             // GLOBAL INPUT SETTINGS (Tune Icon)
-            IconButton(onClick = onInputSettingsClick) {
-                 Icon(Icons.Default.Tune, contentDescription = "Ajustes de Entrada", tint = MaterialTheme.colorScheme.secondary)
+            Box {
+                TooltipWrapper(text = "Ajustes de Entrada (Estabilizador)", enabled = showTooltips) {
+                    IconButton(onClick = onInputSettingsClick) {
+                         Icon(Icons.Default.Tune, contentDescription = "Ajustes de Entrada", tint = MaterialTheme.colorScheme.secondary)
+                    }
+                }
+                
+                if (showLazyStrokePopup) {
+                    LazyStrokePopup(
+                        value = lazyStrokeValue,
+                        onValueChange = onLazyStrokeValueChange,
+                        onDismiss = onInputSettingsClick
+                    )
+                }
             }
+
             VerticalDivider(modifier = Modifier.height(24.dp))
 
             // COLOR SLOTS
@@ -1847,26 +1924,30 @@ fun BottomMenuBar(
                 Row(
                      verticalAlignment = Alignment.CenterVertically
                 ) {
-                     IconButton(
-                         onClick = onToggleFillMode
-                     ) {
-                         Icon(
-                            Icons.Default.FormatPaint,
-                            contentDescription = "Auto Fill",
-                            tint = if (isFillModeEnabled) Color.Black else Color.LightGray
-                         )
-                     }
+                    TooltipWrapper(text = "Relleno Automático", enabled = showTooltips) {
+                         IconButton(
+                             onClick = onToggleFillMode
+                         ) {
+                             Icon(
+                                Icons.Default.FormatPaint,
+                                contentDescription = "Auto Fill",
+                                tint = if (isFillModeEnabled) Color.Black else Color.LightGray
+                             )
+                         }
+                    }
                      
                      // FILL COLOR PREVIEW (Only if enabled)
                      if (isFillModeEnabled) {
-                         Box(
-                             modifier = Modifier
-                                 .size(24.dp)
-                                  .clip(CircleShape)
-                                 .background(Color(fillColor))
-                                 .border(2.dp, Color.Black, CircleShape)
-                                 .clickable(onClick = onFillColorChangeRequest)
-                         )
+                         TooltipWrapper(text = "Color de Relleno", enabled = showTooltips) {
+                             Box(
+                                 modifier = Modifier
+                                     .size(24.dp)
+                                      .clip(CircleShape)
+                                     .background(Color(fillColor))
+                                     .border(2.dp, Color.Black, CircleShape)
+                                     .clickable(onClick = onFillColorChangeRequest)
+                             )
+                         }
                      }
                 }
 
@@ -1875,20 +1956,22 @@ fun BottomMenuBar(
 
             // SIZE PREVIEW
             if (selectedTool != ToolType.SELECTION && selectedTool != ToolType.ERASER) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(Color.LightGray)
-                        .clickable(onClick = onSizeChangeRequest),
-                    contentAlignment = Alignment.Center
-                ) {
+                TooltipWrapper(text = "Tamaño y Opacidad", enabled = showTooltips) {
                     Box(
                         modifier = Modifier
-                            .size(selectedSize.coerceIn(2f, 36f).dp)
+                            .size(40.dp)
                             .clip(CircleShape)
-                            .background(Color.Black)
-                    )
+                            .background(Color.LightGray)
+                            .clickable(onClick = onSizeChangeRequest),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(selectedSize.coerceIn(2f, 36f).dp)
+                                .clip(CircleShape)
+                                .background(Color.Black)
+                        )
+                    }
                 }
                 
                 VerticalDivider(modifier = Modifier.height(24.dp))
@@ -1896,12 +1979,14 @@ fun BottomMenuBar(
 
             // ERASER
             if (selectedTool != ToolType.SELECTION) {
-                IconButton(onClick = onEraserToggle) {
-                    Icon(
-                        Icons.Default.Delete, 
-                        contentDescription = "Eraser",
-                        tint = if (isEraserActive) Color.Red else Color.Gray
-                    )
+                TooltipWrapper(text = "Borrador", enabled = showTooltips) {
+                    IconButton(onClick = onEraserToggle) {
+                        Icon(
+                            Icons.Default.Delete, 
+                            contentDescription = "Eraser",
+                            tint = if (isEraserActive) Color.Red else Color.Gray
+                        )
+                    }
                 }
 
                 VerticalDivider(modifier = Modifier.height(24.dp))
@@ -1909,17 +1994,19 @@ fun BottomMenuBar(
             
             // BACKGROUND COLOR PICKER
             if (selectedTool != ToolType.SELECTION && selectedTool != ToolType.ERASER) {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(Color(backgroundColor))
-                        .border(1.dp, Color.Gray, CircleShape)
-                        .clickable(onClick = onBackgroundColorChangeRequest),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (backgroundColor == android.graphics.Color.WHITE) {
-                        Icon(Icons.Default.Palette, contentDescription = "Background", tint = Color.Black.copy(alpha=0.5f), modifier = Modifier.size(16.dp))
+                TooltipWrapper(text = "Color de Fondo", enabled = showTooltips) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Color(backgroundColor))
+                            .border(1.dp, Color.Gray, CircleShape)
+                            .clickable(onClick = onBackgroundColorChangeRequest),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (backgroundColor == android.graphics.Color.WHITE) {
+                            Icon(Icons.Default.Palette, contentDescription = "Background", tint = Color.Black.copy(alpha=0.5f), modifier = Modifier.size(16.dp))
+                        }
                     }
                 }
             }
@@ -1976,36 +2063,50 @@ fun BottomMenuBar(
 
 
                  // ACTION PLACEHOLDERS
-                 IconButton(onClick = onCopy, enabled = !isSelectionEmpty) {
-                     Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = if (!isSelectionEmpty) Color.Black else Color.Gray)
+                 TooltipWrapper(text = "Copiar", enabled = showTooltips) {
+                     IconButton(onClick = onCopy, enabled = !isSelectionEmpty) {
+                         Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = if (!isSelectionEmpty) Color.Black else Color.Gray)
+                     }
                  }
-                 IconButton(onClick = onCut, enabled = !isSelectionEmpty) {
-                     Icon(Icons.Default.ContentCut, contentDescription = "Cut", tint = if (!isSelectionEmpty) Color.Black else Color.Gray)
+                 TooltipWrapper(text = "Cortar", enabled = showTooltips) {
+                     IconButton(onClick = onCut, enabled = !isSelectionEmpty) {
+                         Icon(Icons.Default.ContentCut, contentDescription = "Cut", tint = if (!isSelectionEmpty) Color.Black else Color.Gray)
+                     }
                  }
-                 IconButton(onClick = onPaste, enabled = canPaste) {
-                     Icon(
-                         Icons.Default.ContentPaste, 
-                         contentDescription = "Paste", 
-                         tint = if (canPaste) Color.Blue else Color.Gray
-                     )
+                 TooltipWrapper(text = "Pegar", enabled = showTooltips) {
+                     IconButton(onClick = onPaste, enabled = canPaste) {
+                         Icon(
+                             Icons.Default.ContentPaste, 
+                             contentDescription = "Paste", 
+                             tint = if (canPaste) Color.Blue else Color.Gray
+                         )
+                     }
                  }
 
                  VerticalDivider(modifier = Modifier.height(24.dp))
 
-                 IconButton(onClick = onGroup, enabled = !isSelectionEmpty) {
-                     Icon(Icons.Default.Group, contentDescription = "Group", tint = if (!isSelectionEmpty) Color.Black else Color.Gray)
+                 TooltipWrapper(text = "Agrupar", enabled = showTooltips) {
+                     IconButton(onClick = onGroup, enabled = !isSelectionEmpty) {
+                         Icon(Icons.Default.Group, contentDescription = "Group", tint = if (!isSelectionEmpty) Color.Black else Color.Gray)
+                     }
                  }
 
-                  IconButton(onClick = onUngroup, enabled = isGroupSelected) {
-                      Icon(Icons.Default.Schema, contentDescription = "Ungroup", tint = if (isGroupSelected) Color.Black else Color.Gray)
+                  TooltipWrapper(text = "Desagrupar", enabled = showTooltips) {
+                      IconButton(onClick = onUngroup, enabled = isGroupSelected) {
+                          Icon(Icons.Default.Schema, contentDescription = "Ungroup", tint = if (isGroupSelected) Color.Black else Color.Gray)
+                      }
                   }
 
-                  IconButton(onClick = onMakeComponent, enabled = !isSelectionEmpty) {
-                      Icon(Icons.Default.Extension, contentDescription = "Make Component", tint = if (!isSelectionEmpty) Color.Black else Color.Gray)
+                  TooltipWrapper(text = "Crear Componente", enabled = showTooltips) {
+                      IconButton(onClick = onMakeComponent, enabled = !isSelectionEmpty) {
+                          Icon(Icons.Default.Extension, contentDescription = "Make Component", tint = if (!isSelectionEmpty) Color.Black else Color.Gray)
+                      }
                   }
 
-                  IconButton(onClick = onEnterEditMode, enabled = canEnterEditMode) {
-                      Icon(Icons.Default.Edit, contentDescription = "Edit Isolated", tint = if (canEnterEditMode) Color.Blue else Color.Gray)
+                  TooltipWrapper(text = "Editar Aislado", enabled = showTooltips) {
+                      IconButton(onClick = onEnterEditMode, enabled = canEnterEditMode) {
+                          Icon(Icons.Default.Edit, contentDescription = "Edit Isolated", tint = if (canEnterEditMode) Color.Blue else Color.Gray)
+                      }
                   }
  
                   VerticalDivider(modifier = Modifier.height(24.dp))
@@ -2088,6 +2189,7 @@ fun TopMenuBar(
     onSave: () -> Unit,
     onLoad: () -> Unit,
     onImportImage: () -> Unit,
+    onImportSvg: () -> Unit,
     onSaveTemplate: (String) -> Unit,
     onLoadTemplate: (java.io.File) -> Unit,
     onExportSvg: () -> Unit,
@@ -2098,10 +2200,14 @@ fun TopMenuBar(
     onZoomReset: () -> Unit,
     onSetHomeCamera: () -> Unit = {},
     onZoomExtend: () -> Unit,
+    onZoom100: () -> Unit = {},
     activeLayerName: String,
     toolbarBackgroundColor: Int,
     toolbarAlpha: Float,
-    isToolbarBlurEnabled: Boolean
+    isToolbarBlurEnabled: Boolean,
+    showTooltips: Boolean = true,
+    onMinimize: () -> Unit = {},
+    onExit: () -> Unit = {}
 ) {
     Box(
         modifier = modifier
@@ -2132,6 +2238,7 @@ fun TopMenuBar(
                 onSave = onSave,
                 onLoad = onLoad,
                 onImportImage = onImportImage,
+                onImportSvg = onImportSvg,
                 onSettingsClick = onSettingsClick,
                 onSaveTemplate = onSaveTemplate,
                 onLoadTemplate = onLoadTemplate,
@@ -2140,26 +2247,41 @@ fun TopMenuBar(
             )
 
             // Grid
-            IconButton(onClick = onGridClick) {
-                Icon(Icons.Default.GridOn, contentDescription = "Grid")
+            TooltipWrapper(text = "Cuadrícula", enabled = showTooltips) {
+                IconButton(onClick = onGridClick) {
+                    Icon(Icons.Default.GridOn, contentDescription = "Grid")
+                }
             }
 
               // Zoom Controls
-              Box(
-                  modifier = Modifier
-                      .size(40.dp)
-                      .clip(CircleShape)
-                      .combinedClickable(
-                          onClick = onZoomReset,
-                          onLongClick = onSetHomeCamera
-                      ),
-                  contentAlignment = Alignment.Center
-              ) {
-                  Icon(Icons.Default.Home, contentDescription = "Home View")
+              TooltipWrapper(text = "Vista Inicial (Home)", enabled = showTooltips) {
+                  Box(
+                      modifier = Modifier
+                          .size(40.dp)
+                          .clip(CircleShape)
+                          .combinedClickable(
+                              onClick = onZoomReset,
+                              onLongClick = onSetHomeCamera
+                          ),
+                      contentAlignment = Alignment.Center
+                  ) {
+                      Icon(Icons.Default.Home, contentDescription = "Home View")
+                  }
               }
               
-              IconButton(onClick = onZoomExtend) {
-                  Icon(Icons.Default.AspectRatio, contentDescription = "Zoom Extend")
+              TooltipWrapper(text = "Ajustar Contenido", enabled = showTooltips) {
+                  Box(
+                      modifier = Modifier
+                          .size(40.dp)
+                          .clip(CircleShape)
+                          .combinedClickable(
+                              onClick = onZoomExtend,
+                              onLongClick = onZoom100
+                          ),
+                      contentAlignment = Alignment.Center
+                  ) {
+                      Icon(Icons.Default.AspectRatio, contentDescription = "Zoom Extend")
+                  }
               }
         }
 
@@ -2168,13 +2290,17 @@ fun TopMenuBar(
             modifier = Modifier.align(Alignment.Center),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onUndo, enabled = canUndo) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_undo), tint = if (canUndo) Color.Black else Color.LightGray)
+            TooltipWrapper(text = stringResource(R.string.action_undo), enabled = true) {
+                IconButton(onClick = onUndo, enabled = canUndo) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_undo), tint = if (canUndo) Color.Black else Color.LightGray)
+                }
             }
             // Small spacer betweeen undo/redo?
             Spacer(modifier = Modifier.width(8.dp))
-            IconButton(onClick = onRedo, enabled = canRedo) {
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = stringResource(R.string.action_redo), tint = if (canRedo) Color.Black else Color.LightGray)
+            TooltipWrapper(text = stringResource(R.string.action_redo), enabled = true) {
+                IconButton(onClick = onRedo, enabled = canRedo) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = stringResource(R.string.action_redo), tint = if (canRedo) Color.Black else Color.LightGray)
+                }
             }
         }
 
@@ -2191,7 +2317,29 @@ fun TopMenuBar(
             )
 
             IconButton(onClick = onLayersClick) {
-                Icon(Icons.Default.List, contentDescription = "Layers")
+                TooltipWrapper(text = "Capas", enabled = showTooltips) {
+                    Icon(Icons.Default.List, contentDescription = "Layers")
+                }
+            }
+
+            // Exit / Minimize Button
+            TooltipWrapper(text = "Minimizar / Salir (Long Click)", enabled = showTooltips) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .combinedClickable(
+                            onClick = onMinimize,
+                            onLongClick = onExit
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.Close, 
+                        contentDescription = "Exit",
+                        tint = Color.Red.copy(alpha = 0.7f)
+                    )
+                }
             }
         }
     }
@@ -2335,7 +2483,9 @@ fun SettingsDialog(
     toolbarAlpha: Float,
     onToolbarAlphaChanged: (Float) -> Unit,
     isToolbarBlurEnabled: Boolean,
-    onToggleToolbarBlur: () -> Unit
+    onToggleToolbarBlur: () -> Unit,
+    showTooltips: Boolean,
+    onToggleTooltips: () -> Unit
 ) {
     var resolutionText by remember { mutableStateOf(currentScaleConfig.basePixelsPerMillimeter.toString()) }
     var selectedUnit by remember { mutableStateOf(DistanceUnit.fromSymbol(currentScaleConfig.unitName)) }
@@ -2434,6 +2584,15 @@ fun SettingsDialog(
                     onValueChange = onInterfaceScaleChanged,
                     valueRange = 0.5f..2.0f
                 )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Mostrar Ayudas (Tooltips)")
+                Switch(checked = showTooltips, onCheckedChange = { onToggleTooltips() })
             }
 
             HorizontalDivider()
@@ -2905,42 +3064,169 @@ private fun adjustPressure(pressure: Float, sensitivity: Float): Float {
 }
 @Composable
 fun ExportPngDialog(
+    viewModel: SketcherViewModel, // Need VM for preview generation
     onDismiss: () -> Unit,
     onExport: (ExportPngConfig) -> Unit
 ) {
     var transparent by remember { mutableStateOf(false) }
     var useHomeView by remember { mutableStateOf(true) }
+    
+    // Resolution State
+    var widthText by remember { mutableStateOf("") }
+    var heightText by remember { mutableStateOf("") }
+    var aspectRatio by remember { mutableFloatStateOf(1f) }
+    
+    // Preview State
+    var previewBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var isLoadingPreview by remember { mutableStateOf(false) }
+
+    // Init Logic
+    LaunchedEffect(Unit) {
+        val defaults = viewModel.getExportDefaults(useHomeView)
+        widthText = defaults.first.toString()
+        heightText = defaults.second.toString()
+        aspectRatio = defaults.first.toFloat() / defaults.second.toFloat()
+    }
+    
+    // Update defaults when mode changes
+    LaunchedEffect(useHomeView) {
+        val defaults = viewModel.getExportDefaults(useHomeView)
+        widthText = defaults.first.toString()
+        heightText = defaults.second.toString()
+        aspectRatio = defaults.first.toFloat() / defaults.second.toFloat()
+    }
+    
+    // Generate Preview Effect
+    LaunchedEffect(transparent, useHomeView) {
+        isLoadingPreview = true
+        // Generate a small preview
+        val defaults = viewModel.getExportDefaults(useHomeView)
+        val previewWidth = 400
+        val previewHeight = (previewWidth / (defaults.first.toFloat() / defaults.second.toFloat())).toInt()
+        
+        val config = ExportPngConfig(transparent, useHomeView, previewWidth, previewHeight)
+        
+        // Run on IO/Generic
+        launch(kotlinx.coroutines.Dispatchers.Default) {
+            val bmp = viewModel.renderExportBitmap(config)
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                previewBitmap = bmp
+                isLoadingPreview = false
+            }
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Exportar como PNG") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Opciones de fondo:", style = MaterialTheme.typography.labelMedium)
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { transparent = false }) {
-                    RadioButton(selected = !transparent, onClick = { transparent = false })
-                    Text("Con fondo (Color del proyecto)")
+            Column(
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
+                // --- PREVIEW ---
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (transparent) Color.LightGray else Color.Black) // Checkerboard logic would be better but simple gray for now
+                        .border(1.dp, Color.Gray, RoundedCornerShape(8.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (previewBitmap != null) {
+                        androidx.compose.foundation.Image(
+                            bitmap = previewBitmap!!.asImageBitmap(),
+                            contentDescription = "Preview",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                        )
+                    }
+                    if (isLoadingPreview) {
+                        CircularProgressIndicator()
+                    }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { transparent = true }) {
-                    RadioButton(selected = transparent, onClick = { transparent = true })
-                    Text("Transparente")
+                
+                HorizontalDivider()
+
+                // --- OPTIONS ---
+                Text("Opciones de fondo:", style = MaterialTheme.typography.labelMedium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { transparent = false }) {
+                        RadioButton(selected = !transparent, onClick = { transparent = false })
+                        Text("Sólido")
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { transparent = true }) {
+                        RadioButton(selected = transparent, onClick = { transparent = true })
+                        Text("Transparente")
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                HorizontalDivider()
 
                 Text("Área a exportar:", style = MaterialTheme.typography.labelMedium)
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { useHomeView = true }) {
-                    RadioButton(selected = useHomeView, onClick = { useHomeView = true })
-                    Text("Vista Home (Lo que ves)")
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { useHomeView = true }) {
+                        RadioButton(selected = useHomeView, onClick = { useHomeView = true })
+                        Text("Vista Home (Lo que ves)")
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { useHomeView = false }) {
+                        RadioButton(selected = !useHomeView, onClick = { useHomeView = false })
+                        Text("Ajustar a contenido (Todo)")
+                    }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { useHomeView = false }) {
-                    RadioButton(selected = !useHomeView, onClick = { useHomeView = false })
-                    Text("Ajustar a contenido (Todo lo dibujado)")
+                
+                HorizontalDivider()
+                
+                // --- RESOLUTION ---
+                Text("Resolución:", style = MaterialTheme.typography.labelMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = widthText,
+                        onValueChange = { 
+                            widthText = it.filter { c -> c.isDigit() }
+                            val newW = widthText.toFloatOrNull()
+                            if (newW != null && aspectRatio > 0) {
+                                heightText = (newW / aspectRatio).toInt().toString()
+                            }
+                        },
+                        label = { Text("Ancho (px)") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+                    )
+                    OutlinedTextField(
+                        value = heightText,
+                        onValueChange = { 
+                            heightText = it.filter { c -> c.isDigit() }
+                            val newH = heightText.toFloatOrNull()
+                            if (newH != null && aspectRatio > 0) {
+                                widthText = (newH * aspectRatio).toInt().toString()
+                            }
+                        },
+                        label = { Text("Alto (px)") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+
+                    )
                 }
+                 val w = widthText.toIntOrNull() ?: 0
+                 val h = heightText.toIntOrNull() ?: 0
+                 if (w > 0 && h > 0) {
+                     val sizeMb = w * h * 4 / 1024 / 1024.0
+                     Text("Tamaño aprox: ${"%.2f".format(sizeMb)} MB", fontSize = 11.sp, color = Color.Gray)
+                 }
+
             }
         },
         confirmButton = {
-            Button(onClick = { onExport(ExportPngConfig(transparent, useHomeView)) }) {
+            Button(onClick = { 
+                val w = widthText.toIntOrNull() ?: 1920
+                val h = heightText.toIntOrNull() ?: 1080
+                onExport(ExportPngConfig(transparent, useHomeView, w, h)) 
+            }) {
                 Text("Exportar")
             }
         },
@@ -2951,3 +3237,135 @@ fun ExportPngDialog(
         }
     )
 }
+
+@Composable
+fun ExportSvgDialog(
+    viewModel: SketcherViewModel,
+    onDismiss: () -> Unit,
+    onExport: (ExportSvgConfig) -> Unit
+) {
+    var includeBackground by remember { mutableStateOf(viewModel.lastExportSvgConfig.includeBackground) }
+    var useHomeView by remember { mutableStateOf(viewModel.lastExportSvgConfig.useHomeView) }
+    
+    // Preview Logic
+    var previewBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var isLoadingPreview by remember { mutableStateOf(true) }
+    
+    val scope = rememberCoroutineScope()
+    
+    LaunchedEffect(includeBackground, useHomeView) {
+        isLoadingPreview = true
+        // Generate a small bitmap preview for the SVG (visualizing the content)
+        val defaults = viewModel.getExportDefaults(useHomeView)
+        val previewWidth = 400
+        val previewHeight = (previewWidth / (defaults.first.toFloat() / defaults.second.toFloat())).toInt()
+        
+        val pngConfigForPreview = ExportPngConfig(!includeBackground, useHomeView, previewWidth, previewHeight)
+        
+        launch(kotlinx.coroutines.Dispatchers.Default) {
+             val bmp = viewModel.renderExportBitmap(pngConfigForPreview)
+             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                 previewBitmap = bmp
+                 isLoadingPreview = false
+             }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Exportar como SVG") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // --- PREVIEW ---
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.LightGray.copy(alpha = 0.3f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isLoadingPreview) {
+                        CircularProgressIndicator()
+                    } else {
+                        if (previewBitmap != null) {
+                            androidx.compose.foundation.Image(
+                                bitmap = previewBitmap!!.asImageBitmap(),
+                                contentDescription = "Preview",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                            )
+                        } else {
+                            Text("No hay contenido para exportar", fontSize = 12.sp, color = Color.Gray)
+                        }
+                    }
+                }
+                
+                HorizontalDivider()
+                
+                // --- OPTIONS ---
+                Text("Opciones de exportación:", style = MaterialTheme.typography.labelMedium)
+                
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = includeBackground, onCheckedChange = { includeBackground = it })
+                    Text("Incluir color de fondo")
+                }
+                
+                Text("Área de exportación:", style = MaterialTheme.typography.labelMedium)
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { useHomeView = true }) {
+                        RadioButton(selected = useHomeView, onClick = { useHomeView = true })
+                        Text("Vista Home (Lo que ves)")
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { useHomeView = false }) {
+                        RadioButton(selected = !useHomeView, onClick = { useHomeView = false })
+                        Text("Ajustar a contenido (Todo)")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { 
+                val defaults = viewModel.getExportDefaults(useHomeView)
+                onExport(ExportSvgConfig(includeBackground, useHomeView, defaults.first.toFloat(), defaults.second.toFloat())) 
+            }) {
+                Text("Exportar")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_cancel))
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TooltipWrapper(
+    text: String,
+    enabled: Boolean,
+    content: @Composable () -> Unit
+) {
+    if (enabled && text.isNotEmpty()) {
+        TooltipBox(
+            positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+            tooltip = {
+                PlainTooltip {
+                    Text(text)
+                }
+            },
+            state = rememberTooltipState()
+        ) {
+            content()
+        }
+    } else {
+        content()
+    }
+}
+

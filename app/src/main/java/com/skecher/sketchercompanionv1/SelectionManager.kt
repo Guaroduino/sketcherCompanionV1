@@ -8,7 +8,11 @@ import androidx.compose.runtime.mutableStateListOf
 class SelectionManager {
     val selectedElements = mutableStateListOf<LayerElement>()
     val selectionMatrix = Matrix()
+
     var baseBounds = RectF()
+    
+    // Transient Transform (For smooth dragging without data degradation)
+    var activeTransform: Matrix? = null
 
     fun selectSingleAt(x: Float, y: Float, layer: Layer, library: Map<String, ComponentDefinition>, addToSelection: Boolean = false): Boolean {
         // Reverse iterate to get top-most (elements at the end of the list are "on top")
@@ -62,13 +66,24 @@ class SelectionManager {
     }
 
     fun applyTransform(matrix: Matrix) {
-        selectedElements.forEach { it.transform(matrix) }
+        // Accumulate into activeTransform instead of modifying elements immediately
+        if (activeTransform == null) activeTransform = Matrix()
+        activeTransform!!.postConcat(matrix)
+        
         selectionMatrix.postConcat(matrix)
+    }
+    
+    fun commitTransform() {
+        activeTransform?.let { transform ->
+             selectedElements.forEach { it.transform(transform) }
+             activeTransform = null
+        }
     }
     
     fun clearSelection() {
         selectedElements.clear()
         selectionMatrix.reset()
+        activeTransform = null
         baseBounds.setEmpty()
     }
 

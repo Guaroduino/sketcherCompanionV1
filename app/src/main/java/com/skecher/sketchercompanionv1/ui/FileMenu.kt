@@ -59,6 +59,7 @@ fun FileMenu(
     onSave: () -> Unit,
     onLoad: () -> Unit,
     onImportImage: () -> Unit,
+    onImportSvg: () -> Unit,
     onExportSvg: () -> Unit,
     onExportPng: () -> Unit,
     onSettingsClick: () -> Unit,
@@ -98,6 +99,11 @@ fun FileMenu(
                 text = { Text("Import Image") }, // No resource yet? Using literal from original code
                 leadingIcon = { Icon(Icons.Default.Image, null) },
                 onClick = { onImportImage(); showMenu = false }
+            )
+            DropdownMenuItem(
+                text = { Text("Importar SVG") },
+                leadingIcon = { Icon(Icons.Default.Image, null) },
+                onClick = { onImportSvg(); showMenu = false }
             )
             
             HorizontalDivider()

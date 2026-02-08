@@ -11,6 +11,7 @@ fun SettingSlider(
     label: String,
     value: Float,
     valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
+    steps: Int = 0,
     onValueChange: (Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -20,6 +21,7 @@ fun SettingSlider(
             value = value,
             onValueChange = onValueChange,
             valueRange = valueRange,
+            steps = steps,
             modifier = Modifier.fillMaxWidth()
         )
     }
