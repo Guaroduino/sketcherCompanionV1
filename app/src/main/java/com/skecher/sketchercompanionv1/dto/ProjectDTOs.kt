@@ -12,7 +12,8 @@ data class ProjectJson(
     val layers: List<LayerJson>,
     val backgroundColor: Int = android.graphics.Color.WHITE,
     val scaleConfig: ScaleConfig? = ScaleConfig(), // Default if missing
-    val gridConfig: GridConfig? = GridConfig()
+    val gridConfig: GridConfig? = GridConfig(),
+    val canvasSizeConfig: CanvasSizeConfigJson? = null // null = infinite canvas
 )
 
 data class ScaleConfig(
@@ -89,7 +90,8 @@ data class VectorStrokeJson(
     val points: List<StrokePointJson>,
     val color: Int,
     val maxWidth: Float,
-    val brushType: String = "FREEHAND"
+    val brushType: String = "FREEHAND",
+    val strokeType: StrokeType = StrokeType.FREEHAND
 )
 
 data class StrokePointJson(
@@ -169,6 +171,8 @@ data class FreehandSettings(
 
 enum class ToolType { FREEHAND, FILL, ERASER, SELECTION, ANDROID_INK }
 
+enum class StrokeType { FREEHAND, LINE, POLYLINE, CIRCLE, ARC }
+
 data class FillSettings(val tolerance: Float = 0.1f)
 
 data class ToolConfig(
@@ -182,3 +186,12 @@ data class ToolConfig(
     val fingerOffsetY: Float = 50f
 )
 
+/**
+ * JSON representation of canvas size configuration.
+ */
+data class CanvasSizeConfigJson(
+    val widthInPixels: Float,
+    val heightInPixels: Float,
+    val presetName: String? = null, // Name of PaperSizePreset enum, null if custom
+    val orientation: String = "PORTRAIT" // "PORTRAIT" or "LANDSCAPE"
+)

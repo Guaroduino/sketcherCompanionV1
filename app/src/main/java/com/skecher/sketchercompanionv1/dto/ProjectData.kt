@@ -10,7 +10,8 @@ data class ProjectData(
     val paletteColors: List<Int>,
     val toolConfigs: Map<ToolType, ToolConfig>,
     val canvasMetadata: CanvasMetadata,
-    val componentLibrary: Map<String, ComponentDefinitionJson> = emptyMap()
+    val componentLibrary: Map<String, ComponentDefinitionJson> = emptyMap(),
+    val canvasSizeConfig: CanvasSizeConfig? = null // null = infinite canvas
 )
 
 // data class LayerData ... (Removing Custom LayerData, utilizing LayerJson)

@@ -62,9 +62,11 @@ fun FileMenu(
     onImportSvg: () -> Unit,
     onExportSvg: () -> Unit,
     onExportPng: () -> Unit,
+    onExportPdf: () -> Unit,
     onSettingsClick: () -> Unit,
     onSaveTemplate: (String) -> Unit,
-    onLoadTemplate: (File) -> Unit
+    onLoadTemplate: (File) -> Unit,
+    onPaperSizeClick: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
     var showSaveTemplateDialog by remember { mutableStateOf(false) }
@@ -104,6 +106,15 @@ fun FileMenu(
                 text = { Text("Importar SVG") },
                 leadingIcon = { Icon(Icons.Default.Image, null) },
                 onClick = { onImportSvg(); showMenu = false }
+            )
+            
+            HorizontalDivider()
+            
+            // PAPER SIZE
+            DropdownMenuItem(
+                text = { Text("Papel") },
+                leadingIcon = { Icon(Icons.Default.Description, null) },
+                onClick = { onPaperSizeClick(); showMenu = false }
             )
             
             HorizontalDivider()
@@ -165,6 +176,12 @@ fun FileMenu(
                 text = { Text("Exportar como SVG") },
                 leadingIcon = { Icon(Icons.Default.Share, null) },
                 onClick = { onExportSvg(); showMenu = false }
+            )
+
+            DropdownMenuItem(
+                text = { Text("Exportar como PDF") },
+                leadingIcon = { Icon(Icons.Default.Description, null) },
+                onClick = { onExportPdf(); showMenu = false }
             )
 
             HorizontalDivider()

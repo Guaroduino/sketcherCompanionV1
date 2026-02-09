@@ -176,7 +176,8 @@ fun VectorStroke.toVectorStrokeJson(): VectorStrokeJson {
         points = this.points.map { StrokePointJson(it.x, it.y, it.pressure, it.timestamp) },
         color = this.color,
         maxWidth = this.maxWidth,
-        brushType = this.brushType
+        brushType = this.brushType,
+        strokeType = this.strokeType
     )
 }
 
@@ -213,6 +214,7 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         maxWidth = this.maxWidth,
         path = result.path,
         brushType = this.brushType,
+        strokeType = this.strokeType,
         leftPoints = result.left,
         rightPoints = result.right
     )

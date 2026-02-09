@@ -116,6 +116,7 @@ class SketcherCanvasView(context: Context) : View(context) {
         canvas.save()
         canvas.concat(viewMatrix)
         drawGrid(canvas)
+        RenderHelper.drawCanvasBounds(canvas, canvasSizeConfig)
         canvas.restore()
 
         // 3. Render Layers
@@ -133,7 +134,8 @@ class SketcherCanvasView(context: Context) : View(context) {
             canvas.concat(viewMatrix)
             
             for (element in layer.elements) {
-                 val isDimmed = editingContext != null && !editingContext!!.contains(element)
+                 // Disable dimming in edit mode - content should be visible
+                 val isDimmed = false
                  val isSelected = selectionManager?.selectedElements?.contains(element) == true
                  
                  // Only skip drawing if selected AND we are currently dragging/transforming
@@ -215,6 +217,10 @@ class SketcherCanvasView(context: Context) : View(context) {
         set(value) { field = value; redrawAllCache() }
     var currentUnit: DistanceUnit = DistanceUnit.M
         set(value) { field = value; redrawAllCache() }
+    
+    // CANVAS SIZE CONFIG
+    var canvasSizeConfig: CanvasSizeConfig? = null
+        set(value) { field = value; redrawAllCache() }
         
     private val gridPaint = android.graphics.Paint().apply {
         style = android.graphics.Paint.Style.STROKE
@@ -242,7 +248,9 @@ class SketcherCanvasView(context: Context) : View(context) {
         
     private val layers = mutableListOf<Layer>()
     private var componentLibrary: Map<String, ComponentDefinition> = emptyMap()
+    var activeStrokeType: StrokeType = StrokeType.FREEHAND
     private var editingContext: List<LayerElement>? = null
+    private var activeLayerIndex: Int = 0 // Track active layer for rendering order
     
     // PREVIEW STATE (For live drawing/filling)
     private var currentVectorPreviewPath: android.graphics.Path? = null
@@ -252,11 +260,19 @@ class SketcherCanvasView(context: Context) : View(context) {
     private var currentFillPath: android.graphics.Path? = null
     private var currentFillColor: Int? = null
     private var currentPredictedPoint: StrokePoint? = null
+    private var currentVectorPreviewCenterPoints: List<android.graphics.PointF>? = null 
+    private var currentVectorPreviewOutlinePoints: List<android.graphics.PointF>? = null
+    
+    // SNAP TO GRID
+    var snapFunction: ((Float, Float) -> Pair<Float, Float>)? = null
     
     // VISUAL SMOOTHING STATE
     private var currentLiveTipWidth: Float = 0f
     private var currentVelocityState: Float = 0f // Persistent smoothed velocity
     private var currentPressureState: Float = 0.5f // Persistent smoothed pressure
+    
+    // MULTI-STEP GEOMETRIC
+    private var isMultiStepInProgress: Boolean = false
     private var currentLiveGeneratedRadius: Float = 0f // New: Accurate radius from generator
     
     private val fillPaint = android.graphics.Paint().apply {
@@ -268,11 +284,12 @@ class SketcherCanvasView(context: Context) : View(context) {
         isAntiAlias = true
     }
 
-    fun setLayers(newLayers: List<Layer>, library: Map<String, ComponentDefinition>, editingCtx: List<LayerElement>?) {
+    fun setLayers(newLayers: List<Layer>, library: Map<String, ComponentDefinition>, editingCtx: List<LayerElement>?, activeIndex: Int = 0) {
         layers.clear()
         layers.addAll(newLayers)
         componentLibrary = library
         editingContext = editingCtx
+        activeLayerIndex = activeIndex
         redrawAllCache() // Layers changed, rebuild
     }
 
@@ -423,17 +440,21 @@ class SketcherCanvasView(context: Context) : View(context) {
         val wMinY = kotlin.math.min(top, bottom)
         val wMaxY = kotlin.math.max(top, bottom)
 
-        val startXIndex = floor(wMinX / stepPx).toInt()
-        val endXIndex = ceil(wMaxX / stepPx).toInt()
+        // Calculate offset to align grid center with canvas center
+        val offsetX = canvasSizeConfig?.let { it.widthInPixels / 2f } ?: 0f
+        val offsetY = canvasSizeConfig?.let { it.heightInPixels / 2f } ?: 0f
+
+        val startXIndex = floor((wMinX - offsetX) / stepPx).toInt()
+        val endXIndex = ceil((wMaxX - offsetX) / stepPx).toInt()
         
-        val startYIndex = floor(wMinY / stepPx).toInt()
-        val endYIndex = ceil(wMaxY / stepPx).toInt()
+        val startYIndex = floor((wMinY - offsetY) / stepPx).toInt()
+        val endYIndex = ceil((wMaxY - offsetY) / stepPx).toInt()
         
         // Safety cap
         if ((endXIndex - startXIndex) > 2000 || (endYIndex - startYIndex) > 2000) return 
 
         for (i in startXIndex..endXIndex) {
-            val x = i * stepPx
+            val x = offsetX + i * stepPx
             
             var drawLine = false
             var thicknessScale = 1.0f
@@ -468,7 +489,7 @@ class SketcherCanvasView(context: Context) : View(context) {
         }
 
         for (i in startYIndex..endYIndex) {
-            val y = i * stepPx
+            val y = offsetY + i * stepPx
             
             var drawLine = false
             var thicknessScale = 1.0f
@@ -542,155 +563,193 @@ class SketcherCanvasView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         
-        // 1. Draw Background Bitmap (Deferred Rendering Strategy)
-        backingBitmap?.let { bitmap ->
-            if (viewMatrix == cachedBitmapMatrix) {
-                // Exact match: Draw directly (High Quality)
-                canvas.drawBitmap(bitmap, 0f, 0f, null)
-            } else {
-                // Mismatch (Zooming): Calculate delta and transform (High Performance)
-                val transform = Matrix()
-                // Transform = View * Inverse(Cache)  -> This moves Cache to View
-                // Actually: View * Inverse(Cache) gives the delta? 
-                // We want to draw CachedBitmap such that it matches View.
-                // CachedBitmap is rendered at 'cachedBitmapMatrix'.
-                // To display it at 'viewMatrix', we need: 
-                // Delta = viewMatrix * cachedBitmapMatrix^-1
-                
-                if (cachedBitmapMatrix.invert(transform)) {
-                     transform.postConcat(viewMatrix)
-                     canvas.save()
-                     canvas.concat(transform)
-                     canvas.drawBitmap(bitmap, 0f, 0f, null)
-                     canvas.restore()
-                } else {
-                     // Fallback if non-invertible (rare)
-                     canvas.drawBitmap(bitmap, 0f, 0f, null)
-                }
-            }
-        } ?: run {
-             canvas.drawColor(canvasBackgroundColor)
-        }
-        
-        // 2. Compute View Matrix for Live Elements
-        canvas.save()
-        canvas.concat(viewMatrix)
-        
-        // 3. Draw Live Fill
-        currentFillPath?.let { path ->
-            currentFillColor?.let { color ->
-                fillPaint.color = color
-                canvas.drawPath(path, fillPaint)
-            }
-        }
-
-        // 4. Draw Live Vector Stroke (Preview)
+        // DYNAMIC RENDERING: If actively drawing, render layers dynamically to insert live stroke at correct position
         if (isDrawing && currentTool == ToolType.FREEHAND) {
-            currentVectorPreviewPath?.let { path ->
-                 vectorPaint.color = currentVectorPreviewColor
-                 canvas.drawPath(path, vectorPaint)
-    
-
-                 // Debug Draw
-                 if (isDebugWireframeByVM) {
-                     val debugPaint = android.graphics.Paint().apply {
-                         color = android.graphics.Color.RED
-                         strokeWidth = 8f
-                         style = android.graphics.Paint.Style.STROKE
-                         isAntiAlias = true
-                     }
-                     
-                     // 1. Draw Center Line Points (Red)
-                     currentVectorPreviewCenterPoints?.forEach { p ->
-                         canvas.drawPoint(p.x, p.y, debugPaint)
-                     }
-                     
-                     // 2. Draw Outline Points (Green)
-                     debugPaint.color = android.graphics.Color.GREEN
-                     debugPaint.strokeWidth = 5f
-                     currentVectorPreviewOutlinePoints?.forEach { p ->
-                         canvas.drawPoint(p.x, p.y, debugPaint)
-                     }
-
-                     // 3. Draw Polygon Wireframe (Magenta)
-                     debugPaint.color = android.graphics.Color.MAGENTA
-                     debugPaint.strokeWidth = 2f
-                     canvas.drawPath(path, debugPaint)
-                 }
-
-                 // Dynamic Live Blob (Tip Prediction)
-                 if (currentVectorPreviewPoints?.isNotEmpty() == true) {
-                     val points = currentVectorPreviewPoints!!
-                     val tipPoint = points.last()
-                     
-                     // 1. STABILIZED VELOCITY (Double Smoothed)
-                     // CRITICAL FIX: Use 'currentStrokePoints' (Real Data) instead of 'points' (Preview Data).
-                     // Preview data includes the "Predicted Point" which jitters wildly, causing velocity spikes.
-                     // We want the velocity of the hand logic, not the extrapolated phantom point.
-                     val sourcePoints = if (currentStrokePoints.isNotEmpty()) currentStrokePoints else points
-                     val measuredVelocity = calculateSmoothedVelocity(sourcePoints)
-                     
-                     // Apply Low-Pass Filter to Velocity State
-                     if (currentVelocityState == 0f) {
-                         currentVelocityState = measuredVelocity
-                     } else {
-                         // Increased reaction to velocity changes (0.1) for better feel
-                         currentVelocityState += (measuredVelocity - currentVelocityState) * 0.1f
-                     }
-
-
-                     // 6. ADAPTIVE RENDERING (Zoom-Aware Cursor)
-                     val mValues = FloatArray(9)
-                     viewMatrix.getValues(mValues)
-                     val zoom = kotlin.math.sqrt(mValues[Matrix.MSCALE_X] * mValues[Matrix.MSCALE_X] + mValues[Matrix.MSKEW_X] * mValues[Matrix.MSKEW_X])
-                     
-                     // Minimum visible "GUIDE" radius in screen coordinates (subtle marker)
-                     val minScreenRadius = 1.5f * (resources.displayMetrics.density) // 1.5dp
-                     val minWorldRadius = minScreenRadius / zoom
-                     
-                     // Base Properties
-                     vectorPaint.color = currentVectorPreviewColor
-                     val baseAlpha = android.graphics.Color.alpha(currentVectorPreviewColor)
-                     
-                     // --- DRAW GUIDE RING ---
-                     // Only draw if the actual radius is significantly smaller than the minimum visibility marker
-                     if (currentLiveGeneratedRadius < minWorldRadius) {
-                         vectorPaint.style = android.graphics.Paint.Style.STROKE
-                         vectorPaint.strokeWidth = 1f / zoom
-                         vectorPaint.alpha = (baseAlpha * 0.3f).toInt().coerceIn(0, 255) // Faint transparency
-                         canvas.drawCircle(tipPoint.x, tipPoint.y, minWorldRadius, vectorPaint)
-                     }
-                     
-                     // --- DRAW PHYSICAL CORE ---
-                     // This is the EXACT size of the ink deposition
-                     vectorPaint.style = android.graphics.Paint.Style.FILL
-                     vectorPaint.alpha = baseAlpha
-                     canvas.drawCircle(tipPoint.x, tipPoint.y, currentLiveGeneratedRadius, vectorPaint)
-                 }
-             }
-         }
-
-         canvas.restore()
-
-        // 5. Draw Selection (Dynamic - Only when dragging)
-        // When not dragging, they are baked into backingBitmap for correct Z-order
-        if (isSelectionDragging) {
-            selectionManager?.let { manager ->
-                for (element in manager.selectedElements) {
+            // 1. Background
+            canvas.drawColor(canvasBackgroundColor)
+            
+            canvas.save()
+            canvas.concat(viewMatrix)
+            
+            // 2. Grid and canvas bounds
+            drawGrid(canvas)
+            RenderHelper.drawCanvasBounds(canvas, canvasSizeConfig)
+            
+            // 3. Render layers with live stroke inserted at active layer position
+            for ((layerIndex, layer) in layers.withIndex()) {
+                if (!layer.isVisible) continue
+                
+                val layerAlpha = if (layer.opacity < 1f) (layer.opacity * 255).toInt() else 255
+                val saveCount = if (layerAlpha < 255) {
+                    canvas.saveLayerAlpha(0f, 0f, width.toFloat(), height.toFloat(), layerAlpha)
+                } else {
                     canvas.save()
-                    manager.activeTransform?.let { transform ->
-                        canvas.concat(transform)
-                    }
+                }
+                
+                // Render layer elements
+                for (element in layer.elements) {
+                    val isDimmed = false
+                    val isSelected = selectionManager?.selectedElements?.contains(element) == true
+                    
+                    // Skip selected elements if dragging
+                    if (isSelected && isSelectionDragging) continue
+                    
                     RenderHelper.drawElementRecursive(
-                        canvas, 
+                        canvas,
                         element,
                         componentLibrary = componentLibrary,
-                        isDimmed = false
+                        isDimmed = isDimmed
                     )
-                    canvas.restore()
+                }
+                
+                canvas.restoreToCount(saveCount)
+                
+                // Insert live stroke AFTER the active layer
+                if (layerIndex == activeLayerIndex) {
+                    // Render live fill FIRST (behind stroke)
+                    currentFillPath?.let { path ->
+                        currentFillColor?.let { color ->
+                            fillPaint.color = color
+                            canvas.drawPath(path, fillPaint)
+                        }
+                    }
+                    
+                    // Then render live stroke (on top)
+                    currentVectorPreviewPath?.let { path ->
+                        vectorPaint.color = currentVectorPreviewColor
+                        canvas.drawPath(path, vectorPaint)
+                        
+                        // Debug rendering
+                        if (isDebugWireframeByVM) {
+                            val debugPaint = android.graphics.Paint().apply {
+                                color = android.graphics.Color.RED
+                                strokeWidth = 8f
+                                style = android.graphics.Paint.Style.STROKE
+                                isAntiAlias = true
+                            }
+                            
+                            currentVectorPreviewCenterPoints?.let { points ->
+                                points.forEach { p: android.graphics.PointF ->
+                                    canvas.drawPoint(p.x, p.y, debugPaint)
+                                }
+                            }
+                            
+                            debugPaint.color = android.graphics.Color.GREEN
+                            debugPaint.strokeWidth = 5f
+                            currentVectorPreviewOutlinePoints?.let { points ->
+                                points.forEach { p: android.graphics.PointF ->
+                                    canvas.drawPoint(p.x, p.y, debugPaint)
+                                }
+                            }
+                            
+                            debugPaint.color = android.graphics.Color.MAGENTA
+                            debugPaint.strokeWidth = 2f
+                            canvas.drawPath(path, debugPaint)
+                        }
+                        
+                        // Live tip rendering
+                        if (currentVectorPreviewPoints?.isNotEmpty() == true) {
+                            val points = currentVectorPreviewPoints!!
+                            val tipPoint = points.last()
+                            
+                            val sourcePoints = if (currentStrokePoints.isNotEmpty()) currentStrokePoints else points
+                            val measuredVelocity = calculateSmoothedVelocity(sourcePoints)
+                            
+                            if (currentVelocityState == 0f) {
+                                currentVelocityState = measuredVelocity
+                            } else {
+                                currentVelocityState += (measuredVelocity - currentVelocityState) * 0.1f
+                            }
+                            
+                            val mValues = FloatArray(9)
+                            viewMatrix.getValues(mValues)
+                            val zoom = kotlin.math.sqrt(mValues[Matrix.MSCALE_X] * mValues[Matrix.MSCALE_X] + mValues[Matrix.MSKEW_X] * mValues[Matrix.MSKEW_X])
+                            
+                            val minScreenRadius = 1.5f * (resources.displayMetrics.density)
+                            val minWorldRadius = minScreenRadius / zoom
+                            
+                            vectorPaint.color = currentVectorPreviewColor
+                            val baseAlpha = android.graphics.Color.alpha(currentVectorPreviewColor)
+                            
+                            if (currentLiveGeneratedRadius < minWorldRadius) {
+                                vectorPaint.style = android.graphics.Paint.Style.STROKE
+                                vectorPaint.strokeWidth = 1f / zoom
+                                vectorPaint.alpha = (baseAlpha * 0.3f).toInt().coerceIn(0, 255)
+                                canvas.drawCircle(tipPoint.x, tipPoint.y, minWorldRadius, vectorPaint)
+                            }
+                            
+                            vectorPaint.style = android.graphics.Paint.Style.FILL
+                            vectorPaint.alpha = baseAlpha
+                            canvas.drawCircle(tipPoint.x, tipPoint.y, currentLiveGeneratedRadius, vectorPaint)
+                        }
+                    }
                 }
             }
+            
+            canvas.restore()
+            
+        } else {
+            // CACHED RENDERING: Use backing bitmap when not drawing
+            // 1. Draw Background Bitmap (Deferred Rendering Strategy)
+            backingBitmap?.let { bitmap ->
+                if (viewMatrix == cachedBitmapMatrix) {
+                    // Exact match: Draw directly (High Quality)
+                    canvas.drawBitmap(bitmap, 0f, 0f, null)
+                } else {
+                    // Mismatch (Zooming): Calculate delta and transform (High Performance)
+                    val transform = Matrix()
+                    
+                    if (cachedBitmapMatrix.invert(transform)) {
+                         transform.postConcat(viewMatrix)
+                         canvas.save()
+                         canvas.concat(transform)
+                         canvas.drawBitmap(bitmap, 0f, 0f, null)
+                         canvas.restore()
+                    } else {
+                         // Fallback if non-invertible (rare)
+                         canvas.drawBitmap(bitmap, 0f, 0f, null)
+                    }
+                }
+            } ?: run {
+                 canvas.drawColor(canvasBackgroundColor)
+            }
+            
+            // 2. Live Fill (when not drawing with freehand)
+            canvas.save()
+            canvas.concat(viewMatrix)
+            
+            currentFillPath?.let { path ->
+                currentFillColor?.let { color ->
+                    fillPaint.color = color
+                    canvas.drawPath(path, fillPaint)
+                }
+            }
+            
+            canvas.restore()
         }
+
+         // Common overlays (always rendered on top)
+         // Selection dragging
+         if (isSelectionDragging) {
+             selectionManager?.let { manager ->
+                 canvas.save()
+                 canvas.concat(viewMatrix)
+                 for (element in manager.selectedElements) {
+                     canvas.save()
+                     manager.activeTransform?.let { transform ->
+                         canvas.concat(transform)
+                     }
+                     RenderHelper.drawElementRecursive(
+                         canvas, 
+                         element,
+                         componentLibrary = componentLibrary,
+                         isDimmed = false
+                     )
+                     canvas.restore()
+                 }
+                 canvas.restore()
+             }
+         }
 
         // 6. Selection Overlay
         drawSelectionOverlay(canvas)
@@ -775,6 +834,7 @@ class SketcherCanvasView(context: Context) : View(context) {
     // Callback
     var onStrokeCompleted: ((VectorStroke) -> Unit)? = null
     var onFillCompleted: ((FillData) -> Unit)? = null
+    var onGeometricProgressChanged: ((Boolean) -> Unit)? = null
     var onHybridStrokeCompleted: ((VectorStroke, FillData?) -> Unit)? = null
     var currentTool: ToolType = ToolType.FREEHAND
 
@@ -933,6 +993,15 @@ class SketcherCanvasView(context: Context) : View(context) {
                 stabilizerY = targetY
             }
             
+            // Apply Snap to Grid AFTER stabilization (Only for Geometric Tools)
+            if (activeStrokeType != StrokeType.FREEHAND) {
+                snapFunction?.let { snap ->
+                    val (snappedX, snappedY) = snap(stabilizerX, stabilizerY)
+                    stabilizerX = snappedX
+                    stabilizerY = snappedY
+                }
+            }
+            
             // FILTER: Only add point if it moved > 2.0px or is the very start
             // This prevents "droplets" caused by velocity jitter on ultra-dense points
             val dx = stabilizerX - lastRecordedX
@@ -961,9 +1030,62 @@ class SketcherCanvasView(context: Context) : View(context) {
         }
 
         // 2. Add to stroke with World Transform
-        stabilizedPoints.forEach { p ->
-            currentStrokePoints.add(transformToWorld(p))
+    stabilizedPoints.forEach { p ->
+        val worldP = transformToWorld(p)
+        when (activeStrokeType) {
+            StrokeType.FREEHAND -> {
+                currentStrokePoints.add(worldP)
+            }
+            StrokeType.LINE, StrokeType.CIRCLE -> {
+                if (action == MotionEvent.ACTION_DOWN) {
+                    currentStrokePoints.clear()
+                    currentStrokePoints.add(worldP)
+                } else if (action == MotionEvent.ACTION_MOVE || action == MotionEvent.ACTION_UP) {
+                    // Control Points: [Start, Current]
+                    if (currentStrokePoints.isNotEmpty()) {
+                        val start = currentStrokePoints.first()
+                        currentStrokePoints.clear()
+                        currentStrokePoints.add(start)
+                        currentStrokePoints.add(worldP)
+                    } else {
+                        currentStrokePoints.add(worldP)
+                    }
+                }
+            }
+            StrokeType.POLYLINE -> {
+                if (action == MotionEvent.ACTION_DOWN) {
+                    if (!isMultiStepInProgress) {
+                        currentStrokePoints.clear()
+                        isMultiStepInProgress = true
+                        onGeometricProgressChanged?.invoke(true)
+                    }
+                    currentStrokePoints.add(worldP)
+                } else if (action == MotionEvent.ACTION_MOVE) {
+                    // Temporarily update the LAST point for preview
+                    if (currentStrokePoints.isNotEmpty()) {
+                        currentStrokePoints[currentStrokePoints.size - 1] = worldP
+                    }
+                }
+            }
+            StrokeType.ARC -> {
+                if (action == MotionEvent.ACTION_DOWN) {
+                    if (!isMultiStepInProgress || currentStrokePoints.size >= 3) {
+                        currentStrokePoints.clear()
+                        isMultiStepInProgress = true
+                        onGeometricProgressChanged?.invoke(true)
+                    }
+                    currentStrokePoints.add(worldP)
+                } else if (action == MotionEvent.ACTION_MOVE) {
+                    if (currentStrokePoints.isNotEmpty()) {
+                        currentStrokePoints[currentStrokePoints.size - 1] = worldP
+                    }
+                }
+                
+                // Auto-finalize ARC if 3 points are reached and user lifts finger?
+                // No, let's keep it manual or auto-finalize after 3 points on UP.
+            }
         }
+    }
 
         // 3. Update & Render
         when (action) {
@@ -975,22 +1097,32 @@ class SketcherCanvasView(context: Context) : View(context) {
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                
-                // --- RAW POINT PREPARATION ---
-                // The new PerfectFreehandGenerator handles all dynamics (pressure, velocity, smoothing) internally.
-                // We just pass the raw points to it.
-                // No need to pre-calculate pressure here anymore.
+                isDrawing = false
 
-                // 1. Get Tolerance
+                // Finalize geometric shapes
+                if (activeStrokeType == StrokeType.LINE && currentStrokePoints.size >= 2) {
+                    val interpolated = interpolateLine(currentStrokePoints[0], currentStrokePoints[1])
+                    currentStrokePoints.clear()
+                    currentStrokePoints.addAll(interpolated)
+                } else if (activeStrokeType == StrokeType.CIRCLE && currentStrokePoints.size >= 2) {
+                    val interpolated = interpolateCircle(currentStrokePoints[0], currentStrokePoints[1])
+                    currentStrokePoints.clear()
+                    currentStrokePoints.addAll(interpolated)
+                } else if (activeStrokeType == StrokeType.POLYLINE || activeStrokeType == StrokeType.ARC) {
+                    // Skip automatic finalization for multi-step types
+                    isDrawing = true // Keep drawing state active
+                    invalidate()
+                    return true 
+                }
+
                 val tolerance = activeFreehandSettings.tolerance.coerceAtLeast(0.5f)
                 val isSimplified = activeFreehandSettings.isSimplificationEnabled
                 
                 // --- GENERATE HIGH-FIDELITY PATH (Visuals) ---
-                // We use the full, raw points. The Generator handles dynamics and smoothing internally.
                 val genResult = PerfectFreehandGenerator.generate(
                     currentStrokePoints, 
-                    activeSize, // baseWidth
-                    activeFreehandSettings // settings
+                    activeSize, 
+                    activeFreehandSettings 
                 )
                 val highFidelityPath = genResult.path
                 val left = genResult.left
@@ -1021,6 +1153,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                     maxWidth = activeSize,
                     path = finalPath,
                     brushType = "FREEHAND",
+                    strokeType = activeStrokeType,
                     leftPoints = left,
                     rightPoints = right
                 )
@@ -1035,10 +1168,10 @@ class SketcherCanvasView(context: Context) : View(context) {
                     }
                     fPath.close()
                     fill = FillData(fPath, fillModeColor)
-                    bakeFill(fill) // Bake Fill First (Below)
+                    // Don't bake - fill will be added to layers
                 }
                 
-                bakeStroke(stroke) // Bake Stroke Second (Above)
+                // Don't bake stroke - let it be added to layers normally
                 
                 if (onHybridStrokeCompleted != null) {
                     onHybridStrokeCompleted?.invoke(stroke, fill)
@@ -1054,6 +1187,10 @@ class SketcherCanvasView(context: Context) : View(context) {
                 currentVectorPreviewPoints = null
                 currentStrokePoints.clear()
                 updateCurrentFill(null, 0) // Clear preview
+                
+                // Regenerate backing bitmap with correct layer order
+                redrawAllCache()
+                
                 return true
             }
         }
@@ -1070,69 +1207,265 @@ class SketcherCanvasView(context: Context) : View(context) {
     }
 
     // Debug Variables
-    private var currentVectorPreviewCenterPoints: List<PointF>? = null
-    private var currentVectorPreviewOutlinePoints: List<PointF>? = null 
+
 
     private fun updateCurrentPaths() {
-        // Unified Live Rendering Strategy
-        // 1. Combine Real + Predicted Points
-        val latencyMs = activeFreehandSettings.predictionLatency.toLong()
-        val predictedPt = predictor.getPredictedPoint(
-            points = currentStrokePoints,
-            maxPredictionMillis = latencyMs,
-            minSpeed = activeFreehandSettings.minPredictionVelocity,
-            maxSpeed = activeFreehandSettings.maxPredictionVelocity
-        )
-        
-        val livePoints = if (predictedPt != null) {
-            currentStrokePoints + predictedPt
-        } else {
-            currentStrokePoints.toList()
+    // 1. Determine points based on type
+    val livePoints: List<StrokePoint> = when (activeStrokeType) {
+        StrokeType.FREEHAND -> {
+            val latencyMs = activeFreehandSettings.predictionLatency.toLong()
+            val predictedPt = predictor.getPredictedPoint(
+                points = currentStrokePoints,
+                maxPredictionMillis = latencyMs,
+                minSpeed = activeFreehandSettings.minPredictionVelocity,
+                maxSpeed = activeFreehandSettings.maxPredictionVelocity
+            )
+            if (predictedPt != null) currentStrokePoints + predictedPt else currentStrokePoints.toList()
         }
-        
-        if (livePoints.isEmpty()) return
-
-        // 2. Generate Unified Path (Cap End Disabled for Live Blob)
-        val liveSettings = activeFreehandSettings.copy(
-            capEnd = false
-        )
-        
-        val result = PerfectFreehandGenerator.generate(
-            livePoints, 
-            activeSize, 
-            liveSettings
-        )
-        
-        // 3. Update Preview State directly
-        // We reuse the variables used by onDraw
-        currentVectorPreviewPath = result.path
-        currentVectorPreviewPoints = livePoints
-        currentVectorPreviewColor = activeColor
-        currentPredictedPoint = predictedPt 
-        currentLiveGeneratedRadius = result.lastRadius // Sync radius
-        
-        // --- LIVE FILL PREVIEW ---
-        if (isFillModeEnabled && livePoints.size >= 3) {
-            val fPath = android.graphics.Path()
-            fPath.moveTo(livePoints[0].x, livePoints[0].y)
-            for (i in 1 until livePoints.size) {
-                fPath.lineTo(livePoints[i].x, livePoints[i].y)
+        StrokeType.LINE -> {
+            if (currentStrokePoints.size >= 2) {
+                interpolateLine(currentStrokePoints[0], currentStrokePoints[1])
+            } else {
+                currentStrokePoints.toList()
             }
-            fPath.close()
-            updateCurrentFill(fPath, fillModeColor)
-        } else if (!isFillModeEnabled) {
-            updateCurrentFill(null, 0)
+        }
+        StrokeType.CIRCLE -> {
+            if (currentStrokePoints.size >= 2) {
+                interpolateCircle(currentStrokePoints[0], currentStrokePoints[1])
+            } else {
+                currentStrokePoints.toList()
+            }
+        }
+        StrokeType.POLYLINE -> {
+            if (currentStrokePoints.size >= 2) {
+                interpolatePolyline(currentStrokePoints)
+            } else {
+                currentStrokePoints.toList()
+            }
+        }
+        StrokeType.ARC -> {
+            if (currentStrokePoints.size >= 3) {
+                interpolateArc(currentStrokePoints[0], currentStrokePoints[1], currentStrokePoints[2])
+            } else if (currentStrokePoints.size == 2) {
+                interpolateLine(currentStrokePoints[0], currentStrokePoints[1])
+            } else {
+                currentStrokePoints.toList()
+            }
+        }
+        else -> currentStrokePoints.toList()
+    }
+
+    if (livePoints.isEmpty()) return
+
+    // 2. Generate Unified Path (Cap End Disabled for Live Blob)
+    val liveSettings = activeFreehandSettings.copy(
+        capEnd = false
+    )
+    
+    val result = PerfectFreehandGenerator.generate(
+        livePoints, 
+        activeSize, 
+        liveSettings
+    )
+    
+    // 3. Update Preview State directly
+    currentVectorPreviewPath = result.path
+    currentVectorPreviewPoints = livePoints
+    currentVectorPreviewColor = activeColor
+    currentLiveGeneratedRadius = result.lastRadius // Sync radius
+    
+    // --- LIVE FILL PREVIEW ---
+    if (isFillModeEnabled && livePoints.size >= 3) {
+        val fPath = android.graphics.Path()
+        fPath.moveTo(livePoints[0].x, livePoints[0].y)
+        for (i in 1 until livePoints.size) {
+            fPath.lineTo(livePoints[i].x, livePoints[i].y)
+        }
+        fPath.close()
+        updateCurrentFill(fPath, fillModeColor)
+    } else if (!isFillModeEnabled) {
+        updateCurrentFill(null, 0)
+    }
+    
+    // Debug Data
+    currentVectorPreviewCenterPoints = result.center
+    currentVectorPreviewOutlinePoints = result.left + result.right
+}
+
+private fun interpolateLine(p1: StrokePoint, p2: StrokePoint): List<StrokePoint> {
+    val points = mutableListOf<StrokePoint>()
+    val dx = p2.x - p1.x
+    val dy = p2.y - p1.y
+    val dist = kotlin.math.sqrt(dx * dx + dy * dy)
+    if (dist < 1f) return listOf(p1, p2)
+    
+    val steps = (dist / 2f).toInt().coerceIn(2, 500) // One point every 2px
+    for (i in 0..steps) {
+        val t = i.toFloat() / steps
+        val x = p1.x + dx * t
+        val y = p1.y + dy * t
+        // Linear interpolate pressure and time
+        val pressure = p1.pressure + (p2.pressure - p1.pressure) * t
+        val time = p1.timestamp + ((p2.timestamp - p1.timestamp) * t).toLong()
+        points.add(StrokePoint(x, y, pressure, time))
+    }
+    return points
+}
+
+private fun interpolateCircle(center: StrokePoint, edge: StrokePoint): List<StrokePoint> {
+    val points = mutableListOf<StrokePoint>()
+    val dx = edge.x - center.x
+    val dy = edge.y - center.y
+    val radius = kotlin.math.sqrt(dx * dx + dy * dy)
+    if (radius < 1f) return listOf(center, edge)
+    
+    val circumference = 2 * kotlin.math.PI * radius
+    val steps = (circumference / 5f).toInt().coerceIn(12, 1000) // Sample every 5px?
+    
+    for (i in 0..steps) {
+        val angle = (2 * kotlin.math.PI * i) / steps
+        val x = center.x + (radius * kotlin.math.cos(angle)).toFloat()
+        val y = center.y + (radius * kotlin.math.sin(angle)).toFloat()
+        // Constant pressure for now or based on edge
+        val pressure = edge.pressure
+        val time = edge.timestamp // Circle is "instant" anyway
+        points.add(StrokePoint(x, y, pressure, time))
+    }
+    return points
+}
+
+private fun interpolatePolyline(points: List<StrokePoint>): List<StrokePoint> {
+    if (points.size < 2) return points
+    val result = mutableListOf<StrokePoint>()
+    for (i in 0 until points.size - 1) {
+        val segment = interpolateLine(points[i], points[i+1])
+        if (i > 0) result.addAll(segment.drop(1))
+        else result.addAll(segment)
+    }
+    return result
+}
+
+private fun interpolateArc(p1: StrokePoint, p2: StrokePoint, p3: StrokePoint): List<StrokePoint> {
+    val x1 = p1.x
+    val y1 = p1.y
+    val x2 = p2.x
+    val y2 = p2.y
+    val x3 = p3.x
+    val y3 = p3.y
+
+    val D = 2 * (x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2))
+    if (kotlin.math.abs(D) < 0.001f) {
+        return interpolatePolyline(listOf(p1, p2, p3))
+    }
+
+    val Ux = ((x1 * x1 + y1 * y1) * (y2 - y3) + (x2 * x2 + y2 * y2) * (y3 - y1) + (x3 * x3 + y3 * y3) * (y1 - y2)) / D
+    val Uy = ((x1 * x1 + y1 * y1) * (x3 - x2) + (x2 * x2 + y2 * y2) * (x1 - x3) + (x3 * x3 + y3 * y3) * (x2 - x1)) / D
+    
+    val center = PointF(Ux, Uy)
+    val dx1 = x1 - Ux
+    val dy1 = y1 - Uy
+    val radius = kotlin.math.sqrt(dx1 * dx1 + dy1 * dy1)
+
+    val angle1 = kotlin.math.atan2(y1 - Uy, x1 - Ux).toDouble()
+    val angle2 = kotlin.math.atan2(y2 - Uy, x2 - Ux).toDouble()
+    val angle3 = kotlin.math.atan2(y3 - Uy, x3 - Ux).toDouble()
+
+    var startAngle = angle1
+    var midAngle = angle2
+    var endAngle = angle3
+
+    var sweep = endAngle - startAngle
+    while (sweep < -kotlin.math.PI) sweep += 2 * kotlin.math.PI
+    while (sweep > kotlin.math.PI) sweep -= 2 * kotlin.math.PI
+    
+    var diffMid = midAngle - startAngle
+    while (diffMid < -kotlin.math.PI) diffMid += 2 * kotlin.math.PI
+    while (diffMid > kotlin.math.PI) diffMid -= 2 * kotlin.math.PI
+    
+    if (kotlin.math.sign(diffMid) != kotlin.math.sign(sweep)) {
+        sweep = if (sweep > 0) sweep - 2 * kotlin.math.PI else sweep + 2 * kotlin.math.PI
+    }
+
+    val points = mutableListOf<StrokePoint>()
+    val arcLength = kotlin.math.abs(sweep) * radius
+    val steps = (arcLength / 2f).toInt().coerceIn(12, 1000)
+
+    for (i in 0..steps) {
+        val t = i.toFloat() / steps
+        val angle = startAngle + sweep * t
+        val x = Ux + (radius * kotlin.math.cos(angle)).toFloat()
+        val y = Uy + (radius * kotlin.math.sin(angle)).toFloat()
+        
+        val pressure = if (t < 0.5f) {
+            p1.pressure + (p2.pressure - p1.pressure) * (t * 2)
+        } else {
+            p2.pressure + (p3.pressure - p2.pressure) * ((t - 0.5f) * 2)
+        }
+        val time = if (t < 0.5f) {
+            p1.timestamp + ((p2.timestamp - p1.timestamp) * (t * 2)).toLong()
+        } else {
+            p2.timestamp + ((p3.timestamp - p2.timestamp) * ((t - 0.5f) * 2)).toLong()
         }
         
-        // Debug Data
-        currentVectorPreviewCenterPoints = result.center
-        currentVectorPreviewOutlinePoints = result.left + result.right
-        currentPredictedPoint = predictedPt // Keep for reference if needed, though now integrated
-        
-        // Clear unused specific paths to avoid confusion
-        currentStrokePath.reset()
-        predictedStrokePath.reset() 
+        points.add(StrokePoint(x, y, pressure, time.toLong()))
     }
+    return points
+}
+
+fun finishGeometricStroke() {
+    if (!isMultiStepInProgress || currentStrokePoints.isEmpty()) return
+    
+    val finalizedPoints = when (activeStrokeType) {
+        StrokeType.POLYLINE -> interpolatePolyline(currentStrokePoints)
+        StrokeType.ARC -> {
+            if (currentStrokePoints.size >= 3) {
+                interpolateArc(currentStrokePoints[0], currentStrokePoints[1], currentStrokePoints[2])
+            } else if (currentStrokePoints.size == 2) {
+                interpolateLine(currentStrokePoints[0], currentStrokePoints[1])
+            } else {
+                currentStrokePoints.toList()
+            }
+        }
+        else -> return
+    }
+    
+    if (finalizedPoints.isEmpty()) {
+        isMultiStepInProgress = false
+        isDrawing = false
+        invalidate()
+        return
+    }
+
+    val genResult = PerfectFreehandGenerator.generate(
+        finalizedPoints, 
+        activeSize, 
+        activeFreehandSettings 
+    )
+    
+    val finalPath = android.graphics.Path()
+    finalPath.set(genResult.path)
+    
+    val stroke = VectorStroke(
+        points = finalizedPoints, 
+        color = activeColor,
+        maxWidth = activeSize,
+        path = finalPath,
+        brushType = "FREEHAND",
+        strokeType = activeStrokeType,
+        leftPoints = genResult.left,
+        rightPoints = genResult.right
+    )
+    
+    onStrokeCompleted?.invoke(stroke)
+    
+    isMultiStepInProgress = false
+    onGeometricProgressChanged?.invoke(false)
+    isDrawing = false
+    currentStrokePoints.clear()
+    currentVectorPreviewPath = null
+    currentVectorPreviewPoints = null
+    invalidate()
+}
 
 
     // --- SELECTION OVERLAY ---

@@ -33,6 +33,17 @@ object UnitUtils {
      * @param unit The unit of the value (e.g., DistanceUnit.M)
      * @param basePxPerMm The manual base resolution (e.g., 5.0 px/mm)
      */
+    /**
+     * Converts a value in Project Units (e.g., 1.5 Meters) to Screen Pixels.
+     * 
+     * Formula:
+     * 1. Project Units -> Millimeters (Real Size)
+     * 2. Millimeters * BasePixelsPerMm = Screen Pixels (1:1 Scale)
+     *
+     * @param value The value in project units (e.g., 1.0 for 1 Meter)
+     * @param unit The unit of the value (e.g., DistanceUnit.M)
+     * @param basePxPerMm The manual base resolution (e.g., 5.0 px/mm)
+     */
     fun projectUnitsToPixels(
         value: Float,
         unit: DistanceUnit,
@@ -62,6 +73,7 @@ object UnitUtils {
         // 2. Convert to Target Unit
         return physicalMm / unit.toMillimeters
     }
+
     /**
      * Snap a value to the nearest "readable" interval.
      * Intervals: 1, 2, 5, 10, 20, 50, 0.1, 0.2, 0.5, etc.

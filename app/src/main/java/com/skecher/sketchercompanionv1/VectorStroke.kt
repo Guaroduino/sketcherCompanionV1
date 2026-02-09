@@ -5,6 +5,8 @@ import android.graphics.Path
 import android.graphics.Matrix
 import android.graphics.RectF
 
+import com.skecher.sketchercompanionv1.dto.StrokeType
+
 data class StrokePoint(var x: Float, var y: Float, val pressure: Float, val timestamp: Long = 0L)
 
 data class VectorStroke(
@@ -13,6 +15,7 @@ data class VectorStroke(
     val maxWidth: Float,
     val path: Path,
     val brushType: String = "FREEHAND",
+    val strokeType: StrokeType = StrokeType.FREEHAND,
     val leftPoints: List<android.graphics.PointF> = emptyList(),
     val rightPoints: List<android.graphics.PointF> = emptyList()
 ) : LayerElement {
@@ -41,6 +44,7 @@ data class VectorStroke(
             maxWidth = maxWidth,
             path = Path(path),
             brushType = brushType,
+            strokeType = strokeType,
             leftPoints = leftPoints.map { android.graphics.PointF(it.x, it.y) },
             rightPoints = rightPoints.map { android.graphics.PointF(it.x, it.y) }
         )

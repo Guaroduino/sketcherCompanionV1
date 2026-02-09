@@ -90,4 +90,63 @@ object RenderHelper {
     fun drawImage(element: ImageElement, canvas: Canvas) {
         canvas.drawBitmap(element.bitmap, element.matrix, imagePaint)
     }
+
+    private val canvasBoundsPaint = Paint().apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 2f
+        color = android.graphics.Color.parseColor("#333333")
+        isAntiAlias = true
+    }
+
+    private val canvasShadowPaint = Paint().apply {
+        style = Paint.Style.FILL
+        color = android.graphics.Color.parseColor("#10000000") // Very light shadow
+        isAntiAlias = true
+    }
+
+    /**
+     * Draw canvas bounds if configured.
+     * @param canvas The canvas to draw on
+     * @param canvasSizeConfig The canvas size configuration (null = infinite canvas)
+     */
+    fun drawCanvasBounds(canvas: Canvas, canvasSizeConfig: com.skecher.sketchercompanionv1.dto.CanvasSizeConfig?) {
+        if (canvasSizeConfig == null) return
+
+        val width = canvasSizeConfig.widthInPixels
+        val height = canvasSizeConfig.heightInPixels
+
+        // Draw subtle shadow outside bounds
+        val shadowOffset = 10f
+        canvas.drawRect(
+            -shadowOffset,
+            -shadowOffset,
+            width + shadowOffset,
+            -shadowOffset,
+            canvasShadowPaint
+        )
+        canvas.drawRect(
+            -shadowOffset,
+            height,
+            width + shadowOffset,
+            height + shadowOffset,
+            canvasShadowPaint
+        )
+        canvas.drawRect(
+            -shadowOffset,
+            0f,
+            0f,
+            height,
+            canvasShadowPaint
+        )
+        canvas.drawRect(
+            width,
+            0f,
+            width + shadowOffset,
+            height,
+            canvasShadowPaint
+        )
+
+        // Draw bounds rectangle
+        canvas.drawRect(0f, 0f, width, height, canvasBoundsPaint)
+    }
 }

@@ -31,6 +31,11 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Gesture
+import androidx.compose.material.icons.filled.HorizontalRule
+import androidx.compose.material.icons.filled.Timeline
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.*
@@ -298,6 +303,12 @@ fun SketcherSurface(
         }
     }
     
+    val exportPdfLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        uri?.let {
+            sketchViewModel.exportPdf(context, it)
+        }
+    }
+    
     // Detectamos cambio de configuración (rotación) automáticamente con Compose
     val configuration = LocalConfiguration.current
     var showLazyStrokePopup by rememberSaveable { mutableStateOf(false) }
@@ -317,6 +328,8 @@ fun SketcherSurface(
     var showHomeSavedFeedback by remember { mutableStateOf(false) }
     var showExportPngDialog by remember { mutableStateOf(false) }
     var showExportSvgDialog by remember { mutableStateOf(false) }
+    var showPaperSizeDialog by remember { mutableStateOf(false) }
+    var showPdfExportDialog by remember { mutableStateOf(false) }
     
     // UI Feedback State
     val showHomeRestoredFeedback = sketchViewModel.showHomeRestoredFeedback
@@ -447,6 +460,13 @@ fun SketcherSurface(
 
     LaunchedEffect(sketchViewModel.currentTool, canvasViewRef) {
         canvasViewRef?.currentTool = sketchViewModel.currentTool
+        // FIX: Force update active size with UNIT CONVERSION
+        val sizePx = com.skecher.sketchercompanionv1.utils.UnitUtils.projectUnitsToPixels(
+             value = sketchViewModel.currentSize,
+             unit = sketchViewModel.currentUnit,
+             basePxPerMm = sketchViewModel.scaleConfig.basePixelsPerMillimeter
+         )
+        canvasViewRef?.activeSize = sizePx
     }
 
     LaunchedEffect(sketchViewModel.isDebugWireframe) {
@@ -455,6 +475,7 @@ fun SketcherSurface(
 
     LaunchedEffect(canvasViewRef) {
         canvasViewRef?.selectionManager = sketchViewModel.selectionManager
+        canvasViewRef?.activeStrokeType = sketchViewModel.currentStrokeType
     }
 
     LaunchedEffect(sketchViewModel.currentFreehandSettings, canvasViewRef) {
@@ -462,7 +483,13 @@ fun SketcherSurface(
     }
 
     LaunchedEffect(sketchViewModel.currentSize, canvasViewRef) {
-        canvasViewRef?.activeSize = sketchViewModel.currentSize
+        // FIX: Ensure active size conversion (Units -> Pixels) when size changes (e.g. Slider or Tool Switch)
+        val sizePx = com.skecher.sketchercompanionv1.utils.UnitUtils.projectUnitsToPixels(
+             value = sketchViewModel.currentSize,
+             unit = sketchViewModel.currentUnit,
+             basePxPerMm = sketchViewModel.scaleConfig.basePixelsPerMillimeter
+         )
+        canvasViewRef?.activeSize = sizePx
     }
     
     LaunchedEffect(sketchViewModel.currentColor, canvasViewRef) {
@@ -506,6 +533,10 @@ fun SketcherSurface(
                         sketchViewModel.addHybridStroke(stroke, fill)
                     }
 
+                    this.onGeometricProgressChanged = { inProgress ->
+                        sketchViewModel.updateGeometricStrokeInProgress(inProgress)
+                    }
+
                     // Set initial background color
                     canvasBackgroundColor = sketchViewModel.backgroundColor
 
@@ -528,7 +559,7 @@ fun SketcherSurface(
                 }
                 canvasViewRef = canvasView
                 
-                canvasView.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
+                canvasView.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext, sketchViewModel.activeLayerIndex)
                 canvasView.setCameraMatrix(cameraMatrix)
 
                 val wetView = InProgressStrokesView(ctx).apply {
@@ -584,8 +615,8 @@ fun SketcherSurface(
                         val currentMatrixScale = InkUtils.getMatrixScale(cameraMatrix)
                         val projectedZoom = currentMatrixScale * detector.scaleFactor
                         
-                        // CLAMP ZOOM: 20% to 300%
-                        val clampedZoom = projectedZoom.coerceIn(0.2f, 3.0f)
+                        // CLAMP ZOOM: 20% to 1200% (Increased for Icon Design)
+                        val clampedZoom = projectedZoom.coerceIn(0.2f, 12.0f)
                         val effectiveScaleFactor = clampedZoom / currentMatrixScale
                         
                         cameraMatrix.postScale(effectiveScaleFactor, effectiveScaleFactor, detector.focusX, detector.focusY)
@@ -654,8 +685,38 @@ fun SketcherSurface(
 
                 // Restore Touch Listener
                 wetView.setOnTouchListener { v, event ->
+                    // Configure snap function for freehand
+                    canvasView.snapFunction = if (sketchViewModel.isSnapToGridEnabled) {
+                        { x: Float, y: Float ->
+                            val gridStepPx = UnitUtils.projectUnitsToPixels(
+                                value = sketchViewModel.gridConfig.spacing,
+                                unit = sketchViewModel.currentUnit,
+                                basePxPerMm = sketchViewModel.scaleConfig.basePixelsPerMillimeter
+                            )
+                            if (gridStepPx > 0) {
+                                val snappedX = kotlin.math.round(x / gridStepPx) * gridStepPx
+                                val snappedY = kotlin.math.round(y / gridStepPx) * gridStepPx
+                                Pair(snappedX, snappedY)
+                            } else {
+                                Pair(x, y)
+                            }
+                        }
+                    } else {
+                        null
+                    }
+                    
                     // ... (rest of touch listener logic)
-                    scaleDetector.onTouchEvent(event)
+                    
+                    // Only process scale gestures if NOT actively manipulating a selection
+                    val isManipulatingSelection = sketchViewModel.currentTool == ToolType.SELECTION && 
+                        (selTouchMode == SelectionTouchMode.DRAGGING_CONTENT || 
+                         selTouchMode == SelectionTouchMode.DRAGGING_CORNER || 
+                         selTouchMode == SelectionTouchMode.ROTATING)
+                    
+                    if (!isManipulatingSelection) {
+                        scaleDetector.onTouchEvent(event)
+                    }
+                    
                     gestureDetector.onTouchEvent(event)
 
                     if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
@@ -946,7 +1007,6 @@ fun SketcherSurface(
                                     }
                                 }
                                 manager.commitTransform() // Commit the transient transform to data
-                                manager.recalculateBaseBounds(sketchViewModel.componentLibrary) // Reset selection matrix to prevent drift
                                 if (canvasView.isSelectionDragging) canvasView.isSelectionDragging = false
                                 selTouchMode = SelectionTouchMode.IDLE
                                 canvasView.redrawAllCache() // REBUILD: Bake new positions OR Remove old selections from background
@@ -974,7 +1034,7 @@ fun SketcherSurface(
                                 val erased = sketchViewModel.erase(worldX, worldY, state.size)
                                 
                                 if (erased) {
-                                      canvasView.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
+                                      canvasView.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext, sketchViewModel.activeLayerIndex)
                                      canvasView.redrawAllCache()
                                 }
                              }
@@ -1100,15 +1160,7 @@ fun SketcherSurface(
                                     var effectiveX = rawTouchPts[0]
                                     var effectiveY = rawTouchPts[1]
 
-                                    if (sketchViewModel.isSnapToGridEnabled) {
-                                        val gridStepPx = UnitUtils.projectUnitsToPixels(sketchViewModel.gridConfig.spacing, sketchViewModel.currentUnit, sketchViewModel.scaleConfig.basePixelsPerMillimeter)
-                                        if (gridStepPx > 0) {
-                                            effectiveX = (kotlin.math.round(effectiveX / gridStepPx) * gridStepPx)
-                                            effectiveY = (kotlin.math.round(effectiveY / gridStepPx) * gridStepPx)
-                                        }
-                                    }
-
-                                    // Apply Stabilization
+                                    // Apply Stabilization FIRST
                                     val stabilization = sketchViewModel.globalStabilizationLevel.coerceIn(0f, 0.95f)
                                     if (stabilization > 0f) {
                                         val factor = 1f - stabilization
@@ -1119,6 +1171,18 @@ fun SketcherSurface(
                                     } else {
                                         stabilizerX = effectiveX
                                         stabilizerY = effectiveY
+                                    }
+                                    
+                                    // Apply Snap to Grid AFTER stabilization
+                                    if (sketchViewModel.isSnapToGridEnabled) {
+                                        val gridStepPx = UnitUtils.projectUnitsToPixels(sketchViewModel.gridConfig.spacing, sketchViewModel.currentUnit, sketchViewModel.scaleConfig.basePixelsPerMillimeter)
+                                        if (gridStepPx > 0) {
+                                            effectiveX = (kotlin.math.round(effectiveX / gridStepPx) * gridStepPx)
+                                            effectiveY = (kotlin.math.round(effectiveY / gridStepPx) * gridStepPx)
+                                            // Update stabilizer to snapped position
+                                            stabilizerX = effectiveX
+                                            stabilizerY = effectiveY
+                                        }
                                     }
 
                                     val dist = kotlin.math.hypot(effectiveX - lastInputX, effectiveY - lastInputY)
@@ -1195,7 +1259,7 @@ fun SketcherSurface(
                                               sketchViewModel.addFill(fData)
                                               canvasView.updateCurrentFill(null, 0)
                                               canvasView.bakeFill(fData)
-                                              canvasView.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
+                                              canvasView.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext, sketchViewModel.activeLayerIndex)
                                          }
                                          
 
@@ -1306,22 +1370,45 @@ fun SketcherSurface(
                 
                 
                 // CRITICAL FIX: Ensure layers depend on ViewModel state updates
-                canvasView.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
+                canvasView.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext, sketchViewModel.activeLayerIndex)
 
                 val currentConfig = brushTypes.find { it.type == sketchViewModel.currentTool } ?: brushTypes.first()
                 
                 state.toolType = sketchViewModel.currentTool
                 state.brushFamily = currentConfig.family
                 state.color = sketchViewModel.currentColor
-                state.size = sketchViewModel.currentSize
+                
+                // CONVERT UNITS: Project Units (e.g. mm) -> Pixels
+                val sizePx = com.skecher.sketchercompanionv1.utils.UnitUtils.projectUnitsToPixels(
+                    value = sketchViewModel.currentSize,
+                    unit = sketchViewModel.currentUnit,
+                    basePxPerMm = sketchViewModel.scaleConfig.basePixelsPerMillimeter
+                )
+                
+                state.size = sizePx
                 state.opacity = sketchViewModel.currentOpacity
                 
                 // Sync Active Configs for Perfect Freehand (Front Buffer)
                 val alpha = (sketchViewModel.currentOpacity * 255).toInt()
                 val blendedColor = androidx.core.graphics.ColorUtils.setAlphaComponent(sketchViewModel.currentColor, alpha)
                 canvasView.activeColor = blendedColor
-                canvasView.activeSize = sketchViewModel.currentSize
-                canvasView.activeFreehandSettings = sketchViewModel.currentFreehandSettings
+                canvasView.activeSize = sizePx // Use pixels for rendering
+
+                // UX IMPROVEMENT: Stabilization only makes sense for Freehand. 
+                // Snap to Grid is ignored for Freehand (in CanvasView), so we allow stabilization there.
+                val shouldDisableStabilization = (sketchViewModel.currentStrokeType != com.skecher.sketchercompanionv1.dto.StrokeType.FREEHAND)
+                
+                val effectiveSettings = if (shouldDisableStabilization) {
+                    sketchViewModel.currentFreehandSettings.copy(
+                        smoothing = 0f,
+                        streamline = 0f,
+                        predictionLatency = 0f // Optional: reduce latency for geometric tools
+                    )
+                } else {
+                    sketchViewModel.currentFreehandSettings
+                }
+
+                canvasView.activeFreehandSettings = effectiveSettings
 
                 val currentZoom = InkUtils.getMatrixScale(cameraMatrix)
                 state.updateActiveBrush(currentZoom)
@@ -1343,7 +1430,34 @@ fun SketcherSurface(
                 canvasView.isDebugWireframe = sketchViewModel.isDebugWireframe
                 
                 // Sync Input Config
-                canvasView.globalStabilizationLevel = sketchViewModel.globalStabilizationLevel
+                // Disable Lazy Stroke (Global Stabilization) for Geometric Tools
+                val isGeometric = sketchViewModel.currentStrokeType != com.skecher.sketchercompanionv1.dto.StrokeType.FREEHAND
+                canvasView.globalStabilizationLevel = if (isGeometric) 0f else sketchViewModel.globalStabilizationLevel
+                
+                // SNAP FUNCTION
+                canvasView.snapFunction = { x, y ->
+                     if (sketchViewModel.isSnapToGridEnabled) {
+                         val gridStepPx = com.skecher.sketchercompanionv1.utils.UnitUtils.projectUnitsToPixels(
+                             sketchViewModel.gridConfig.spacing, 
+                             sketchViewModel.currentUnit, 
+                             sketchViewModel.scaleConfig.basePixelsPerMillimeter
+                         )
+                         
+                         // Calculate offset to align snap with grid center (Paper Center)
+                         val offsetX = sketchViewModel.canvasSizeConfig?.let { it.widthInPixels / 2f } ?: 0f
+                         val offsetY = sketchViewModel.canvasSizeConfig?.let { it.heightInPixels / 2f } ?: 0f
+                         
+                         if (gridStepPx > 0f) {
+                             val rx = kotlin.math.round((x - offsetX) / gridStepPx) * gridStepPx + offsetX
+                             val ry = kotlin.math.round((y - offsetY) / gridStepPx) * gridStepPx + offsetY
+                             Pair(rx, ry)
+                         } else {
+                             Pair(x, y)
+                         }
+                     } else {
+                         Pair(x, y)
+                     }
+                }
             }
         )
 
@@ -1374,8 +1488,33 @@ fun SketcherSurface(
                 onImportSvg = { svgPickerLauncher.launch(arrayOf("image/svg+xml")) },
                 onSaveTemplate = { name -> sketchViewModel.saveTemplate(context, name) },
                 onLoadTemplate = { file -> sketchViewModel.loadFromTemplate(context, file) },
-                onExportSvg = { showExportSvgDialog = true },
+                onExportSvg = { 
+                    if (sketchViewModel.canvasSizeConfig != null) {
+                        // Canvas size is configured, export directly using defined bounds
+                        val w = sketchViewModel.canvasSizeConfig!!.widthInPixels
+                        val h = sketchViewModel.canvasSizeConfig!!.heightInPixels
+                        // Use special config that matches canvas size exactly
+                        sketchViewModel.lastExportSvgConfig = com.skecher.sketchercompanionv1.ExportSvgConfig(
+                            includeBackground = false, // Usually icons are transparent
+                            useHomeView = false, // Not viewport
+                            width = w,
+                            height = h
+                        )
+                        exportSvgLauncher.launch("icon.svg")
+                    } else {
+                        showExportSvgDialog = true 
+                    }
+                },
                 onExportPng = { showExportPngDialog = true },
+                onExportPdf = { 
+                    if (sketchViewModel.canvasSizeConfig != null) {
+                        // Canvas size is configured, export directly
+                        exportPdfLauncher.launch("drawing.pdf")
+                    } else {
+                        // Show dialog to select bounds
+                        showPdfExportDialog = true
+                    }
+                },
                 onNewDrawing = {
                     sketchViewModel.clear()
                     // Reset View Camera
@@ -1388,6 +1527,7 @@ fun SketcherSurface(
                     currentZoom = 1f 
                 },
                 onSettingsClick = { showSettingsPopup = true },
+                onPaperSizeClick = { showPaperSizeDialog = true },
                 onGridClick = { showGridSettings = true },
                 onZoomReset = { 
                     sketchViewModel.resetCamera()
@@ -1576,9 +1716,16 @@ fun SketcherSurface(
                 onConfigureTool = {
                     showToolSettingsPopup = true
                 },
+                currentStrokeType = sketchViewModel.currentStrokeType,
+                onStrokeTypeChanged = { 
+                    sketchViewModel.updateStrokeType(it)
+                    canvasViewRef?.activeStrokeType = it
+                },
                 onInputSettingsClick = {
                     showLazyStrokePopup = !showLazyStrokePopup
                 },
+                isGeometricStrokeInProgress = sketchViewModel.isGeometricStrokeInProgress,
+                onFinishGeometricStroke = { canvasViewRef?.finishGeometricStroke() },
                 showTooltips = showTooltips
             )
         }
@@ -1656,6 +1803,7 @@ fun SketcherSurface(
         if (showSizePopup) {
             SizeSelectorPopup(
                 currentSize = sketchViewModel.currentSize,
+                unit = sketchViewModel.currentUnit, // Convert for display
                 onSizeChanged = { sketchViewModel.setToolSize(it) },
                 currentOpacity = sketchViewModel.currentOpacity,
                 onOpacityChanged = { sketchViewModel.setToolOpacity(it) },
@@ -1719,11 +1867,42 @@ fun SketcherSurface(
             )
         }
 
+        if (showPaperSizeDialog) {
+            com.skecher.sketchercompanionv1.ui.PaperSizeDialog(
+                currentConfig = sketchViewModel.canvasSizeConfig,
+                pixelsPerMm = sketchViewModel.scaleConfig.basePixelsPerMillimeter,
+                onDismiss = { showPaperSizeDialog = false },
+                onConfirm = { config ->
+                    sketchViewModel.updateCanvasSize(config)
+                    canvasViewRef?.canvasSizeConfig = config
+                    sketchViewModel.fitContent() // Auto-Zoom to new paper
+                    showPaperSizeDialog = false
+                }
+            )
+        }
+
+        if (showPdfExportDialog) {
+            com.skecher.sketchercompanionv1.ui.PdfExportDialog(
+                onDismiss = { showPdfExportDialog = false },
+                onConfirm = { useZoomExtends ->
+                    sketchViewModel.setPdfExportBoundsMode(useZoomExtends)
+                    exportPdfLauncher.launch("drawing.pdf")
+                    showPdfExportDialog = false
+                }
+            )
+        }
+
     if (showToolSettingsPopup) {
              com.skecher.sketchercompanionv1.ui.ToolSettingsPopup(
                  toolType = sketchViewModel.currentTool,
+                 unit = sketchViewModel.currentUnit, // Use current unit
                  freehandSettings = sketchViewModel.currentFreehandSettings,
                  onFreehandSettingsChanged = { sketchViewModel.updateFreehandSettings(it) },
+                 selectionScope = sketchViewModel.selectionScope,
+                 onToggleSelectionScope = {
+                     sketchViewModel.selectionScope = if (sketchViewModel.selectionScope == SketcherViewModel.SelectionScope.CURRENT_LAYER)
+                         SketcherViewModel.SelectionScope.ALL_LAYERS else SketcherViewModel.SelectionScope.CURRENT_LAYER
+                 },
                  onDismiss = { showToolSettingsPopup = false }
              )
         }
@@ -1794,6 +1973,10 @@ fun BottomMenuBar(
     showLazyStrokePopup: Boolean = false,
     lazyStrokeValue: Float = 0f,
     onLazyStrokeValueChange: (Float) -> Unit = {},
+    currentStrokeType: StrokeType = StrokeType.FREEHAND,
+    onStrokeTypeChanged: (StrokeType) -> Unit = {},
+    isGeometricStrokeInProgress: Boolean = false,
+    onFinishGeometricStroke: () -> Unit = {},
     showTooltips: Boolean = true
 ) {
     Box(
@@ -1869,6 +2052,65 @@ fun BottomMenuBar(
                     }
                 }
             } // End Box (Tool Selector)
+
+            // STROKE TYPE SELECTOR
+            if (selectedTool == ToolType.FREEHAND) {
+                var showStrokeTypePopup by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { showStrokeTypePopup = true }) {
+                        val icon = when (currentStrokeType) {
+                            StrokeType.FREEHAND -> Icons.Default.Gesture
+                            StrokeType.LINE -> Icons.Default.HorizontalRule
+                            StrokeType.POLYLINE -> Icons.Default.Timeline
+                            StrokeType.CIRCLE -> Icons.Default.RadioButtonUnchecked
+                            StrokeType.ARC -> Icons.Default.Refresh
+                        }
+                        TooltipWrapper(text = "Tipo de Trazo", enabled = showTooltips) {
+                            Icon(icon, contentDescription = "Stroke Type", tint = Color.Black)
+                        }
+                    }
+
+                    DropdownMenu(
+                        expanded = showStrokeTypePopup,
+                        onDismissRequest = { showStrokeTypePopup = false }
+                    ) {
+                        StrokeType.entries.forEach { type ->
+                            DropdownMenuItem(
+                                text = { Text(when(type) {
+                                    StrokeType.FREEHAND -> "Libre"
+                                    StrokeType.LINE -> "Línea"
+                                    StrokeType.POLYLINE -> "Polilínea"
+                                    StrokeType.CIRCLE -> "Círculo"
+                                    StrokeType.ARC -> "Arco"
+                                }) },
+                                leadingIcon = {
+                                    Icon(when(type) {
+                                        StrokeType.FREEHAND -> Icons.Default.Gesture
+                                        StrokeType.LINE -> Icons.Default.HorizontalRule
+                                        StrokeType.POLYLINE -> Icons.Default.Timeline
+                                        StrokeType.CIRCLE -> Icons.Default.RadioButtonUnchecked
+                                        StrokeType.ARC -> Icons.Default.Refresh
+                                    }, null)
+                                },
+                                onClick = {
+                                    onStrokeTypeChanged(type)
+                                    showStrokeTypePopup = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // FINISH GEOMETRIC STROKE (Checkmark)
+            if (isGeometricStrokeInProgress) {
+                IconButton(onClick = onFinishGeometricStroke) {
+                    TooltipWrapper(text = "Finalizar Figura", enabled = showTooltips) {
+                        Icon(Icons.Default.Check, contentDescription = "Finish Geometric", tint = Color(0xFF4CAF50))
+                    }
+                }
+                VerticalDivider(modifier = Modifier.height(24.dp))
+            }
 
             // SETTINGS BUTTON (For All Active Drawing Tools)
             // SETTINGS BUTTON (For All Active Drawing Tools)
@@ -2194,8 +2436,10 @@ fun TopMenuBar(
     onLoadTemplate: (java.io.File) -> Unit,
     onExportSvg: () -> Unit,
     onExportPng: () -> Unit,
+    onExportPdf: () -> Unit,
     onNewDrawing: () -> Unit,
     onSettingsClick: () -> Unit,
+    onPaperSizeClick: () -> Unit,
     onGridClick: () -> Unit,
     onZoomReset: () -> Unit,
     onSetHomeCamera: () -> Unit = {},
@@ -2239,11 +2483,13 @@ fun TopMenuBar(
                 onLoad = onLoad,
                 onImportImage = onImportImage,
                 onImportSvg = onImportSvg,
+                onExportSvg = onExportSvg,
+                onExportPng = onExportPng,
+                onExportPdf = onExportPdf,
                 onSettingsClick = onSettingsClick,
                 onSaveTemplate = onSaveTemplate,
                 onLoadTemplate = onLoadTemplate,
-                onExportSvg = onExportSvg,
-                onExportPng = onExportPng
+                onPaperSizeClick = onPaperSizeClick
             )
 
             // Grid
@@ -2358,10 +2604,10 @@ fun ColorSlot(color: Int, isSelected: Boolean, onClick: () -> Unit) {
     )
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun SizeSelectorPopup(
     currentSize: Float, 
+    unit: DistanceUnit,
     onSizeChanged: (Float) -> Unit, 
     currentOpacity: Float,
     onOpacityChanged: (Float) -> Unit,
@@ -2369,17 +2615,18 @@ fun SizeSelectorPopup(
     onPresetSelected: (Float) -> Unit,
     onPresetSave: (Int, Float) -> Unit,
     activeToolType: ToolType,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    isEraseAllLayersEnabled: Boolean = false,
+    onToggleEraseAllLayers: () -> Unit = {}
 ) {
-    // Visibility Logic
     // Visibility Logic
     val showSize = activeToolType != ToolType.FILL && activeToolType != ToolType.SELECTION
     val showOpacity = activeToolType != ToolType.SELECTION
-    // Removed Stabilizer and Pressure logic for cleanup
 
-    // Non-linear Slider Logic (Quadratic)
-    val minSize = 1f
-    val maxSize = 100f
+    // Adaptive Range based on Unit
+    val minSize = 0.1f
+    val maxSize = if (unit == DistanceUnit.MM) 50f else 100f // 50mm is HUGE (~2 inches), 100px is decent.
+    
     val initialT = kotlin.math.sqrt(((currentSize - minSize) / (maxSize - minSize)).coerceAtLeast(0f))
     var sliderValue by remember { mutableFloatStateOf(initialT) }
 
@@ -2400,7 +2647,9 @@ fun SizeSelectorPopup(
         ) {
             
             if (showSize) {
-                Text("${stringResource(R.string.label_size)}: ${currentSize.toInt()}")
+                // Display Value with Unit
+                val formattedSize = if (unit == DistanceUnit.MM) String.format("%.1f", currentSize) else currentSize.toInt().toString()
+                Text("${stringResource(R.string.label_size)}: $formattedSize ${unit.symbol}")
                 
                 Slider(
                     value = sliderValue,
@@ -2457,6 +2706,21 @@ fun SizeSelectorPopup(
                     valueRange = 0.01f..1f
                 )
                 HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+            }
+            
+            // Erase All Layers toggle (only for eraser)
+            if (activeToolType == ToolType.ERASER) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(stringResource(R.string.eraser_all_layers))
+                    Switch(
+                        checked = isEraseAllLayersEnabled,
+                        onCheckedChange = { onToggleEraseAllLayers() }
+                    )
+                }
             }
 
 

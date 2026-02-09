@@ -20,7 +20,10 @@ class SelectionManager {
         while (iterator.hasPrevious()) {
             val element = iterator.previous()
             if (isHit(element, x, y, library)) {
-                if (!addToSelection) selectedElements.clear()
+                if (!addToSelection) {
+                    selectedElements.clear()
+                    selectionMatrix.reset() // Reset for new selection
+                }
                 selectedElements.add(element)
                 recalculateBaseBounds(library)
                 return true
@@ -31,7 +34,10 @@ class SelectionManager {
     }
 
     fun selectArea(selectionPath: Path, layer: Layer, library: Map<String, ComponentDefinition>, addToSelection: Boolean = false) {
-        if (!addToSelection) selectedElements.clear()
+        if (!addToSelection) {
+            selectedElements.clear()
+            selectionMatrix.reset() // Reset for new selection
+        }
         val selectionBounds = RectF()
         selectionPath.computeBounds(selectionBounds, true)
 
@@ -45,7 +51,8 @@ class SelectionManager {
     }
 
     fun recalculateBaseBounds(library: Map<String, ComponentDefinition>) {
-        selectionMatrix.reset()
+        // NOTE: Keep selectionMatrix intact - it represents the cumulative transform of the box
+        // Only reset baseBounds to match NEW element bounds after a fresh selection
         baseBounds.setEmpty()
         if (selectedElements.isEmpty()) return
         
@@ -77,6 +84,8 @@ class SelectionManager {
         activeTransform?.let { transform ->
              selectedElements.forEach { it.transform(transform) }
              activeTransform = null
+             // NOTE: Do NOT reset selectionMatrix here
+             // It should persist to keep the transform box aligned with the transformed elements
         }
     }
     

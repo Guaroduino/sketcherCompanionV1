@@ -67,6 +67,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     var gridConfig by mutableStateOf(GridConfig(spacing = 5f, isVisible = false))
     var isSnapToGridEnabled by mutableStateOf(false)
 
+    // CANVAS SIZE CONFIG
+    var canvasSizeConfig by mutableStateOf<CanvasSizeConfig?>(null)
+        private set
+
     // SETTINGS
     var isRotationLocked by mutableStateOf(prefs.getBoolean("rotation_lock", false))
     var isPalmRejectionEnabled by mutableStateOf(prefs.getBoolean("palm_rejection", false))
@@ -109,7 +113,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun updateScaleConfig(u: String, b: Float) { scaleConfig = ScaleConfig(u, b); currentUnit = DistanceUnit.fromSymbol(u) }
     fun updateGridConfig(v: Boolean, s: Float, c: Int, c2: Int, c3: Int) { gridConfig = GridConfig(v, s, c, c2, c3) }
     fun setUnit(u: DistanceUnit) { currentUnit = u; scaleConfig = scaleConfig.copy(unitName = u.symbol) }
-
+    fun updateCanvasSize(config: CanvasSizeConfig?) { canvasSizeConfig = config }
 
     // PROJECT METADATA
     var projectId by mutableStateOf(UUID.randomUUID().toString())
@@ -158,8 +162,28 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         } catch(e: Exception) { ToolType.FREEHAND }
     )
         private set
+
+    var currentStrokeType by mutableStateOf(
+        try {
+            val savedType = prefs.getString("current_stroke_type", StrokeType.FREEHAND.name) ?: StrokeType.FREEHAND.name
+            StrokeType.valueOf(savedType)
+        } catch (e: Exception) { StrokeType.FREEHAND }
+    )
+        private set
+
+    var isGeometricStrokeInProgress by mutableStateOf(false)
+        private set
+
+    fun updateGeometricStrokeInProgress(inProgress: Boolean) {
+        isGeometricStrokeInProgress = inProgress
+    }
+
+    fun updateStrokeType(type: StrokeType) {
+        currentStrokeType = type
+        prefs.edit().putString("current_stroke_type", type.name).apply()
+    }
         
-    var currentSize by mutableFloatStateOf(9f) 
+    var currentSize by mutableFloatStateOf(2f) 
         private set
     var currentOpacity by mutableFloatStateOf(1f)
         private set
@@ -199,9 +223,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             return ToolConfig(size = s, opacity = o, freehandSettings = if (type == ToolType.FREEHAND) savedFreehand else FreehandSettings())
         }
 
-        put(ToolType.FREEHAND, loadConfig(ToolType.FREEHAND, 9f, 1f))
+        put(ToolType.FREEHAND, loadConfig(ToolType.FREEHAND, 2f, 1f))
         put(ToolType.FILL, loadConfig(ToolType.FILL, 1f, 1.0f))
-        put(ToolType.ERASER, loadConfig(ToolType.ERASER, 30f, 1f))
+        put(ToolType.ERASER, loadConfig(ToolType.ERASER, 10f, 1f))
         put(ToolType.SELECTION, loadConfig(ToolType.SELECTION, 1f, 1f))
     }
     
@@ -372,7 +396,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         var changed = false
         
         groups.forEach { group ->
-             layers.forEachIndexed { params, layer ->
+             layers.forEachIndexed { layerIndex, layer ->
                  if (layer.elements.contains(group)) {
                      layer.elements.remove(group)
                      
@@ -389,7 +413,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                      }
                      
                      layer.elements.addAll(children)
-                     layers[params] = layer.copy()
+                     layers[layerIndex] = layer.copy()
                      changed = true
                  }
              }
@@ -566,9 +590,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     // PRESETS
     private fun loadPresets(): List<Float> {
         return listOf(
-            prefs.getFloat("size_preset_0", 5f),
-            prefs.getFloat("size_preset_1", 15f),
-            prefs.getFloat("size_preset_2", 30f)
+            prefs.getFloat("size_preset_0", 1f),
+            prefs.getFloat("size_preset_1", 3f),
+            prefs.getFloat("size_preset_2", 6f)
         )
     }
     var brushSizePresets = mutableStateListOf<Float>().apply { addAll(loadPresets()) }
@@ -704,6 +728,34 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun fitContent() {
          // Logic to fit content (Reused/Simplifed from original if possible, or copied from Step 87 snapshot if valid)
          // Creating a robust fitContent based on visible layers
+         
+         // 1. Check if Paper Size is configured (Priority)
+         if (canvasSizeConfig != null) {
+             val w = canvasSizeConfig!!.widthInPixels
+             val h = canvasSizeConfig!!.heightInPixels
+             if (w > 0 && h > 0 && lastViewportWidth > 0 && lastViewportHeight > 0) {
+                 val padding = 50f
+                 val scaleX = (lastViewportWidth - padding*2) / w
+                 val scaleY = (lastViewportHeight - padding*2) / h
+                 val scale = kotlin.math.min(scaleX, scaleY).coerceIn(0.1f, 12.0f) // Allow up to 12.0f for icon
+                 
+                 val cx = w / 2f
+                 val cy = h / 2f
+                 
+                 val m = Matrix()
+                 m.postTranslate(-cx, -cy)
+                 m.postScale(scale, scale)
+                 m.postTranslate(lastViewportWidth/2, lastViewportHeight/2)
+                 m.getValues(cameraMatrixValues)
+                 
+                 // Also save as Home
+                 saveHomeCamera()
+                 
+                 cameraUpdateTrigger++
+                 return
+             }
+         }
+
          if (layers.all { it.elements.isEmpty() }) { resetCamera(); return }
          var minX = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE
          var minY = Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
@@ -711,10 +763,6 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
          
          layers.forEach { layer ->
             layer.elements.forEach { element ->
-                // Assuming getBounds is available on LayerElement interface or extension
-                // Using selectionManager helper or element directly
-                // element.getBounds(componentLibrary)
-                
                  val bounds = element.getBounds(componentLibrary)
                  if (bounds.left < minX) minX = bounds.left
                  if (bounds.right > maxX) maxX = bounds.right
@@ -725,16 +773,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
          }
          
          if (!hasContent) { resetCamera(); return }
-         // ... Simple fit implementation ... 
-         // For now, resetCamera is safer than partial implementation if I don't have exact math handy in context.
-         // But users like Fit Content. I will include a basic one.
          
          val padding = 50f
          val w = maxX - minX; val h = maxY - minY
          if (w > 0 && h > 0 && lastViewportWidth > 0 && lastViewportHeight > 0) {
              val scaleX = (lastViewportWidth - padding*2) / w
              val scaleY = (lastViewportHeight - padding*2) / h
-             val scale = kotlin.math.min(scaleX, scaleY).coerceIn(0.1f, 5.0f)
+             val scale = kotlin.math.min(scaleX, scaleY).coerceIn(0.1f, 12.0f) // Updated limit
              val cx = (minX + maxX)/2
              val cy = (minY + maxY)/2
              
@@ -1159,28 +1204,104 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    // PDF Export
+    private var pdfExportBoundsMode: com.skecher.sketchercompanionv1.utils.PdfExporter.BoundsMode = 
+        com.skecher.sketchercompanionv1.utils.PdfExporter.BoundsMode.CANVAS_SIZE
 
+    fun setPdfExportBoundsMode(useZoomExtends: Boolean) {
+        pdfExportBoundsMode = if (useZoomExtends) {
+            com.skecher.sketchercompanionv1.utils.PdfExporter.BoundsMode.ZOOM_EXTENDS
+        } else {
+            com.skecher.sketchercompanionv1.utils.PdfExporter.BoundsMode.HOME_VIEW
+        }
+    }
+
+    fun exportPdf(context: Context, uri: android.net.Uri) {
+        try {
+            // Determine bounds mode based on canvas size configuration
+            val boundsMode = if (canvasSizeConfig != null) {
+                com.skecher.sketchercompanionv1.utils.PdfExporter.BoundsMode.CANVAS_SIZE
+            } else {
+                pdfExportBoundsMode
+            }
+
+            val config = com.skecher.sketchercompanionv1.utils.PdfExporter.PdfExportConfig(
+                boundsMode = boundsMode,
+                includeBackground = true,
+                dpi = 300
+            )
+
+            // Use canvas size config dimensions if available, otherwise use reasonable defaults
+            val width = canvasSizeConfig?.widthInPixels ?: 2480f // A4 at 300 DPI
+            val height = canvasSizeConfig?.heightInPixels ?: 3508f // A4 at 300 DPI
+
+            val projectData = ProjectData(
+                id = projectId,
+                layers = layers.map { it.toLayerJson() },
+                backgroundConfig = BackgroundConfig(color = backgroundColor, gridConfig = gridConfig),
+                paletteColors = availableColors.toList(),
+                toolConfigs = toolConfigs.toMap(),
+                canvasMetadata = CanvasMetadata(
+                    width = width,
+                    height = height,
+                    cameraMatrix = emptyList(), // Camera matrix handled by PdfExporter
+                    scaleConfig = scaleConfig
+                ),
+                componentLibrary = componentLibrary.mapValues { it.value.toComponentDefinitionJson() }
+            )
+
+            com.skecher.sketchercompanionv1.utils.PdfExporter.export(
+                context = context,
+                uri = uri,
+                layers = layers,
+                projectData = projectData,
+                config = config,
+                componentLibrary = componentLibrary,
+                canvasSizeConfig = canvasSizeConfig
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+    
     fun erase(x: Float, y: Float, radius: Float): Boolean {
-       if (activeLayerIndex !in layers.indices) return false
-       val layer = layers[activeLayerIndex]
-       var changed = false
-       
-       val iter = layer.elements.iterator()
-       while (iter.hasNext()) {
-           val element = iter.next()
-           val bounds = element.getBounds(componentLibrary)
-           // Simple interaction check: verify if eraser circle intersects bounds
-           // Expand bounds by radius for "loose" check
-           if (bounds.intersects(x - radius, y - radius, x + radius, y + radius)) {
-               iter.remove()
-               changed = true
-           }
-       }
-       
-       if (changed) {
-           layers[activeLayerIndex] = layer.copy() // Trigger recomposition
-       }
-       return changed
+        saveStateForUndo() // CRITICAL: Save before modifying
+        
+        var changed = false
+        
+        if (selectionScope == SelectionScope.ALL_LAYERS) {
+            // Erase across ALL layers
+            layers.forEachIndexed { index, layer ->
+                val newElements = layer.elements.filter { element ->
+                    val bounds = element.getBounds(componentLibrary)
+                    val shouldKeep = !bounds.intersects(x - radius, y - radius, x + radius, y + radius)
+                    if (!shouldKeep) changed = true
+                    shouldKeep
+                }.toMutableList()
+                
+                if (newElements.size != layer.elements.size) {
+                    layers[index] = layer.copy(elements = newElements)
+                }
+            }
+        } else {
+            // Erase only in active layer
+            if (activeLayerIndex !in layers.indices) return false
+            val layer = layers[activeLayerIndex]
+            
+            val newElements = layer.elements.filter { element ->
+                val bounds = element.getBounds(componentLibrary)
+                val shouldKeep = !bounds.intersects(x - radius, y - radius, x + radius, y + radius)
+                if (!shouldKeep) changed = true
+                shouldKeep
+            }.toMutableList()
+            
+            if (newElements.size != layer.elements.size) {
+                layers[activeLayerIndex] = layer.copy(elements = newElements)
+                changed = true
+            }
+        }
+        
+        return changed
     }
 
     fun addStroke(stroke: androidx.ink.strokes.Stroke) {

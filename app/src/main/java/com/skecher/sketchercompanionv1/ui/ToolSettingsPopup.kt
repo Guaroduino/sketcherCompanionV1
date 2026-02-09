@@ -22,10 +22,13 @@ import androidx.compose.foundation.verticalScroll
 @Composable
 fun ToolSettingsPopup(
     toolType: ToolType,
+    unit: com.skecher.sketchercompanionv1.dto.DistanceUnit = com.skecher.sketchercompanionv1.dto.DistanceUnit.MM, // Added Unit
     // Freehand Specs
     freehandSettings: FreehandSettings,
     onFreehandSettingsChanged: (FreehandSettings) -> Unit,
-    
+    // Eraser Specs
+    selectionScope: SketcherViewModel.SelectionScope = SketcherViewModel.SelectionScope.CURRENT_LAYER,
+    onToggleSelectionScope: () -> Unit = {},
     
     onDismiss: () -> Unit
 ) {
@@ -42,7 +45,7 @@ fun ToolSettingsPopup(
                     .padding(16.dp)
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement =Arrangement.spacedBy(16.dp)
             ) {
                 Text(
                     text = "Configuración de Herramienta", 
@@ -52,6 +55,9 @@ fun ToolSettingsPopup(
                 when (toolType) {
                     ToolType.FREEHAND -> {
                         FreehandSettingsContent(freehandSettings, onFreehandSettingsChanged)
+                    }
+                    ToolType.ERASER -> {
+                        EraserSettingsContent(selectionScope, onToggleSelectionScope)
                     }
                     else -> {
                         Text("No hay ajustes disponibles para esta herramienta.")
@@ -263,3 +269,29 @@ fun FreehandSettingsContent(
     }
 }
 
+@Composable
+fun EraserSettingsContent(
+    selectionScope: SketcherViewModel.SelectionScope,
+    onToggleSelectionScope: () -> Unit
+) {
+    Text("Ajustes de Borrador", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+    
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Borrar en Todas las Capas")
+            Text(
+                text = "Borrar elementos de todas las capas visibles",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
+        }
+        Switch(
+            checked = selectionScope == SketcherViewModel.SelectionScope.ALL_LAYERS,
+            onCheckedChange = { onToggleSelectionScope() }
+        )
+    }
+}
