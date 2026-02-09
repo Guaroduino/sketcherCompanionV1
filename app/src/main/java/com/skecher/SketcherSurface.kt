@@ -686,20 +686,43 @@ fun SketcherSurface(
                 // Restore Touch Listener
                 wetView.setOnTouchListener { v, event ->
                     // Configure snap function for freehand
+                    // Configure snap function for freehand
                     canvasView.snapFunction = if (sketchViewModel.isSnapToGridEnabled) {
-                        { x: Float, y: Float ->
+                        { screenX: Float, screenY: Float ->
+                            // 1. Screen -> World
+                            val pts = floatArrayOf(screenX, screenY)
+                            inverseMatrix.mapPoints(pts)
+                            val worldX = pts[0]
+                            val worldY = pts[1]
+
+                            // 2. Snap in World Space
                             val gridStepPx = UnitUtils.projectUnitsToPixels(
                                 value = sketchViewModel.gridConfig.spacing,
                                 unit = sketchViewModel.currentUnit,
                                 basePxPerMm = sketchViewModel.scaleConfig.basePixelsPerMillimeter
                             )
+                            
+                            // Calculate offset to align grid center with canvas center
+                            val offsetX = sketchViewModel.canvasSizeConfig?.let { it.widthInPixels / 2f } ?: 0f
+                            val offsetY = sketchViewModel.canvasSizeConfig?.let { it.heightInPixels / 2f } ?: 0f
+
+                            val snappedWorldX: Float
+                            val snappedWorldY: Float
+
                             if (gridStepPx > 0) {
-                                val snappedX = kotlin.math.round(x / gridStepPx) * gridStepPx
-                                val snappedY = kotlin.math.round(y / gridStepPx) * gridStepPx
-                                Pair(snappedX, snappedY)
+                                snappedWorldX = offsetX + kotlin.math.round((worldX - offsetX) / gridStepPx) * gridStepPx
+                                snappedWorldY = offsetY + kotlin.math.round((worldY - offsetY) / gridStepPx) * gridStepPx
                             } else {
-                                Pair(x, y)
+                                snappedWorldX = worldX
+                                snappedWorldY = worldY
                             }
+                            
+                            // 3. World -> Screen
+                            pts[0] = snappedWorldX
+                            pts[1] = snappedWorldY
+                            cameraMatrix.mapPoints(pts)
+                            
+                            Pair(pts[0], pts[1])
                         }
                     } else {
                         null
