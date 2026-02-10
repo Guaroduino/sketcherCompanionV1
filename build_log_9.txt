@@ -35,41 +35,18 @@
 > Task :app:writeDebugSigningConfigVersions UP-TO-DATE
 
 > Task :app:compileDebugKotlin
-./gradlew : e: file:///C:/Users/corad/OneDrive/Document
-os/GitHub/sketcherCompanionV1/app/src/main/java/com/ske
-cher/sketchercompanionv1/SketcherViewModel.kt:22:46 
-Unresolved reference 'PathUtils'.
-At line:1 char:1
-+ ./gradlew assembleDebug --console=plain 2>&1 | 
-Out-File -Encoding utf ...
-+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : NotSpecified: (e: file:/ 
-   //C:/U...ce 'PathUtils'.:String) [], RemoteExcepti  
-  on
-    + FullyQualifiedErrorId : NativeCommandError
- 
-e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sk
-etcherCompanionV1/app/src/main/java/com/skecher/sketche
-rcompanionv1/SketcherViewModel.kt:891:30 Unresolved 
-reference 'PathUtils'.
+w: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:415:30 Check for instance is always 'true'.
+w: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:417:34 Check for instance is always 'true'.
+w: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/skecher/sketchercompanionv1/SketcherViewModel.kt:469:21 Check for instance is always 'true'.
 
-> Task :app:compileDebugKotlin FAILED
+> Task :app:compileDebugJavaWithJavac NO-SOURCE
+> Task :app:processDebugJavaRes UP-TO-DATE
+> Task :app:mergeDebugJavaResource UP-TO-DATE
+> Task :app:dexBuilderDebug
+> Task :app:mergeProjectDexDebug
+> Task :app:packageDebug
+> Task :app:createDebugApkListingFileRedirect UP-TO-DATE
+> Task :app:assembleDebug
 
-FAILURE: Build failed with an exception.
-
-* What went wrong:
-Execution failed for task ':app:compileDebugKotlin'.
-> A failure occurred while executing org.jetbrains.kotl
-in.compilerRunner.GradleCompilerRunnerWithWorkers$Gradl
-eKotlinCompilerWorkAction
-   > Compilation error. See log for more details
-
-* Try:
-> Run with --stacktrace option to get the stack trace.
-> Run with --info or --debug option to get more log 
-output.
-> Run with --scan to get full insights.
-> Get more help at https://help.gradle.org.
-
-BUILD FAILED in 10s
-30 actionable tasks: 1 executed, 29 up-to-date
+BUILD SUCCESSFUL in 5s
+36 actionable tasks: 4 executed, 32 up-to-date

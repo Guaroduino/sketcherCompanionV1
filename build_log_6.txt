@@ -34,26 +34,20 @@
 > Task :app:writeDebugAppMetadata UP-TO-DATE
 > Task :app:writeDebugSigningConfigVersions UP-TO-DATE
 
-> Task :app:compileDebugKotlin
+> Task :app:compileDebugKotlin FAILED
 ./gradlew : e: file:///C:/Users/corad/OneDrive/Document
 os/GitHub/sketcherCompanionV1/app/src/main/java/com/ske
-cher/sketchercompanionv1/SketcherViewModel.kt:22:46 
-Unresolved reference 'PathUtils'.
+cher/sketchercompanionv1/ui/dialogs/DxfImportDialog.kt:
+54:1 This annotation is not repeatable.
 At line:1 char:1
 + ./gradlew assembleDebug --console=plain 2>&1 | 
 Out-File -Encoding utf ...
 + ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     + CategoryInfo          : NotSpecified: (e: file:/ 
-   //C:/U...ce 'PathUtils'.:String) [], RemoteExcepti  
+   //C:/U...not repeatable.:String) [], RemoteExcepti  
   on
     + FullyQualifiedErrorId : NativeCommandError
  
-e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sk
-etcherCompanionV1/app/src/main/java/com/skecher/sketche
-rcompanionv1/SketcherViewModel.kt:891:30 Unresolved 
-reference 'PathUtils'.
-
-> Task :app:compileDebugKotlin FAILED
 
 FAILURE: Build failed with an exception.
 
@@ -71,5 +65,5 @@ output.
 > Run with --scan to get full insights.
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 10s
+BUILD FAILED in 7s
 30 actionable tasks: 1 executed, 29 up-to-date

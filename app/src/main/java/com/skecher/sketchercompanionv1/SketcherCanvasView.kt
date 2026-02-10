@@ -162,9 +162,29 @@ class SketcherCanvasView(context: Context) : View(context) {
     }
 
     private fun drawVectorStroke(vStroke: VectorStroke, canvas: Canvas) {
-        // 1. Draw the beautiful filled shape (Normal)
-        vectorPaint.color = vStroke.color
-        canvas.drawPath(vStroke.path, vectorPaint)
+        // 1. Draw the beautiful shape
+        if (vStroke.strokeType == StrokeType.FREEHAND) {
+            // Freehand strokes are "filled meshes"
+            vectorPaint.style = android.graphics.Paint.Style.FILL
+            vectorPaint.color = vStroke.color
+            canvas.drawPath(vStroke.path, vectorPaint)
+        } else {
+            // Geometric strokes (Line, Polyline, etc) are centerlines
+            vectorPaint.style = android.graphics.Paint.Style.STROKE
+            vectorPaint.color = vStroke.color
+            
+            // Use local stroke width logic.
+            // If we are zoomed, we want the stroke to maintain its world width.
+            // Paint strokeWidth is in screen pixels if canvas is scaled? 
+            // Canvas.concat(viewMatrix) handles the scaling.
+            // So if vStroke.maxWidth is in world units (pixels at 100%), it should be fine.
+            // However, 0 width is hairline.
+            
+            val width = if (vStroke.maxWidth > 0) vStroke.maxWidth else 0f
+            vectorPaint.strokeWidth = width
+            
+            canvas.drawPath(vStroke.path, vectorPaint)
+        }
 
         // 2. Debug Overlay
         if (isDebugWireframeByVM) {

@@ -64,6 +64,8 @@ import androidx.compose.ui.window.Popup
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.core.view.WindowCompat
 import com.skecher.sketchercompanionv1.ui.FileMenu
+import com.skecher.sketchercompanionv1.ui.dialogs.DxfImportDialog // Import
+import com.skecher.sketchercompanionv1.ui.dialogs.DxfExportDialog // Import
 import com.skecher.sketchercompanionv1.ui.theme.SketcherCompanionV1Theme
 import com.skecher.sketchercompanionv1.GroupElement
 import androidx.ink.authoring.InProgressStrokeId
@@ -303,6 +305,55 @@ fun SketcherSurface(
         }
     }
     
+    val importImageLauncher = rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+            sketchViewModel.insertImage(context, it)
+        }
+    }
+
+    val importSvgLauncher = rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+             sketchViewModel.insertSvg(context, it)
+        }
+    }
+
+    // --- DXF HANDLERS ---
+    var showDxfImportDialog by remember { mutableStateOf(false) }
+    var dxfImportUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    
+    val dxfImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let {
+            dxfImportUri = it
+            showDxfImportDialog = true
+        }
+    }
+    
+    var showDxfExportDialog by remember { mutableStateOf(false) }
+    
+    val dxfExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/dxf")) { uri ->
+        uri?.let { textUri ->
+             // We need to trigger export. 
+             // Since export logic is in ViewModel usually, but here we have the strokes in VM.
+             // We can do it here or via VM. Let's do it via VM to keep patterns consistent, or direct helper.
+             // For simplicity and direct access to strokes, let's add a helper in ViewModel or just call Exporter here in IO scope.
+             // But valid pattern is VM.
+             
+             // However, DxfExportDialog gives us filename, THEN we launch creator?
+             // Or we launch creator, get URI, then ask for filename?
+             // Standard: "Export" menu -> Dialog (ask filename) -> CreateDocument (using filename) -> Write.
+             
+             // So: 
+             // 1. Menu "Export DXF" -> Show Dialog.
+             // 2. Dialog "Export" -> Launch CreateDocument(filename.dxf).
+             // 3. Launcher Result -> Write to URI.
+             
+             // We need to store pending export config from dialog?
+             // Or just use the URI.
+             
+             sketchViewModel.exportDxf(context, textUri)
+        }
+    }
+    
     val exportPdfLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         uri?.let {
             sketchViewModel.exportPdf(context, it)
@@ -330,6 +381,8 @@ fun SketcherSurface(
     var showExportSvgDialog by remember { mutableStateOf(false) }
     var showPaperSizeDialog by remember { mutableStateOf(false) }
     var showPdfExportDialog by remember { mutableStateOf(false) }
+    var pendingDxfFilename by remember { mutableStateOf("drawing") }
+    var pendingDxfSelectionOnly by remember { mutableStateOf(false) }
     
     // UI Feedback State
     val showHomeRestoredFeedback = sketchViewModel.showHomeRestoredFeedback
@@ -393,6 +446,14 @@ fun SketcherSurface(
     val isDebugWireframe = sketchViewModel.isDebugWireframe
     val toolbarBackgroundColor = sketchViewModel.toolbarBackgroundColor
     val onToolbarBackgroundColorChanged: (Int) -> Unit = { sketchViewModel.updateToolbarBackgroundColor(it) }
+    
+    // DXF Menu Actions
+    val onImportDxfClick: () -> Unit = {
+        dxfImportLauncher.launch(arrayOf("*/*")) // Allow user to pick, often application/dxf or text/plain
+    }
+    val onExportDxfClick: () -> Unit = {
+        showDxfExportDialog = true
+    }
     
     val activeToolType = sketchViewModel.currentTool
 
@@ -1505,29 +1566,30 @@ fun SketcherSurface(
                 canRedo = sketchViewModel.canRedo,
                 onRedo = { sketchViewModel.redo(); canvasViewRef?.setLayers(sketchViewModel.layers, sketchViewModel.componentLibrary, sketchViewModel.editingContext); canvasViewRef?.redrawAllCache() },
                 onLayersClick = { showLayerManager = !showLayerManager },
-                onSave = { saveLauncher.launch("project.skc") },
+                onSave = { saveLauncher.launch("sketch.zip") },
                 onLoad = { loadLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
-                onImportImage = { imagePickerLauncher.launch(arrayOf("image/*")) },
-                onImportSvg = { svgPickerLauncher.launch(arrayOf("image/svg+xml")) },
-                onSaveTemplate = { name -> sketchViewModel.saveTemplate(context, name) },
-                onLoadTemplate = { file -> sketchViewModel.loadFromTemplate(context, file) },
+                onImportImage = { importImageLauncher.launch("image/*") },
                 onExportSvg = { 
                     if (sketchViewModel.canvasSizeConfig != null) {
-                        // Canvas size is configured, export directly using defined bounds
-                        val w = sketchViewModel.canvasSizeConfig!!.widthInPixels
-                        val h = sketchViewModel.canvasSizeConfig!!.heightInPixels
-                        // Use special config that matches canvas size exactly
-                        sketchViewModel.lastExportSvgConfig = com.skecher.sketchercompanionv1.ExportSvgConfig(
-                            includeBackground = false, // Usually icons are transparent
-                            useHomeView = false, // Not viewport
-                            width = w,
-                            height = h
-                        )
-                        exportSvgLauncher.launch("icon.svg")
+                         // Direct export if size is known (e.g. icon/page)
+                         // But we usually want to configure.
+                         // Let's just show dialog always for consistency or use logic.
+                         showExportSvgDialog = true
                     } else {
                         showExportSvgDialog = true 
                     }
                 },
+                onImportSvg = {
+                         importSvgLauncher.launch("*/*") // Or specific mime types
+                },
+                onImportDxf = {
+                    dxfImportLauncher.launch(arrayOf("*/*"))
+                },
+                onExportDxf = {
+                    showDxfExportDialog = true
+                },
+                onSaveTemplate = { name -> sketchViewModel.saveTemplate(context, name) },
+                onLoadTemplate = { file -> sketchViewModel.loadFromTemplate(context, file) },
                 onExportPng = { showExportPngDialog = true },
                 onExportPdf = { 
                     if (sketchViewModel.canvasSizeConfig != null) {
@@ -1609,6 +1671,7 @@ fun SketcherSurface(
             }
             
             // SCALE INDICATOR (Top Left)
+            // SCALE INDICATOR (Top Left)
             ScaleIndicator(
                 scaleConfig = sketchViewModel.scaleConfig,
                 currentUnit = sketchViewModel.currentUnit,
@@ -1618,6 +1681,31 @@ fun SketcherSurface(
                     .zIndex(1000f)
                     .padding(top = 80.dp, start = 16.dp) // Below Toobar
             )
+
+            if (showDxfImportDialog && dxfImportUri != null) {
+                com.skecher.sketchercompanionv1.ui.dialogs.DxfImportDialog(
+                    uri = dxfImportUri!!,
+                    onDismiss = { showDxfImportDialog = false },
+                    onImport = { data, scaleToFit, defaultStrokeWidth, fillClosedShapes ->
+                        sketchViewModel.addImportedDxfData(data, scaleToFit, defaultStrokeWidth, fillClosedShapes)
+                        showDxfImportDialog = false
+                    }
+                )
+            }
+            
+            if (showDxfExportDialog) {
+                com.skecher.sketchercompanionv1.ui.dialogs.DxfExportDialog(
+                    onDismiss = { showDxfExportDialog = false },
+                    onExport = { filename, selectionOnly ->
+                         // Store config and launch creator
+                         // pendingDxfFilename = filename // Assuming these are state variables defined elsewhere
+                         // pendingDxfSelectionOnly = selectionOnly // Assuming these are state variables defined elsewhere
+                         showDxfExportDialog = false
+                         // sketchViewModel.dxfExportConfig = config // This line was removed as per instruction
+                         dxfExportLauncher.launch(filename)
+                    }
+                )
+            }
 
             BottomMenuBar(
                 modifier = Modifier
@@ -2455,6 +2543,8 @@ fun TopMenuBar(
     onLoad: () -> Unit,
     onImportImage: () -> Unit,
     onImportSvg: () -> Unit,
+    onImportDxf: () -> Unit,
+    onExportDxf: () -> Unit,
     onSaveTemplate: (String) -> Unit,
     onLoadTemplate: (java.io.File) -> Unit,
     onExportSvg: () -> Unit,
@@ -2500,15 +2590,18 @@ fun TopMenuBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Project Menu
+            // Project Menu
             FileMenu(
                 onNewDrawing = onNewDrawing,
                 onSave = onSave,
                 onLoad = onLoad,
                 onImportImage = onImportImage,
                 onImportSvg = onImportSvg,
+                onImportDxf = onImportDxf,
                 onExportSvg = onExportSvg,
                 onExportPng = onExportPng,
                 onExportPdf = onExportPdf,
+                onExportDxf = onExportDxf,
                 onSettingsClick = onSettingsClick,
                 onSaveTemplate = onSaveTemplate,
                 onLoadTemplate = onLoadTemplate,

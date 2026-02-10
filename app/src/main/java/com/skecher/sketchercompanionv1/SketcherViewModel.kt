@@ -12,10 +12,14 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import androidx.ink.strokes.Stroke
+import kotlinx.coroutines.launch
 import com.google.gson.Gson
 import com.skecher.sketchercompanionv1.dto.*
 import com.skecher.sketchercompanionv1.utils.TemplateManager
+import com.skecher.sketchercompanionv1.importers.DxfImportData
+import com.skecher.sketchercompanionv1.utils.PathUtils
 import java.io.File
 import java.util.UUID
 import com.skecher.sketchercompanionv1.utils.toLayerJson
@@ -43,6 +47,11 @@ data class ExportSvgConfig(
     val height: Float
 )
 
+data class DxfExportConfig(
+    val filename: String,
+    val exportSelectionOnly: Boolean
+)
+
 class SketcherViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE)
 
@@ -50,6 +59,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     // --- UI/DEBUG SETTINGS (Restored) ---
     var isDebugWireframe by mutableStateOf(false)
     
+
 
     var canUndo by mutableStateOf(false)
         private set
@@ -133,6 +143,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     var lastExportPngConfig by mutableStateOf(ExportPngConfig(transparentBackground = false, useHomeView = true, width = 1920, height = 1080))
     var lastExportSvgConfig by mutableStateOf(ExportSvgConfig(includeBackground = true, useHomeView = true, width = 1920f, height = 1080f))
+    var dxfExportConfig by mutableStateOf(DxfExportConfig("", false))
 
     // --- SETTINGS LOADERS ---
     private fun loadFreehandSettings(): FreehandSettings {
@@ -820,6 +831,128 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         cameraUpdateTrigger++
     }
 
+    fun addImportedDxfData(data: DxfImportData, scaleToFit: Boolean, defaultStrokeWidth: Float, fillClosedShapes: Boolean = false) {
+        saveStateForUndo()
+
+        // 1. Determine Scale/Offset
+        var matrix = Matrix()
+        if (scaleToFit && canvasSizeConfig != null) {
+            val bounds = data.totalBounds
+            val canvasW = canvasSizeConfig!!.widthInPixels
+            val canvasH = canvasSizeConfig!!.heightInPixels
+            
+            if (bounds.width() > 0 && bounds.height() > 0) {
+                 val scaleX = canvasW / bounds.width()
+                 val scaleY = canvasH / bounds.height()
+                 val scale = kotlin.math.min(scaleX, scaleY) * 0.9f 
+                 
+                 val cx = bounds.centerX()
+                 val cy = bounds.centerY()
+                 
+                 matrix.postTranslate(-cx, -cy)
+                 matrix.postScale(scale, scale)
+                 matrix.postTranslate(canvasW/2f, canvasH/2f)
+            }
+        } 
+        // If not scaling to fit canvas, we might want to center it at least if it's far off? 
+        // For now, let's respect DXF coordinates if not fitting, or maybe center on viewport?
+        // Let's stick to "Fit to Canvas" logic or raw. 
+        // If raw and coordinates are huge/negative, user might lose them.
+        // But requested feature was just "scale to canvas".
+
+        // 2. Group by Layer
+        val pathsByLayer = data.paths.groupBy { it.layerName }
+        
+        // 3. Process Layers
+        pathsByLayer.entries.forEach { entry ->
+            val layerName = entry.key
+            val dxfPaths = entry.value
+
+            // Find or Create Layer
+            // Start by checking if a layer with this name exists
+            var targetLayer = layers.find { it.name == layerName }
+            if (targetLayer == null) {
+                targetLayer = Layer("l_dxf_${UUID.randomUUID()}", layerName, mutableListOf())
+                layers.add(targetLayer) // Add to top? Or bottom? Autocad layers usually sorted. App appends.
+            }
+            // Update reference if we are modifying it in list? 
+            // We need to update the list element.
+            val layerIndex = layers.indexOf(targetLayer)
+            val mutableElements = targetLayer.elements.toMutableList()
+
+            dxfPaths.forEach { dp ->
+                // Apply Matrix
+                val path = android.graphics.Path(dp.path)
+                path.transform(matrix)
+                
+                // Color
+                val strokeColor = dp.color ?: AndroidColor.BLACK 
+                
+                val points = PathUtils.samplePath(path)
+                
+                // VectorStroke Logic (Ink Engine Compatible)
+                // 1. Determine if we should treat this as a "Filled Shape" (Polygon) or a "Stroke" (Line with width)
+                val isFilledShape = fillClosedShapes && dp.isClosed
+                
+                val finalPath: android.graphics.Path
+                val brushType: String
+                
+                if (isFilledShape) {
+                    // It's a filled polygon. The path is the boundary.
+                    // Rendering as FREEHAND (Fill) will fill the interior.
+                    finalPath = path
+                    brushType = "FILLED_SHAPE" 
+                } else {
+                    // It's a stroke (centerline). We need to generate the outline mesh.
+                    // This mimics the "Ink Engine" output (Perfect Freehand gives a mesh).
+                    // We use Paint.getFillPath to get a constant width mesh from the centerline.
+                    // This ensures "lines" have thickness and are rendered as filled meshes.
+                    
+                    val outlinePath = android.graphics.Path()
+                    val paint = android.graphics.Paint().apply {
+                        style = android.graphics.Paint.Style.STROKE
+                        strokeWidth = defaultStrokeWidth
+                        strokeCap = android.graphics.Paint.Cap.ROUND
+                        strokeJoin = android.graphics.Paint.Join.ROUND
+                    }
+                    paint.getFillPath(path, outlinePath)
+                    
+                    finalPath = outlinePath
+                    brushType = "FREEHAND" // Treat as standard ink
+                }
+                
+                android.util.Log.d("SketcherViewModel", "DXF Import: Layer=$layerName, Closed=${dp.isClosed}, FillDesired=$fillClosedShapes -> Brush=$brushType")
+
+                val stroke = VectorStroke(
+                     points = points,
+                     color = strokeColor,
+                     brushType = brushType,
+                     strokeType = StrokeType.FREEHAND, // EVERYTHING is a filled mesh now
+                     maxWidth = defaultStrokeWidth, 
+                     path = finalPath
+                )
+                mutableElements.add(stroke)
+            }
+            
+            // Commit Layer changes
+            layers[layerIndex] = targetLayer.copy(elements = mutableElements)
+        }
+        
+        // 4. Update Active Layer to one of the imported ones?
+        // Or keep current.
+        
+        redoStack.clear()
+        updateUndoRedoSupport()
+        
+        // Fit camera if we scaled content to fit canvas
+        if (scaleToFit && canvasSizeConfig != null) {
+             resetCamera() // Or fitContent()
+        }
+    }
+    
+    // Legacy single stroke import (now replaced/unused but keeping safe or removing?)
+    // Removing old addImportedStrokes to avoid confusion/duplication
+
     // Export Helpers
     fun getExportDefaults(useHomeView: Boolean): Pair<Int, Int> {
         return if (useHomeView) {
@@ -1374,6 +1507,145 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             updateUndoRedoSupport()
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+    // --- DXF SUPPORT ---
+    fun addImportedStrokes(strokes: List<VectorStroke>, scaleToFit: Boolean) {
+        if (strokes.isEmpty()) return
+        
+        saveStateForUndo()
+        
+        // 1. Calculate Bounds of Imported Strokes
+        var minX = Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE
+        var maxY = -Float.MAX_VALUE
+        
+        strokes.forEach { stroke ->
+            stroke.points.forEach { p ->
+                if (p.x < minX) minX = p.x
+                if (p.x > maxX) maxX = p.x
+                if (p.y < minY) minY = p.y
+                if (p.y > maxY) maxY = p.y
+            }
+        }
+        
+        val importWidth = maxX - minX
+        val importHeight = maxY - minY
+        
+        // 2. Determine Scale and Offset
+        val matrix = Matrix()
+        
+        if (scaleToFit && importWidth > 0 && importHeight > 0) {
+            // Get visible viewport or canvas size
+            val targetWidth = if (canvasSizeConfig != null) canvasSizeConfig!!.widthInPixels else lastViewportWidth
+            val targetHeight = if (canvasSizeConfig != null) canvasSizeConfig!!.heightInPixels else lastViewportHeight
+            
+            if (targetWidth > 0 && targetHeight > 0) {
+                 val scaleX = targetWidth / importWidth
+                 val scaleY = targetHeight / importHeight
+                 val scale = kotlin.math.min(scaleX, scaleY) * 0.8f // 80% fill
+                 
+                 val cx = (minX + maxX) / 2f
+                 val cy = (minY + maxY) / 2f
+                 val targetCx = targetWidth / 2f
+                 val targetCy = targetHeight / 2f
+                 
+                 matrix.postTranslate(-cx, -cy)
+                 matrix.postScale(scale, scale)
+                 matrix.postTranslate(targetCx, targetCy)
+            }
+        } else {
+            // Just center if no scale
+             val cx = (minX + maxX) / 2f
+             val cy = (minY + maxY) / 2f
+             val targetWidth = if (canvasSizeConfig != null) canvasSizeConfig!!.widthInPixels else lastViewportWidth
+             val targetHeight = if (canvasSizeConfig != null) canvasSizeConfig!!.heightInPixels else lastViewportHeight
+             val targetCx = targetWidth / 2f
+             val targetCy = targetHeight / 2f
+             
+             matrix.postTranslate(-cx, -cy)
+             matrix.postTranslate(targetCx, targetCy)
+        }
+
+        // 3. Transform and Add
+        val transformedStrokes = strokes.map { stroke ->
+             val centerlinePath = android.graphics.Path(stroke.path)
+             centerlinePath.transform(matrix) // Transform centerline directly
+             
+             // Expand centerline to outline (Filled Shape) matches renderer expectation
+             val outlinePath = android.graphics.Path()
+             val strokePaint = android.graphics.Paint().apply {
+                 style = android.graphics.Paint.Style.STROKE
+                 strokeWidth = stroke.maxWidth
+                 strokeCap = android.graphics.Paint.Cap.ROUND
+                 strokeJoin = android.graphics.Paint.Join.ROUND
+             }
+             strokePaint.getFillPath(centerlinePath, outlinePath)
+             
+             // Sample points from centerline (not outline) for physics/logic
+             val newPoints = if (stroke.points.isNotEmpty()) {
+                 stroke.points.map { p ->
+                     val pts = floatArrayOf(p.x, p.y)
+                     matrix.mapPoints(pts)
+                     StrokePoint(pts[0], pts[1], p.pressure)
+                 }
+             } else {
+                 val pm = android.graphics.PathMeasure(centerlinePath, false)
+                 val pathLength = pm.length
+                 val numPoints = (pathLength / 2f).toInt().coerceAtLeast(2)
+                 val sampledPoints = mutableListOf<StrokePoint>()
+                 val pos = floatArrayOf(0f, 0f)
+                 val tan = floatArrayOf(0f, 0f)
+                 
+                 for (i in 0..numPoints) {
+                     val distance = (i.toFloat() / numPoints) * pathLength
+                     pm.getPosTan(distance, pos, tan)
+                     sampledPoints.add(StrokePoint(pos[0], pos[1], 0.5f))
+                 }
+                 sampledPoints
+             }
+             
+             stroke.copy(points = newPoints, path = outlinePath)
+        }
+        
+        if (layers.isNotEmpty()) {
+            val activeLayer = layers[activeLayerIndex]
+            activeLayer.elements.addAll(transformedStrokes)
+            layers[activeLayerIndex] = activeLayer.copy()
+            redoStack.clear()
+            updateUndoRedoSupport()
+        }
+    }
+    
+    fun exportDxf(context: Context, uri: android.net.Uri) {
+         // Run export in IO
+         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+             try {
+                 context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+                     // Support exporting all layers with structure
+                     // If selection only is needed later, we would need to filter layers
+                     com.skecher.sketchercompanionv1.exporters.DxfExporter.export(layers, outputStream)
+                 }
+             } catch (e: Exception) {
+                 e.printStackTrace()
+             }
+         }
+    }
+    
+    private fun collectStrokes(elements: List<LayerElement>, target: MutableList<VectorStroke>, parentMatrix: Matrix) {
+        elements.forEach { element ->
+            if (element is VectorStroke) {
+                // Apply parent matrix (Group transforms)
+                val m = Matrix(parentMatrix) 
+                val copy = element.copyElement() as VectorStroke
+                copy.transform(m)
+                target.add(copy)
+            } else if (element is GroupElement) {
+                val newMatrix = Matrix(parentMatrix)
+                newMatrix.preConcat(element.matrix)
+                collectStrokes(element.elements, target, newMatrix)
+            }
         }
     }
 }

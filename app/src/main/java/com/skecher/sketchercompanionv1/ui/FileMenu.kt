@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Architecture
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Image
@@ -66,11 +67,15 @@ fun FileMenu(
     onSettingsClick: () -> Unit,
     onSaveTemplate: (String) -> Unit,
     onLoadTemplate: (File) -> Unit,
-    onPaperSizeClick: () -> Unit
+    onPaperSizeClick: () -> Unit,
+    onImportDxf: () -> Unit,
+    onExportDxf: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
     var showSaveTemplateDialog by remember { mutableStateOf(false) }
     var showLoadTemplateDialog by remember { mutableStateOf(false) }
+    var showImportDialog by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
 
     Box {
         IconButton(onClick = { showMenu = true }) {
@@ -97,17 +102,16 @@ fun FileMenu(
                 leadingIcon = { Icon(Icons.Default.FolderOpen, null) },
                 onClick = { onLoad(); showMenu = false }
             )
+            // IMPORT SECTION
             DropdownMenuItem(
-                text = { Text("Import Image") }, // No resource yet? Using literal from original code
-                leadingIcon = { Icon(Icons.Default.Image, null) },
-                onClick = { onImportImage(); showMenu = false }
+                text = { Text("Importar...") },
+                leadingIcon = { Icon(Icons.Default.FolderOpen, null) },
+                onClick = { 
+                    showMenu = false
+                    showImportDialog = true 
+                }
             )
-            DropdownMenuItem(
-                text = { Text("Importar SVG") },
-                leadingIcon = { Icon(Icons.Default.Image, null) },
-                onClick = { onImportSvg(); showMenu = false }
-            )
-            
+
             HorizontalDivider()
             
             // PAPER SIZE
@@ -144,7 +148,7 @@ fun FileMenu(
             
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.action_new_from_template)) },
-                leadingIcon = { Icon(Icons.Default.Description, null) }, // Description icon sort of looks like a file/template
+                leadingIcon = { Icon(Icons.Default.Description, null) }, 
                 onClick = { 
                     showLoadTemplateDialog = true
                     showMenu = false 
@@ -155,33 +159,12 @@ fun FileMenu(
             
             // EXPORT SECTION
             DropdownMenuItem(
-                text = { 
-                    Text(
-                        "Exportar", 
-                        style = MaterialTheme.typography.labelSmall, 
-                        color = Color.Gray 
-                    ) 
-                },
-                onClick = { },
-                enabled = false
-            )
-
-            DropdownMenuItem(
-                text = { Text("Exportar como PNG") },
+                text = { Text("Exportar...") },
                 leadingIcon = { Icon(Icons.Default.Share, null) },
-                onClick = { onExportPng(); showMenu = false }
-            )
-
-            DropdownMenuItem(
-                text = { Text("Exportar como SVG") },
-                leadingIcon = { Icon(Icons.Default.Share, null) },
-                onClick = { onExportSvg(); showMenu = false }
-            )
-
-            DropdownMenuItem(
-                text = { Text("Exportar como PDF") },
-                leadingIcon = { Icon(Icons.Default.Description, null) },
-                onClick = { onExportPdf(); showMenu = false }
+                onClick = { 
+                    showMenu = false
+                    showExportDialog = true 
+                }
             )
 
             HorizontalDivider()
@@ -192,6 +175,89 @@ fun FileMenu(
                 onClick = { onSettingsClick(); showMenu = false }
             )
         }
+    }
+
+    if (showImportDialog) {
+        AlertDialog(
+            onDismissRequest = { showImportDialog = false },
+            title = { Text("Importar") },
+            text = {
+                Column {
+                    TextButton(onClick = { onImportImage(); showImportDialog = false }, modifier = Modifier.fillMaxWidth()) {
+                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Default.Image, null)
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text("Imagen")
+                        }
+                    }
+                    TextButton(onClick = { onImportSvg(); showImportDialog = false }, modifier = Modifier.fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Default.Image, null) // Svg icon?
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text("SVG")
+                        }
+                    }
+                    TextButton(onClick = { onImportDxf(); showImportDialog = false }, modifier = Modifier.fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Default.Architecture, null)
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text("DXF (CAD)")
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showImportDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    if (showExportDialog) {
+        AlertDialog(
+            onDismissRequest = { showExportDialog = false },
+            title = { Text("Exportar") },
+            text = {
+                Column {
+                    TextButton(onClick = { onExportPng(); showExportDialog = false }, modifier = Modifier.fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Default.Image, null)
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text("PNG (Imagen)")
+                        }
+                    }
+                    TextButton(onClick = { onExportSvg(); showExportDialog = false }, modifier = Modifier.fillMaxWidth()) {
+                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Default.Share, null)
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text("SVG (Vector Web)")
+                        }
+                    }
+                    TextButton(onClick = { onExportPdf(); showExportDialog = false }, modifier = Modifier.fillMaxWidth()) {
+                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Default.Description, null)
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text("PDF (Documento)")
+                        }
+                    }
+                    TextButton(onClick = { onExportDxf(); showExportDialog = false }, modifier = Modifier.fillMaxWidth()) {
+                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Default.Architecture, null)
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text("DXF (CAD)")
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showExportDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 
     if (showSaveTemplateDialog) {
