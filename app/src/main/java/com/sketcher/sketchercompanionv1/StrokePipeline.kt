@@ -509,6 +509,27 @@ class StrokePipeline(
         return points
     }
 
+    // --- ASYNC OPERATIONS ---
+    
+    /**
+     * Prepares for Fill Tool. 
+     * This will be called from ViewModel inside a coroutine.
+     */
+    suspend fun performFloodFill(
+        x: Float, 
+        y: Float, 
+        targetColor: Int, 
+        layers: List<Layer>,
+        tolerance: Float
+    ): FillData? {
+        // TODO: Implement Flood Fill Algorithm on Dispatchers.Default
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+             // 1. Render Scene to Bitmap (if needed) or use Vector clipping
+             // 2. Compute fill path
+             null // Return null for now until implemented
+        }
+    }
+
     // Callbacks
     var snapFunction: ((Float, Float) -> Pair<Float, Float>)? = null
 }

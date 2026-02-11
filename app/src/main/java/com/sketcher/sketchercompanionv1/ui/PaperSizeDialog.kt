@@ -28,6 +28,7 @@ fun PaperSizeDialog(
     var selectedTab by remember { mutableStateOf(if (currentConfig == null) 0 else if (currentConfig.preset != null) 1 else 2) }
     var selectedPreset by remember { mutableStateOf(currentConfig?.preset ?: PaperSizePreset.LETTER) }
     var selectedOrientation by remember { mutableStateOf(currentConfig?.orientation ?: PaperOrientation.PORTRAIT) }
+    var selectedOrigin by remember { mutableStateOf(currentConfig?.origin ?: CoordinateOrigin.TOP_LEFT) } // Origin State
     
     // Custom size state
     var customWidth by remember { mutableStateOf(currentConfig?.widthInPixels?.toInt()?.toString() ?: "2550") }
@@ -100,6 +101,24 @@ fun PaperSizeDialog(
                                 )
                             }
 
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            // Origin Selector
+                            Text("Origen de Coordenadas:", style = MaterialTheme.typography.bodyMedium)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(
+                                    selected = selectedOrigin == CoordinateOrigin.TOP_LEFT,
+                                    onClick = { selectedOrigin = CoordinateOrigin.TOP_LEFT }
+                                )
+                                Text("Superior Izquierda", modifier = Modifier.clickable { selectedOrigin = CoordinateOrigin.TOP_LEFT })
+                                Spacer(modifier = Modifier.width(16.dp))
+                                RadioButton(
+                                    selected = selectedOrigin == CoordinateOrigin.CENTER,
+                                    onClick = { selectedOrigin = CoordinateOrigin.CENTER }
+                                )
+                                Text("Centro", modifier = Modifier.clickable { selectedOrigin = CoordinateOrigin.CENTER })
+                            }
+                            
                             Spacer(modifier = Modifier.height(8.dp))
 
                             // List of presets
@@ -187,11 +206,11 @@ fun PaperSizeDialog(
                 onClick = {
                     val config = when (selectedTab) {
                         0 -> null // Infinite canvas
-                        1 -> CanvasSizeHelper.fromPreset(selectedPreset, selectedOrientation, pixelsPerMm)
+                        1 -> CanvasSizeHelper.fromPreset(selectedPreset, selectedOrientation, pixelsPerMm).copy(origin = selectedOrigin)
                         2 -> {
                             val w = customWidth.toFloatOrNull() ?: 2550f
                             val h = customHeight.toFloatOrNull() ?: 3300f
-                            CanvasSizeHelper.fromPixels(w, h)
+                            CanvasSizeHelper.fromPixels(w, h).copy(origin = selectedOrigin)
                         }
                         else -> null
                     }

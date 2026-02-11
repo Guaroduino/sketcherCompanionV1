@@ -8,8 +8,14 @@ data class CanvasSizeConfig(
     val widthInPixels: Float,
     val heightInPixels: Float,
     val preset: PaperSizePreset? = null, // null if custom
-    val orientation: PaperOrientation = PaperOrientation.PORTRAIT
+    val orientation: PaperOrientation = PaperOrientation.PORTRAIT,
+    val origin: CoordinateOrigin = CoordinateOrigin.TOP_LEFT
 )
+
+enum class CoordinateOrigin {
+    TOP_LEFT,
+    CENTER
+}
 
 enum class PaperOrientation {
     PORTRAIT,
@@ -93,7 +99,8 @@ object CanvasSizeHelper {
             widthInPixels = width,
             heightInPixels = height,
             preset = preset,
-            orientation = orientation
+            orientation = orientation,
+            origin = CoordinateOrigin.TOP_LEFT // Default
         )
     }
 
@@ -108,7 +115,8 @@ object CanvasSizeHelper {
             widthInPixels = widthPx,
             heightInPixels = heightPx,
             preset = null,
-            orientation = PaperOrientation.PORTRAIT
+            orientation = PaperOrientation.PORTRAIT,
+            origin = CoordinateOrigin.TOP_LEFT
         )
     }
 
@@ -130,7 +138,8 @@ object CanvasSizeHelper {
             widthInPixels = widthPx,
             heightInPixels = heightPx,
             preset = null,
-            orientation = PaperOrientation.PORTRAIT
+            orientation = PaperOrientation.PORTRAIT,
+            origin = CoordinateOrigin.TOP_LEFT
         )
     }
 }

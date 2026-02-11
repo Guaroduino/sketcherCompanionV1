@@ -193,6 +193,7 @@ data class CanvasSizeConfigJson(
     val widthInPixels: Float,
     val heightInPixels: Float,
     val presetName: String? = null, // Name of PaperSizePreset enum, null if custom
-    val orientation: String = "PORTRAIT" // "PORTRAIT" or "LANDSCAPE"
+    val orientation: String = "PORTRAIT", // "PORTRAIT" or "LANDSCAPE"
+    val origin: String = "TOP_LEFT" // "TOP_LEFT" or "CENTER"
 )
 

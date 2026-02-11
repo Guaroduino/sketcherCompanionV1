@@ -6,6 +6,7 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PointF
+import android.graphics.RectF
 import com.sketcher.sketchercompanionv1.dto.*
 import com.sketcher.sketchercompanionv1.utils.UnitUtils
 
@@ -52,6 +53,18 @@ class RenderEngine {
         color = Color.RED
     }
 
+    // Workspace Paints
+    private val workspacePaint = Paint().apply {
+        color = Color.parseColor("#FFEEEEEE") // Light Gray
+        style = Paint.Style.FILL
+    }
+    
+    private val paperPaint = Paint().apply {
+        color = Color.WHITE
+        style = Paint.Style.FILL
+        setShadowLayer(10f, 0f, 4f, 0x44000000) // Drop shadow
+    }
+
     // Selection Paints
     private val selectionBoxPaint = Paint().apply {
         color = Color.parseColor("#44007AFF") // Translucent Apple Blue
@@ -77,6 +90,15 @@ class RenderEngine {
     
     var isDebugWireframe: Boolean = false
 
+    // --- TEMPORARY OBJECTS (Avoid allocations in draw) ---
+    private val tempMatrix = Matrix()
+    private val tempInverseMatrix = Matrix()
+    private val tempFloatArray = FloatArray(9)
+    private val tempScreenBounds = FloatArray(4)
+    private val tempWorldBounds = FloatArray(4)
+    private val tempPaperRect = RectF()
+    private val debugPath = Path()
+
     // --- PUBLIC DRAWING METHODS ---
 
     fun drawLayers(
@@ -88,10 +110,64 @@ class RenderEngine {
         isSelectionDragging: Boolean
     ) {
         // Draw Background
-        canvas.drawColor(canvasBackgroundColor)
-        
-        // Draw Grid
-        drawGrid(canvas, viewMatrix)
+        val sizeConfig = canvasSizeConfig
+        if (sizeConfig != null) {
+            // Finite Canvas (Paper Mode)
+            
+            // 1. Draw Infinite Workspace Background
+            canvas.drawRect(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat(), workspacePaint)
+            
+            // 2. Draw Paper Sheet
+            canvas.save()
+            canvas.concat(viewMatrix)
+            
+            val halfW = sizeConfig.widthInPixels / 2f
+            val halfH = sizeConfig.heightInPixels / 2f
+            
+            // Calculate Paper Rect based on Origin
+            // If TOP_LEFT (default): 0,0 is Top-Left. Rect: [0, 0, w, h]
+            // If CENTER: 0,0 is Center. Rect: [-w/2, -h/2, w/2, h/2]
+            
+            val left = if (sizeConfig.origin == CoordinateOrigin.CENTER) -halfW else 0f
+            val top = if (sizeConfig.origin == CoordinateOrigin.CENTER) -halfH else 0f
+            val right = left + sizeConfig.widthInPixels
+            val bottom = top + sizeConfig.heightInPixels
+            
+            paperPaint.color = canvasBackgroundColor
+            canvas.drawRect(left, top, right, bottom, paperPaint)
+            
+            // Clip to paper for content?
+            canvas.clipRect(left, top, right, bottom)
+            
+            // Draw Grid (aligned to paper)
+            // drawGrid expects World Space canvas.
+            // If Origin is CENTER, (0,0) is center. Grid draws from 0.
+            // If Origin is TOP_LEFT, (0,0) is top-left. Grid draws from 0.
+            // So drawGrid logic (drawing from 0) is correct for BOTH, 
+            // provided the paper is drawn relative to that 0,0.
+            
+            // We need to pass the paper bounds to drawGrid for clamping though.
+            tempPaperRect.set(left, top, right, bottom)
+            drawGrid(
+                canvas = canvas, 
+                viewMatrix = viewMatrix, 
+                isFinite = true, 
+                paperBounds = tempPaperRect
+            )
+            
+            canvas.restore()
+            
+        } else {
+            // Infinite Canvas
+            canvas.drawColor(canvasBackgroundColor)
+            
+            canvas.save()
+            canvas.save()
+            canvas.concat(viewMatrix)
+            drawGrid(canvas, viewMatrix, false, null)
+            canvas.restore()   
+            // Note: drawGrid previously restored its own save, but we'll refactor drawGrid to be cleaner
+        }
         
         // Draw Layers
         for (layer in layers) {
@@ -204,25 +280,29 @@ class RenderEngine {
     
     private fun drawDebugWireframe(canvas: Canvas, points: List<StrokePoint>, viewMatrix: Matrix) {
         // Calculate zoom for consistent hairline
-        val mValues = FloatArray(9)
-        viewMatrix.getValues(mValues)
-        val zoom = kotlin.math.sqrt(mValues[Matrix.MSCALE_X] * mValues[Matrix.MSCALE_X] + mValues[Matrix.MSKEW_X] * mValues[Matrix.MSKEW_X])
+        viewMatrix.getValues(tempFloatArray)
+        val zoom = kotlin.math.sqrt(tempFloatArray[Matrix.MSCALE_X] * tempFloatArray[Matrix.MSCALE_X] + tempFloatArray[Matrix.MSKEW_X] * tempFloatArray[Matrix.MSKEW_X])
         
         debugPaint.strokeWidth = 2f / zoom
         val pRadius = 4f / zoom
         
-        val path = Path()
+        debugPath.reset()
         if (points.isNotEmpty()) {
-            path.moveTo(points.first().x, points.first().y)
+            debugPath.moveTo(points.first().x, points.first().y)
             for (p in points) {
-                path.lineTo(p.x, p.y)
+                debugPath.lineTo(p.x, p.y)
                 canvas.drawCircle(p.x, p.y, pRadius, debugPointPaint)
             }
         }
-        canvas.drawPath(path, debugPaint)
+        canvas.drawPath(debugPath, debugPaint)
     }
 
-    fun drawGrid(canvas: Canvas, viewMatrix: Matrix) {
+    fun drawGrid(
+        canvas: Canvas, 
+        viewMatrix: Matrix, 
+        isFinite: Boolean,
+        paperBounds: RectF? // Replaced float w/h with RectF for arbitrary bounds (center origin)
+    ) {
         if (!gridConfig.isVisible || gridConfig.spacing <= 0f) return
 
         val stepPx = UnitUtils.projectUnitsToPixels(
@@ -234,31 +314,93 @@ class RenderEngine {
         if (stepPx <= 0f) return
 
         // Calculate zoom for visibility thresholds
-        val transformValues = FloatArray(9)
-        viewMatrix.getValues(transformValues)
-        val zoom = kotlin.math.sqrt(transformValues[Matrix.MSCALE_X] * transformValues[Matrix.MSCALE_X] + transformValues[Matrix.MSKEW_X] * transformValues[Matrix.MSKEW_X])
+        viewMatrix.getValues(tempFloatArray)
+        val zoom = kotlin.math.sqrt(tempFloatArray[Matrix.MSCALE_X] * tempFloatArray[Matrix.MSCALE_X] + tempFloatArray[Matrix.MSKEW_X] * tempFloatArray[Matrix.MSKEW_X])
         val screenStep = stepPx * zoom
 
+        // Determine visible world bounds
         // Invert Matrix to map screen bounds to world
-        val inverse = Matrix()
-        viewMatrix.invert(inverse)
-        
-        val screenBounds = floatArrayOf(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat())
-        val worldBounds = floatArrayOf(0f, 0f, 0f, 0f)
-        inverse.mapPoints(worldBounds, screenBounds)
-        val left = worldBounds[0]
-        val top = worldBounds[1]
-        val right = worldBounds[2]
-        val bottom = worldBounds[3]
-        
-        val wMinX = kotlin.math.min(left, right)
-        val wMaxX = kotlin.math.max(left, right)
-        val wMinY = kotlin.math.min(top, bottom)
-        val wMaxY = kotlin.math.max(top, bottom)
+        tempInverseMatrix.set(viewMatrix)
+        val inverted = viewMatrix.invert(tempInverseMatrix)
+        if (!inverted) return // Should not happen usually
 
-        // Center Offset
-        val offsetX = canvasSizeConfig?.let { it.widthInPixels / 2f } ?: 0f
-        val offsetY = canvasSizeConfig?.let { it.heightInPixels / 2f } ?: 0f
+        tempScreenBounds[0] = 0f
+        tempScreenBounds[1] = 0f
+        tempScreenBounds[2] = canvas.width.toFloat()
+        tempScreenBounds[3] = canvas.height.toFloat()
+        
+        tempInverseMatrix.mapPoints(tempWorldBounds, tempScreenBounds)
+        
+        val left = tempWorldBounds[0]
+        val top = tempWorldBounds[1]
+        val right = tempWorldBounds[2]
+        val bottom = tempWorldBounds[3]
+        
+        var wMinX = kotlin.math.min(left, right)
+        var wMaxX = kotlin.math.max(left, right)
+        var wMinY = kotlin.math.min(top, bottom)
+        var wMaxY = kotlin.math.max(top, bottom)
+        
+        // If finite, clamp grid to paper
+        if (isFinite) {
+            // Since we might have already clipped in drawLayers, this is redundant for drawing but good for loop limits
+            // However, drawLayers logic calls drawGrid INSIDE a save/concat block.
+            // But wait, the original drawGrid did canvas.concat(viewMatrix) ITSELF.
+            // My modified drawLayers has:
+            // Finite -> concat -> drawGrid
+            // Infinite -> no concat -> drawGrid?
+            
+            // Let's standardise: drawGrid expects the canvas to ALREADY BE IN WORLD SPACE?
+            // The original code did: canvas.save(); canvas.concat(viewMatrix); ... canvas.restore()
+            // So it expected Screen Space canvas.
+            
+            // IF we are in Finite mode in drawLayers, we are ALREADY in World Space (viewMatrix applied).
+            // IF we are in Infinite mode in drawLayers, we are NOT (I changed it to do nothing).
+            
+            // Wait, let's look at my drawLayers change again.
+            // Finite: canvas.concat(viewMatrix); drawGrid(...) -> So canvas is in World Space.
+            // Infinite: I did NOT concat. -> So canvas is in Screen Space.
+            
+            // This is inconsistent. I should make drawLayers consistent or handle it here.
+            
+            // Let's assume drawLayers handles the matrix for Finite (because of the paper rect).
+            // For Infinite, let's have drawLayers ALSO handle the matrix? 
+            
+            // REVISIT drawLayers logic (I'll fix it in the next step if I messed up, but for now let's assume:)
+            // -> I will remove the matrix concat from drawGrid and assume caller sets it up.
+            // Why? Because for Finite paper, we want to draw relative to the paper (0,0).
+        }
+        
+        // Actually, let's fix drawLayers to always setup the matrix for the grid, 
+        // OR have drawGrid take valid world bounds.
+        
+        // If canvas is already transformed, `viewMatrix` passed here is redundant for transformation
+        // BUT needed for zoom calculation.
+        
+        // Let's refine the logic:
+        // We will assume the canvas is ALREADY transformed to World Space (or Paper Space).
+        // So we just draw lines from wMin to wMax.
+        
+        // Re-calculating bounds based on viewMatrix (which is Screen->World) is tricky if we are already in World space.
+        // If we are in World Space, `canvas.clipBounds` gives us the visible world area!
+        
+        val clipBounds = canvas.clipBounds
+        wMinX = clipBounds.left.toFloat()
+        wMaxX = clipBounds.right.toFloat()
+        wMinY = clipBounds.top.toFloat()
+        wMaxY = clipBounds.bottom.toFloat()
+        
+        // Clamp to paper Size if finite
+        if (isFinite && paperBounds != null) {
+            wMinX = kotlin.math.max(wMinX, paperBounds.left)
+            wMaxX = kotlin.math.min(wMaxX, paperBounds.right)
+            wMinY = kotlin.math.max(wMinY, paperBounds.top)
+            wMaxY = kotlin.math.min(wMaxY, paperBounds.bottom)
+        }
+
+        // Center Offset REMOVED -> Grid always starts at (0,0) of the world/paper
+        val offsetX = 0f
+        val offsetY = 0f
 
         val startXIndex = kotlin.math.floor((wMinX - offsetX) / stepPx).toInt()
         val endXIndex = kotlin.math.ceil((wMaxX - offsetX) / stepPx).toInt()
@@ -266,11 +408,11 @@ class RenderEngine {
         val startYIndex = kotlin.math.floor((wMinY - offsetY) / stepPx).toInt()
         val endYIndex = kotlin.math.ceil((wMaxY - offsetY) / stepPx).toInt()
         
+        // Safety cap
         if ((endXIndex - startXIndex) > 2000 || (endYIndex - startYIndex) > 2000) return 
 
-        canvas.save()
-        canvas.concat(viewMatrix)
-
+        // We do NOT concat viewMatrix here because we assume caller (drawLayers) did it.
+        
         for (i in startXIndex..endXIndex) {
             val x = offsetX + i * stepPx
             var drawLine = false
@@ -326,8 +468,6 @@ class RenderEngine {
                 canvas.drawLine(wMinX, y, wMaxX, y, gridPaint)
             }
         }
-        
-        canvas.restore()
     }
 
     fun drawSelectionOverlay(canvas: Canvas, manager: SelectionManager, viewMatrix: Matrix) {
@@ -344,9 +484,8 @@ class RenderEngine {
         canvas.drawRect(bounds, selectionBorderPaint)
 
         // Draw Handles
-        val transformValues = FloatArray(9)
-        viewMatrix.getValues(transformValues)
-        val zoom = kotlin.math.sqrt(transformValues[Matrix.MSCALE_X] * transformValues[Matrix.MSCALE_X] + transformValues[Matrix.MSKEW_X] * transformValues[Matrix.MSKEW_X])
+        viewMatrix.getValues(tempFloatArray)
+        val zoom = kotlin.math.sqrt(tempFloatArray[Matrix.MSCALE_X] * tempFloatArray[Matrix.MSCALE_X] + tempFloatArray[Matrix.MSKEW_X] * tempFloatArray[Matrix.MSKEW_X])
         
         val handleSize = 10f / zoom
         

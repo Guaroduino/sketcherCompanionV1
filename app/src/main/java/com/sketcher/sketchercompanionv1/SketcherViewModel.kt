@@ -18,6 +18,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.withContext
 import com.google.gson.Gson
 import com.sketcher.sketchercompanionv1.dto.*
 import com.sketcher.sketchercompanionv1.utils.TemplateManager
@@ -128,6 +131,15 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun updateGridConfig(v: Boolean, s: Float, c: Int, c2: Int, c3: Int) { gridConfig = GridConfig(v, s, c, c2, c3) }
     fun setUnit(u: DistanceUnit) { currentUnit = u; scaleConfig = scaleConfig.copy(unitName = u.symbol) }
     fun updateCanvasSize(config: CanvasSizeConfig?) { canvasSizeConfig = config }
+
+    // --- COROUTINE HELPERS ---
+    fun launchIO(block: suspend CoroutineScope.() -> Unit) = viewModelScope.launch(Dispatchers.IO) {
+        block()
+    }
+
+    fun launchDefault(block: suspend CoroutineScope.() -> Unit) = viewModelScope.launch(Dispatchers.Default) {
+        block()
+    }
 
     // PROJECT METADATA
     var projectId by mutableStateOf(UUID.randomUUID().toString())
@@ -1046,14 +1058,21 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun exportPng(context: Context, uri: android.net.Uri, config: ExportPngConfig) {
-        try {
-            val bitmap = renderExportBitmap(config) ?: return
-            context.contentResolver.openOutputStream(uri)?.use { outputStream ->
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
+        launchIO {
+            try {
+                // Rendering bitmap must happen on specific thread if it involves UI? 
+                // Actually renderExportBitmap uses Canvas drawing which is CPU bound but generic.
+                // However, Android Canvas often needs to be on Main thread if hardware accelerated?
+                // Software bitmap creation is fine on background thread.
+                val bitmap = renderExportBitmap(config) ?: return@launchIO
+                
+                context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
+                }
+                bitmap.recycle()
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-            bitmap.recycle()
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
     }
 
@@ -1175,8 +1194,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
     
     fun insertImage(context: Context, uri: android.net.Uri) {
-         com.sketcher.sketchercompanionv1.utils.BitmapUtils.loadScaledBitmap(context, uri)?.let { bitmap ->
-             insertImageWithBitmap(bitmap, "img_${java.util.UUID.randomUUID()}.png")
+         launchIO {
+             com.sketcher.sketchercompanionv1.utils.BitmapUtils.loadScaledBitmap(context, uri)?.let { bitmap ->
+                 withContext(Dispatchers.Main) {
+                     insertImageWithBitmap(bitmap, "img_${java.util.UUID.randomUUID()}.png")
+                 }
+             }
          }
     }
     
@@ -1204,58 +1227,85 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
     
     fun insertSvg(context: Context, uri: android.net.Uri) {
-        // Modified to wrap SVG in GroupElement
-        try {
-            val stream = context.contentResolver.openInputStream(uri)
-            val bytes = stream?.readBytes()
-            stream?.close()
-            if (bytes != null) {
-                val content = String(bytes, Charsets.UTF_8)
-                val svgElement = SvgElement("svg_${UUID.randomUUID()}", "import.svg", content)
-                
-                // Wrap in GroupElement as requested
-                val group = GroupElement(
-                    id = UUID.randomUUID().toString(),
-                    elements = mutableListOf(svgElement),
-                    matrix = Matrix()
-                )
-                
-                performSnapshotAction("Insertar SVG") {
-                    activeContainer.add(group)
-                    notifyLayersChanged()
+        launchIO {
+            // Modified to wrap SVG in GroupElement
+            try {
+                val stream = context.contentResolver.openInputStream(uri)
+                val bytes = stream?.readBytes()
+                stream?.close()
+                if (bytes != null) {
+                    val content = String(bytes, Charsets.UTF_8)
+                    val svgElement = SvgElement("svg_${UUID.randomUUID()}", "import.svg", content)
+                    
+                    // Wrap in GroupElement as requested
+                    val group = GroupElement(
+                        id = UUID.randomUUID().toString(),
+                        elements = mutableListOf(svgElement),
+                        matrix = Matrix()
+                    )
+                    
+                    withContext(Dispatchers.Main) {
+                        performSnapshotAction("Insertar SVG") {
+                            activeContainer.add(group)
+                            notifyLayersChanged()
+                        }
+                    }
                 }
-            }
-        } catch(e: Exception) { e.printStackTrace() }
+            } catch(e: Exception) { e.printStackTrace() }
+        }
     }
     
     // --- IO & ZIP ---
     fun saveProjectToZip(context: Context, uri: android.net.Uri) {
-        try {
-            val currentLayers = _layers.value
-            val projectData = ProjectData(
-                id = projectId,
-                layers = currentLayers.map { it.toLayerJson() },
-                backgroundConfig = BackgroundConfig(color = backgroundColor, gridConfig = gridConfig),
-                paletteColors = availableColors.toList(),
-                toolConfigs = toolConfigs.toMap(),
-                canvasMetadata = CanvasMetadata(
-                    width = lastViewportWidth, height = lastViewportHeight, 
-                    cameraMatrix = cameraMatrixValues.toList(),
-                    scaleConfig = scaleConfig.copy(unitName = currentUnit.symbol)
-                ),
-                componentLibrary = componentLibrary.mapValues { it.value.toComponentDefinitionJson() }
-            )
-            com.sketcher.sketchercompanionv1.utils.ZipStorageManager.saveProject(context, projectData, currentLayers, uri)
-            currentFileUri = uri
-        } catch (e: Exception) { e.printStackTrace() }
+        launchIO {
+            try {
+                // Snapshot state on Main thread or copy it?
+                // StateFlow access is thread-safe for reading value, but content might change.
+                // ideally we capture state on Main, then save on IO.
+                val currentLayersSnapshot = _layers.value.map { it.copy(elements = ArrayList(it.elements)) } // Shallow-ish copy
+                val currentColors = availableColors.toList()
+                val currentToolConfigs = toolConfigs.toMap()
+                val currentComponentLibrary = componentLibrary.toMap()
+                val savedProjectId = projectId
+                val savedBgColor = backgroundColor
+                val savedGridConfig = gridConfig
+                val savedScaleConfig = scaleConfig
+                val savedUnit = currentUnit
+                val savedViewportW = lastViewportWidth
+                val savedViewportH = lastViewportHeight
+                val savedCameraMatrix = cameraMatrixValues.toList()
+
+                val projectData = ProjectData(
+                    id = savedProjectId,
+                    layers = currentLayersSnapshot.map { it.toLayerJson() },
+                    backgroundConfig = BackgroundConfig(color = savedBgColor, gridConfig = savedGridConfig),
+                    paletteColors = currentColors,
+                    toolConfigs = currentToolConfigs,
+                    canvasMetadata = CanvasMetadata(
+                        width = savedViewportW, height = savedViewportH, 
+                        cameraMatrix = savedCameraMatrix,
+                        scaleConfig = savedScaleConfig.copy(unitName = savedUnit.symbol)
+                    ),
+                    componentLibrary = currentComponentLibrary.mapValues { it.value.toComponentDefinitionJson() }
+                )
+                com.sketcher.sketchercompanionv1.utils.ZipStorageManager.saveProject(context, projectData, currentLayersSnapshot, uri)
+                withContext(Dispatchers.Main) {
+                    currentFileUri = uri
+                }
+            } catch (e: Exception) { e.printStackTrace() }
+        }
     }
 
     fun loadProjectFromZip(context: Context, uri: android.net.Uri) {
-        try {
-            val (projectData, bitmapMap, svgMap) = com.sketcher.sketchercompanionv1.utils.ZipStorageManager.loadProject(context, uri)
-            restoreProjectState(projectData, bitmapMap, svgMap)
-            currentFileUri = uri
-        } catch (e: Exception) { e.printStackTrace() }
+        launchIO {
+            try {
+                val (projectData, bitmapMap, svgMap) = com.sketcher.sketchercompanionv1.utils.ZipStorageManager.loadProject(context, uri)
+                withContext(Dispatchers.Main) {
+                    restoreProjectState(projectData, bitmapMap, svgMap)
+                    currentFileUri = uri
+                }
+            } catch (e: Exception) { e.printStackTrace() }
+        }
     }
     
     private fun restoreProjectState(data: ProjectData, bitmaps: Map<String, android.graphics.Bitmap>, svgs: Map<String, String>) {
@@ -1336,13 +1386,17 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun exportSvg(context: Context, uri: android.net.Uri, config: ExportSvgConfig) {
-        try {
-            val svgString = generateSvgContent(config)
-            context.contentResolver.openOutputStream(uri)?.use { outputStream ->
-                outputStream.write(svgString.toByteArray())
+        launchIO {
+            try {
+                // Ensure state capture (though exportSvg uses current state, which might race)
+                // ideally generateSvgContent logic runs here.
+                val svgString = generateSvgContent(config)
+                context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+                    outputStream.write(svgString.toByteArray())
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
     }
 
@@ -1360,50 +1414,58 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun exportPdf(context: Context, uri: android.net.Uri) {
-        try {
-            // Determine bounds mode based on canvas size configuration
-            val boundsMode = if (canvasSizeConfig != null) {
-                com.sketcher.sketchercompanionv1.utils.PdfExporter.BoundsMode.CANVAS_SIZE
-            } else {
-                pdfExportBoundsMode
+        launchIO {
+            try {
+                // Determine bounds mode based on canvas size configuration
+                val boundsMode = if (canvasSizeConfig != null) {
+                    com.sketcher.sketchercompanionv1.utils.PdfExporter.BoundsMode.CANVAS_SIZE
+                } else {
+                    pdfExportBoundsMode
+                }
+
+                val config = com.sketcher.sketchercompanionv1.utils.PdfExporter.PdfExportConfig(
+                    boundsMode = boundsMode,
+                    includeBackground = true,
+                    dpi = 300
+                )
+
+                // Use canvas size config dimensions if available, otherwise use reasonable defaults
+                val width = canvasSizeConfig?.widthInPixels ?: 2480f // A4 at 300 DPI
+                val height = canvasSizeConfig?.heightInPixels ?: 3508f // A4 at 300 DPI
+
+                // Snapshot for thread safety
+                val currentLayersSnapshot = _layers.value.toList()
+                val currentColors = availableColors.toList()
+                val currentToolConfigs = toolConfigs.toMap()
+                val currentComponentLibrary = componentLibrary.toMap()
+                
+                val projectData = ProjectData(
+                    id = projectId,
+                    layers = currentLayersSnapshot.map { it.toLayerJson() },
+                    backgroundConfig = BackgroundConfig(color = backgroundColor, gridConfig = gridConfig),
+                    paletteColors = currentColors,
+                    toolConfigs = currentToolConfigs,
+                    canvasMetadata = CanvasMetadata(
+                        width = width,
+                        height = height,
+                        cameraMatrix = emptyList(), // Camera matrix handled by PdfExporter
+                        scaleConfig = scaleConfig
+                    ),
+                    componentLibrary = currentComponentLibrary.mapValues { it.value.toComponentDefinitionJson() }
+                )
+
+                com.sketcher.sketchercompanionv1.utils.PdfExporter.export(
+                    context = context,
+                    uri = uri,
+                    layers = currentLayersSnapshot,
+                    projectData = projectData,
+                    config = config,
+                    componentLibrary = currentComponentLibrary,
+                    canvasSizeConfig = canvasSizeConfig
+                )
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-
-            val config = com.sketcher.sketchercompanionv1.utils.PdfExporter.PdfExportConfig(
-                boundsMode = boundsMode,
-                includeBackground = true,
-                dpi = 300
-            )
-
-            // Use canvas size config dimensions if available, otherwise use reasonable defaults
-            val width = canvasSizeConfig?.widthInPixels ?: 2480f // A4 at 300 DPI
-            val height = canvasSizeConfig?.heightInPixels ?: 3508f // A4 at 300 DPI
-
-            val projectData = ProjectData(
-                id = projectId,
-                layers = _layers.value.map { it.toLayerJson() },
-                backgroundConfig = BackgroundConfig(color = backgroundColor, gridConfig = gridConfig),
-                paletteColors = availableColors.toList(),
-                toolConfigs = toolConfigs.toMap(),
-                canvasMetadata = CanvasMetadata(
-                    width = width,
-                    height = height,
-                    cameraMatrix = emptyList(), // Camera matrix handled by PdfExporter
-                    scaleConfig = scaleConfig
-                ),
-                componentLibrary = componentLibrary.mapValues { it.value.toComponentDefinitionJson() }
-            )
-
-            com.sketcher.sketchercompanionv1.utils.PdfExporter.export(
-                context = context,
-                uri = uri,
-                layers = _layers.value,
-                projectData = projectData,
-                config = config,
-                componentLibrary = componentLibrary,
-                canvasSizeConfig = canvasSizeConfig
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
     }
 
@@ -1465,51 +1527,57 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     
 
     fun saveTemplate(context: Context, name: String) {
-         // Construct ProjectData from current state for saving
-         val projectData = com.sketcher.sketchercompanionv1.dto.ProjectData(
-             id = projectId,
-             layers = _layers.value.map { it.toLayerJson() },
-             backgroundConfig = com.sketcher.sketchercompanionv1.dto.BackgroundConfig(backgroundColor, gridConfig),
-             paletteColors = availableColors.toList(),
-             toolConfigs = emptyMap(), // Simplify for now or map toolConfigs
-             canvasMetadata = com.sketcher.sketchercompanionv1.dto.CanvasMetadata(
-                 width = 2000f,
-                 height = 2000f,
-                 cameraMatrix = emptyList(), // Simplify
-                 scaleConfig = scaleConfig
+         launchIO {
+             // Construct ProjectData from current state for saving
+             val projectData = com.sketcher.sketchercompanionv1.dto.ProjectData(
+                 id = projectId,
+                 layers = _layers.value.map { it.toLayerJson() },
+                 backgroundConfig = com.sketcher.sketchercompanionv1.dto.BackgroundConfig(backgroundColor, gridConfig),
+                 paletteColors = availableColors.toList(),
+                 toolConfigs = emptyMap(), // Simplify for now or map toolConfigs
+                 canvasMetadata = com.sketcher.sketchercompanionv1.dto.CanvasMetadata(
+                     width = 2000f, // Use actualviewport if possible
+                     height = 2000f,
+                     cameraMatrix = emptyList(), // Simplify
+                     scaleConfig = scaleConfig
+                 )
              )
-         )
-         
-         com.sketcher.sketchercompanionv1.utils.TemplateManager.saveAsTemplate(
-             context, 
-             projectData,
-             _layers.value,
-             name
-         )
+             
+             com.sketcher.sketchercompanionv1.utils.TemplateManager.saveAsTemplate(
+                 context, 
+                 projectData,
+                 _layers.value,
+                 name
+             )
+         }
     }
 
     fun loadFromTemplate(context: Context, file: java.io.File) {
-        try {
-            val (projectData, _, _) = com.sketcher.sketchercompanionv1.utils.TemplateManager.loadTemplate(context, file)
-            
-            performSnapshotAction("Cargar Plantilla") {
-                val newLayers = mutableListOf<Layer>()
-                projectData.layers.forEach { lJson ->
-                    val l = Layer(
-                        id = lJson.id, 
-                        name = lJson.name, 
-                        elements = mutableListOf(), 
-                        isVisible = lJson.isVisible, 
-                        opacity = lJson.opacity
-                    )
-                    newLayers.add(l)
+        launchIO {
+            try {
+                val (projectData, _, _) = com.sketcher.sketchercompanionv1.utils.TemplateManager.loadTemplate(context, file)
+                
+                withContext(Dispatchers.Main) {
+                    performSnapshotAction("Cargar Plantilla") {
+                        val newLayers = mutableListOf<Layer>()
+                        projectData.layers.forEach { lJson ->
+                            val l = Layer(
+                                id = lJson.id, 
+                                name = lJson.name, 
+                                elements = mutableListOf(), 
+                                isVisible = lJson.isVisible, 
+                                opacity = lJson.opacity
+                            )
+                            newLayers.add(l)
+                        }
+                        _layers.value = newLayers
+                        if (_layers.value.isEmpty()) addNewLayerInternal(true)
+                        activeLayerIndex = 0
+                    }
                 }
-                _layers.value = newLayers
-                if (_layers.value.isEmpty()) addNewLayerInternal(true)
-                activeLayerIndex = 0
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
     }
     // --- DXF SUPPORT ---
