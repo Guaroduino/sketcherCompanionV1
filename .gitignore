@@ -13,3 +13,12 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Logs and temporary build artifacts
+*.log
+build_*.txt
+build.txt
+build_output.txt
+errors.txt
+output.txt
+.FullName
