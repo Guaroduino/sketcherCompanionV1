@@ -1928,7 +1928,7 @@ fun BottomMenuBar(
             }
 
             // SIZE PREVIEW
-            if (selectedTool != ToolType.SELECTION && selectedTool != ToolType.ERASER) {
+            if (selectedTool != ToolType.SELECTION) {
                 TooltipWrapper(text = "Tamaño y Opacidad", enabled = showTooltips) {
                     Box(
                         modifier = Modifier

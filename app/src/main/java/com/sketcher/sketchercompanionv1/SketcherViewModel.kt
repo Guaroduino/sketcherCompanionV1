@@ -1409,10 +1409,15 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
 
     
-    fun erase(x: Float, y: Float, radius: Float): Boolean {
+    fun erase(x: Float, y: Float, diameterPx: Float): Boolean {
         var changed = false
         // Command-based Eraser Implementation
         val hits = mutableListOf<Pair<Layer, LayerElement>>()
+
+        // Convert diameterPx to World Radius
+        val radiusWorld = com.sketcher.sketchercompanionv1.utils.UnitUtils.pixelsToProjectUnits(
+            diameterPx, currentUnit, scaleConfig.basePixelsPerMillimeter
+        ) / 2f
         
         // 1. Identify hits (Read Phase)
         val currentLayers = _layers.value
@@ -1424,7 +1429,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             for (element in layer.elements) {
                 val bounds = element.getBounds(componentLibrary)
                  // Simple rect intersection for eraser
-                if (RectF.intersects(bounds, RectF(x - radius, y - radius, x + radius, y + radius))) {
+                if (RectF.intersects(bounds, RectF(x - radiusWorld, y - radiusWorld, x + radiusWorld, y + radiusWorld))) {
                     hits.add(layer to element)
                 }
             }
