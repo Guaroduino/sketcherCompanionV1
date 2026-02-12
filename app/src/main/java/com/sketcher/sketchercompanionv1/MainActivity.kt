@@ -33,6 +33,10 @@ class MainActivity : ComponentActivity() {
             var isStudioMode by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(true) }
             var userScale by androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(1f) }
             var uiCollapsed by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+            
+            // SWAP STATES (Hoisted)
+            var swapVertical by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+            var swapHorizontal by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
 
             // UI SCALER PROVIDER
             val configuration = androidx.compose.ui.platform.LocalConfiguration.current
@@ -52,7 +56,9 @@ class MainActivity : ComponentActivity() {
                             viewModel = sketchViewModel,
                             userScale = userScale,
                             uiCollapsed = uiCollapsed,
-                            onToggleUi = { uiCollapsed = !uiCollapsed }
+                            onToggleUi = { uiCollapsed = !uiCollapsed },
+                            swapVertical = swapVertical,
+                            swapHorizontal = swapHorizontal
                         )
                     } else {
                         SketcherSurface(sketchViewModel)
@@ -65,7 +71,11 @@ class MainActivity : ComponentActivity() {
                         uiCollapsed = uiCollapsed,
                         onToggleUi = { uiCollapsed = !uiCollapsed },
                         onSwitchToLegacy = { isStudioMode = !isStudioMode },
-                        isStudioMode = isStudioMode
+                        isStudioMode = isStudioMode,
+                        swapVertical = swapVertical,
+                        swapHorizontal = swapHorizontal,
+                        onToggleSwapVertical = { swapVertical = !swapVertical },
+                        onToggleSwapHorizontal = { swapHorizontal = !swapHorizontal }
                     )
                 }
             }

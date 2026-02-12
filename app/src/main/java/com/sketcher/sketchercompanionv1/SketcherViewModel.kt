@@ -39,6 +39,8 @@ import android.graphics.Canvas
 import android.graphics.RectF
 import android.net.Uri
 import com.sketcher.sketchercompanionv1.command.*
+import com.sketcher.sketchercompanionv1.data.ThemeRepository
+import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
 
 data class ExportPngConfig(
     val transparentBackground: Boolean,
@@ -61,6 +63,7 @@ data class DxfExportConfig(
 
 class SketcherViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE)
+    private val themeRepository = ThemeRepository(application)
 
     // STATE
     // --- UI/DEBUG SETTINGS (Restored) ---
@@ -146,11 +149,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     var currentFileUri: android.net.Uri? by mutableStateOf(null)
 
     // --- THEME ENGINE ---
-    private val _themeConfig = MutableStateFlow(com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig())
-    val themeConfig: StateFlow<com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig> = _themeConfig.asStateFlow()
+    private val _themeConfig = MutableStateFlow(themeRepository.getTheme())
+    val themeConfig: StateFlow<UiThemeConfig> = _themeConfig.asStateFlow()
 
-    fun updateTheme(newConfig: com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig) {
+    fun updateTheme(newConfig: UiThemeConfig) {
         _themeConfig.value = newConfig
+        themeRepository.saveTheme(newConfig)
     }
 
     // --- COMPONENTS & ISOLATION ---

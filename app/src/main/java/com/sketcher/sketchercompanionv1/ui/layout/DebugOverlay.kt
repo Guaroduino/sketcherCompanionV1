@@ -22,7 +22,11 @@ fun DebugOverlay(
     uiCollapsed: Boolean,
     onToggleUi: () -> Unit,
     onSwitchToLegacy: () -> Unit,
-    isStudioMode: Boolean
+    isStudioMode: Boolean,
+    swapVertical: Boolean,
+    swapHorizontal: Boolean,
+    onToggleSwapVertical: () -> Unit,
+    onToggleSwapHorizontal: () -> Unit
 ) {
     // State for drag offsets
     var offsetX by remember { mutableFloatStateOf(0f) }
@@ -46,7 +50,7 @@ fun DebugOverlay(
                         offsetY += dragAmount.y
                     }
                 }
-                .width(150.dp) // Explicit width restriction
+                .width(180.dp) // Slightly wider for swap buttons
                 .wrapContentHeight()
         ) {
             Column(modifier = Modifier.padding(8.dp)) { // Reduced padding
@@ -64,23 +68,50 @@ fun DebugOverlay(
                 
                 Spacer(modifier = Modifier.height(4.dp))
                 
-                // Buttons
-                Button(
-                    onClick = onToggleUi, 
-                    modifier = Modifier.fillMaxWidth().height(32.dp), // Compact height
-                    contentPadding = PaddingValues(0.dp)
+                // UI Toggle Buttons
+                Row(
+                   modifier = Modifier.fillMaxWidth(),
+                   horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(if (uiCollapsed) "Show UI" else "Hide UI", style = MaterialTheme.typography.labelSmall)
+                    Button(
+                        onClick = onToggleUi, 
+                        modifier = Modifier.weight(1f).height(32.dp),
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Text(if (uiCollapsed) "Show" else "Hide", style = MaterialTheme.typography.labelSmall)
+                    }
+                    Button(
+                        onClick = onSwitchToLegacy, 
+                        modifier = Modifier.weight(1f).height(32.dp),
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Text(if (isStudioMode) "Legacy" else "Studio", style = MaterialTheme.typography.labelSmall)
+                    }
                 }
-                
+
                 Spacer(modifier = Modifier.height(4.dp))
-                
-                Button(
-                    onClick = onSwitchToLegacy, 
-                    modifier = Modifier.fillMaxWidth().height(32.dp),
-                    contentPadding = PaddingValues(0.dp)
+
+                // Swap Logic Buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(if (isStudioMode) "Legacy" else "Studio", style = MaterialTheme.typography.labelSmall)
+                    Button(
+                        onClick = onToggleSwapVertical, 
+                        modifier = Modifier.weight(1f).height(32.dp),
+                        contentPadding = PaddingValues(0.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = if (swapVertical) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary)
+                    ) {
+                        Text("Swap V", style = MaterialTheme.typography.labelSmall)
+                    }
+                    Button(
+                        onClick = onToggleSwapHorizontal, 
+                        modifier = Modifier.weight(1f).height(32.dp),
+                        contentPadding = PaddingValues(0.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = if (swapHorizontal) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary)
+                    ) {
+                        Text("Swap H", style = MaterialTheme.typography.labelSmall)
+                    }
                 }
             }
         }

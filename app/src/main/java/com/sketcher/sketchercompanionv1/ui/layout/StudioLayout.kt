@@ -5,13 +5,16 @@ import android.widget.FrameLayout
 import androidx.compose.animation.*
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,6 +32,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
@@ -42,13 +46,22 @@ import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
 import com.sketcher.sketchercompanionv1.ui.theme.UiScaler
 import com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler
 import com.sketcher.sketchercompanionv1.ui.theme.sdp
+import com.sketcher.sketchercompanionv1.ui.components.BigTouchBox
+import com.sketcher.sketchercompanionv1.ui.components.ColorPickerDialog
+import com.sketcher.sketchercompanionv1.ui.components.ColorPreviewRow
+import com.sketcher.sketchercompanionv1.ui.theme.advancedShadow
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 
 @Composable
 fun StudioLayout(
     viewModel: SketcherViewModel,
     userScale: Float, // Still passed but can be derived from LocalUiScaler
     uiCollapsed: Boolean,
-    onToggleUi: () -> Unit
+    onToggleUi: () -> Unit,
+    swapVertical: Boolean,
+    swapHorizontal: Boolean
 ) {
     // 1. Config & State
     val config = androidx.compose.ui.platform.LocalConfiguration.current
@@ -81,9 +94,18 @@ fun StudioLayout(
     var layersPanelWeight by remember { mutableFloatStateOf(0.5f) }
     var showPersonalizationDialog by remember { mutableStateOf(false) }
 
+    // --- SWAP STATES (Moved to MainActivity) ---
+
+    // --- DYNAMIC ALIGNMENTS ---
+    val mainBarAlign = if (swapVertical) Alignment.BottomCenter else Alignment.TopCenter
+    val secondaryBarAlign = if (swapVertical) Alignment.TopCenter else Alignment.BottomCenter
+    val panelAlign = if (swapHorizontal) Alignment.CenterStart else Alignment.CenterEnd
+    val oppositePanelAlign = if (swapHorizontal) Alignment.CenterEnd else Alignment.CenterStart
+
     // --- PHYSICS-BASED ANIMATIONS ---
     // Common Spec for Synchronization
     val animSpec = spring<Dp>(stiffness = Spring.StiffnessLow, dampingRatio = Spring.DampingRatioNoBouncy)
+    val floatAnimSpec = spring<Float>(stiffness = Spring.StiffnessLow, dampingRatio = Spring.DampingRatioNoBouncy)
     val intOffsetAnimSpec = spring<IntOffset>(stiffness = Spring.StiffnessLow, dampingRatio = Spring.DampingRatioNoBouncy)
 
     // Top Offset: Dependent on showTopBar
@@ -128,12 +150,40 @@ fun StudioLayout(
         label = "RightPanelBottom"
     )
 
-    // Right Offset: Dependent on showRightPanel
-    val animRightOffset by animateDpAsState(
+    // Horizontal Offset: Dependent on showRightPanel
+    val animHorizontalOffset by animateDpAsState(
         targetValue = if (!showRightPanel) scaler.panelGap else (rightPanelWidth + scaler.panelGap),
         animationSpec = animSpec,
-        label = "RightOffset"
+        label = "HorizontalOffset"
     )
+
+    // Dynamic Padding Base for Floating HUD
+    // Increase separation to avoid side toggles
+    val hudSideGap = scaler.panelGap
+    val panelWidthOffset = if (!showRightPanel) hudSideGap else (rightPanelWidth + hudSideGap)
+    val startPadding = if (swapHorizontal) panelWidthOffset else hudSideGap
+    val endPadding = if (!swapHorizontal) panelWidthOffset else hudSideGap
+
+    // --- ANIMATED ROTATIONS FOR TOGGLES ---
+    val topRotation by animateFloatAsState(targetValue = if (showTopBar) 0f else 180f, animationSpec = floatAnimSpec, label = "TopRotation")
+    val bottomRotation by animateFloatAsState(targetValue = if (showBottomBar) 0f else 180f, animationSpec = floatAnimSpec, label = "BottomRotation")
+    val sideRotation by animateFloatAsState(targetValue = if (showRightPanel) 0f else 180f, animationSpec = floatAnimSpec, label = "SideRotation")
+
+    // Correction for BigTouchBox internal padding (TouchSize 64dp - VisualSize)
+    // We want the VISUAL button to align with the margin, so we pull the box out by this amount.
+    val touchCorrection = ((64.dp - scaler.baseButtonSize) / 2).coerceAtLeast(0.dp)
+
+    // Shadow Logic: Only if fully opaque (alpha=1.0).
+    // Shadow Logic: Only if fully opaque (alpha=1.0).
+    val isEffectivelyShowingShadow = theme.isShadowEnabled && theme.barBackgroundColor.alpha == 1f
+    val shadowRad = (theme.shadowAngle * PI / 180).toFloat()
+
+    // Use shadowBlur for both blur and to derive offset
+    val shadowDistance = theme.shadowBlur.value
+    val shadowOffsetX = if (isEffectivelyShowingShadow) (shadowDistance * 0.5f * cos(shadowRad)).dp else 0.dp
+    val shadowOffsetY = if (isEffectivelyShowingShadow) (shadowDistance * 0.5f * sin(shadowRad)).dp else 0.dp
+    val shadowBlur = if (isEffectivelyShowingShadow) theme.shadowBlur else 0.dp
+    val shadowAlpha = if (isEffectivelyShowingShadow) theme.shadowOpacity else 0f
 
     Box(modifier = Modifier.fillMaxSize()) {
         
@@ -170,18 +220,18 @@ fun StudioLayout(
 
         // --- LAYER 2: COLLAPSIBLE FRAME (The "Yellow/Cyan" Zones) ---
         
-        // TOP BAR
+        // MAIN BAR (User/Menu)
         AnimatedVisibility(
             visible = showTopBar,
-            enter = slideInVertically(initialOffsetY = { -it }, animationSpec = intOffsetAnimSpec),
-            exit = slideOutVertically(targetOffsetY = { -it }, animationSpec = intOffsetAnimSpec),
-            modifier = Modifier.align(Alignment.TopCenter)
+            enter = if (swapVertical) slideInVertically(initialOffsetY = { it }, animationSpec = intOffsetAnimSpec) else slideInVertically(initialOffsetY = { -it }, animationSpec = intOffsetAnimSpec),
+            exit = if (swapVertical) slideOutVertically(targetOffsetY = { it }, animationSpec = intOffsetAnimSpec) else slideOutVertically(targetOffsetY = { -it }, animationSpec = intOffsetAnimSpec),
+            modifier = Modifier.align(mainBarAlign)
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(scaler.baseBarHeight)
-                    .background(theme.barBackgroundColor)
+                    .background(theme.barBackgroundColor, theme.panelShape())
             ) {
                  Row(
                     modifier = Modifier
@@ -192,26 +242,32 @@ fun StudioLayout(
                     horizontalArrangement = Arrangement.spacedBy(scaler.margin)
                 ) {
                     // Update Button (Placeholder for UI Toggle logic if needed in bar)
-                    IconButton(onClick = onToggleUi) {
-                        Icon(Icons.Default.Refresh, "Toggle UI", tint = Color.White)
+                    BigTouchBox(
+                        onClick = onToggleUi,
+                        touchSize = 48.dp
+                    ) {
+                        Icon(Icons.Default.Refresh, "Toggle UI", tint = theme.iconColor)
                     }
                     
                     // User Profile
                     Surface(
                         modifier = Modifier.size(32.sdp),
                         shape = CircleShape,
-                        color = theme.accentColor
+                        color = theme.buttonColor
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Text("U", color = Color.Black, style = MaterialTheme.typography.labelMedium)
+                            Text("U", color = theme.iconColor, style = MaterialTheme.typography.labelMedium)
                         }
                     }
                     
                     // Menu
                     Box {
                         var menuExpanded by remember { mutableStateOf(false) }
-                        IconButton(onClick = { menuExpanded = true }) {
-                            Icon(Icons.Default.MoreVert, "Menu", tint = Color.White)
+                        BigTouchBox(
+                            onClick = { menuExpanded = true },
+                            touchSize = 48.dp
+                        ) {
+                            Icon(Icons.Default.MoreVert, "Menu", tint = theme.iconColor)
                         }
                         DropdownMenu(
                             expanded = menuExpanded,
@@ -230,34 +286,37 @@ fun StudioLayout(
             }
         }
         
-        // BOTTOM BAR
+        // SECONDARY BAR
         AnimatedVisibility(
             visible = showBottomBar,
-            enter = slideInVertically(initialOffsetY = { it }, animationSpec = intOffsetAnimSpec),
-            exit = slideOutVertically(targetOffsetY = { it }, animationSpec = intOffsetAnimSpec),
-            modifier = Modifier.align(Alignment.BottomCenter)
+            enter = if (swapVertical) slideInVertically(initialOffsetY = { -it }, animationSpec = intOffsetAnimSpec) else slideInVertically(initialOffsetY = { it }, animationSpec = intOffsetAnimSpec),
+            exit = if (swapVertical) slideOutVertically(targetOffsetY = { -it }, animationSpec = intOffsetAnimSpec) else slideOutVertically(targetOffsetY = { it }, animationSpec = intOffsetAnimSpec),
+            modifier = Modifier.align(secondaryBarAlign)
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(scaler.baseBarHeight)
-                    .background(theme.barBackgroundColor)
+                    .background(theme.barBackgroundColor, theme.panelShape())
             )
         }
 
-        // RIGHT PANEL
+        // SIDE PANEL (Layers/Library)
         AnimatedVisibility(
             visible = showRightPanel,
-            enter = slideInHorizontally(initialOffsetX = { it }, animationSpec = intOffsetAnimSpec),
-            exit = slideOutHorizontally(targetOffsetX = { it }, animationSpec = intOffsetAnimSpec),
-            modifier = Modifier.align(Alignment.CenterEnd)
+            enter = if (swapHorizontal) slideInHorizontally(initialOffsetX = { -it }, animationSpec = intOffsetAnimSpec) else slideInHorizontally(initialOffsetX = { it }, animationSpec = intOffsetAnimSpec),
+            exit = if (swapHorizontal) slideOutHorizontally(targetOffsetX = { -it }, animationSpec = intOffsetAnimSpec) else slideOutHorizontally(targetOffsetX = { it }, animationSpec = intOffsetAnimSpec),
+            modifier = Modifier.align(panelAlign)
         ) {
             Box(
                 modifier = Modifier
                     .width(rightPanelWidth)
                     .fillMaxHeight()
-                    .padding(top = animRightPanelTopPadding, bottom = animRightPanelBottomPadding) 
-                    .background(theme.barBackgroundColor)
+                    .padding(
+                        top = if (swapVertical) animRightPanelBottomPadding else animRightPanelTopPadding, 
+                        bottom = if (swapVertical) animRightPanelTopPadding else animRightPanelBottomPadding
+                    ) 
+                    .background(theme.barBackgroundColor, theme.panelShape())
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     // TOP: LAYERS
@@ -266,9 +325,9 @@ fun StudioLayout(
                             .weight(layersPanelWeight)
                             .fillMaxWidth()
                             .padding(scaler.smallMargin)
-                            .border(1.sdp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(4.sdp))
+                            .border(1.sdp, theme.iconColor.copy(alpha = 0.2f), RoundedCornerShape(4.sdp))
                     ) {
-                        Text("LAYERS", color = Color.Gray, modifier = Modifier.align(Alignment.Center))
+                        Text("LAYERS", color = theme.iconColor, modifier = Modifier.align(Alignment.Center))
                     }
                     
                     // DIVIDER (RESIZE HANDLES)
@@ -276,7 +335,7 @@ fun StudioLayout(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(24.sdp)
-                            .background(Color.White.copy(alpha = 0.05f)),
+                            .background(theme.iconColor.copy(alpha = 0.05f)),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         // Horizontal Grip (Width)
@@ -288,7 +347,10 @@ fun StudioLayout(
                                 .draggable(
                                     orientation = Orientation.Horizontal,
                                     state = rememberDraggableState { delta ->
-                                        val newWidth = rightPanelWidth - with(density) { delta.toDp() }
+                                        // If swapped (Start), dragging right (+) increases width. 
+                                        // If not swapped (End), dragging left (-) increases width.
+                                        val adjustedDelta = if (swapHorizontal) with(density) { delta.toDp() } else -with(density) { delta.toDp() }
+                                        val newWidth = rightPanelWidth + adjustedDelta
                                         // Apply scale to min/max limits
                                         val minWidth = 200.dp * userScale
                                         val maxWidth = 450.dp * userScale
@@ -297,7 +359,7 @@ fun StudioLayout(
                                 ),
                             contentAlignment = Alignment.Center
                         ) {
-                             Icon(Icons.Default.DragHandle, "Resize Width", tint = Color.Gray, modifier = Modifier.size(16.sdp))
+                             Icon(Icons.Default.DragHandle, "Resize Width", tint = theme.iconColor.copy(alpha = 0.5f), modifier = Modifier.size(16.sdp))
                         }
                         
                         // Vertical Grip (Split Weight)
@@ -318,7 +380,7 @@ fun StudioLayout(
                                 .background(Color.Transparent), // Hit area
                             contentAlignment = Alignment.Center
                         ) {
-                             Box(modifier = Modifier.fillMaxWidth().height(1.sdp).background(Color.Gray))
+                             Box(modifier = Modifier.fillMaxWidth().height(1.sdp).background(theme.iconColor.copy(alpha = 0.2f)))
                         }
                     }
                     
@@ -328,55 +390,84 @@ fun StudioLayout(
                             .weight(1f - layersPanelWeight) // Fill remaining
                             .fillMaxWidth()
                             .padding(scaler.smallMargin)
-                            .border(1.sdp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(4.sdp))
+                            .border(1.sdp, theme.iconColor.copy(alpha = 0.2f), RoundedCornerShape(4.sdp))
                     ) {
-                        Text("LIBRARY", color = Color.Gray, modifier = Modifier.align(Alignment.Center))
+                        Text("LIBRARY", color = theme.iconColor, modifier = Modifier.align(Alignment.Center))
                     }
                 }
             }
         }
 
-        // --- LAYER 3: TOGGLE BUTTONS (Minimalist) ---
-        // Top Toggle
+        // MAIN BAR TOGGLE
         Box(
             modifier = Modifier
-                .offset(y = animTopToggleOffset, x = -(animRightOffset / 2)) // Center in available space 
+                .align(mainBarAlign)
+                .offset(
+                    y = if (swapVertical) -animTopToggleOffset else animTopToggleOffset, 
+                    x = if (swapHorizontal) (animHorizontalOffset / 2) else -(animHorizontalOffset / 2)
+                )
                 .width(scaler.toggleLength)
-                .height(scaler.toggleThickness)
-                .align(Alignment.TopCenter)
-                .clip(RoundedCornerShape(bottomStart = 8.sdp, bottomEnd = 8.sdp))
-                .background(theme.barBackgroundColor.copy(alpha = 0.8f))
-                .clickable { showTopBar = !showTopBar },
-            contentAlignment = Alignment.Center
+                .height(scaler.panelGap)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = { showTopBar = !showTopBar }
+                ),
+            contentAlignment = if (swapVertical) Alignment.BottomCenter else Alignment.TopCenter
         ) {
-            Icon(
-                if (showTopBar) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                contentDescription = "Toggle Top Bar",
-                tint = Color.White.copy(alpha = 0.7f),
-                modifier = Modifier.size(scaler.smallIconSize)
-            )
+            Box(
+                modifier = Modifier
+                    .width(scaler.toggleLength)
+                    .height(scaler.toggleThickness)
+                    .clip(if (swapVertical) RoundedCornerShape(topStart = 8.sdp, topEnd = 8.sdp) else RoundedCornerShape(bottomStart = 8.sdp, bottomEnd = 8.sdp))
+                    .background(theme.barBackgroundColor),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (swapVertical) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
+                    contentDescription = "Toggle Main Bar",
+                    tint = theme.iconColor.copy(alpha = 0.7f),
+                    modifier = Modifier
+                        .size(scaler.smallIconSize)
+                        .rotate(topRotation)
+                )
+            }
         }
 
-        // Bottom Toggle
+        // SECONDARY BAR TOGGLE
         Box(
             modifier = Modifier
-                // For bottom, offset is negative from bottom? No, align BottomCenter.
-                // If visible, offset = -BarHeight. If hidden, offset = 0.
-                .offset(y = -animBottomToggleOffset, x = -(animRightOffset / 2)) // Center in available space
+                .align(secondaryBarAlign)
+                .offset(
+                    y = if (swapVertical) animBottomToggleOffset else -animBottomToggleOffset, 
+                    x = if (swapHorizontal) (animHorizontalOffset / 2) else -(animHorizontalOffset / 2)
+                )
                 .width(scaler.toggleLength)
-                .height(scaler.toggleThickness)
-                .align(Alignment.BottomCenter)
-                .clip(RoundedCornerShape(topStart = 8.sdp, topEnd = 8.sdp))
-                .background(theme.barBackgroundColor.copy(alpha = 0.8f))
-                .clickable { showBottomBar = !showBottomBar },
-            contentAlignment = Alignment.Center
+                .height(scaler.panelGap)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = { showBottomBar = !showBottomBar }
+                ),
+            contentAlignment = if (swapVertical) Alignment.TopCenter else Alignment.BottomCenter
         ) {
-            Icon(
-                if (showBottomBar) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
-                contentDescription = "Toggle Bottom Bar",
-                tint = Color.White.copy(alpha = 0.7f),
-                modifier = Modifier.size(scaler.smallIconSize)
-            )
+            Box(
+                modifier = Modifier
+                    .width(scaler.toggleLength)
+                    .height(scaler.toggleThickness)
+                    .clip(if (swapVertical) RoundedCornerShape(bottomStart = 8.sdp, bottomEnd = 8.sdp) else RoundedCornerShape(topStart = 8.sdp, topEnd = 8.sdp))
+                    .background(theme.barBackgroundColor),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (swapVertical) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = "Toggle Secondary Bar",
+                    tint = theme.iconColor.copy(alpha = 0.7f),
+                    modifier = Modifier
+                        .size(scaler.smallIconSize)
+                        .rotate(bottomRotation)
+                )
+            }
         }
 
         // Right Panel Toggle
@@ -396,113 +487,226 @@ fun StudioLayout(
         // If Button is inside the Gap, we can align it to the *right* of that gap space?
         // Let's try `offset(x = -(animRightOffset - scaler.panelGap))` -> This puts it at `Right - PanelWidth`.
         // Then subtract button thickness? Or just align it there.
+        // SIDE PANEL TOGGLE
         Box(
-             modifier = Modifier
-                 .offset(x = -(animRightOffset - scaler.panelGap)) // Moves it to the left edge of the Panel (or Screen Edge if collapsed)
-                 .width(scaler.toggleThickness)
-                 .height(scaler.toggleLength)
-                 .align(Alignment.CenterEnd)
-                 .clip(RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp))
-                 .background(theme.barBackgroundColor.copy(alpha = 0.8f))
-                 .clickable { showRightPanel = !showRightPanel },
-             contentAlignment = Alignment.Center
-         ) {
-             Icon(
-                 if (showRightPanel) Icons.Default.KeyboardArrowRight else Icons.Default.KeyboardArrowLeft,
-                 contentDescription = "Toggle Right Panel",
-                 tint = Color.White.copy(alpha = 0.7f),
-                 modifier = Modifier.size(scaler.smallIconSize)
-             )
-         }
+            modifier = Modifier
+                .align(panelAlign)
+                .offset(x = if (swapHorizontal) (animHorizontalOffset - scaler.panelGap) else -(animHorizontalOffset - scaler.panelGap))
+                .width(hudSideGap)
+                .height(scaler.toggleLength)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = { showRightPanel = !showRightPanel }
+                ),
+            contentAlignment = if (swapHorizontal) Alignment.CenterStart else Alignment.CenterEnd
+        ) {
+             Box(
+                 modifier = Modifier
+                     .width(scaler.toggleThickness)
+                     .height(scaler.toggleLength)
+                     .clip(if (swapHorizontal) RoundedCornerShape(topEnd = 8.sdp, bottomEnd = 8.sdp) else RoundedCornerShape(topStart = 8.sdp, bottomStart = 8.sdp))
+                     .background(theme.barBackgroundColor),
+                 contentAlignment = Alignment.Center
+             ) {
+                 Icon(
+                     imageVector = if (swapHorizontal) Icons.Default.KeyboardArrowLeft else Icons.Default.KeyboardArrowRight,
+                     contentDescription = "Toggle Side Panel",
+                     tint = theme.iconColor.copy(alpha = 0.7f),
+                     modifier = Modifier
+                         .size(scaler.smallIconSize)
+                         .rotate(sideRotation)
+                 )
+             }
+        }
 
 
         // --- LAYER 4: FLOATING HUD (The "Magenta/Green" Zones) ---
         // Linked to Physics Animations for Offset. The offsets now include the "Panel Gap".
         
         // 1. Top-Left Button (Menu/Back) - Use Top Offset
-        Box(
+        BigTouchBox(
             modifier = Modifier
-                .padding(top = animTopOffset, start = scaler.margin)
-                .size(scaler.baseButtonSize)
                 .align(Alignment.TopStart)
-                .clip(theme.shape())
-                .background(theme.buttonColor)
-        )
+                .padding(
+                    top = (if (swapVertical) animBottomOffset else animTopOffset) - touchCorrection, 
+                    start = startPadding - touchCorrection
+                ),
+            onClick = { /* TODO: Open Menu */ },
+            touchSize = 64.dp
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(scaler.baseButtonSize)
+                    .advancedShadow(
+                        color = Color.Black,
+                        alpha = shadowAlpha,
+                        cornersRadius = if (theme.isRound) scaler.baseButtonSize / 2 else 8.dp,
+                        shadowBlurRadius = shadowBlur,
+                        offsetX = shadowOffsetX,
+                        offsetY = shadowOffsetY
+                    )
+                    .clip(theme.floatingShape())
+                    .background(theme.barBackgroundColor)
+            )
+        }
 
         // 2. Top-Right Button (Settings) - Use Top & Right Offset
-        Box(
+        BigTouchBox(
             modifier = Modifier
-                .padding(top = animTopOffset, end = animRightOffset)
-                .size(scaler.baseButtonSize)
                 .align(Alignment.TopEnd)
-                .clip(theme.shape())
-                .background(theme.buttonColor)
-        )
+                .padding(
+                    top = (if (swapVertical) animBottomOffset else animTopOffset) - touchCorrection, 
+                    end = endPadding - touchCorrection
+                ),
+            onClick = { showPersonalizationDialog = true },
+            touchSize = 64.dp
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(scaler.baseButtonSize)
+                    .advancedShadow(
+                        color = Color.Black,
+                        alpha = shadowAlpha,
+                        cornersRadius = if (theme.isRound) scaler.baseButtonSize / 2 else 8.dp,
+                        shadowBlurRadius = shadowBlur,
+                        offsetX = shadowOffsetX,
+                        offsetY = shadowOffsetY
+                    )
+                    .clip(theme.floatingShape())
+                    .background(theme.barBackgroundColor)
+            )
+        }
         
         // 3. Bottom-Left Button (Undo) - Use Bottom Offset
-        Box(
+        BigTouchBox(
             modifier = Modifier
-                .padding(bottom = animBottomOffset, start = scaler.margin)
-                .size(scaler.baseButtonSize)
                 .align(Alignment.BottomStart)
-                .clip(theme.shape())
-                .background(theme.buttonColor)
-        )
+                .padding(
+                    bottom = (if (swapVertical) animTopOffset else animBottomOffset) - touchCorrection, 
+                    start = startPadding - touchCorrection
+                ),
+            onClick = { viewModel.undo() },
+            touchSize = 64.dp
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(scaler.baseButtonSize)
+                    .advancedShadow(
+                        color = Color.Black,
+                        alpha = shadowAlpha,
+                        cornersRadius = if (theme.isRound) scaler.baseButtonSize / 2 else 8.dp,
+                        shadowBlurRadius = shadowBlur,
+                        offsetX = shadowOffsetX,
+                        offsetY = shadowOffsetY
+                    )
+                    .clip(theme.floatingShape())
+                    .background(theme.barBackgroundColor)
+            )
+        }
         
         // 4. Bottom-Right Button (Redo) - Use Bottom & Right Offset
-        Box(
+        BigTouchBox(
             modifier = Modifier
-                .padding(bottom = animBottomOffset, end = animRightOffset)
-                .size(scaler.baseButtonSize)
                 .align(Alignment.BottomEnd)
-                .clip(theme.shape())
-                .background(theme.buttonColor)
-        )
+                .padding(
+                    bottom = (if (swapVertical) animTopOffset else animBottomOffset) - touchCorrection, 
+                    end = endPadding - touchCorrection
+                ),
+            onClick = { viewModel.redo() },
+            touchSize = 64.dp
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(scaler.baseButtonSize)
+                    .advancedShadow(
+                        color = Color.Black,
+                        alpha = shadowAlpha,
+                        cornersRadius = if (theme.isRound) scaler.baseButtonSize / 2 else 8.dp,
+                        shadowBlurRadius = shadowBlur,
+                        offsetX = shadowOffsetX,
+                        offsetY = shadowOffsetY
+                    )
+                    .clip(theme.floatingShape())
+                    .background(theme.barBackgroundColor)
+            )
+        }
         
-        // 5. Left Floating Bar (Tools) - Static left padding, but vertical centering could be improved? 
-        // For now, center vertically.
+        // 5. Side Floating Bar 1 (Tools) - Aligned to CenterStart (swaps with panel)
         Box(
             modifier = Modifier
-                .padding(start = scaler.margin)
+                .padding(start = startPadding)
                 .width(scaler.floatingBarWidth)
                 .height(200.dp * userScale)
                 .align(Alignment.CenterStart)
-                .clip(theme.shape())
+                .advancedShadow(
+                    color = Color.Black,
+                    alpha = shadowAlpha,
+                    cornersRadius = if (theme.isRound) (scaler.floatingBarWidth / 2) else 8.dp, 
+                    shadowBlurRadius = shadowBlur,
+                    offsetX = shadowOffsetX,
+                    offsetY = shadowOffsetY
+                )
+                .clip(theme.floatingShape())
                 .background(theme.barBackgroundColor)
         )
         
-        // 6. Right Floating Bar (Properties) - Use Right Offset
+        // 6. Side Floating Bar 2 (Properties) - Aligned to CenterEnd (swaps with panel)
         Box(
             modifier = Modifier
-                .padding(end = animRightOffset)
+                .padding(end = endPadding)
                 .width(scaler.floatingBarWidth)
                 .height(200.dp * userScale)
                 .align(Alignment.CenterEnd)
-                .clip(theme.shape())
+                .advancedShadow(
+                    color = Color.Black,
+                    alpha = shadowAlpha,
+                    cornersRadius = if (theme.isRound) (scaler.floatingBarWidth / 2) else 8.dp, 
+                    shadowBlurRadius = shadowBlur,
+                    offsetX = shadowOffsetX,
+                    offsetY = shadowOffsetY
+                )
+                .clip(theme.floatingShape())
                 .background(theme.barBackgroundColor)
         )
 
         // 7. Top Floating Bar (Center) - Use Top Offset
         Box(
             modifier = Modifier
-                .offset(x = -(animRightOffset / 2)) // Center in available space
-                .padding(top = animTopOffset)
+                .offset(x = if (swapHorizontal) (animHorizontalOffset / 2) else -(animHorizontalOffset / 2))
+                .padding(top = if (swapVertical) animBottomOffset else animTopOffset)
                 .width(200.dp * userScale) // Dynamic Width
                 .height(scaler.floatingBarWidth) // Thinner like floating bar thickness
                 .align(Alignment.TopCenter)
-                .clip(theme.shape())
+                .advancedShadow(
+                    color = Color.Black,
+                    alpha = shadowAlpha,
+                    cornersRadius = if (theme.isRound) (scaler.floatingBarWidth / 2) else 8.dp, 
+                    shadowBlurRadius = shadowBlur,
+                    offsetX = shadowOffsetX,
+                    offsetY = shadowOffsetY
+                )
+                .clip(theme.floatingShape())
                 .background(theme.barBackgroundColor)
         )
 
         // 8. Bottom Floating Bar (Center) - Use Bottom Offset
         Box(
             modifier = Modifier
-                .offset(x = -(animRightOffset / 2)) // Center in available space
-                .padding(bottom = animBottomOffset)
+                .offset(x = if (swapHorizontal) (animHorizontalOffset / 2) else -(animHorizontalOffset / 2))
+                .padding(bottom = if (swapVertical) animTopOffset else animBottomOffset)
                 .width(200.dp * userScale)
                 .height(scaler.floatingBarWidth)
                 .align(Alignment.BottomCenter)
-                .clip(theme.shape())
+                .advancedShadow(
+                    color = Color.Black,
+                    alpha = shadowAlpha,
+                    cornersRadius = if (theme.isRound) (scaler.floatingBarWidth / 2) else 8.dp, 
+                    shadowBlurRadius = shadowBlur,
+                    offsetX = shadowOffsetX,
+                    offsetY = shadowOffsetY
+                )
+                .clip(theme.floatingShape())
                 .background(theme.barBackgroundColor)
         )
     }
@@ -519,7 +723,7 @@ fun StudioLayout(
                     modifier = Modifier.padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text("Customize Theme", style = MaterialTheme.typography.titleLarge)
+                    Text("Customize Theme", style = MaterialTheme.typography.titleLarge, color = theme.iconColor)
                     Spacer(modifier = Modifier.height(24.dp))
                     
                     // Shape Switch
@@ -528,7 +732,7 @@ fun StudioLayout(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Round Shapes")
+                        Text("Round Shapes", color = theme.iconColor)
                         Switch(
                             checked = theme.isRound,
                             onCheckedChange = { viewModel.updateTheme(theme.copy(isRound = it)) }
@@ -536,37 +740,156 @@ fun StudioLayout(
                     }
                     
                     Spacer(modifier = Modifier.height(24.dp))
-                    Text("Bar Color", style = MaterialTheme.typography.labelLarge)
-                    Spacer(modifier = Modifier.height(12.dp))
+                    // --- SEPARATE COLOR PICKERS ---
+                    var pickingColorFor by remember { mutableStateOf<String?>(null) }
                     
-                    // Color Row
+                    ColorPreviewRow(
+                        label = "Bar Color",
+                        color = theme.barBackgroundColor,
+                        labelColor = theme.iconColor,
+                        onClick = { pickingColorFor = "bar" }
+                    )
+                    
+                    ColorPreviewRow(
+                        label = "Button Color",
+                        color = theme.buttonColor,
+                        labelColor = theme.iconColor,
+                        onClick = { pickingColorFor = "button" }
+                    )
+                    
+                    ColorPreviewRow(
+                        label = "Icon Color",
+                        color = theme.iconColor,
+                        labelColor = theme.iconColor,
+                        onClick = { pickingColorFor = "icon" }
+                    )
+                    
+                    ColorPreviewRow(
+                        label = "Highlight Color",
+                        color = theme.highlightColor,
+                        labelColor = theme.iconColor,
+                        onClick = { pickingColorFor = "highlight" }
+                    )
+
+                    if (pickingColorFor != null) {
+                        val initialColor = when(pickingColorFor) {
+                            "bar" -> theme.barBackgroundColor
+                            "button" -> theme.buttonColor
+                            "icon" -> theme.iconColor
+                            "highlight" -> theme.highlightColor
+                            else -> Color.Transparent
+                        }
+                        
+                        ColorPickerDialog(
+                            initialColor = initialColor,
+                            recentColors = theme.recentColors,
+                            onDismiss = { pickingColorFor = null },
+                            onColorSelected = { newColor ->
+                                // Update recent colors
+                                val newRecents = (listOf(newColor) + theme.recentColors)
+                                    .distinct()
+                                    .take(12)
+                                
+                                when(pickingColorFor) {
+                                    "bar" -> viewModel.updateTheme(theme.copy(barBackgroundColor = newColor, recentColors = newRecents))
+                                    "button" -> viewModel.updateTheme(theme.copy(buttonColor = newColor, recentColors = newRecents))
+                                    "icon" -> viewModel.updateTheme(theme.copy(iconColor = newColor, recentColors = newRecents))
+                                    "highlight" -> viewModel.updateTheme(theme.copy(highlightColor = newColor, recentColors = newRecents))
+                                }
+                                pickingColorFor = null
+                            }
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(24.dp))
+                    
+                    // Opacity Slider (Optional now since color picker has alpha, but keeping for direct access)
+                    Text("Bar Opacity: ${(theme.barBackgroundColor.alpha * 100).toInt()}%", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
+                    Slider(
+                        value = theme.barBackgroundColor.alpha,
+                        onValueChange = { 
+                            viewModel.updateTheme(theme.copy(barBackgroundColor = theme.barBackgroundColor.copy(alpha = it))) 
+                        },
+                        valueRange = 0f..1f
+                    )
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // --- SHADOW CONTROLS ---
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val colors = listOf(
-                            Color.Black.copy(alpha=0.7f),
-                            Color(0xFF1A237E).copy(alpha=0.8f), // Dark Blue
-                            Color(0xFF1B5E20).copy(alpha=0.8f), // Dark Green
-                            Color(0xFF3E2723).copy(alpha=0.8f)  // Dark Brown
+                        Text("Enable Shadows", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
+                        Switch(
+                            checked = theme.isShadowEnabled,
+                            onCheckedChange = { viewModel.updateTheme(theme.copy(isShadowEnabled = it)) }
                         )
-                        
-                        colors.forEach { color ->
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .background(color, CircleShape)
-                                    .clickable { 
-                                        viewModel.updateTheme(theme.copy(barBackgroundColor = color))
-                                    }
+                    }
+
+                    // Shadow Options UI: Only show if shadows enabled AND opacity is 100%
+                    val canShowShadowOptions = theme.isShadowEnabled && theme.barBackgroundColor.alpha == 1f
+                    
+                    AnimatedVisibility(visible = canShowShadowOptions) {
+                        Column {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            // Shadow Opacity Slider
+                            Text("Shadow Opacity: ${(theme.shadowOpacity * 100).toInt()}%", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
+                            Slider(
+                                value = theme.shadowOpacity,
+                                onValueChange = { 
+                                    viewModel.updateTheme(theme.copy(shadowOpacity = it)) 
+                                },
+                                valueRange = 0f..1f
+                            )
+                            
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Shadow Blur Slider
+                            Text("Shadow Blur: ${theme.shadowBlur.value.toInt()} dp", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
+                            Slider(
+                                value = theme.shadowBlur.value,
+                                onValueChange = { 
+                                    viewModel.updateTheme(theme.copy(shadowBlur = it.dp)) 
+                                },
+                                valueRange = 0f..24f
+                            )
+                            
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Angle Slider
+                            Text("Shadow Angle: ${theme.shadowAngle.toInt()}°", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
+                            Slider(
+                                value = theme.shadowAngle,
+                                onValueChange = { 
+                                    viewModel.updateTheme(theme.copy(shadowAngle = it)) 
+                                },
+                                valueRange = 0f..360f
                             )
                         }
+                    }
+
+                    if (theme.isShadowEnabled && theme.barBackgroundColor.alpha < 1f) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Shadows hidden because Opacity < 100%", 
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error.copy(alpha=0.7f)
+                        )
                     }
                     
                     Spacer(modifier = Modifier.height(24.dp))
                     Button(
                         onClick = { showPersonalizationDialog = false },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = theme.buttonColor,
+                            contentColor = theme.iconColor
+                        )
                     ) {
                         Text("Close")
                     }
