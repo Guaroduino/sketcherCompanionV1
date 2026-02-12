@@ -145,6 +145,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     var projectId by mutableStateOf(UUID.randomUUID().toString())
     var currentFileUri: android.net.Uri? by mutableStateOf(null)
 
+    // --- THEME ENGINE ---
+    private val _themeConfig = MutableStateFlow(com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig())
+    val themeConfig: StateFlow<com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig> = _themeConfig.asStateFlow()
+
+    fun updateTheme(newConfig: com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig) {
+        _themeConfig.value = newConfig
+    }
+
     // --- COMPONENTS & ISOLATION ---
     val componentLibrary = mutableMapOf<String, ComponentDefinition>()
     
