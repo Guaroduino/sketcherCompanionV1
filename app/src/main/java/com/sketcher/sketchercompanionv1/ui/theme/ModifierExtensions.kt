@@ -25,8 +25,9 @@ fun Modifier.advancedShadow(
         val paint = Paint()
         val frameworkPaint = paint.asFrameworkPaint()
         frameworkPaint.color = transparentColor
+        val radius = shadowBlurRadius.toPx().coerceAtLeast(0.001f)
         frameworkPaint.setShadowLayer(
-            shadowBlurRadius.toPx(),
+            radius,
             offsetX.toPx(),
             offsetY.toPx(),
             shadowColor

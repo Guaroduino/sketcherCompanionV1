@@ -436,7 +436,7 @@ class RenderEngine {
             
             if (drawLine) {
                 gridPaint.color = lineColor
-                gridPaint.strokeWidth = if (thicknessScale > 1.0f) (thicknessScale / zoom) else 0f
+                gridPaint.strokeWidth = if (thicknessScale > 1.0f && zoom > 0.001f) (thicknessScale / zoom) else 0f
                 canvas.drawLine(x, wMinY, x, wMaxY, gridPaint)
             }
         }
@@ -464,7 +464,7 @@ class RenderEngine {
             
             if (drawLine) {
                 gridPaint.color = lineColor
-                gridPaint.strokeWidth = if (thicknessScale > 1.0f) (thicknessScale / zoom) else 0f
+                gridPaint.strokeWidth = if (thicknessScale > 1.0f && zoom > 0.001f) (thicknessScale / zoom) else 0f
                 canvas.drawLine(wMinX, y, wMaxX, y, gridPaint)
             }
         }

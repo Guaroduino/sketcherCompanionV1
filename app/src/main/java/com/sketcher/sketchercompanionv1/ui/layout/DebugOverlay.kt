@@ -58,10 +58,12 @@ fun DebugOverlay(
                 Spacer(modifier = Modifier.height(4.dp))
                 
                 // Scale Slider
-                Text("Scale: ${String.format("%.1f", userScale)}x", style = MaterialTheme.typography.labelSmall)
+                var tempScale by remember(userScale) { mutableStateOf(userScale) }
+                Text("Scale: ${String.format("%.1f", tempScale)}x", style = MaterialTheme.typography.labelSmall)
                 Slider(
-                    value = userScale,
-                    onValueChange = onScaleChange,
+                    value = tempScale,
+                    onValueChange = { tempScale = it },
+                    onValueChangeFinished = { onScaleChange(tempScale) },
                     valueRange = 0.5f..1.5f,
                     modifier = Modifier.width(100.dp).height(24.dp) // Smaller width/height
                 )

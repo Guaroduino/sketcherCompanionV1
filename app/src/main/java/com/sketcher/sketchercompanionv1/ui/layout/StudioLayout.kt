@@ -10,6 +10,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -54,10 +55,17 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
+import com.sketcher.sketchercompanionv1.ui.model.StudioTool
+import com.sketcher.sketchercompanionv1.ui.model.ToolLocation
+import com.sketcher.sketchercompanionv1.ui.dialogs.ToolPickerDialog
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.AddCircleOutline
+import androidx.compose.material.icons.filled.Check
+
 @Composable
 fun StudioLayout(
     viewModel: SketcherViewModel,
-    userScale: Float, // Still passed but can be derived from LocalUiScaler
     uiCollapsed: Boolean,
     onToggleUi: () -> Unit,
     swapVertical: Boolean,
@@ -67,9 +75,15 @@ fun StudioLayout(
     val config = androidx.compose.ui.platform.LocalConfiguration.current
     val density = LocalDensity.current
     val scaler = LocalUiScaler.current
+    val interfaceScale = viewModel.interfaceScale
     
     val theme by viewModel.themeConfig.collectAsState()
     val currentLayers by viewModel.layers.collectAsState()
+    val tools by viewModel.toolbarState.collectAsState()
+    val isEditMode by viewModel.isEditMode.collectAsState()
+
+    // Tool Picker State
+    var toolPickerTarget by remember { mutableStateOf<Pair<ToolLocation, Int?>?>(null) }
     
     // Panel Internal States (Independent Folding)
     var showTopBar by remember { mutableStateOf(true) }
@@ -352,8 +366,8 @@ fun StudioLayout(
                                         val adjustedDelta = if (swapHorizontal) with(density) { delta.toDp() } else -with(density) { delta.toDp() }
                                         val newWidth = rightPanelWidth + adjustedDelta
                                         // Apply scale to min/max limits
-                                        val minWidth = 200.dp * userScale
-                                        val maxWidth = 450.dp * userScale
+                                        val minWidth = 200.dp * interfaceScale
+                                        val maxWidth = 450.dp * interfaceScale
                                         rightPanelWidth = newWidth.coerceIn(minWidth, maxWidth)
                                     }
                                 ),
@@ -524,190 +538,509 @@ fun StudioLayout(
         // --- LAYER 4: FLOATING HUD (The "Magenta/Green" Zones) ---
         // Linked to Physics Animations for Offset. The offsets now include the "Panel Gap".
         
-        // 1. Top-Left Button (Menu/Back) - Use Top Offset
-        BigTouchBox(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(
-                    top = (if (swapVertical) animBottomOffset else animTopOffset) - touchCorrection, 
-                    start = startPadding - touchCorrection
-                ),
-            onClick = { /* TODO: Open Menu */ },
-            touchSize = 64.dp
-        ) {
-            Box(
+// 1. Top-Left Button (Menu/Back)
+        val topLeftTool = tools[ToolLocation.TopLeftCorner]?.firstOrNull()
+        if (topLeftTool != null || isEditMode) {
+            BigTouchBox(
                 modifier = Modifier
-                    .size(scaler.baseButtonSize)
-                    .advancedShadow(
-                        color = Color.Black,
-                        alpha = shadowAlpha,
-                        cornersRadius = if (theme.isRound) scaler.baseButtonSize / 2 else 8.dp,
-                        shadowBlurRadius = shadowBlur,
-                        offsetX = shadowOffsetX,
-                        offsetY = shadowOffsetY
-                    )
-                    .clip(theme.floatingShape())
-                    .background(theme.barBackgroundColor)
-            )
+                    .align(Alignment.TopStart)
+                    .padding(
+                        top = (if (swapVertical) animBottomOffset else animTopOffset) - touchCorrection, 
+                        start = startPadding - touchCorrection
+                    ),
+                onClick = { 
+                    if (isEditMode) toolPickerTarget = ToolLocation.TopLeftCorner to 0
+                    else topLeftTool?.onClick?.invoke()
+                },
+                touchSize = 64.dp
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(scaler.baseButtonSize)
+                        .advancedShadow(
+                            color = Color.Black,
+                            alpha = shadowAlpha,
+                            cornersRadius = if (theme.isRound) scaler.baseButtonSize / 2 else 8.dp,
+                            shadowBlurRadius = shadowBlur,
+                            offsetX = shadowOffsetX,
+                            offsetY = shadowOffsetY
+                        )
+                        .clip(theme.floatingShape())
+                        .background(
+                            when {
+                                topLeftTool?.isActive == true -> theme.highlightColor
+                                isEditMode -> theme.barBackgroundColor.copy(alpha = 0.5f)
+                                else -> theme.barBackgroundColor
+                            }
+                        )
+                        .then(
+                            if (isEditMode) Modifier.border(1.dp, theme.iconColor, theme.floatingShape())
+                            else Modifier
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (topLeftTool != null) {
+                        Icon(topLeftTool.icon, topLeftTool.contentDescription, tint = theme.iconColor)
+                    } else if (isEditMode) {
+                        Icon(Icons.Default.Add, "Add Tool", tint = theme.iconColor)
+                    }
+                }
+            }
         }
 
-        // 2. Top-Right Button (Settings) - Use Top & Right Offset
-        BigTouchBox(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(
-                    top = (if (swapVertical) animBottomOffset else animTopOffset) - touchCorrection, 
-                    end = endPadding - touchCorrection
-                ),
-            onClick = { showPersonalizationDialog = true },
-            touchSize = 64.dp
-        ) {
+        // 2. Top-Right Button (Settings)
+        val topRightTool = tools[ToolLocation.TopRightCorner]?.firstOrNull()
+        if (topRightTool != null || isEditMode) {
+            BigTouchBox(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(
+                        top = (if (swapVertical) animBottomOffset else animTopOffset) - touchCorrection, 
+                        end = endPadding - touchCorrection
+                    ),
+                onClick = { 
+                    if (isEditMode) toolPickerTarget = ToolLocation.TopRightCorner to 0
+                    else if (topRightTool?.id == "settings") showPersonalizationDialog = true 
+                    else topRightTool?.onClick?.invoke()
+                },
+                touchSize = 64.dp
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(scaler.baseButtonSize)
+                        .advancedShadow(
+                            color = Color.Black,
+                            alpha = shadowAlpha,
+                            cornersRadius = if (theme.isRound) scaler.baseButtonSize / 2 else 8.dp,
+                            shadowBlurRadius = shadowBlur,
+                            offsetX = shadowOffsetX,
+                            offsetY = shadowOffsetY
+                        )
+                        .clip(theme.floatingShape())
+                        .background(
+                            when {
+                                topRightTool?.isActive == true -> theme.highlightColor
+                                isEditMode -> theme.barBackgroundColor.copy(alpha = 0.5f)
+                                else -> theme.barBackgroundColor
+                            }
+                        )
+                        .then(
+                            if (isEditMode) Modifier.border(1.dp, theme.iconColor, theme.floatingShape())
+                            else Modifier
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (topRightTool != null) {
+                        Icon(topRightTool.icon, topRightTool.contentDescription, tint = theme.iconColor)
+                    } else if (isEditMode) {
+                        Icon(Icons.Default.Add, "Add Tool", tint = theme.iconColor)
+                    }
+                }
+            }
+        }
+        
+        // 3. Bottom-Left Button (Undo)
+        val bottomLeftTool = tools[ToolLocation.BottomLeftCorner]?.firstOrNull()
+        if (bottomLeftTool != null || isEditMode) {
+            BigTouchBox(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(
+                        bottom = (if (swapVertical) animTopOffset else animBottomOffset) - touchCorrection, 
+                        start = startPadding - touchCorrection
+                    ),
+                onClick = { 
+                    if (isEditMode) toolPickerTarget = ToolLocation.BottomLeftCorner to 0
+                    else bottomLeftTool?.onClick?.invoke()
+                },
+                touchSize = 64.dp
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(scaler.baseButtonSize)
+                        .advancedShadow(
+                            color = Color.Black,
+                            alpha = shadowAlpha,
+                            cornersRadius = if (theme.isRound) scaler.baseButtonSize / 2 else 8.dp,
+                            shadowBlurRadius = shadowBlur,
+                            offsetX = shadowOffsetX,
+                            offsetY = shadowOffsetY
+                        )
+                        .clip(theme.floatingShape())
+                        .background(
+                            when {
+                                bottomLeftTool?.isActive == true -> theme.highlightColor
+                                isEditMode -> theme.barBackgroundColor.copy(alpha = 0.5f)
+                                else -> theme.barBackgroundColor
+                            }
+                        )
+                        .then(
+                            if (isEditMode) Modifier.border(1.dp, theme.iconColor, theme.floatingShape())
+                            else Modifier
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (bottomLeftTool != null) {
+                        Icon(bottomLeftTool.icon, bottomLeftTool.contentDescription, tint = theme.iconColor)
+                    } else if (isEditMode) {
+                        Icon(Icons.Default.Add, "Add Tool", tint = theme.iconColor)
+                    }
+                }
+            }
+        }
+        
+        // 4. Bottom-Right Button (Redo)
+        val bottomRightTool = tools[ToolLocation.BottomRightCorner]?.firstOrNull()
+        if (bottomRightTool != null || isEditMode) {
+            BigTouchBox(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(
+                        bottom = (if (swapVertical) animTopOffset else animBottomOffset) - touchCorrection, 
+                        end = endPadding - touchCorrection
+                    ),
+                onClick = { 
+                    if (isEditMode) toolPickerTarget = ToolLocation.BottomRightCorner to 0
+                    else bottomRightTool?.onClick?.invoke()
+                },
+                touchSize = 64.dp
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(scaler.baseButtonSize)
+                        .advancedShadow(
+                            color = Color.Black,
+                            alpha = shadowAlpha,
+                            cornersRadius = if (theme.isRound) scaler.baseButtonSize / 2 else 8.dp,
+                            shadowBlurRadius = shadowBlur,
+                            offsetX = shadowOffsetX,
+                            offsetY = shadowOffsetY
+                        )
+                        .clip(theme.floatingShape())
+                        .background(
+                            when {
+                                bottomRightTool?.isActive == true -> theme.highlightColor
+                                isEditMode -> theme.barBackgroundColor.copy(alpha = 0.5f)
+                                else -> theme.barBackgroundColor
+                            }
+                        )
+                        .then(
+                            if (isEditMode) Modifier.border(1.dp, theme.iconColor, theme.floatingShape())
+                            else Modifier
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (bottomRightTool != null) {
+                        Icon(bottomRightTool.icon, bottomRightTool.contentDescription, tint = theme.iconColor)
+                    } else if (isEditMode) {
+                        Icon(Icons.Default.Add, "Add Tool", tint = theme.iconColor)
+                    }
+                }
+            }
+        }
+        
+        // 5. Side Floating Bar 1 (Tools) - LeftBar
+        val leftTools = tools[ToolLocation.LeftBar] ?: emptyList()
+        if (leftTools.isNotEmpty() || isEditMode) {
             Box(
                 modifier = Modifier
-                    .size(scaler.baseButtonSize)
+                    .padding(start = startPadding)
+                    .width(scaler.floatingBarWidth)
+                    .align(Alignment.CenterStart)
                     .advancedShadow(
                         color = Color.Black,
                         alpha = shadowAlpha,
-                        cornersRadius = if (theme.isRound) scaler.baseButtonSize / 2 else 8.dp,
+                        cornersRadius = if (theme.isRound) (scaler.floatingBarWidth / 2) else 8.dp, 
                         shadowBlurRadius = shadowBlur,
                         offsetX = shadowOffsetX,
                         offsetY = shadowOffsetY
                     )
                     .clip(theme.floatingShape())
                     .background(theme.barBackgroundColor)
-            )
+            ) {
+                Column(
+                    modifier = Modifier.padding(vertical = scaler.smallMargin),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    leftTools.forEachIndexed { idx, tool ->
+                         if (tool.id == "divider") {
+                             Box(
+                                 modifier = Modifier
+                                     .height(2.dp)
+                                     .width(24.dp)
+                                     .background(theme.iconColor.copy(alpha = 0.3f))
+                                     .clickable { if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx }
+                             )
+                         } else {
+                             BigTouchBox(
+                                onClick = {
+                                    if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx
+                                    else tool.onClick()
+                                },
+                                touchSize = 48.dp
+                            ) {
+                                Icon(
+                                    imageVector = tool.icon,
+                                    contentDescription = tool.contentDescription,
+                                    tint = if (tool.isActive) theme.highlightColor else theme.iconColor,
+                                    modifier = Modifier
+                                        .size(scaler.smallIconSize)
+                                        .then(if (isEditMode) Modifier.alpha(0.6f) else Modifier)
+                                )
+                            }
+                         }
+                    }
+                    if (isEditMode) {
+                        BigTouchBox(
+                            onClick = { toolPickerTarget = ToolLocation.LeftBar to null },
+                            touchSize = 48.dp
+                        ) {
+                            Icon(Icons.Default.AddCircleOutline, "Add", tint = theme.iconColor.copy(alpha = 0.5f))
+                        }
+                    }
+                }
+            }
         }
         
-        // 3. Bottom-Left Button (Undo) - Use Bottom Offset
-        BigTouchBox(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(
-                    bottom = (if (swapVertical) animTopOffset else animBottomOffset) - touchCorrection, 
-                    start = startPadding - touchCorrection
-                ),
-            onClick = { viewModel.undo() },
-            touchSize = 64.dp
-        ) {
+        // 6. Side Floating Bar 2 (Properties) - RightBar
+        val rightTools = tools[ToolLocation.RightBar] ?: emptyList()
+        if (rightTools.isNotEmpty() || isEditMode) {
             Box(
                 modifier = Modifier
-                    .size(scaler.baseButtonSize)
+                    .padding(end = endPadding)
+                    .width(scaler.floatingBarWidth)
+                    .align(Alignment.CenterEnd)
                     .advancedShadow(
                         color = Color.Black,
                         alpha = shadowAlpha,
-                        cornersRadius = if (theme.isRound) scaler.baseButtonSize / 2 else 8.dp,
+                        cornersRadius = if (theme.isRound) (scaler.floatingBarWidth / 2) else 8.dp, 
                         shadowBlurRadius = shadowBlur,
                         offsetX = shadowOffsetX,
                         offsetY = shadowOffsetY
                     )
                     .clip(theme.floatingShape())
                     .background(theme.barBackgroundColor)
-            )
+            ) {
+                 Column(
+                    modifier = Modifier.padding(vertical = scaler.smallMargin),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    rightTools.forEachIndexed { idx, tool ->
+                         if (tool.id == "divider") {
+                             Box(
+                                 modifier = Modifier
+                                     .height(2.dp)
+                                     .width(24.dp)
+                                     .background(theme.iconColor.copy(alpha = 0.3f))
+                                     .clickable { if (isEditMode) toolPickerTarget = ToolLocation.RightBar to idx }
+                             )
+                         } else {
+                             BigTouchBox(
+                                onClick = {
+                                    if (isEditMode) toolPickerTarget = ToolLocation.RightBar to idx
+                                    else tool.onClick()
+                                },
+                                touchSize = 48.dp
+                            ) {
+                                Icon(
+                                    imageVector = tool.icon,
+                                    contentDescription = tool.contentDescription,
+                                    tint = if (tool.isActive) theme.highlightColor else theme.iconColor,
+                                    modifier = Modifier
+                                        .size(scaler.smallIconSize)
+                                        .then(if (isEditMode) Modifier.alpha(0.6f) else Modifier)
+                                )
+                            }
+                         }
+                    }
+                    if (isEditMode) {
+                        BigTouchBox(
+                            onClick = { toolPickerTarget = ToolLocation.RightBar to null },
+                            touchSize = 48.dp
+                        ) {
+                            Icon(Icons.Default.AddCircleOutline, "Add", tint = theme.iconColor.copy(alpha = 0.5f))
+                        }
+                    }
+                }
+            }
         }
-        
-        // 4. Bottom-Right Button (Redo) - Use Bottom & Right Offset
-        BigTouchBox(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(
-                    bottom = (if (swapVertical) animTopOffset else animBottomOffset) - touchCorrection, 
-                    end = endPadding - touchCorrection
-                ),
-            onClick = { viewModel.redo() },
-            touchSize = 64.dp
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(scaler.baseButtonSize)
-                    .advancedShadow(
-                        color = Color.Black,
-                        alpha = shadowAlpha,
-                        cornersRadius = if (theme.isRound) scaler.baseButtonSize / 2 else 8.dp,
-                        shadowBlurRadius = shadowBlur,
-                        offsetX = shadowOffsetX,
-                        offsetY = shadowOffsetY
-                    )
-                    .clip(theme.floatingShape())
-                    .background(theme.barBackgroundColor)
-            )
-        }
-        
-        // 5. Side Floating Bar 1 (Tools) - Aligned to CenterStart (swaps with panel)
-        Box(
-            modifier = Modifier
-                .padding(start = startPadding)
-                .width(scaler.floatingBarWidth)
-                .height(200.dp * userScale)
-                .align(Alignment.CenterStart)
-                .advancedShadow(
-                    color = Color.Black,
-                    alpha = shadowAlpha,
-                    cornersRadius = if (theme.isRound) (scaler.floatingBarWidth / 2) else 8.dp, 
-                    shadowBlurRadius = shadowBlur,
-                    offsetX = shadowOffsetX,
-                    offsetY = shadowOffsetY
-                )
-                .clip(theme.floatingShape())
-                .background(theme.barBackgroundColor)
-        )
-        
-        // 6. Side Floating Bar 2 (Properties) - Aligned to CenterEnd (swaps with panel)
-        Box(
-            modifier = Modifier
-                .padding(end = endPadding)
-                .width(scaler.floatingBarWidth)
-                .height(200.dp * userScale)
-                .align(Alignment.CenterEnd)
-                .advancedShadow(
-                    color = Color.Black,
-                    alpha = shadowAlpha,
-                    cornersRadius = if (theme.isRound) (scaler.floatingBarWidth / 2) else 8.dp, 
-                    shadowBlurRadius = shadowBlur,
-                    offsetX = shadowOffsetX,
-                    offsetY = shadowOffsetY
-                )
-                .clip(theme.floatingShape())
-                .background(theme.barBackgroundColor)
-        )
 
-        // 7. Top Floating Bar (Center) - Use Top Offset
-        Box(
-            modifier = Modifier
-                .offset(x = if (swapHorizontal) (animHorizontalOffset / 2) else -(animHorizontalOffset / 2))
-                .padding(top = if (swapVertical) animBottomOffset else animTopOffset)
-                .width(200.dp * userScale) // Dynamic Width
-                .height(scaler.floatingBarWidth) // Thinner like floating bar thickness
-                .align(Alignment.TopCenter)
-                .advancedShadow(
-                    color = Color.Black,
-                    alpha = shadowAlpha,
-                    cornersRadius = if (theme.isRound) (scaler.floatingBarWidth / 2) else 8.dp, 
-                    shadowBlurRadius = shadowBlur,
-                    offsetX = shadowOffsetX,
-                    offsetY = shadowOffsetY
-                )
-                .clip(theme.floatingShape())
-                .background(theme.barBackgroundColor)
-        )
+        // 7. Top Floating Bar (Center) - TopBar
+        val topTools = tools[ToolLocation.TopBar] ?: emptyList()
+        if (topTools.isNotEmpty() || isEditMode) {
+            Box(
+                modifier = Modifier
+                    .offset(x = if (swapHorizontal) (animHorizontalOffset / 2) else -(animHorizontalOffset / 2))
+                    .padding(top = if (swapVertical) animBottomOffset else animTopOffset)
+                    .height(scaler.floatingBarWidth)
+                    .align(Alignment.TopCenter)
+                    .advancedShadow(
+                        color = Color.Black,
+                        alpha = shadowAlpha,
+                        cornersRadius = if (theme.isRound) (scaler.floatingBarWidth / 2) else 8.dp, 
+                        shadowBlurRadius = shadowBlur,
+                        offsetX = shadowOffsetX,
+                        offsetY = shadowOffsetY
+                    )
+                    .clip(theme.floatingShape())
+                    .background(theme.barBackgroundColor)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = scaler.smallMargin, vertical = 4.dp), 
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    topTools.forEachIndexed { idx, tool ->
+                         if (tool.id == "divider") {
+                             Box(
+                                 modifier = Modifier
+                                     .width(2.dp)
+                                     .height(24.dp)
+                                     .background(theme.iconColor.copy(alpha = 0.3f))
+                                     .clickable { if (isEditMode) toolPickerTarget = ToolLocation.TopBar to idx }
+                             )
+                         } else {
+                             BigTouchBox(
+                                onClick = {
+                                    if (isEditMode) toolPickerTarget = ToolLocation.TopBar to idx
+                                    else tool.onClick()
+                                },
+                                touchSize = 48.dp
+                            ) {
+                                Icon(
+                                    imageVector = tool.icon,
+                                    contentDescription = tool.contentDescription,
+                                    tint = if (tool.isActive) theme.highlightColor else theme.iconColor,
+                                    modifier = Modifier
+                                        .size(scaler.smallIconSize)
+                                        .then(if (isEditMode) Modifier.alpha(0.6f) else Modifier)
+                                )
+                            }
+                         }
+                    }
+                    if (isEditMode) {
+                        BigTouchBox(
+                            onClick = { toolPickerTarget = ToolLocation.TopBar to null },
+                            touchSize = 48.dp
+                        ) {
+                            Icon(Icons.Default.AddCircleOutline, "Add", tint = theme.iconColor.copy(alpha = 0.5f))
+                        }
+                    }
+                }
+            }
+        }
 
-        // 8. Bottom Floating Bar (Center) - Use Bottom Offset
-        Box(
-            modifier = Modifier
-                .offset(x = if (swapHorizontal) (animHorizontalOffset / 2) else -(animHorizontalOffset / 2))
-                .padding(bottom = if (swapVertical) animTopOffset else animBottomOffset)
-                .width(200.dp * userScale)
-                .height(scaler.floatingBarWidth)
-                .align(Alignment.BottomCenter)
-                .advancedShadow(
-                    color = Color.Black,
-                    alpha = shadowAlpha,
-                    cornersRadius = if (theme.isRound) (scaler.floatingBarWidth / 2) else 8.dp, 
-                    shadowBlurRadius = shadowBlur,
-                    offsetX = shadowOffsetX,
-                    offsetY = shadowOffsetY
-                )
-                .clip(theme.floatingShape())
-                .background(theme.barBackgroundColor)
+        // 8. Bottom Floating Bar (Center) - BottomBar
+        val bottomTools = tools[ToolLocation.BottomBar] ?: emptyList()
+        if (bottomTools.isNotEmpty() || isEditMode) {
+            Box(
+                modifier = Modifier
+                    .offset(x = if (swapHorizontal) (animHorizontalOffset / 2) else -(animHorizontalOffset / 2))
+                    .padding(bottom = if (swapVertical) animTopOffset else animBottomOffset)
+                    .height(scaler.floatingBarWidth)
+                    .align(Alignment.BottomCenter)
+                    .advancedShadow(
+                        color = Color.Black,
+                        alpha = shadowAlpha,
+                        cornersRadius = if (theme.isRound) (scaler.floatingBarWidth / 2) else 8.dp, 
+                        shadowBlurRadius = shadowBlur,
+                        offsetX = shadowOffsetX,
+                        offsetY = shadowOffsetY
+                    )
+                    .clip(theme.floatingShape())
+                    .background(theme.barBackgroundColor)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = scaler.smallMargin, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    bottomTools.forEachIndexed { idx, tool ->
+                         if (tool.id == "divider") {
+                             Box(
+                                 modifier = Modifier
+                                     .width(2.dp)
+                                     .height(24.dp)
+                                     .background(theme.iconColor.copy(alpha = 0.3f))
+                                     .clickable { if (isEditMode) toolPickerTarget = ToolLocation.BottomBar to idx }
+                             )
+                         } else {
+                             BigTouchBox(
+                                onClick = {
+                                    if (isEditMode) toolPickerTarget = ToolLocation.BottomBar to idx
+                                    else tool.onClick()
+                                },
+                                touchSize = 48.dp
+                            ) {
+                                Icon(
+                                    imageVector = tool.icon,
+                                    contentDescription = tool.contentDescription,
+                                    tint = if (tool.isActive) theme.highlightColor else theme.iconColor,
+                                    modifier = Modifier
+                                        .size(scaler.smallIconSize)
+                                        .then(if (isEditMode) Modifier.alpha(0.6f) else Modifier)
+                                )
+                            }
+                         }
+                    }
+                    if (isEditMode) {
+                        BigTouchBox(
+                            onClick = { toolPickerTarget = ToolLocation.BottomBar to null },
+                            touchSize = 48.dp
+                        ) {
+                            Icon(Icons.Default.AddCircleOutline, "Add", tint = theme.iconColor.copy(alpha = 0.5f))
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- EXIT EDIT MODE BUTTON ---
+        if (isEditMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 100.dp), // Offset from center to not block drawing area too much
+                contentAlignment = Alignment.Center
+            ) {
+                Button(
+                    onClick = { viewModel.toggleEditMode() },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = theme.highlightColor,
+                        contentColor = Color.White
+                    ),
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp),
+                    shape = RoundedCornerShape(24.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    ) {
+                        Icon(Icons.Default.Check, "Done")
+                        Text("Finish Customization", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+            }
+        }
+    }
+
+    // --- TOOL PICKER DIALOG ---
+    toolPickerTarget?.let { (location, index) ->
+        ToolPickerDialog(
+            location = location,
+            index = index,
+            theme = theme,
+            onDismiss = { toolPickerTarget = null },
+            onToolSelected = { newTool ->
+                if (index == null) viewModel.addTool(location, newTool)
+                else viewModel.replaceTool(location, index, newTool)
+            },
+            onRemove = {
+                index?.let { viewModel.removeTool(location, it) }
+            }
         )
     }
 
@@ -739,6 +1072,35 @@ fun StudioLayout(
                         )
                     }
                     
+                    Spacer(modifier = Modifier.height(24.dp))
+                    
+                    // Edit Toolbars Switch
+                    val isEditModeByVM by viewModel.isEditMode.collectAsState()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Edit Toolbars", color = theme.iconColor)
+                        Switch(
+                            checked = isEditModeByVM,
+                            onCheckedChange = { viewModel.toggleEditMode() }
+                        )
+                    }
+ 
+                    Spacer(modifier = Modifier.height(24.dp))
+                    
+                    // UI Scale Slider
+                    var tempScale by remember { mutableStateOf(interfaceScale) }
+                    Text("UI Scale: ${String.format("%.1f", tempScale)}x", color = theme.iconColor, style = MaterialTheme.typography.labelMedium)
+                    Slider(
+                        value = tempScale,
+                        onValueChange = { tempScale = it },
+                        onValueChangeFinished = { viewModel.updateInterfaceScale(tempScale) },
+                        valueRange = 0.5f..1.5f,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+ 
                     Spacer(modifier = Modifier.height(24.dp))
                     // --- SEPARATE COLOR PICKERS ---
                     var pickingColorFor by remember { mutableStateOf<String?>(null) }

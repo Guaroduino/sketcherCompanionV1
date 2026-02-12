@@ -41,6 +41,10 @@ import android.net.Uri
 import com.sketcher.sketchercompanionv1.command.*
 import com.sketcher.sketchercompanionv1.data.ThemeRepository
 import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
+import com.sketcher.sketchercompanionv1.ui.model.StudioTool
+import com.sketcher.sketchercompanionv1.ui.model.ToolLocation
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 
 data class ExportPngConfig(
     val transparentBackground: Boolean,
@@ -98,20 +102,106 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     
     var interfaceScale by mutableStateOf(prefs.getFloat("interface_scale", 1.0f))
         private set
+        
     fun updateInterfaceScale(scale: Float) {
-        interfaceScale = scale
-        prefs.edit().putFloat("interface_scale", scale).apply()
+        val clampedScale = scale.coerceIn(0.5f, 1.5f)
+        interfaceScale = clampedScale
+        prefs.edit().putFloat("interface_scale", clampedScale).apply()
     }
 
     // BACKGROUND COLOR
     var backgroundColor by mutableIntStateOf(AndroidColor.WHITE)
 
     // Toolbar Appearance
-    // Toolbar Appearance
     var toolbarBackgroundColor by mutableIntStateOf(prefs.getInt("toolbar_background_color", AndroidColor.WHITE))
     fun updateToolbarBackgroundColor(color: Int) { 
         toolbarBackgroundColor = color
         prefs.edit().putInt("toolbar_background_color", color).apply()
+    }
+
+    // --- TOOLBAR STATE (Dynamic Slot System) ---
+    private val _toolbarState = MutableStateFlow<Map<ToolLocation, List<StudioTool>>>(emptyMap())
+    val toolbarState = _toolbarState.asStateFlow()
+
+    private val _isEditMode = MutableStateFlow(false)
+    val isEditMode = _isEditMode.asStateFlow()
+
+    fun toggleEditMode() {
+        _isEditMode.value = !_isEditMode.value
+    }
+
+    fun addTool(location: ToolLocation, tool: StudioTool) {
+        val currentMap = _toolbarState.value.toMutableMap()
+        val list = currentMap[location]?.toMutableList() ?: mutableListOf()
+        // Ensure the onClick is preserved or wrapped if needed, 
+        // but for now, we follow the default behavior or logic from registry.
+        list.add(tool.copy(onClick = getActionForTool(tool.id)))
+        currentMap[location] = list
+        _toolbarState.value = currentMap
+    }
+
+    fun removeTool(location: ToolLocation, index: Int) {
+        val currentMap = _toolbarState.value.toMutableMap()
+        val list = currentMap[location]?.toMutableList() ?: return
+        if (index in list.indices) {
+            list.removeAt(index)
+            currentMap[location] = list
+            _toolbarState.value = currentMap
+        }
+    }
+
+    fun replaceTool(location: ToolLocation, index: Int, newTool: StudioTool) {
+        val currentMap = _toolbarState.value.toMutableMap()
+        val list = currentMap[location]?.toMutableList() ?: return
+        if (index in list.indices) {
+            list[index] = newTool.copy(onClick = getActionForTool(newTool.id))
+            currentMap[location] = list
+            _toolbarState.value = currentMap
+        }
+    }
+
+    private fun getActionForTool(id: String): () -> Unit = when(id) {
+        "undo" -> { { undo() } }
+        "redo" -> { { redo() } }
+        "menu" -> { { /* Handled in UI for now */ } }
+        "settings" -> { { /* Handled in UI for now */ } }
+        // Add more mappings as tools gain real functionality
+        else -> { {} }
+    }
+
+    private fun initToolbarState() {
+        _toolbarState.value = mapOf(
+            ToolLocation.LeftBar to listOf(
+                StudioTool("edit", Icons.Default.Edit, "Edit", isActive = true),
+                StudioTool("create", Icons.Default.Add, "Create"),
+                StudioTool("brush", Icons.Default.Brush, "Brush")
+            ),
+            ToolLocation.RightBar to listOf(
+                StudioTool("layers", Icons.Default.Layers, "Layers"),
+                StudioTool("palette", Icons.Default.Palette, "Palette"),
+                StudioTool("opacity", Icons.Default.Opacity, "Opacity")
+            ),
+            ToolLocation.TopBar to listOf(
+                StudioTool("play", Icons.Default.PlayArrow, "Play"),
+                StudioTool("pause", Icons.Default.Pause, "Pause")
+            ),
+            ToolLocation.BottomBar to listOf(
+                StudioTool("zoom_in", Icons.Default.ZoomIn, "Zoom In"),
+                StudioTool("zoom_out", Icons.Default.ZoomOut, "Zoom Out")
+            ),
+            ToolLocation.TopLeftCorner to listOf(
+                StudioTool("menu", Icons.Default.Menu, "Menu")
+            ),
+            ToolLocation.TopRightCorner to listOf(
+                StudioTool("settings", Icons.Default.Settings, "Settings")
+            ),
+            ToolLocation.BottomLeftCorner to listOf(
+                StudioTool("undo", Icons.Default.Undo, "Undo") { undo() }
+            ),
+            ToolLocation.BottomRightCorner to listOf(
+                StudioTool("redo", Icons.Default.Redo, "Redo") { redo() }
+            )
+        )
     }
 
     var toolbarAlpha by mutableStateOf(prefs.getFloat("toolbar_alpha", 0.9f))
@@ -282,6 +372,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         fingerOffsetXValue = freehandConfig.fingerOffsetX
         fingerOffsetYValue = freehandConfig.fingerOffsetY
         selectTool(currentTool)
+        initToolbarState()
     }
 
     // --- GLOBAL OFFSET SETTERS ---

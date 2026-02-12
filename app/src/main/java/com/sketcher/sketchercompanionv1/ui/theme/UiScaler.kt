@@ -31,7 +31,7 @@ data class UiScaler(
     val hudVerticalCollapsedPadding: Dp get() = 10.dp * scaleFactor
 }
 
-val LocalUiScaler = androidx.compose.runtime.staticCompositionLocalOf<UiScaler> {
+val LocalUiScaler = androidx.compose.runtime.compositionLocalOf<UiScaler> {
     error("No UiScaler provided")
 }
 
