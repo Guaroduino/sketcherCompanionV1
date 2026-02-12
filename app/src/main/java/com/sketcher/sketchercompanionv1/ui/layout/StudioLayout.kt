@@ -545,8 +545,8 @@ fun StudioLayout(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(
-                        top = (if (swapVertical) animBottomOffset else animTopOffset) - touchCorrection, 
-                        start = startPadding - touchCorrection
+                        top = ((if (swapVertical) animBottomOffset else animTopOffset) - touchCorrection).coerceAtLeast(0.dp), 
+                        start = (startPadding - touchCorrection).coerceAtLeast(0.dp)
                     ),
                 onClick = { 
                     if (isEditMode) toolPickerTarget = ToolLocation.TopLeftCorner to 0
@@ -595,8 +595,8 @@ fun StudioLayout(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(
-                        top = (if (swapVertical) animBottomOffset else animTopOffset) - touchCorrection, 
-                        end = endPadding - touchCorrection
+                        top = ((if (swapVertical) animBottomOffset else animTopOffset) - touchCorrection).coerceAtLeast(0.dp), 
+                        end = (endPadding - touchCorrection).coerceAtLeast(0.dp)
                     ),
                 onClick = { 
                     if (isEditMode) toolPickerTarget = ToolLocation.TopRightCorner to 0
@@ -646,8 +646,8 @@ fun StudioLayout(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(
-                        bottom = (if (swapVertical) animTopOffset else animBottomOffset) - touchCorrection, 
-                        start = startPadding - touchCorrection
+                        bottom = ((if (swapVertical) animTopOffset else animBottomOffset) - touchCorrection).coerceAtLeast(0.dp), 
+                        start = (startPadding - touchCorrection).coerceAtLeast(0.dp)
                     ),
                 onClick = { 
                     if (isEditMode) toolPickerTarget = ToolLocation.BottomLeftCorner to 0
@@ -696,8 +696,8 @@ fun StudioLayout(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(
-                        bottom = (if (swapVertical) animTopOffset else animBottomOffset) - touchCorrection, 
-                        end = endPadding - touchCorrection
+                        bottom = ((if (swapVertical) animTopOffset else animBottomOffset) - touchCorrection).coerceAtLeast(0.dp), 
+                        end = (endPadding - touchCorrection).coerceAtLeast(0.dp)
                     ),
                 onClick = { 
                     if (isEditMode) toolPickerTarget = ToolLocation.BottomRightCorner to 0

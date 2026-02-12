@@ -104,7 +104,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         private set
         
     fun updateInterfaceScale(scale: Float) {
+        // Guard against invalid values coming from UI controls (NaN/Infinite)
+        if (!scale.isFinite()) return
+
         val clampedScale = scale.coerceIn(0.5f, 1.5f)
+        if (!clampedScale.isFinite() || clampedScale <= 0f) return
+
         interfaceScale = clampedScale
         prefs.edit().putFloat("interface_scale", clampedScale).apply()
     }
