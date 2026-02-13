@@ -102,6 +102,8 @@ fun ToolItem(
     theme: UiThemeConfig,
     onClick: () -> Unit
 ) {
+    val backgroundColor = if (tool.isPlaceholder) Color.Red.copy(alpha = 0.3f) else theme.buttonColor.copy(alpha = 0.2f)
+    
     Column(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
@@ -112,7 +114,7 @@ fun ToolItem(
         Box(
             modifier = Modifier
                 .size(48.dp)
-                .background(theme.buttonColor.copy(alpha = 0.2f), RoundedCornerShape(8.dp)),
+                .background(backgroundColor, RoundedCornerShape(8.dp)),
             contentAlignment = Alignment.Center
         ) {
             Icon(

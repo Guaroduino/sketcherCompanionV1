@@ -58,10 +58,13 @@ import kotlin.math.sin
 import com.sketcher.sketchercompanionv1.ui.model.StudioTool
 import com.sketcher.sketchercompanionv1.ui.model.ToolLocation
 import com.sketcher.sketchercompanionv1.ui.dialogs.ToolPickerDialog
+import com.sketcher.sketchercompanionv1.ui.components.ToolPayload
+import com.sketcher.sketchercompanionv1.ui.model.ToolRegistry
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.Check
+import com.sketcher.sketchercompanionv1.ui.dialogs.ToolPropertiesPanel
 
 @Composable
 fun StudioLayout(
@@ -86,9 +89,9 @@ fun StudioLayout(
     var toolPickerTarget by remember { mutableStateOf<Pair<ToolLocation, Int?>?>(null) }
     
     // Panel Internal States (Independent Folding)
-    var showTopBar by remember { mutableStateOf(true) }
-    var showBottomBar by remember { mutableStateOf(true) }
-    var showRightPanel by remember { mutableStateOf(true) }
+    var showTopBar by remember { mutableStateOf(false) }
+    var showBottomBar by remember { mutableStateOf(false) }
+    var showRightPanel by remember { mutableStateOf(false) }
     
     // Sync external uiCollapsed trigger (optional: if user presses global toggle, collapse/expand all)
     LaunchedEffect(uiCollapsed) {
@@ -773,22 +776,45 @@ fun StudioLayout(
                                      .clickable { if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx }
                              )
                          } else {
-                             BigTouchBox(
-                                onClick = {
-                                    if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx
-                                    else tool.onClick()
-                                },
-                                touchSize = 48.dp
-                            ) {
-                                Icon(
-                                    imageVector = tool.icon,
-                                    contentDescription = tool.contentDescription,
-                                    tint = if (tool.isActive) theme.highlightColor else theme.iconColor,
-                                    modifier = Modifier
-                                        .size(scaler.smallIconSize)
-                                        .then(if (isEditMode) Modifier.alpha(0.6f) else Modifier)
-                                )
-                            }
+                             if (tool.isPlaceholder) {
+                                 com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
+                                     onClick = {
+                                         if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx
+                                         else tool.onClick()
+                                     },
+                                     icon = tool.icon,
+                                     contentDescription = tool.contentDescription,
+                                     isActive = tool.isActive,
+                                     isEditMode = isEditMode,
+                                     backgroundColorOverride = androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.3f),
+                                     highlightColor = theme.highlightColor,
+                                     buttonColor = theme.buttonColor,
+                                     iconColor = theme.iconColor,
+                                     shape = theme.floatingShape(),
+                                     iconSize = scaler.smallIconSize
+                                 )
+                             } else {
+                                 com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
+                                     onClick = {
+                                         if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx
+                                         else tool.onClick()
+                                     },
+                                     onAssign = { payload ->
+                                         viewModel.assignTool(tool.id, payload)
+                                     },
+                                     icon = tool.icon,
+                                     contentDescription = tool.contentDescription,
+                                     isActive = tool.isActive,
+                                     isEditMode = isEditMode,
+                                     highlightColor = theme.highlightColor,
+                                     buttonColor = theme.buttonColor,
+                                     iconColor = theme.iconColor,
+                                     shape = theme.floatingShape(),
+                                     iconSize = scaler.smallIconSize,
+                                     location = ToolLocation.LeftBar,
+                                     theme = theme
+                                 )
+                             }
                          }
                     }
                     if (isEditMode) {
@@ -837,22 +863,45 @@ fun StudioLayout(
                                      .clickable { if (isEditMode) toolPickerTarget = ToolLocation.RightBar to idx }
                              )
                          } else {
-                             BigTouchBox(
-                                onClick = {
-                                    if (isEditMode) toolPickerTarget = ToolLocation.RightBar to idx
-                                    else tool.onClick()
-                                },
-                                touchSize = 48.dp
-                            ) {
-                                Icon(
-                                    imageVector = tool.icon,
-                                    contentDescription = tool.contentDescription,
-                                    tint = if (tool.isActive) theme.highlightColor else theme.iconColor,
-                                    modifier = Modifier
-                                        .size(scaler.smallIconSize)
-                                        .then(if (isEditMode) Modifier.alpha(0.6f) else Modifier)
-                                )
-                            }
+                             if (tool.isPlaceholder) {
+                                 com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
+                                     onClick = {
+                                         if (isEditMode) toolPickerTarget = ToolLocation.RightBar to idx
+                                         else tool.onClick()
+                                     },
+                                     icon = tool.icon,
+                                     contentDescription = tool.contentDescription,
+                                     isActive = tool.isActive,
+                                     isEditMode = isEditMode,
+                                     backgroundColorOverride = androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.3f),
+                                     highlightColor = theme.highlightColor,
+                                     buttonColor = theme.buttonColor,
+                                     iconColor = theme.iconColor,
+                                     shape = theme.floatingShape(),
+                                     iconSize = scaler.smallIconSize
+                                 )
+                             } else {
+                                 com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
+                                     onClick = {
+                                         if (isEditMode) toolPickerTarget = ToolLocation.RightBar to idx
+                                         else tool.onClick()
+                                     },
+                                     onAssign = { payload ->
+                                         viewModel.assignTool(tool.id, payload)
+                                     },
+                                     icon = tool.icon,
+                                     contentDescription = tool.contentDescription,
+                                     isActive = tool.isActive,
+                                     isEditMode = isEditMode,
+                                     highlightColor = theme.highlightColor,
+                                     buttonColor = theme.buttonColor,
+                                     iconColor = theme.iconColor,
+                                     shape = theme.floatingShape(),
+                                     iconSize = scaler.smallIconSize,
+                                     location = ToolLocation.RightBar,
+                                     theme = theme
+                                 )
+                             }
                          }
                     }
                     if (isEditMode) {
@@ -902,22 +951,45 @@ fun StudioLayout(
                                      .clickable { if (isEditMode) toolPickerTarget = ToolLocation.TopBar to idx }
                              )
                          } else {
-                             BigTouchBox(
-                                onClick = {
-                                    if (isEditMode) toolPickerTarget = ToolLocation.TopBar to idx
-                                    else tool.onClick()
-                                },
-                                touchSize = 48.dp
-                            ) {
-                                Icon(
-                                    imageVector = tool.icon,
-                                    contentDescription = tool.contentDescription,
-                                    tint = if (tool.isActive) theme.highlightColor else theme.iconColor,
-                                    modifier = Modifier
-                                        .size(scaler.smallIconSize)
-                                        .then(if (isEditMode) Modifier.alpha(0.6f) else Modifier)
-                                )
-                            }
+                             if (tool.isPlaceholder) {
+                                 com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
+                                     onClick = {
+                                         if (isEditMode) toolPickerTarget = ToolLocation.TopBar to idx
+                                         else tool.onClick()
+                                     },
+                                     icon = tool.icon,
+                                     contentDescription = tool.contentDescription,
+                                     isActive = tool.isActive,
+                                     isEditMode = isEditMode,
+                                     backgroundColorOverride = androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.3f),
+                                     highlightColor = theme.highlightColor,
+                                     buttonColor = theme.buttonColor,
+                                     iconColor = theme.iconColor,
+                                     shape = theme.floatingShape(),
+                                     iconSize = scaler.smallIconSize
+                                 )
+                             } else {
+                                 com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
+                                     onClick = {
+                                         if (isEditMode) toolPickerTarget = ToolLocation.TopBar to idx
+                                         else tool.onClick()
+                                     },
+                                     onAssign = { payload ->
+                                         viewModel.assignTool(tool.id, payload)
+                                     },
+                                     icon = tool.icon,
+                                     contentDescription = tool.contentDescription,
+                                     isActive = tool.isActive,
+                                     isEditMode = isEditMode,
+                                     highlightColor = theme.highlightColor,
+                                     buttonColor = theme.buttonColor,
+                                     iconColor = theme.iconColor,
+                                     shape = theme.floatingShape(),
+                                     iconSize = scaler.smallIconSize,
+                                     location = ToolLocation.TopBar,
+                                     theme = theme
+                                 )
+                             }
                          }
                     }
                     if (isEditMode) {
@@ -967,22 +1039,45 @@ fun StudioLayout(
                                      .clickable { if (isEditMode) toolPickerTarget = ToolLocation.BottomBar to idx }
                              )
                          } else {
-                             BigTouchBox(
-                                onClick = {
-                                    if (isEditMode) toolPickerTarget = ToolLocation.BottomBar to idx
-                                    else tool.onClick()
-                                },
-                                touchSize = 48.dp
-                            ) {
-                                Icon(
-                                    imageVector = tool.icon,
-                                    contentDescription = tool.contentDescription,
-                                    tint = if (tool.isActive) theme.highlightColor else theme.iconColor,
-                                    modifier = Modifier
-                                        .size(scaler.smallIconSize)
-                                        .then(if (isEditMode) Modifier.alpha(0.6f) else Modifier)
-                                )
-                            }
+                             if (tool.isPlaceholder) {
+                                 com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
+                                     onClick = {
+                                         if (isEditMode) toolPickerTarget = ToolLocation.BottomBar to idx
+                                         else tool.onClick()
+                                     },
+                                     icon = tool.icon,
+                                     contentDescription = tool.contentDescription,
+                                     isActive = tool.isActive,
+                                     isEditMode = isEditMode,
+                                     backgroundColorOverride = androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.3f),
+                                     highlightColor = theme.highlightColor,
+                                     buttonColor = theme.buttonColor,
+                                     iconColor = theme.iconColor,
+                                     shape = theme.floatingShape(),
+                                     iconSize = scaler.smallIconSize
+                                 )
+                             } else {
+                                 com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
+                                     onClick = {
+                                         if (isEditMode) toolPickerTarget = ToolLocation.BottomBar to idx
+                                         else tool.onClick()
+                                     },
+                                     onAssign = { payload ->
+                                         viewModel.assignTool(tool.id, payload)
+                                     },
+                                     icon = tool.icon,
+                                     contentDescription = tool.contentDescription,
+                                     isActive = tool.isActive,
+                                     isEditMode = isEditMode,
+                                     highlightColor = theme.highlightColor,
+                                     buttonColor = theme.buttonColor,
+                                     iconColor = theme.iconColor,
+                                     shape = theme.floatingShape(),
+                                     iconSize = scaler.smallIconSize,
+                                     location = ToolLocation.BottomBar,
+                                     theme = theme
+                                 )
+                             }
                          }
                     }
                     if (isEditMode) {
@@ -1025,23 +1120,246 @@ fun StudioLayout(
                 }
             }
         }
-    }
 
-    // --- TOOL PICKER DIALOG ---
-    toolPickerTarget?.let { (location, index) ->
-        ToolPickerDialog(
-            location = location,
-            index = index,
-            theme = theme,
-            onDismiss = { toolPickerTarget = null },
-            onToolSelected = { newTool ->
-                if (index == null) viewModel.addTool(location, newTool)
-                else viewModel.replaceTool(location, index, newTool)
-            },
-            onRemove = {
-                index?.let { viewModel.removeTool(location, it) }
+        // --- TOOL PICKER DIALOG ---
+        toolPickerTarget?.let { (location, index) ->
+            ToolPickerDialog(
+                location = location,
+                index = index,
+                theme = theme,
+                onDismiss = { toolPickerTarget = null },
+                onToolSelected = { newTool ->
+                    if (index == null) viewModel.addTool(location, newTool)
+                    else viewModel.replaceTool(location, index, newTool)
+                },
+                onRemove = {
+                    index?.let { viewModel.removeTool(location, it) }
+                }
+            )
+        }
+
+        // --- DIALOGS ---
+        if (showPersonalizationDialog) {
+            Dialog(onDismissRequest = { showPersonalizationDialog = false }) {
+                 Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.padding(16.dp).width(300.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("Customize Theme", style = MaterialTheme.typography.titleLarge, color = theme.iconColor)
+                        Spacer(modifier = Modifier.height(24.dp))
+                        
+                        // Shape Switch
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Round Shapes", color = theme.iconColor)
+                            Switch(
+                                checked = theme.isRound,
+                                onCheckedChange = { viewModel.updateTheme(theme.copy(isRound = it)) }
+                            )
+                        }
+                        
+                        Spacer(modifier = Modifier.height(24.dp))
+                        
+                        // Edit Toolbars Switch
+                        val isEditModeByVM by viewModel.isEditMode.collectAsState()
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Edit Toolbars", color = theme.iconColor)
+                            Switch(
+                                checked = isEditModeByVM,
+                                onCheckedChange = { viewModel.toggleEditMode() }
+                            )
+                        }
+ 
+                        Spacer(modifier = Modifier.height(24.dp))
+                        
+                        // UI Scale Slider
+                        var tempScale by remember { mutableStateOf(interfaceScale) }
+                        Text("UI Scale: ${String.format("%.1f", tempScale)}x", color = theme.iconColor, style = MaterialTheme.typography.labelMedium)
+                        Slider(
+                            value = tempScale,
+                            onValueChange = { tempScale = it },
+                            onValueChangeFinished = { viewModel.updateInterfaceScale(tempScale) },
+                            valueRange = 0.5f..1.5f,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+ 
+                        Spacer(modifier = Modifier.height(24.dp))
+                        // --- SEPARATE COLOR PICKERS ---
+                        var pickingColorFor by remember { mutableStateOf<String?>(null) }
+                        
+                        ColorPreviewRow(
+                            label = "Bar Color",
+                            color = theme.barBackgroundColor,
+                            labelColor = theme.iconColor,
+                            onClick = { pickingColorFor = "bar" }
+                        )
+                        
+                        ColorPreviewRow(
+                            label = "Button Color",
+                            color = theme.buttonColor,
+                            labelColor = theme.iconColor,
+                            onClick = { pickingColorFor = "button" }
+                        )
+                        
+                        ColorPreviewRow(
+                            label = "Icon Color",
+                            color = theme.iconColor,
+                            labelColor = theme.iconColor,
+                            onClick = { pickingColorFor = "icon" }
+                        )
+                        
+                        ColorPreviewRow(
+                            label = "Highlight Color",
+                            color = theme.highlightColor,
+                            labelColor = theme.iconColor,
+                            onClick = { pickingColorFor = "highlight" }
+                        )
+
+                        if (pickingColorFor != null) {
+                            val initialColor = when(pickingColorFor) {
+                                "bar" -> theme.barBackgroundColor
+                                "button" -> theme.buttonColor
+                                "icon" -> theme.iconColor
+                                "highlight" -> theme.highlightColor
+                                else -> Color.Transparent
+                            }
+                            
+                            ColorPickerDialog(
+                                initialColor = initialColor,
+                                recentColors = theme.recentColors,
+                                onDismiss = { pickingColorFor = null },
+                                onColorSelected = { newColor ->
+                                    // Update recent colors
+                                    val newRecents = (listOf(newColor) + theme.recentColors)
+                                        .distinct()
+                                        .take(12)
+                                
+                                    when(pickingColorFor) {
+                                        "bar" -> viewModel.updateTheme(theme.copy(barBackgroundColor = newColor, recentColors = newRecents))
+                                        "button" -> viewModel.updateTheme(theme.copy(buttonColor = newColor, recentColors = newRecents))
+                                        "icon" -> viewModel.updateTheme(theme.copy(iconColor = newColor, recentColors = newRecents))
+                                        "highlight" -> viewModel.updateTheme(theme.copy(highlightColor = newColor, recentColors = newRecents))
+                                    }
+                                    pickingColorFor = null
+                                }
+                            )
+                        }
+                        
+                        Spacer(modifier = Modifier.height(24.dp))
+                        
+                        // Opacity Slider (Optional now since color picker has alpha, but keeping for direct access)
+                        Text("Bar Opacity: ${(theme.barBackgroundColor.alpha * 100).toInt()}%", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
+                        Slider(
+                            value = theme.barBackgroundColor.alpha,
+                            onValueChange = { 
+                                viewModel.updateTheme(theme.copy(barBackgroundColor = theme.barBackgroundColor.copy(alpha = it))) 
+                            },
+                            valueRange = 0f..1f
+                        )
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // --- SHADOW CONTROLS ---
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Enable Shadows", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
+                            Switch(
+                                checked = theme.isShadowEnabled,
+                                onCheckedChange = { viewModel.updateTheme(theme.copy(isShadowEnabled = it)) }
+                            )
+                        }
+
+                        // Shadow Options UI: Only show if shadows enabled AND opacity is 100%
+                        val canShowShadowOptions = theme.isShadowEnabled && theme.barBackgroundColor.alpha == 1f
+                        
+                        AnimatedVisibility(visible = canShowShadowOptions) {
+                            Column {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                
+                                // Shadow Opacity Slider
+                                Text("Shadow Opacity: ${(theme.shadowOpacity * 100).toInt()}%", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
+                                Slider(
+                                    value = theme.shadowOpacity,
+                                    onValueChange = { 
+                                        viewModel.updateTheme(theme.copy(shadowOpacity = it)) 
+                                    },
+                                    valueRange = 0f..1f
+                                )
+                                
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                // Shadow Blur Slider
+                                Text("Shadow Blur: ${theme.shadowBlur.value.toInt()} dp", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
+                                Slider(
+                                    value = theme.shadowBlur.value,
+                                    onValueChange = { 
+                                        viewModel.updateTheme(theme.copy(shadowBlur = it.dp)) 
+                                    },
+                                    valueRange = 0f..24f
+                                )
+                                
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                // Angle Slider
+                                Text("Shadow Angle: ${theme.shadowAngle.toInt()}°", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
+                                Slider(
+                                    value = theme.shadowAngle,
+                                    onValueChange = { 
+                                        viewModel.updateTheme(theme.copy(shadowAngle = it)) 
+                                    },
+                                    valueRange = 0f..360f
+                                )
+                            }
+                        }
+
+                        if (theme.isShadowEnabled && theme.barBackgroundColor.alpha < 1f) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "Shadows hidden because Opacity < 100%", 
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error.copy(alpha=0.7f)
+                            )
+                        }
+                        
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Button(
+                            onClick = { showPersonalizationDialog = false },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = theme.buttonColor,
+                                contentColor = theme.iconColor
+                            )
+                        ) {
+                            Text("Close")
+                        }
+                    }
+                }
             }
-        )
+        }
+
+        // --- PROPERTIES PANEL ---
+        if (viewModel.showPropertiesPanel) {
+            Dialog(onDismissRequest = { viewModel.togglePropertiesPanel() }) {
+                ToolPropertiesPanel(viewModel = viewModel, onDismiss = { viewModel.togglePropertiesPanel() })
+            }
+        }
     }
 
     // --- DIALOGS ---

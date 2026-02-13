@@ -39,7 +39,7 @@ class MainActivity : ComponentActivity() {
             
             // HOISTED STATE
             var isStudioMode by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(true) }
-            var uiCollapsed by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+            var uiCollapsed by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(true) }
             
             // SWAP STATES (Hoisted)
             var swapVertical by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }

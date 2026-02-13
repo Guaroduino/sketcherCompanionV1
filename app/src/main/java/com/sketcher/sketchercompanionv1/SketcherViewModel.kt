@@ -40,7 +40,9 @@ import android.graphics.RectF
 import android.net.Uri
 import com.sketcher.sketchercompanionv1.command.*
 import com.sketcher.sketchercompanionv1.data.ThemeRepository
+import com.sketcher.sketchercompanionv1.data.ToolbarRepository
 import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
+import com.sketcher.sketchercompanionv1.ui.components.ToolPayload
 import com.sketcher.sketchercompanionv1.ui.model.StudioTool
 import com.sketcher.sketchercompanionv1.ui.model.ToolLocation
 import androidx.compose.material.icons.Icons
@@ -68,6 +70,7 @@ data class DxfExportConfig(
 class SketcherViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE)
     private val themeRepository = ThemeRepository(application)
+    private val toolbarRepository = ToolbarRepository(application)
 
     // STATE
     // --- UI/DEBUG SETTINGS (Restored) ---
@@ -135,23 +138,103 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         _isEditMode.value = !_isEditMode.value
     }
 
+    // --- PROPERTIES PANEL STATE ---
+    var showPropertiesPanel by mutableStateOf(false)
+        private set
+
+    fun togglePropertiesPanel() {
+        showPropertiesPanel = !showPropertiesPanel
+    }
+
+    fun activateTool(payload: ToolPayload) {
+        when(payload) {
+            ToolPayload.PENCIL -> selectTool(ToolType.FREEHAND)
+            ToolPayload.ERASER -> selectTool(ToolType.ERASER)
+            ToolPayload.FILL -> selectTool(ToolType.FILL)
+        }
+    }
+
+    // --- ASSIGNED TOOLS STATE ---
+    private val _assignedTools = MutableStateFlow<Map<String, ToolPayload>>(emptyMap())
+    
+    private fun getPayloadFromToolId(id: String): ToolPayload? = when(id) {
+        "pencil" -> ToolPayload.PENCIL
+        "eraser" -> ToolPayload.ERASER
+        "fill" -> ToolPayload.FILL
+        else -> null
+    }
+
+    fun assignTool(toolId: String, payload: ToolPayload) {
+        // 1. Update Map
+        _assignedTools.value = _assignedTools.value + (toolId to payload)
+        
+        // 2. Update List (Visuals) to reflect the new tool's icon/desc
+        val currentMap = _toolbarState.value.toMutableMap()
+        for ((loc, list) in currentMap) {
+            val idx = list.indexOfFirst { it.id == toolId }
+            if (idx != -1) {
+                val oldTool = list[idx]
+                val newList = list.toMutableList()
+                newList[idx] = oldTool.copy(
+                    icon = payload.icon,
+                    contentDescription = payload.label,
+                    isPlaceholder = false 
+                )
+                currentMap[loc] = newList
+                _toolbarState.value = currentMap
+                break
+            }
+        }
+        
+        // 3. Activate
+        activateTool(payload)
+        
+        // 4. Save
+        toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value)
+    }
+
     fun addTool(location: ToolLocation, tool: StudioTool) {
+        val uniqueId = UUID.randomUUID().toString()
+        val initialPayload = getPayloadFromToolId(tool.id)
+        
+        if (initialPayload != null) {
+            _assignedTools.value = _assignedTools.value + (uniqueId to initialPayload)
+        }
+
+        val uniqueTool = tool.copy(
+            id = uniqueId,
+            registryId = tool.id,
+            onClick = {
+                val payload = _assignedTools.value[uniqueId]
+                if (payload != null) {
+                    activateTool(payload)
+                } else {
+                    // Use registryId because it's the stable identifier for actions
+                    getActionForTool(tool.id).invoke() 
+                }
+            }
+        )
+        
         val currentMap = _toolbarState.value.toMutableMap()
         val list = currentMap[location]?.toMutableList() ?: mutableListOf()
-        // Ensure the onClick is preserved or wrapped if needed, 
-        // but for now, we follow the default behavior or logic from registry.
-        list.add(tool.copy(onClick = getActionForTool(tool.id)))
+        list.add(uniqueTool)
         currentMap[location] = list
         _toolbarState.value = currentMap
+        
+        toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value)
     }
 
     fun removeTool(location: ToolLocation, index: Int) {
         val currentMap = _toolbarState.value.toMutableMap()
         val list = currentMap[location]?.toMutableList() ?: return
         if (index in list.indices) {
-            list.removeAt(index)
+            val tool = list.removeAt(index)
+            // Cleanup assignment
+            _assignedTools.value = _assignedTools.value - tool.id
+            
             currentMap[location] = list
             _toolbarState.value = currentMap
+            toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value)
         }
     }
 
@@ -159,9 +242,33 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         val currentMap = _toolbarState.value.toMutableMap()
         val list = currentMap[location]?.toMutableList() ?: return
         if (index in list.indices) {
-            list[index] = newTool.copy(onClick = getActionForTool(newTool.id))
+            val oldTool = list[index]
+            _assignedTools.value = _assignedTools.value - oldTool.id
+            
+            val uniqueId = UUID.randomUUID().toString()
+            val initialPayload = getPayloadFromToolId(newTool.id)
+            
+            if (initialPayload != null) {
+                _assignedTools.value = _assignedTools.value + (uniqueId to initialPayload)
+            }
+            
+            val uniqueTool = newTool.copy(
+                id = uniqueId,
+                registryId = newTool.id,
+                onClick = {
+                    val payload = _assignedTools.value[uniqueId]
+                    if (payload != null) {
+                        activateTool(payload)
+                    } else {
+                        getActionForTool(newTool.id).invoke()
+                    }
+                }
+            )
+            
+            list[index] = uniqueTool
             currentMap[location] = list
             _toolbarState.value = currentMap
+            toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value)
         }
     }
 
@@ -170,6 +277,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         "redo" -> { { redo() } }
         "menu" -> { { /* Handled in UI for now */ } }
         "settings" -> { { /* Handled in UI for now */ } }
+        StudioTool.PROPERTIES_TOOL_ID -> { { togglePropertiesPanel() } }
         // Add more mappings as tools gain real functionality
         else -> { {} }
     }
@@ -177,34 +285,35 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     private fun initToolbarState() {
         _toolbarState.value = mapOf(
             ToolLocation.LeftBar to listOf(
-                StudioTool("edit", Icons.Default.Edit, "Edit", isActive = true),
-                StudioTool("create", Icons.Default.Add, "Create"),
-                StudioTool("brush", Icons.Default.Brush, "Brush")
+                StudioTool("edit", Icons.Default.Edit, "Edit", isActive = true, isPlaceholder = true),
+                StudioTool("create", Icons.Default.Add, "Create", isPlaceholder = true),
+                StudioTool("brush", Icons.Default.Brush, "Brush", isPlaceholder = true)
             ),
             ToolLocation.RightBar to listOf(
-                StudioTool("layers", Icons.Default.Layers, "Layers"),
-                StudioTool("palette", Icons.Default.Palette, "Palette"),
-                StudioTool("opacity", Icons.Default.Opacity, "Opacity")
+                StudioTool("layers", Icons.Default.Layers, "Layers", isPlaceholder = true),
+                StudioTool("palette", Icons.Default.Palette, "Palette", isPlaceholder = true),
+                StudioTool("opacity", Icons.Default.Opacity, "Opacity", isPlaceholder = true),
+                StudioTool(StudioTool.PROPERTIES_TOOL_ID, Icons.Default.Tune, "Properties", isPlaceholder = false)
             ),
             ToolLocation.TopBar to listOf(
-                StudioTool("play", Icons.Default.PlayArrow, "Play"),
-                StudioTool("pause", Icons.Default.Pause, "Pause")
+                StudioTool("play", Icons.Default.PlayArrow, "Play", isPlaceholder = true),
+                StudioTool("pause", Icons.Default.Pause, "Pause", isPlaceholder = true)
             ),
             ToolLocation.BottomBar to listOf(
-                StudioTool("zoom_in", Icons.Default.ZoomIn, "Zoom In"),
-                StudioTool("zoom_out", Icons.Default.ZoomOut, "Zoom Out")
+                StudioTool("zoom_in", Icons.Default.ZoomIn, "Zoom In", isPlaceholder = true),
+                StudioTool("zoom_out", Icons.Default.ZoomOut, "Zoom Out", isPlaceholder = true)
             ),
             ToolLocation.TopLeftCorner to listOf(
-                StudioTool("menu", Icons.Default.Menu, "Menu")
+                StudioTool("menu", Icons.Default.Menu, "Menu", isPlaceholder = true)
             ),
             ToolLocation.TopRightCorner to listOf(
-                StudioTool("settings", Icons.Default.Settings, "Settings")
+                StudioTool("settings", Icons.Default.Settings, "Settings", isPlaceholder = true)
             ),
             ToolLocation.BottomLeftCorner to listOf(
-                StudioTool("undo", Icons.Default.Undo, "Undo") { undo() }
+                StudioTool("undo", Icons.Default.Undo, "Undo", isPlaceholder = true) { undo() }
             ),
             ToolLocation.BottomRightCorner to listOf(
-                StudioTool("redo", Icons.Default.Redo, "Redo") { redo() }
+                StudioTool("redo", Icons.Default.Redo, "Redo", isPlaceholder = true) { redo() }
             )
         )
     }
@@ -377,7 +486,31 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         fingerOffsetXValue = freehandConfig.fingerOffsetX
         fingerOffsetYValue = freehandConfig.fingerOffsetY
         selectTool(currentTool)
-        initToolbarState()
+        
+        // Try to load saved layout
+        val loaded = toolbarRepository.loadLayout()
+        if (loaded != null) {
+            val (tools, assigned) = loaded
+            _assignedTools.value = assigned
+            
+            // Re-bind actions (since they aren't serialized)
+            val toolsWithActions = tools.mapValues { (_, list) ->
+                list.map { tool ->
+                    tool.copy(onClick = {
+                        val payload = _assignedTools.value[tool.id]
+                        if (payload != null) {
+                            activateTool(payload)
+                        } else {
+                            // Use registryId to lookup action
+                            getActionForTool(tool.registryId).invoke()
+                        }
+                    })
+                }
+            }
+            _toolbarState.value = toolsWithActions
+        } else {
+            initToolbarState()
+        }
     }
 
     // --- GLOBAL OFFSET SETTERS ---
