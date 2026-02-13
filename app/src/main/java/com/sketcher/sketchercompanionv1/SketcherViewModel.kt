@@ -287,7 +287,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             ToolLocation.LeftBar to listOf(
                 StudioTool("edit", Icons.Default.Edit, "Edit", isActive = true, isPlaceholder = true),
                 StudioTool("create", Icons.Default.Add, "Create", isPlaceholder = true),
-                StudioTool("brush", Icons.Default.Brush, "Brush", isPlaceholder = true)
+                StudioTool("brush", Icons.Default.Brush, "Brush", isPlaceholder = false)
             ),
             ToolLocation.RightBar to listOf(
                 StudioTool("layers", Icons.Default.Layers, "Layers", isPlaceholder = true),
@@ -310,10 +310,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 StudioTool("settings", Icons.Default.Settings, "Settings", isPlaceholder = true)
             ),
             ToolLocation.BottomLeftCorner to listOf(
-                StudioTool("undo", Icons.Default.Undo, "Undo", isPlaceholder = true) { undo() }
+                StudioTool("undo", Icons.Default.Undo, "Undo", isPlaceholder = false) { undo() }
             ),
             ToolLocation.BottomRightCorner to listOf(
-                StudioTool("redo", Icons.Default.Redo, "Redo", isPlaceholder = true) { redo() }
+                StudioTool("redo", Icons.Default.Redo, "Redo", isPlaceholder = false) { redo() }
             )
         )
     }
@@ -419,6 +419,34 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     fun updateGeometricStrokeInProgress(inProgress: Boolean) {
         isGeometricStrokeInProgress = inProgress
+    }
+
+    // --- BRUSH SIZE & OPACITY (Studio UI) ---
+    private val _brushSize = MutableStateFlow(2f)
+    val brushSize = _brushSize.asStateFlow()
+
+    private val _brushOpacity = MutableStateFlow(1f)
+    val brushOpacity = _brushOpacity.asStateFlow()
+
+    private val _sizePresets = MutableStateFlow(listOf(5f, 15f, 30f))
+    val sizePresets = _sizePresets.asStateFlow()
+
+    fun updateBrushSize(newSize: Float) {
+        _brushSize.value = newSize
+        setToolSize(newSize)
+    }
+
+    fun updateBrushOpacity(newAlpha: Float) {
+        _brushOpacity.value = newAlpha
+        setToolOpacity(newAlpha)
+    }
+
+    fun saveSizePreset(index: Int, size: Float) {
+        val currentList = _sizePresets.value.toMutableList()
+        if (index in currentList.indices) {
+            currentList[index] = size
+            _sizePresets.value = currentList
+        }
     }
 
     fun updateStrokeType(type: StrokeType) {
@@ -762,7 +790,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         val config = toolConfigs[type] ?: toolConfigs[ToolType.FREEHAND]!!
         
         currentSize = config.size
+        _brushSize.value = config.size // SYNC Studio UI
         currentOpacity = config.opacity
+        _brushOpacity.value = config.opacity // SYNC Studio UI
         currentFreehandSettings = config.freehandSettings
         
         isFillModeEnabled = (type == ToolType.FILL)
@@ -783,6 +813,15 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
     
     // --- GLOBAL STABILIZER ---
+    private val _smoothing = MutableStateFlow(prefs.getFloat("global_stabilization", 0f))
+    val smoothing = _smoothing.asStateFlow()
+
+    fun updateSmoothing(value: Float) {
+        val clamped = value.coerceIn(0f, 1f)
+        _smoothing.value = clamped
+        setGlobalStabilization(clamped)
+    }
+
     var globalStabilizationLevel by mutableFloatStateOf(prefs.getFloat("global_stabilization", 0f))
         private set
 
@@ -790,6 +829,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         val clamped = level.coerceIn(0f, 1f)
         if (globalStabilizationLevel != clamped) {
             globalStabilizationLevel = clamped
+            _smoothing.value = clamped // Keep StateFlow in sync
             prefs.edit().putFloat("global_stabilization", clamped).apply()
         }
     }

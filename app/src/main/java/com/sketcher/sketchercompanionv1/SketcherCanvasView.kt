@@ -163,6 +163,7 @@ class SketcherCanvasView(context: Context) : View(context) {
         set(value) { field = value; strokePipeline.fingerOffsetY = value }
     var globalStabilizationLevel: Float = 0f
         set(value) { field = value; strokePipeline.globalStabilizationLevel = value }
+    var isPalmRejectionEnabled: Boolean = false
     var snapFunction: ((Float, Float) -> Pair<Float, Float>)? = null
         set(value) { field = value; strokePipeline.snapFunction = value }
     var currentTool: ToolType = ToolType.FREEHAND
@@ -311,6 +312,11 @@ class SketcherCanvasView(context: Context) : View(context) {
     // --- INPUT GESTURES ---
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        // Basic Palm Rejection: If enabled and we have a stylus, ignore non-stylus events
+        if (isPalmRejectionEnabled && event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS) {
+            return false
+        }
+
         strokePipeline.canvasViewMatrix.set(viewMatrix)
         
         // Calculate current zoom factor

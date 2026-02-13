@@ -65,6 +65,9 @@ import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.Check
 import com.sketcher.sketchercompanionv1.ui.dialogs.ToolPropertiesPanel
+import com.sketcher.sketchercompanionv1.ui.dialogs.QuickSmoothingPopup
+import com.sketcher.sketchercompanionv1.ui.dialogs.SizeOpacityPopup
+import com.sketcher.sketchercompanionv1.ui.components.DynamicSizeButton
 
 @Composable
 fun StudioLayout(
@@ -110,6 +113,8 @@ fun StudioLayout(
     var rightPanelWidth by remember(scaler) { mutableStateOf(scaler.sidePanelWidth) }
     var layersPanelWeight by remember { mutableFloatStateOf(0.5f) }
     var showPersonalizationDialog by remember { mutableStateOf(false) }
+    var showStabilizationPopup by remember { mutableStateOf(false) }
+    var showSizeOpacityPopup by remember { mutableStateOf(false) }
 
     // --- SWAP STATES (Moved to MainActivity) ---
 
@@ -220,14 +225,28 @@ fun StudioLayout(
             },
             update = { view ->
                 view.currentTool = viewModel.currentTool
-                view.activeColor = viewModel.currentColor
+                
+                // Apply Opacity to Color
+                val baseColor = viewModel.currentColor
+                val alpha = (viewModel.currentOpacity * 255).toInt()
+                view.activeColor = (baseColor and 0x00FFFFFF) or (alpha shl 24)
+                
                 view.activeSize = viewModel.currentSize
                 view.activeStrokeType = viewModel.currentStrokeType
+                view.activeFreehandSettings = viewModel.currentFreehandSettings
+                view.isFingerMode = viewModel.fingerModeActive
+                view.fingerOffsetX = viewModel.fingerOffsetXValue
+                view.fingerOffsetY = viewModel.fingerOffsetYValue
+                view.isPalmRejectionEnabled = viewModel.isPalmRejectionEnabled
+                view.isDebugWireframe = viewModel.isDebugWireframe
+                view.canvasBackgroundColor = viewModel.backgroundColor
+                
                 view.isFillModeEnabled = viewModel.isFillModeEnabled
                 view.fillModeColor = viewModel.fillModeColor
                 view.gridConfig = viewModel.gridConfig
                 view.scaleConfig = viewModel.scaleConfig
                 view.currentUnit = viewModel.currentUnit
+                view.globalStabilizationLevel = viewModel.globalStabilizationLevel
                 if (currentLayers.isNotEmpty()) {
                     view.setLayers(currentLayers, viewModel.componentLibrary, viewModel.editingContext)
                 }
@@ -573,6 +592,7 @@ fun StudioLayout(
                             when {
                                 topLeftTool?.isActive == true -> theme.highlightColor
                                 isEditMode -> theme.barBackgroundColor.copy(alpha = 0.5f)
+                                topLeftTool?.isPlaceholder == true -> Color.Red.copy(alpha = 0.3f)
                                 else -> theme.barBackgroundColor
                             }
                         )
@@ -624,6 +644,7 @@ fun StudioLayout(
                             when {
                                 topRightTool?.isActive == true -> theme.highlightColor
                                 isEditMode -> theme.barBackgroundColor.copy(alpha = 0.5f)
+                                topRightTool?.isPlaceholder == true -> Color.Red.copy(alpha = 0.3f)
                                 else -> theme.barBackgroundColor
                             }
                         )
@@ -674,6 +695,7 @@ fun StudioLayout(
                             when {
                                 bottomLeftTool?.isActive == true -> theme.highlightColor
                                 isEditMode -> theme.barBackgroundColor.copy(alpha = 0.5f)
+                                bottomLeftTool?.isPlaceholder == true -> Color.Red.copy(alpha = 0.3f)
                                 else -> theme.barBackgroundColor
                             }
                         )
@@ -724,6 +746,7 @@ fun StudioLayout(
                             when {
                                 bottomRightTool?.isActive == true -> theme.highlightColor
                                 isEditMode -> theme.barBackgroundColor.copy(alpha = 0.5f)
+                                bottomRightTool?.isPlaceholder == true -> Color.Red.copy(alpha = 0.3f)
                                 else -> theme.barBackgroundColor
                             }
                         )
@@ -776,10 +799,27 @@ fun StudioLayout(
                                      .clickable { if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx }
                              )
                          } else {
-                             if (tool.isPlaceholder) {
+                             if (tool.registryId == StudioTool.SIZE_OPACITY_TOOL_ID) {
+                                 val currentSizeVal by viewModel.brushSize.collectAsState()
+                                 DynamicSizeButton(
+                                     onClick = {
+                                         if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx
+                                         else showSizeOpacityPopup = true
+                                     },
+                                     brushSize = currentSizeVal,
+                                     isActive = tool.isActive,
+                                     isEditMode = isEditMode,
+                                     backgroundColorOverride = if (tool.isPlaceholder) Color.Red.copy(alpha = 0.3f) else null,
+                                     highlightColor = theme.highlightColor,
+                                     buttonColor = theme.buttonColor,
+                                     iconColor = theme.iconColor,
+                                     shape = theme.floatingShape()
+                                 )
+                             } else if (tool.isPlaceholder) {
                                  com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
                                      onClick = {
                                          if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx
+                                         else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
                                          else tool.onClick()
                                      },
                                      icon = tool.icon,
@@ -797,6 +837,7 @@ fun StudioLayout(
                                  com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
                                      onClick = {
                                          if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx
+                                         else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
                                          else tool.onClick()
                                      },
                                      onAssign = { payload ->
@@ -863,10 +904,27 @@ fun StudioLayout(
                                      .clickable { if (isEditMode) toolPickerTarget = ToolLocation.RightBar to idx }
                              )
                          } else {
-                             if (tool.isPlaceholder) {
+                             if (tool.registryId == StudioTool.SIZE_OPACITY_TOOL_ID) {
+                                 val currentSizeVal by viewModel.brushSize.collectAsState()
+                                 DynamicSizeButton(
+                                     onClick = {
+                                         if (isEditMode) toolPickerTarget = ToolLocation.RightBar to idx
+                                         else showSizeOpacityPopup = true
+                                     },
+                                     brushSize = currentSizeVal,
+                                     isActive = tool.isActive,
+                                     isEditMode = isEditMode,
+                                     backgroundColorOverride = if (tool.isPlaceholder) Color.Red.copy(alpha = 0.3f) else null,
+                                     highlightColor = theme.highlightColor,
+                                     buttonColor = theme.buttonColor,
+                                     iconColor = theme.iconColor,
+                                     shape = theme.floatingShape()
+                                 )
+                             } else if (tool.isPlaceholder) {
                                  com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
                                      onClick = {
                                          if (isEditMode) toolPickerTarget = ToolLocation.RightBar to idx
+                                         else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
                                          else tool.onClick()
                                      },
                                      icon = tool.icon,
@@ -884,6 +942,7 @@ fun StudioLayout(
                                  com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
                                      onClick = {
                                          if (isEditMode) toolPickerTarget = ToolLocation.RightBar to idx
+                                         else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
                                          else tool.onClick()
                                      },
                                      onAssign = { payload ->
@@ -951,10 +1010,27 @@ fun StudioLayout(
                                      .clickable { if (isEditMode) toolPickerTarget = ToolLocation.TopBar to idx }
                              )
                          } else {
-                             if (tool.isPlaceholder) {
+                             if (tool.registryId == StudioTool.SIZE_OPACITY_TOOL_ID) {
+                                 val currentSizeVal by viewModel.brushSize.collectAsState()
+                                 DynamicSizeButton(
+                                     onClick = {
+                                         if (isEditMode) toolPickerTarget = ToolLocation.TopBar to idx
+                                         else showSizeOpacityPopup = true
+                                     },
+                                     brushSize = currentSizeVal,
+                                     isActive = tool.isActive,
+                                     isEditMode = isEditMode,
+                                     backgroundColorOverride = if (tool.isPlaceholder) Color.Red.copy(alpha = 0.3f) else null,
+                                     highlightColor = theme.highlightColor,
+                                     buttonColor = theme.buttonColor,
+                                     iconColor = theme.iconColor,
+                                     shape = theme.floatingShape()
+                                 )
+                             } else if (tool.isPlaceholder) {
                                  com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
                                      onClick = {
                                          if (isEditMode) toolPickerTarget = ToolLocation.TopBar to idx
+                                         else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
                                          else tool.onClick()
                                      },
                                      icon = tool.icon,
@@ -972,6 +1048,7 @@ fun StudioLayout(
                                  com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
                                      onClick = {
                                          if (isEditMode) toolPickerTarget = ToolLocation.TopBar to idx
+                                         else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
                                          else tool.onClick()
                                      },
                                      onAssign = { payload ->
@@ -1039,10 +1116,27 @@ fun StudioLayout(
                                      .clickable { if (isEditMode) toolPickerTarget = ToolLocation.BottomBar to idx }
                              )
                          } else {
-                             if (tool.isPlaceholder) {
+                             if (tool.registryId == StudioTool.SIZE_OPACITY_TOOL_ID) {
+                                 val currentSizeVal by viewModel.brushSize.collectAsState()
+                                 DynamicSizeButton(
+                                     onClick = {
+                                         if (isEditMode) toolPickerTarget = ToolLocation.BottomBar to idx
+                                         else showSizeOpacityPopup = true
+                                     },
+                                     brushSize = currentSizeVal,
+                                     isActive = tool.isActive,
+                                     isEditMode = isEditMode,
+                                     backgroundColorOverride = if (tool.isPlaceholder) Color.Red.copy(alpha = 0.3f) else null,
+                                     highlightColor = theme.highlightColor,
+                                     buttonColor = theme.buttonColor,
+                                     iconColor = theme.iconColor,
+                                     shape = theme.floatingShape()
+                                 )
+                             } else if (tool.isPlaceholder) {
                                  com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
                                      onClick = {
                                          if (isEditMode) toolPickerTarget = ToolLocation.BottomBar to idx
+                                         else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
                                          else tool.onClick()
                                      },
                                      icon = tool.icon,
@@ -1060,6 +1154,7 @@ fun StudioLayout(
                                  com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
                                      onClick = {
                                          if (isEditMode) toolPickerTarget = ToolLocation.BottomBar to idx
+                                         else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
                                          else tool.onClick()
                                      },
                                      onAssign = { payload ->
@@ -1359,6 +1454,26 @@ fun StudioLayout(
             Dialog(onDismissRequest = { viewModel.togglePropertiesPanel() }) {
                 ToolPropertiesPanel(viewModel = viewModel, onDismiss = { viewModel.togglePropertiesPanel() })
             }
+        }
+
+        // --- QUICK STABILIZATION POPUP ---
+        if (showStabilizationPopup) {
+            val currentSmoothing by viewModel.smoothing.collectAsState()
+            QuickSmoothingPopup(
+                value = currentSmoothing,
+                onValueChange = { viewModel.updateSmoothing(it) },
+                onDismiss = { showStabilizationPopup = false },
+                theme = theme
+            )
+        }
+
+        // --- BRUSH SIZE & OPACITY POPUP ---
+        if (showSizeOpacityPopup) {
+            SizeOpacityPopup(
+                viewModel = viewModel,
+                onDismiss = { showSizeOpacityPopup = false },
+                theme = theme
+            )
         }
     }
 
