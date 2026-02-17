@@ -226,113 +226,14 @@ fun Context.findActivity(): Activity? = when (this) {
 @SuppressLint("ClickableViewAccessibility", "SourceLockedOrientationActivity")
 @Composable
 fun SketcherSurface(
-    sketchViewModel: SketcherViewModel = viewModel()
+    sketchViewModel: SketcherViewModel,
+    projectActions: com.sketcher.sketchercompanionv1.ui.model.ProjectActions
 ) {
     val context = LocalContext.current
     val activity = context.findActivity()
 
     var canvasViewRef by remember { mutableStateOf<SketcherCanvasView?>(null) }
 
-    // --- SAVE / LOAD HANDLERS (SAF) ---
-    // --- SAVE / LOAD HANDLERS (SAF) ---
-    val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let {
-            sketchViewModel.insertImage(context, it)
-        }
-    }
-    
-    val svgPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let {
-            sketchViewModel.insertSvg(context, it)
-        }
-    }
-
-    val saveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
-        uri?.let {
-            sketchViewModel.saveProjectToZip(context, it)
-        }
-    }
-
-    val loadLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let {
-            try {
-                sketchViewModel.loadProjectFromZip(context, it)
-                // Update View and Redraw Cache (using the new value from StateFlow)
-                canvasViewRef?.setLayers(sketchViewModel.layers.value, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
-                canvasViewRef?.redrawAllCache()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-    }
-    
-    val exportSvgLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/svg+xml")) { uri ->
-        uri?.let {
-             sketchViewModel.exportSvg(context, it, sketchViewModel.lastExportSvgConfig)
-        }
-    }
-    
-    val exportPngLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/png")) { uri ->
-        uri?.let {
-             sketchViewModel.exportPng(context, it, sketchViewModel.lastExportPngConfig)
-        }
-    }
-    
-    val importImageLauncher = rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
-        uri?.let {
-            sketchViewModel.insertImage(context, it)
-        }
-    }
-
-    val importSvgLauncher = rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
-        uri?.let {
-             sketchViewModel.insertSvg(context, it)
-        }
-    }
-
-    // --- DXF HANDLERS ---
-    var showDxfImportDialog by remember { mutableStateOf(false) }
-    var dxfImportUri by remember { mutableStateOf<android.net.Uri?>(null) }
-    
-    val dxfImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let {
-            dxfImportUri = it
-            showDxfImportDialog = true
-        }
-    }
-    
-    var showDxfExportDialog by remember { mutableStateOf(false) }
-    
-    val dxfExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/dxf")) { uri ->
-        uri?.let { textUri ->
-             // We need to trigger export. 
-             // Since export logic is in ViewModel usually, but here we have the strokes in VM.
-             // We can do it here or via VM. Let's do it via VM to keep patterns consistent, or direct helper.
-             // For simplicity and direct access to strokes, let's add a helper in ViewModel or just call Exporter here in IO scope.
-             // But valid pattern is VM.
-             
-             // However, DxfExportDialog gives us filename, THEN we launch creator?
-             // Or we launch creator, get URI, then ask for filename?
-             // Standard: "Export" menu -> Dialog (ask filename) -> CreateDocument (using filename) -> Write.
-             
-             // So: 
-             // 1. Menu "Export DXF" -> Show Dialog.
-             // 2. Dialog "Export" -> Launch CreateDocument(filename.dxf).
-             // 3. Launcher Result -> Write to URI.
-             
-             // We need to store pending export config from dialog?
-             // Or just use the URI.
-             
-             sketchViewModel.exportDxf(context, textUri)
-        }
-    }
-    
-    val exportPdfLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
-        uri?.let {
-            sketchViewModel.exportPdf(context, it)
-        }
-    }
-    
     // Detectamos cambio de configuración (rotación) automáticamente con Compose
     val configuration = LocalConfiguration.current
     var showLazyStrokePopup by rememberSaveable { mutableStateOf(false) }
@@ -343,19 +244,11 @@ fun SketcherSurface(
     var showColorPicker by remember { mutableStateOf(false) }
     var showToolPopup by remember { mutableStateOf(false) }
     var showSizePopup by remember { mutableStateOf(false) }
-    var showSettingsPopup by remember { mutableStateOf(false) }
     var showLayerManager by remember { mutableStateOf(false) }
     var showBackgroundColorPicker by remember { mutableStateOf(false) } 
-    var showGridSettings by remember { mutableStateOf(false) }
     var showToolSettingsPopup by remember { mutableStateOf(false) }
     var showFillColorPicker by remember { mutableStateOf(false) }
     var showHomeSavedFeedback by remember { mutableStateOf(false) }
-    var showExportPngDialog by remember { mutableStateOf(false) }
-    var showExportSvgDialog by remember { mutableStateOf(false) }
-    var showPaperSizeDialog by remember { mutableStateOf(false) }
-    var showPdfExportDialog by remember { mutableStateOf(false) }
-    var pendingDxfFilename by remember { mutableStateOf("drawing") }
-    var pendingDxfSelectionOnly by remember { mutableStateOf(false) }
     
     // UI Feedback State
     val showHomeRestoredFeedback = sketchViewModel.showHomeRestoredFeedback
@@ -419,14 +312,6 @@ fun SketcherSurface(
     val isDebugWireframe = sketchViewModel.isDebugWireframe
     val toolbarBackgroundColor = sketchViewModel.toolbarBackgroundColor
     val onToolbarBackgroundColorChanged: (Int) -> Unit = { sketchViewModel.updateToolbarBackgroundColor(it) }
-    
-    // DXF Menu Actions
-    val onImportDxfClick: () -> Unit = {
-        dxfImportLauncher.launch(arrayOf("*/*")) // Allow user to pick, often application/dxf or text/plain
-    }
-    val onExportDxfClick: () -> Unit = {
-        showDxfExportDialog = true
-    }
     
     val activeToolType = sketchViewModel.currentTool
 
@@ -766,54 +651,21 @@ fun SketcherSurface(
                 canRedo = sketchViewModel.canRedo,
                 onRedo = { sketchViewModel.redo(); canvasViewRef?.setLayers(sketchViewModel.layers.value, sketchViewModel.componentLibrary, sketchViewModel.editingContext); canvasViewRef?.redrawAllCache() },
                 onLayersClick = { showLayerManager = !showLayerManager },
-                onSave = { saveLauncher.launch("sketch.zip") },
-                onLoad = { loadLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
-                onImportImage = { importImageLauncher.launch("image/*") },
-                onExportSvg = { 
-                    if (sketchViewModel.canvasSizeConfig != null) {
-                         // Direct export if size is known (e.g. icon/page)
-                         // But we usually want to configure.
-                         // Let's just show dialog always for consistency or use logic.
-                         showExportSvgDialog = true
-                    } else {
-                        showExportSvgDialog = true 
-                    }
-                },
-                onImportSvg = {
-                         importSvgLauncher.launch("*/*") // Or specific mime types
-                },
-                onImportDxf = {
-                    dxfImportLauncher.launch(arrayOf("*/*"))
-                },
-                onExportDxf = {
-                    showDxfExportDialog = true
-                },
-                onSaveTemplate = { name -> sketchViewModel.saveTemplate(context, name) },
-                onLoadTemplate = { file -> sketchViewModel.loadFromTemplate(context, file) },
-                onExportPng = { showExportPngDialog = true },
-                onExportPdf = { 
-                    if (sketchViewModel.canvasSizeConfig != null) {
-                        // Canvas size is configured, export directly
-                        exportPdfLauncher.launch("drawing.pdf")
-                    } else {
-                        // Show dialog to select bounds
-                        showPdfExportDialog = true
-                    }
-                },
-                onNewDrawing = {
-                    sketchViewModel.clear()
-                    // Reset View Camera
-                    cameraMatrix.reset()
-                    cameraMatrix.invert(inverseMatrix)
-                    canvasViewRef?.setCameraMatrix(cameraMatrix)
-                    canvasViewRef?.setLayers(sketchViewModel.layers.value, sketchViewModel.componentLibrary, sketchViewModel.editingContext)
-                    canvasViewRef?.redrawAllCache()
-                    canvasViewRef?.invalidate()
-                    currentZoom = 1f 
-                },
-                onSettingsClick = { showSettingsPopup = true },
-                onPaperSizeClick = { showPaperSizeDialog = true },
-                onGridClick = { showGridSettings = true },
+                onSave = projectActions.onSave,
+                onLoad = projectActions.onLoad,
+                onImportImage = projectActions.onImportImage,
+                onExportSvg = projectActions.onExportSvg,
+                onImportSvg = projectActions.onImportSvg,
+                onImportDxf = projectActions.onImportDxf,
+                onExportDxf = projectActions.onExportDxf,
+                onSaveTemplate = projectActions.onTemplatesSave,
+                onLoadTemplate = projectActions.onTemplatesLoad,
+                onExportPng = projectActions.onExportPng,
+                onExportPdf = projectActions.onExportPdf,
+                onNewDrawing = projectActions.onNew,
+                onSettingsClick = projectActions.onSettings,
+                onPaperSizeClick = projectActions.onPaperSize,
+                onGridClick = projectActions.onGridSettings,
                 onZoomReset = { 
                     sketchViewModel.resetCamera()
                     // sketchViewModel will trigger update via state change in update block
@@ -881,31 +733,6 @@ fun SketcherSurface(
                     .zIndex(1000f)
                     .padding(top = 80.dp, start = 16.dp) // Below Toobar
             )
-
-            if (showDxfImportDialog && dxfImportUri != null) {
-                com.sketcher.sketchercompanionv1.ui.dialogs.DxfImportDialog(
-                    uri = dxfImportUri!!,
-                    onDismiss = { showDxfImportDialog = false },
-                    onImport = { data, scaleToFit, defaultStrokeWidth, fillClosedShapes ->
-                        sketchViewModel.addImportedDxfData(data, scaleToFit, defaultStrokeWidth, fillClosedShapes)
-                        showDxfImportDialog = false
-                    }
-                )
-            }
-            
-            if (showDxfExportDialog) {
-                com.sketcher.sketchercompanionv1.ui.dialogs.DxfExportDialog(
-                    onDismiss = { showDxfExportDialog = false },
-                    onExport = { filename, selectionOnly ->
-                         // Store config and launch creator
-                         // pendingDxfFilename = filename // Assuming these are state variables defined elsewhere
-                         // pendingDxfSelectionOnly = selectionOnly // Assuming these are state variables defined elsewhere
-                         showDxfExportDialog = false
-                         // sketchViewModel.dxfExportConfig = config // This line was removed as per instruction
-                         dxfExportLauncher.launch(filename)
-                    }
-                )
-            }
 
             BottomMenuBar(
                 modifier = Modifier
@@ -1059,19 +886,6 @@ fun SketcherSurface(
         
 
         
-        if (showGridSettings) {
-            GridSettingsDialog(
-                currentGridConfig = sketchViewModel.gridConfig,
-                isSnapEnabled = sketchViewModel.isSnapToGridEnabled,
-                currentUnit = sketchViewModel.currentUnit,
-                onUpdateGrid = { visible, spacing, color, color2, color3 -> 
-                    sketchViewModel.updateGridConfig(visible, spacing, color, color2, color3) 
-                },
-                onUpdateSnap = { sketchViewModel.isSnapToGridEnabled = it },
-                onUpdateUnit = { unit -> sketchViewModel.setUnit(unit) },
-                onDismiss = { showGridSettings = false }
-            )
-        }
 
 
         // 2. DIALOGS & POPUPS (Standard Density)
@@ -1120,82 +934,7 @@ fun SketcherSurface(
             )
         }
 
-        if (showSettingsPopup) {
-           SettingsDialog(
-               onDismiss = { showSettingsPopup = false },
-               isRotationLocked = sketchViewModel.isRotationLocked,
-               onToggleRotationLock = { sketchViewModel.toggleRotationLock() },
-               isPalmRejectionEnabled = sketchViewModel.isPalmRejectionEnabled,
-               onTogglePalmRejection = { sketchViewModel.togglePalmRejection() },
-               interfaceScale = sketchViewModel.interfaceScale,
-               onInterfaceScaleChanged = { sketchViewModel.updateInterfaceScale(it) },
-               isDebugWireframe = sketchViewModel.isDebugWireframe,
-               onToggleDebugWireframe = { sketchViewModel.isDebugWireframe = !sketchViewModel.isDebugWireframe },
-               currentScaleConfig = sketchViewModel.scaleConfig,
-               onUpdateProjectConfig = { unit, resolution -> 
-                   sketchViewModel.updateScaleConfig(unit, resolution)
-               },
-               toolbarBackgroundColor = sketchViewModel.toolbarBackgroundColor,
-               onToolbarBackgroundColorChanged = { sketchViewModel.updateToolbarBackgroundColor(it) },
-               toolbarAlpha = sketchViewModel.toolbarAlpha,
-               onToolbarAlphaChanged = { sketchViewModel.updateToolbarAlpha(it) },
-               isToolbarBlurEnabled = sketchViewModel.isToolbarBlurEnabled,
-               onToggleToolbarBlur = { sketchViewModel.toggleToolbarBlur() },
-               showTooltips = showTooltips,
-               onToggleTooltips = onToggleTooltips
-           )
-        }
-        
         // --- TOOL SETTINGS POPUP ---
-        
-        if (showExportPngDialog) {
-            ExportPngDialog(
-                viewModel = sketchViewModel,
-                onDismiss = { showExportPngDialog = false },
-                onExport = { config ->
-                    sketchViewModel.lastExportPngConfig = config
-                    exportPngLauncher.launch("drawing.png")
-                    showExportPngDialog = false
-                }
-            )
-        }
-
-        if (showExportSvgDialog) {
-            ExportSvgDialog(
-                viewModel = sketchViewModel,
-                onDismiss = { showExportSvgDialog = false },
-                onExport = { config ->
-                    sketchViewModel.lastExportSvgConfig = config
-                    exportSvgLauncher.launch("drawing.svg")
-                    showExportSvgDialog = false
-                }
-            )
-        }
-
-        if (showPaperSizeDialog) {
-            com.sketcher.sketchercompanionv1.ui.PaperSizeDialog(
-                currentConfig = sketchViewModel.canvasSizeConfig,
-                pixelsPerMm = sketchViewModel.scaleConfig.basePixelsPerMillimeter,
-                onDismiss = { showPaperSizeDialog = false },
-                onConfirm = { config ->
-                    sketchViewModel.updateCanvasSize(config)
-                    canvasViewRef?.canvasSizeConfig = config
-                    sketchViewModel.fitContent() // Auto-Zoom to new paper
-                    showPaperSizeDialog = false
-                }
-            )
-        }
-
-        if (showPdfExportDialog) {
-            com.sketcher.sketchercompanionv1.ui.PdfExportDialog(
-                onDismiss = { showPdfExportDialog = false },
-                onConfirm = { useZoomExtends ->
-                    sketchViewModel.setPdfExportBoundsMode(useZoomExtends)
-                    exportPdfLauncher.launch("drawing.pdf")
-                    showPdfExportDialog = false
-                }
-            )
-        }
 
     if (showToolSettingsPopup) {
              com.sketcher.sketchercompanionv1.ui.ToolSettingsPopup(

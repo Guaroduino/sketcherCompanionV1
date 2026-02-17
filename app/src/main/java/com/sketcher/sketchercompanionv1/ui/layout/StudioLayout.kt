@@ -76,7 +76,8 @@ fun StudioLayout(
     uiCollapsed: Boolean,
     onToggleUi: () -> Unit,
     swapVertical: Boolean,
-    swapHorizontal: Boolean
+    swapHorizontal: Boolean,
+    projectActions: com.sketcher.sketchercompanionv1.ui.model.ProjectActions
 ) {
     // 1. Config & State
     val config = androidx.compose.ui.platform.LocalConfiguration.current
@@ -116,6 +117,7 @@ fun StudioLayout(
     var showPersonalizationDialog by remember { mutableStateOf(false) }
     var showStabilizationPopup by remember { mutableStateOf(false) }
     var showSizeOpacityPopup by remember { mutableStateOf(false) }
+    var showStudioMenu by remember { mutableStateOf(false) }
 
     // --- SWAP STATES (Moved to MainActivity) ---
 
@@ -599,7 +601,10 @@ fun StudioLayout(
                     ),
                 onClick = { 
                     if (isEditMode) toolPickerTarget = ToolLocation.TopLeftCorner to 0
-                    else topLeftTool?.onClick?.invoke()
+                    else {
+                        if (topLeftTool?.id == "menu") showStudioMenu = true
+                        else topLeftTool?.onClick?.invoke()
+                    }
                 },
                 touchSize = 64.dp
             ) {
@@ -1726,5 +1731,13 @@ fun StudioLayout(
                 }
             }
         }
+    }
+
+    if (showStudioMenu) {
+        com.sketcher.sketchercompanionv1.ui.dialogs.StudioMenuDialog(
+            viewModel = viewModel,
+            actions = projectActions,
+            onDismiss = { showStudioMenu = false }
+        )
     }
 }
