@@ -29,7 +29,8 @@ fun ColorPickerDialog(
     initialColor: Color,
     recentColors: List<Color>,
     onDismiss: () -> Unit,
-    onColorSelected: (Color) -> Unit
+    onColorSelected: (Color) -> Unit,
+    onDisable: (() -> Unit)? = null
 ) {
     var currentColor by remember { mutableStateOf(initialColor) }
     
@@ -149,10 +150,17 @@ fun ColorPickerDialog(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     TextButton(onClick = onDismiss) {
                         Text("Cancel")
+                    }
+                    if (onDisable != null) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        TextButton(onClick = { onDisable(); onDismiss() }) {
+                            Text("None")
+                        }
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(onClick = { onColorSelected(currentColor) }) {

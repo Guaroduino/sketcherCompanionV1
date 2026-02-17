@@ -5,6 +5,7 @@ data class Layer(
     val name: String,
     val elements: MutableList<LayerElement> = mutableListOf(), 
     var isVisible: Boolean = true,
-    var opacity: Float = 1f
+    var opacity: Float = 1f,
+    var isLocked: Boolean = false
 )
 

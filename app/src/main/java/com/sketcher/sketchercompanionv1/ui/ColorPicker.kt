@@ -33,7 +33,8 @@ import kotlin.math.sqrt
 fun ColorPickerDialog(
     initialColor: Int,
     onDismiss: () -> Unit,
-    onColorSelected: (Int) -> Unit
+    onColorSelected: (Int) -> Unit,
+    onDisable: (() -> Unit)? = null
 ) {
     // HSV State
     var hue by remember { mutableFloatStateOf(0f) }
@@ -127,6 +128,9 @@ fun ColorPickerDialog(
 
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Button(onClick = onDismiss) { Text("Cancel") }
+                if (onDisable != null) {
+                    Button(onClick = { onDisable(); onDismiss() }) { Text("None") }
+                }
                 Button(onClick = { onColorSelected(currentColor.toArgb()) }) { Text("Select") }
             }
         }

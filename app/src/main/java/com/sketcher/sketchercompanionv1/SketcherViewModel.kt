@@ -146,22 +146,65 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         showPropertiesPanel = !showPropertiesPanel
     }
 
+    private val _assignedToolColors = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val assignedToolColors = _assignedToolColors.asStateFlow()
 
-    fun activateTool(payload: ToolPayload) {
+    private var lastActiveColorToolId: String? = null
+
+    fun updateLastActiveToolColor(color: Int) {
+        lastActiveColorToolId?.let { id ->
+            _assignedToolColors.value = _assignedToolColors.value + (id to color)
+            toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value)
+        }
+    }
+
+    private val _showStrokeColorPicker = MutableStateFlow(false)
+    val showStrokeColorPicker = _showStrokeColorPicker.asStateFlow()
+
+    private val _showFillColorPicker = MutableStateFlow(false)
+    val showFillColorPicker = _showFillColorPicker.asStateFlow()
+
+    fun setShowStrokeColorPicker(show: Boolean) { _showStrokeColorPicker.value = show }
+    fun setShowFillColorPicker(show: Boolean) { _showFillColorPicker.value = show }
+
+
+    fun activateTool(payload: ToolPayload, toolId: String? = null) {
+        lastActiveColorToolId = toolId
         when(payload) {
             ToolPayload.PENCIL -> selectTool(ToolType.FREEHAND)
             ToolPayload.ERASER -> selectTool(ToolType.ERASER)
-            ToolPayload.FILL -> selectTool(ToolType.FILL)
+            ToolPayload.STROKE_COLOR -> {
+                toolId?.let { id ->
+                    _assignedToolColors.value[id]?.let { setStrokeColor(it) }
+                }
+                // Do NOT open picker on activation anymore
+            }
+            ToolPayload.FILL_COLOR -> {
+                toolId?.let { id ->
+                    _assignedToolColors.value[id]?.let { setFillColor(it) }
+                }
+                // Do NOT open picker on activation anymore
+            }
         }
+    }
+
+    fun editTool(payload: ToolPayload) {
+         when(payload) {
+             ToolPayload.STROKE_COLOR -> _showStrokeColorPicker.value = true
+             ToolPayload.FILL_COLOR -> _showFillColorPicker.value = true
+             else -> {} // Other tools might not have edit dialogs yet
+         }
     }
 
     // --- ASSIGNED TOOLS STATE ---
     private val _assignedTools = MutableStateFlow<Map<String, ToolPayload>>(emptyMap())
+    val assignedTools = _assignedTools.asStateFlow()
     
     private fun getPayloadFromToolId(id: String): ToolPayload? = when(id) {
         "pencil" -> ToolPayload.PENCIL
         "eraser" -> ToolPayload.ERASER
-        "fill" -> ToolPayload.FILL
+        "stroke_color" -> ToolPayload.STROKE_COLOR
+        "fill_color" -> ToolPayload.FILL_COLOR
         else -> null
     }
 
@@ -169,6 +212,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         // 1. Update Map
         _assignedTools.value = _assignedTools.value + (toolId to payload)
         
+        // Initialize tool color if it's a color tool
+        if (payload == ToolPayload.STROKE_COLOR) {
+            _assignedToolColors.value = _assignedToolColors.value + (toolId to strokeColor.value)
+        } else if (payload == ToolPayload.FILL_COLOR) {
+            _assignedToolColors.value = _assignedToolColors.value + (toolId to fillColor.value)
+        }
+
         // 2. Update List (Visuals) to reflect the new tool's icon/desc
         val currentMap = _toolbarState.value.toMutableMap()
         for ((loc, list) in currentMap) {
@@ -188,10 +238,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         }
         
         // 3. Activate
-        activateTool(payload)
+        activateTool(payload, toolId)
         
         // 4. Save
-        toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value)
+        toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value)
     }
 
     fun addTool(location: ToolLocation, tool: StudioTool) {
@@ -208,7 +258,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             onClick = {
                 val payload = _assignedTools.value[uniqueId]
                 if (payload != null) {
-                    activateTool(payload)
+                    activateTool(payload, uniqueId)
                 } else {
                     // Use registryId because it's the stable identifier for actions
                     getActionForTool(tool.id).invoke() 
@@ -222,7 +272,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         currentMap[location] = list
         _toolbarState.value = currentMap
         
-        toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value)
+        toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value)
     }
 
     fun removeTool(location: ToolLocation, index: Int) {
@@ -235,7 +285,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             
             currentMap[location] = list
             _toolbarState.value = currentMap
-            toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value)
+            toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value)
         }
     }
 
@@ -259,7 +309,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 onClick = {
                     val payload = _assignedTools.value[uniqueId]
                     if (payload != null) {
-                        activateTool(payload)
+                        activateTool(payload, uniqueId)
                     } else {
                         getActionForTool(newTool.id).invoke()
                     }
@@ -269,18 +319,23 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             list[index] = uniqueTool
             currentMap[location] = list
             _toolbarState.value = currentMap
-            toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value)
+            toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value)
         }
     }
 
     private fun getActionForTool(id: String): () -> Unit = when(id) {
-        "undo" -> { { undo() } }
-        "redo" -> { { redo() } }
-        "menu" -> { { /* Handled in UI for now */ } }
-        "settings" -> { { /* Handled in UI for now */ } }
-        StudioTool.PROPERTIES_TOOL_ID -> { { togglePropertiesPanel() } }
-        // Add more mappings as tools gain real functionality
-        else -> { {} }
+        "undo" -> ({ undo() })
+        "redo" -> ({ redo() })
+        "menu" -> ({})
+        "settings" -> ({})
+        StudioTool.PROPERTIES_TOOL_ID -> ({ togglePropertiesPanel() })
+        "zoom_in" -> ({ zoomIn() })
+        "zoom_out" -> ({ zoomOut() })
+        "zoom_fit" -> ({ fitContent() })
+        "home_view" -> ({ resetCamera() })
+        "stroke_color" -> ({ _showStrokeColorPicker.value = true })
+        "fill_color" -> ({ _showFillColorPicker.value = true })
+        else -> ({})
     }
 
     private fun initToolbarState() {
@@ -456,7 +511,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     var lastDrawingTool by mutableStateOf(ToolType.FREEHAND)
 
-    // COLORS
+    // --- LEGACY COLOR SYSTEM (For Compatibility) ---
     var availableColors = mutableStateListOf(
         prefs.getInt("color_slot_0", AndroidColor.BLACK),
         prefs.getInt("color_slot_1", AndroidColor.RED),
@@ -475,8 +530,41 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             _fillModeColor = value
             prefs.edit().putInt("fill_mode_color", value).apply()
         }
-        
-    // --- TOOL CONFIGS (CLEANED) ---
+
+    // --- NEW COLOR SYSTEM (INDEPENDENT STROKE & FILL) ---
+    private val _strokeColor = MutableStateFlow(AndroidColor.BLACK)
+    val strokeColor = _strokeColor.asStateFlow()
+
+    private val _fillColor = MutableStateFlow(AndroidColor.argb(128, 0, 0, 255)) // Transparent Blue
+    val fillColor = _fillColor.asStateFlow()
+
+    private val _isStrokeActive = MutableStateFlow(true)
+    val isStrokeActive = _isStrokeActive.asStateFlow()
+
+    private val _isFillActive = MutableStateFlow(false)
+    val isFillActive = _isFillActive.asStateFlow()
+
+    fun setStrokeColor(color: Int) {
+        _strokeColor.value = color
+        _isStrokeActive.value = true
+        // Legacy sync
+        currentColor = color
+    }
+
+    fun setFillColor(color: Int) {
+        _fillColor.value = color
+        _isFillActive.value = true
+        // Legacy sync
+        fillModeColor = color
+    }
+
+    fun toggleStroke(enabled: Boolean) {
+        _isStrokeActive.value = enabled
+    }
+
+    fun toggleFill(enabled: Boolean) {
+        _isFillActive.value = enabled
+    }
     private val toolConfigs: MutableMap<ToolType, ToolConfig> = mutableStateMapOf<ToolType, ToolConfig>().apply {
         val savedFreehand = loadFreehandSettings()
         
@@ -510,8 +598,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         // Try to load saved layout
         val loaded = toolbarRepository.loadLayout()
         if (loaded != null) {
-            val (tools, assigned) = loaded
+            val (tools, assigned, colors) = loaded
             _assignedTools.value = assigned
+            _assignedToolColors.value = colors
             
             // Re-bind actions (since they aren't serialized)
             val toolsWithActions = tools.mapValues { (_, list) ->
@@ -519,7 +608,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     tool.copy(onClick = {
                         val payload = _assignedTools.value[tool.id]
                         if (payload != null) {
-                            activateTool(payload)
+                            activateTool(payload, tool.id)
                         } else {
                             // Use registryId to lookup action
                             getActionForTool(tool.registryId).invoke()
@@ -924,6 +1013,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
     fun setActiveLayer(index: Int) { if (index in _layers.value.indices) activeLayerIndex = index }
     
+    fun addLayer() {
+        addNewLayer(toTop = true)
+    }
+
     fun addNewLayer(toTop: Boolean) { 
         performSnapshotAction("Nueva Capa") {
             val newList = _layers.value.toMutableList()
@@ -932,41 +1025,131 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             _layers.value = newList
         }
     }
-    fun removeActiveLayer() { 
+
+    fun removeLayer(index: Int) {
         if (_layers.value.size <= 1) return
         performSnapshotAction("Eliminar Capa") {
             val newList = _layers.value.toMutableList()
-            newList.removeAt(activeLayerIndex)
-            _layers.value = newList
-            if (activeLayerIndex >= _layers.value.size) activeLayerIndex = _layers.value.size - 1
-        }
-    }
-    // Added simplified layer move implementations if missing in user's cut
-    fun moveActiveLayerUp() {
-        val currentList = _layers.value.toMutableList()
-        if (activeLayerIndex < currentList.size - 1) {
-            performSnapshotAction("Subir Capa") {
-                val nextIndex = activeLayerIndex + 1
-                val temp = currentList[activeLayerIndex]
-                currentList[activeLayerIndex] = currentList[nextIndex]
-                currentList[nextIndex] = temp
-                _layers.value = currentList
-                activeLayerIndex = nextIndex
+            if (index in newList.indices) {
+                newList.removeAt(index)
+                _layers.value = newList
+                if (activeLayerIndex >= _layers.value.size) activeLayerIndex = _layers.value.size - 1
             }
         }
     }
-    fun moveActiveLayerDown() {
+
+    fun removeActiveLayer() { 
+        removeLayer(activeLayerIndex)
+    }
+
+    fun toggleLayerLock(index: Int) {
         val currentList = _layers.value.toMutableList()
-        if (activeLayerIndex > 0) {
-            performSnapshotAction("Bajar Capa") {
-                val prevIndex = activeLayerIndex - 1
-                val temp = currentList[activeLayerIndex]
-                currentList[activeLayerIndex] = currentList[prevIndex]
-                currentList[prevIndex] = temp
-                _layers.value = currentList
-                activeLayerIndex = prevIndex
+        if (index in currentList.indices) {
+            currentList[index] = currentList[index].copy(isLocked = !currentList[index].isLocked)
+            _layers.value = currentList
+        }
+    }
+
+    fun renameLayer(index: Int, newName: String) {
+        val currentList = _layers.value.toMutableList()
+        if (index in currentList.indices) {
+            currentList[index] = currentList[index].copy(name = newName)
+            _layers.value = currentList
+        }
+    }
+
+    fun duplicateLayer(index: Int) {
+        val currentList = _layers.value.toMutableList()
+        if (index in currentList.indices) {
+            performSnapshotAction("Duplicar Capa") {
+                val source = currentList[index]
+                val copy = source.copy(
+                    id = "l_${System.currentTimeMillis()}",
+                    name = "${source.name} (Copy)",
+                    elements = source.elements.map { it.copyElement() }.toMutableList()
+                )
+                val newList = _layers.value.toMutableList()
+                newList.add(index + 1, copy)
+                _layers.value = newList
+                activeLayerIndex = index + 1
             }
         }
+    }
+
+    fun moveLayer(fromIndex: Int, toIndex: Int) {
+        val currentList = _layers.value.toMutableList()
+        if (fromIndex in currentList.indices && toIndex in currentList.indices) {
+            performSnapshotAction("Mover Capa") {
+                val item = currentList.removeAt(fromIndex)
+                currentList.add(toIndex, item)
+                _layers.value = currentList
+                // Keep the same layer active
+                if (activeLayerIndex == fromIndex) activeLayerIndex = toIndex
+                else if (fromIndex < activeLayerIndex && toIndex >= activeLayerIndex) activeLayerIndex--
+                else if (fromIndex > activeLayerIndex && toIndex <= activeLayerIndex) activeLayerIndex++
+            }
+        }
+    }
+
+    fun moveLayerUp(index: Int) {
+        moveLayer(index, index + 1)
+    }
+
+    fun moveLayerDown(index: Int) {
+        moveLayer(index, index - 1)
+    }
+
+    fun addLayerAbove(index: Int) {
+        performSnapshotAction("Nueva Capa Arriba") {
+            val newList = _layers.value.toMutableList()
+            if (index in newList.indices) {
+                val l = Layer("l_${System.currentTimeMillis()}", "Capa ${newList.size+1}", mutableListOf())
+                newList.add(index + 1, l)
+                _layers.value = newList
+                activeLayerIndex = index + 1
+            }
+        }
+    }
+
+    fun addLayerBelow(index: Int) {
+        performSnapshotAction("Nueva Capa Abajo") {
+            val newList = _layers.value.toMutableList()
+            if (index in newList.indices) {
+                val l = Layer("l_${System.currentTimeMillis()}", "Capa ${newList.size+1}", mutableListOf())
+                newList.add(index, l)
+                _layers.value = newList
+                activeLayerIndex = index
+            }
+        }
+    }
+
+    fun mergeLayers(fromIndex: Int, toIndex: Int) {
+        val currentList = _layers.value.toMutableList()
+        if (fromIndex in currentList.indices && toIndex in currentList.indices && fromIndex != toIndex) {
+            performSnapshotAction("Fusionar Capas") {
+                val fromLayer = currentList[fromIndex]
+                val toLayer = currentList[toIndex]
+                
+                // Transfer elements
+                toLayer.elements.addAll(fromLayer.elements.map { it.copyElement() })
+                
+                // Remove source
+                currentList.removeAt(fromIndex)
+                _layers.value = currentList
+                
+                // Update active index
+                val newToIndex = if (fromIndex < toIndex) toIndex - 1 else toIndex
+                activeLayerIndex = newToIndex.coerceIn(currentList.indices)
+            }
+        }
+    }
+
+    fun mergeLayerUp(index: Int) {
+        mergeLayers(index, index + 1)
+    }
+
+    fun mergeLayerDown(index: Int) {
+        mergeLayers(index, index - 1)
     }
 
     // --- UNDO/REDO STACK ---
@@ -1083,6 +1266,20 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         _cameraMatrix.value = Matrix(matrix)
     }
     fun saveDimensions(w: Float, h: Float) { lastViewportWidth = w; lastViewportHeight = h }
+    fun zoomIn() {
+        if (lastViewportWidth <= 0 || lastViewportHeight <= 0) return
+        val m = Matrix(_cameraMatrix.value)
+        m.postScale(1.2f, 1.2f, lastViewportWidth / 2f, lastViewportHeight / 2f)
+        saveCameraState(m)
+    }
+
+    fun zoomOut() {
+        if (lastViewportWidth <= 0 || lastViewportHeight <= 0) return
+        val m = Matrix(_cameraMatrix.value)
+        m.postScale(0.8f, 0.8f, lastViewportWidth / 2f, lastViewportHeight / 2f)
+        saveCameraState(m)
+    }
+
     fun fitContent() {
          // Logic to fit content (Reused/Simplifed from original if possible, or copied from Step 87 snapshot if valid)
          // Creating a robust fitContent based on visible layers
@@ -1104,12 +1301,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                  m.postTranslate(-cx, -cy)
                  m.postScale(scale, scale)
                  m.postTranslate(lastViewportWidth/2, lastViewportHeight/2)
-                 m.getValues(cameraMatrixValues)
+                 
+                 // Save state
+                 saveCameraState(m)
                  
                  // Also save as Home
                  saveHomeCamera()
-                 
-                 cameraUpdateTrigger++
                  return
              }
          }
@@ -1145,8 +1342,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
              m.postTranslate(-cx, -cy)
              m.postScale(scale, scale)
              m.postTranslate(lastViewportWidth/2, lastViewportHeight/2)
-             m.getValues(cameraMatrixValues)
-             cameraUpdateTrigger++
+             saveCameraState(m)
          }
     }
 
@@ -1368,6 +1564,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     
     fun addVectorStroke(stroke: VectorStroke) {
         val targetLayer = _layers.value[activeLayerIndex]
+        if (targetLayer.isLocked) return
+
         editingContainerMatrix?.let { containerM ->
             val inverse = Matrix()
             containerM.invert(inverse)
@@ -1379,6 +1577,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     
     fun addFill(fill: FillData) {
         val targetLayer = _layers.value[activeLayerIndex]
+        if (targetLayer.isLocked) return
+
         editingContainerMatrix?.let { containerM ->
             val inverse = Matrix()
             containerM.invert(inverse)
@@ -1389,6 +1589,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     fun addHybridStroke(stroke: VectorStroke, fill: FillData?) {
         val targetLayer = _layers.value[activeLayerIndex]
+        if (targetLayer.isLocked) return
+
         val inverse = Matrix()
         editingContainerMatrix?.let { containerM ->
             containerM.invert(inverse)

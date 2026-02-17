@@ -11,9 +11,14 @@ data class StrokePoint(var x: Float, var y: Float, val pressure: Float, val time
 
 data class VectorStroke(
     val points: List<StrokePoint>,
-    val color: Int,
+    val color: Int, // Deprecated, but keeping for compatibility if needed elsewhere
+    val strokeColor: Int = color,
+    val fillColor: Int = android.graphics.Color.TRANSPARENT,
+    val isStrokeEnabled: Boolean = true,
+    val isFillEnabled: Boolean = false,
     val maxWidth: Float,
     val path: Path,
+    val fillPath: Path? = null,
     val brushType: String = "FREEHAND",
     val strokeType: StrokeType = StrokeType.FREEHAND,
     val leftPoints: List<android.graphics.PointF> = emptyList(),
@@ -41,8 +46,13 @@ data class VectorStroke(
         return VectorStroke(
             points = points.map { it.copy() },
             color = color,
+            strokeColor = strokeColor,
+            fillColor = fillColor,
+            isStrokeEnabled = isStrokeEnabled,
+            isFillEnabled = isFillEnabled,
             maxWidth = maxWidth,
             path = Path(path),
+            fillPath = fillPath?.let { Path(it) },
             brushType = brushType,
             strokeType = strokeType,
             leftPoints = leftPoints.map { android.graphics.PointF(it.x, it.y) },

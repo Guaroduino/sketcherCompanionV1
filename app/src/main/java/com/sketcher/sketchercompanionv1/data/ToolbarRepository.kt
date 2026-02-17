@@ -17,7 +17,8 @@ data class SavedTool(
 
 data class SavedLayout(
     val tools: Map<ToolLocation, List<SavedTool>>,
-    val assignedMap: Map<String, ToolPayload>
+    val assignedMap: Map<String, ToolPayload>,
+    val toolColors: Map<String, Int>? = emptyMap()
 )
 
 class ToolbarRepository(context: Context) {
@@ -26,7 +27,8 @@ class ToolbarRepository(context: Context) {
 
     fun saveLayout(
         toolbarState: Map<ToolLocation, List<StudioTool>>,
-        assignedMap: Map<String, ToolPayload>
+        assignedMap: Map<String, ToolPayload>,
+        toolColors: Map<String, Int>
     ) {
         val savedToolsMap = toolbarState.mapValues { (_, tools) ->
             tools.map { tool ->
@@ -39,12 +41,12 @@ class ToolbarRepository(context: Context) {
             }
         }
         
-        val layout = SavedLayout(savedToolsMap, assignedMap)
+        val layout = SavedLayout(savedToolsMap, assignedMap, toolColors)
         val json = gson.toJson(layout)
         prefs.edit().putString("saved_layout_v2", json).apply()
     }
 
-    fun loadLayout(): Pair<Map<ToolLocation, List<StudioTool>>, Map<String, ToolPayload>>? {
+    fun loadLayout(): Triple<Map<ToolLocation, List<StudioTool>>, Map<String, ToolPayload>, Map<String, Int>>? {
         val json = prefs.getString("saved_layout_v2", null) ?: return null
         
         return try {
@@ -79,7 +81,7 @@ class ToolbarRepository(context: Context) {
                 }
             }
             
-            reconstructedTools to layout.assignedMap
+            Triple(reconstructedTools, layout.assignedMap, layout.toolColors ?: emptyMap())
         } catch (e: Exception) {
             e.printStackTrace()
             null

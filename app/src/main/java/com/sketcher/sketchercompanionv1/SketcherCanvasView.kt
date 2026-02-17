@@ -8,6 +8,8 @@ import android.view.GestureDetector
 import android.view.View
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
+import android.os.Handler
+import android.os.Looper
 import com.sketcher.sketchercompanionv1.dto.*
 import com.sketcher.sketchercompanionv1.utils.UnitUtils
 import kotlin.math.round
@@ -27,12 +29,21 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     // --- TRANSFORMS & STATE ---
     private val viewMatrix = Matrix()
+    private val inverseMatrix = Matrix()
     private val cachedBitmapMatrix = Matrix()
+    private val drawTransformMatrix = Matrix() // Persistent matrix for onDraw scaling
+    private val matrixValuesBuffer = FloatArray(9) // Reuse for equality check
     private var isDrawing: Boolean = false
+
+    private val redrawHandler = Handler(Looper.getMainLooper())
+    private val delayedRedrawRunnable = Runnable { redrawAllCache() }
     
     // Pan tracking state
     private var lastPanX: Float = 0f
     private var lastPanY: Float = 0f
+    
+    // Temp storage for coordinate mapping
+    private val tempTouchPoint = FloatArray(2)
 
     // --- GESTURES ---
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
@@ -81,11 +92,25 @@ class SketcherCanvasView(context: Context) : View(context) {
     }
 
     private fun getMatrixScale(matrix: Matrix): Float {
-        val v = FloatArray(9)
-        matrix.getValues(v)
-        val sX = v[Matrix.MSCALE_X]
-        val skX = v[Matrix.MSKEW_X]
+        matrix.getValues(matrixValuesBuffer)
+        val sX = matrixValuesBuffer[Matrix.MSCALE_X]
+        val skX = matrixValuesBuffer[Matrix.MSKEW_X]
         return kotlin.math.sqrt(sX * sX + skX * skX)
+    }
+
+    /**
+     * Checks if the provided matrix is effectively equal to current view matrix.
+     * Prevents feedback loops in Compose AndroidView updates.
+     */
+    fun isCameraEqual(other: Matrix): Boolean {
+        val currentValues = FloatArray(9)
+        val otherValues = FloatArray(9)
+        viewMatrix.getValues(currentValues)
+        other.getValues(otherValues)
+        for (i in 0 until 9) {
+            if (kotlin.math.abs(currentValues[i] - otherValues[i]) > 0.0001f) return false
+        }
+        return true
     }
     
     // SELECTION STATE (Wired from SketcherSurface/ViewModel)
@@ -122,12 +147,11 @@ class SketcherCanvasView(context: Context) : View(context) {
             currentVectorPreviewCenterPoints = update.centerPoints
             currentVectorPreviewOutlinePoints = update.outlinePoints
             currentLiveGeneratedRadius = update.lastRadius
-            currentVectorPreviewColor = activeColor // Sync Color
+            currentVectorPreviewColor = activeStrokeColor // Sync Stroke Color
             
             // Sync Fill State
             currentFillPath = update.fillPath
-            if (update.fillColor != 0) currentFillColor = update.fillColor
-            else if (update.fillPath == null) currentFillColor = null
+            currentFillColor = if (isFillActive) activeFillColor else null
             
             isDrawing = (update.previewPath != null || update.previewPoints != null)
             invalidate()
@@ -198,8 +222,6 @@ class SketcherCanvasView(context: Context) : View(context) {
         snapFunction = if (isSnapToGridEnabled) {
             { screenX: Float, screenY: Float ->
                 // 1. Screen -> World
-                val inverseMatrix = Matrix()
-                viewMatrix.invert(inverseMatrix)
                 val pts = floatArrayOf(screenX, screenY)
                 inverseMatrix.mapPoints(pts)
                 val worldX = pts[0]
@@ -273,16 +295,25 @@ class SketcherCanvasView(context: Context) : View(context) {
     // --- TOOL SYNC ---
     var activeStrokeType: StrokeType = StrokeType.FREEHAND
         set(value) { field = value; strokePipeline.activeStrokeType = value }
+    var activeStrokeColor: Int = android.graphics.Color.BLACK
+        set(value) { field = value; strokePipeline.activeStrokeColor = value }
+    var activeFillColor: Int = android.graphics.Color.TRANSPARENT
+        set(value) { field = value; strokePipeline.activeFillColor = value }
+    var isStrokeActive: Boolean = true
+        set(value) { field = value; strokePipeline.isStrokeActive = value }
+    var isFillActive: Boolean = false
+        set(value) { field = value; strokePipeline.isFillActive = value }
+    
     var activeColor: Int = android.graphics.Color.BLACK
-        set(value) { field = value; strokePipeline.activeColor = value }
+        set(value) { field = value; activeStrokeColor = value }
     var activeSize: Float = 10f
         set(value) { field = value; strokePipeline.activeSize = value }
     var activeFreehandSettings: FreehandSettings = FreehandSettings()
         set(value) { field = value; strokePipeline.activeFreehandSettings = value }
     var isFillModeEnabled: Boolean = false
-        set(value) { field = value; strokePipeline.isFillModeEnabled = value }
+        set(value) { field = value; isFillActive = value }
     var fillModeColor: Int = android.graphics.Color.TRANSPARENT
-        set(value) { field = value; strokePipeline.fillModeColor = value }
+        set(value) { field = value; activeFillColor = value }
     var isFingerMode: Boolean = false
         set(value) { field = value; strokePipeline.isFingerMode = value }
     var fingerOffsetX: Float = 0f
@@ -354,10 +385,19 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     fun setCameraMatrix(matrix: Matrix, isIntermediate: Boolean = false) {
         viewMatrix.set(matrix)
+        viewMatrix.invert(inverseMatrix)
+        
         if (isIntermediate) {
-            invalidate() 
+            // Immediate feedback via bitmap scaling in onDraw
+            invalidate()
+            
+            // Defer expensive redraw to avoid UI lag during rapid updates (zoom/pan)
+            redrawHandler.removeCallbacks(delayedRedrawRunnable)
+            redrawHandler.postDelayed(delayedRedrawRunnable, 100)
         } else {
-            redrawAllCache() 
+            // Final update should be crisp immediately
+            redrawHandler.removeCallbacks(delayedRedrawRunnable)
+            redrawAllCache()
         }
     }
 
@@ -377,11 +417,11 @@ class SketcherCanvasView(context: Context) : View(context) {
             if (viewMatrix == cachedBitmapMatrix) {
                 canvas.drawBitmap(bitmap, 0f, 0f, null)
             } else {
-                val transform = Matrix()
-                if (cachedBitmapMatrix.invert(transform)) {
-                     transform.postConcat(viewMatrix)
+                // High-performance scaling for intermediate frames
+                if (cachedBitmapMatrix.invert(drawTransformMatrix)) {
+                     drawTransformMatrix.postConcat(viewMatrix)
                      canvas.save()
-                     canvas.concat(transform)
+                     canvas.concat(drawTransformMatrix)
                      canvas.drawBitmap(bitmap, 0f, 0f, null)
                      canvas.restore()
                 } else {
@@ -397,19 +437,15 @@ class SketcherCanvasView(context: Context) : View(context) {
             canvas, 
             currentVectorPreviewPoints, 
             currentVectorPreviewPath,
-            currentVectorPreviewColor,
-            currentLiveGeneratedRadius,
-            viewMatrix,
-            isDrawing
+            activeStrokeColor,
+            fillPath = currentFillPath,
+            fillColor = activeFillColor,
+            isFillActive = isFillActive,
+            isStrokeActive = isStrokeActive,
+            currentLiveGeneratedRadius = currentLiveGeneratedRadius,
+            viewMatrix = viewMatrix,
+            isDrawing = isDrawing
         )
-        
-        // Live Fill
-        if (currentFillPath != null && currentFillColor != null) {
-            canvas.save()
-            canvas.concat(viewMatrix)
-            renderEngine.drawFill(canvas, FillData(currentFillPath!!, currentFillColor!!))
-            canvas.restore()
-        }
 
         // 3. Selection Overlays
         if (isSelectionDragging) {
@@ -468,8 +504,8 @@ class SketcherCanvasView(context: Context) : View(context) {
         strokePipeline.currentZoom = zoom
         
         return when (currentTool) {
-            ToolType.SELECTION -> false // Handled by Surface
-            ToolType.ERASER -> false    // Handled by Surface
+            ToolType.SELECTION -> false // Handled by Surface? (Verify this later)
+            ToolType.ERASER -> handleEraserInput(event)
             else -> strokePipeline.onTouchEvent(event)
         }
     }
@@ -483,6 +519,24 @@ class SketcherCanvasView(context: Context) : View(context) {
     var onFillCompleted: ((FillData) -> Unit)? = null
     var onGeometricProgressChanged: ((Boolean) -> Unit)? = null
     var onHybridStrokeCompleted: ((VectorStroke, FillData?) -> Unit)? = null
+
+    private fun handleEraserInput(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                // Map screen coordinates to world coordinates
+                tempTouchPoint[0] = event.x
+                tempTouchPoint[1] = event.y
+                inverseMatrix.mapPoints(tempTouchPoint)
+                
+                val worldX = tempTouchPoint[0]
+                val worldY = tempTouchPoint[1]
+                
+                // Erase (Object Eraser)
+                eraseContentAt(worldX, worldY)
+            }
+        }
+        return true
+    }
 
 }
 

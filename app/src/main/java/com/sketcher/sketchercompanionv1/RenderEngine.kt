@@ -223,18 +223,29 @@ class RenderEngine {
     }
 
     private fun drawVectorStroke(canvas: Canvas, stroke: VectorStroke) {
+    // Pass 1: FILL (if enabled)
+    if (stroke.isFillEnabled && stroke.fillPath != null) {
+        vectorPaint.style = Paint.Style.FILL
+        vectorPaint.color = stroke.fillColor
+        canvas.drawPath(stroke.fillPath, vectorPaint)
+    }
+
+    // Pass 2: STROKE (if enabled)
+    if (stroke.isStrokeEnabled) {
+        // For FREEHAND, the 'path' IS already the mesh (shape)
         if (stroke.strokeType == StrokeType.FREEHAND) {
             vectorPaint.style = Paint.Style.FILL
-            vectorPaint.color = stroke.color
-            // Check width if needed, but path usually defines shape for freehand
+            vectorPaint.color = stroke.strokeColor
             canvas.drawPath(stroke.path, vectorPaint)
         } else {
+            // For others, it's a line
             vectorPaint.style = Paint.Style.STROKE
-            vectorPaint.color = stroke.color
-            vectorPaint.strokeWidth = if(stroke.maxWidth > 0) stroke.maxWidth else 0f
+            vectorPaint.color = stroke.strokeColor
+            vectorPaint.strokeWidth = if (stroke.maxWidth > 0) stroke.maxWidth else 0f
             canvas.drawPath(stroke.path, vectorPaint)
         }
     }
+}
     
     fun drawFill(canvas: Canvas, fill: FillData) {
         fillPaint.color = fill.color
@@ -242,41 +253,46 @@ class RenderEngine {
     }
 
     fun drawLiveStroke(
-        canvas: Canvas, 
-        previewPoints: List<StrokePoint>?, 
-        previewPath: Path?, 
-        previewColor: Int, 
-        currentLiveGeneratedRadius: Float,
-        viewMatrix: Matrix,
-        isDrawing: Boolean
-    ) {
-         if (!isDrawing) return
-         
-         canvas.save()
-         canvas.concat(viewMatrix)
+    canvas: Canvas, 
+    previewPoints: List<StrokePoint>?, 
+    previewPath: Path?, 
+    previewColor: Int, 
+    fillPath: Path? = null,
+    fillColor: Int = 0,
+    isFillActive: Boolean = false,
+    isStrokeActive: Boolean = true,
+    currentLiveGeneratedRadius: Float,
+    viewMatrix: Matrix,
+    isDrawing: Boolean
+) {
+     if (!isDrawing) return
+     
+     canvas.save()
+     canvas.concat(viewMatrix)
 
-         // Draw Stroke
-         if (previewPath != null) {
-             // For simplicity, we use FILL if it looks like a mesh, or STROKE if it's geometric
-             // But previewPath from Pipeline for freehand IS the mesh.
-             // For Geometric, it's the skeleton.
-             // We can use a heuristic or pass the type.
-             // Let's assume mesh for now if style is FILL.
-             
-             vectorPaint.color = previewColor
-             vectorPaint.style = if (previewPoints != null) Paint.Style.FILL else Paint.Style.STROKE
-             vectorPaint.strokeWidth = if (previewPoints == null) currentLiveGeneratedRadius * 2 else 0f
-             
-             canvas.drawPath(previewPath, vectorPaint)
-         }
+     // Pass 1: FILL
+     if (isFillActive && fillPath != null) {
+         vectorPaint.style = Paint.Style.FILL
+         vectorPaint.color = fillColor
+         canvas.drawPath(fillPath, vectorPaint)
+     }
+
+     // Pass 2: STROKE
+     if (isStrokeActive && previewPath != null) {
+         vectorPaint.color = previewColor
+         vectorPaint.style = if (previewPoints != null) Paint.Style.FILL else Paint.Style.STROKE
+         vectorPaint.strokeWidth = if (previewPoints == null) currentLiveGeneratedRadius * 2 else 0f
          
-         // Debug Wireframe
-         if (isDebugWireframe && previewPoints != null) {
-             drawDebugWireframe(canvas, previewPoints, viewMatrix)
-         }
-         
-         canvas.restore()
-    }
+         canvas.drawPath(previewPath, vectorPaint)
+     }
+     
+     // Debug Wireframe
+     if (isDebugWireframe && previewPoints != null) {
+         drawDebugWireframe(canvas, previewPoints, viewMatrix)
+     }
+     
+     canvas.restore()
+}
     
     private fun drawDebugWireframe(canvas: Canvas, points: List<StrokePoint>, viewMatrix: Matrix) {
         // Calculate zoom for consistent hairline

@@ -3,6 +3,8 @@ package com.sketcher.sketchercompanionv1.ui.model
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.BorderColor
+import androidx.compose.material.icons.filled.FormatColorFill
 
 object ToolRegistry {
     val allTools = listOf(
@@ -21,15 +23,19 @@ object ToolRegistry {
         StudioTool("save", Icons.Default.Save, "Save", isPlaceholder = true),
         StudioTool("play", Icons.Default.PlayArrow, "Play", isPlaceholder = true),
         StudioTool("pause", Icons.Default.Pause, "Pause", isPlaceholder = true),
-        StudioTool("zoom_in", Icons.Default.ZoomIn, "Zoom In", isPlaceholder = true),
-        StudioTool("zoom_out", Icons.Default.ZoomOut, "Zoom Out", isPlaceholder = true),
+        StudioTool("zoom_in", Icons.Default.ZoomIn, "Zoom In", isPlaceholder = false),
+        StudioTool("zoom_out", Icons.Default.ZoomOut, "Zoom Out", isPlaceholder = false),
+        StudioTool("zoom_fit", Icons.Default.FitScreen, "Zoom Extends", isPlaceholder = false),
+        StudioTool("home_view", Icons.Default.Home, "Reset View", isPlaceholder = false),
         StudioTool("menu", Icons.Default.Menu, "Menu", isPlaceholder = false),
         StudioTool(StudioTool.PROPERTIES_TOOL_ID, Icons.Default.Tune, "Properties", isPlaceholder = false),
         StudioTool(StudioTool.STABILIZATION_TOOL_ID, Icons.Default.Timeline, "Stabilization", isPlaceholder = false),
         StudioTool(StudioTool.SIZE_OPACITY_TOOL_ID, Icons.Default.Lens, "Size & Opacity", isPlaceholder = false),
         StudioTool("divider", Icons.Default.Remove, "Divider", isPlaceholder = false),
         StudioTool("edit", Icons.Default.Edit, "Edit", isPlaceholder = true),
-        StudioTool("create", Icons.Default.Add, "Create", isPlaceholder = true)
+        StudioTool("create", Icons.Default.Add, "Create", isPlaceholder = true),
+        StudioTool("stroke_color", Icons.Default.BorderColor, "Stroke Color", isPlaceholder = false),
+        StudioTool("fill_color", Icons.Default.FormatColorFill, "Fill Color", isPlaceholder = false)
     )
 
     fun getToolById(id: String): StudioTool? = allTools.find { it.id == id }

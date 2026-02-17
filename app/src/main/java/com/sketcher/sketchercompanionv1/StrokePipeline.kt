@@ -26,16 +26,17 @@ class StrokePipeline(
     var activeFreehandSettings: FreehandSettings = FreehandSettings()
     var activeSize: Float = 10f
     var activeColor: Int = Color.BLACK
-    
-    var isFillModeEnabled: Boolean = false
-    var fillModeColor: Int = Color.TRANSPARENT
-    
+    var activeStrokeColor: Int = Color.BLACK
+    var activeFillColor: Int = Color.TRANSPARENT
+    var isStrokeActive: Boolean = true
+    var isFillActive: Boolean = false
+
     var globalStabilizationLevel: Float = 0f
-    
+
     var isFingerMode: Boolean = false
     var fingerOffsetX: Float = 0f
     var fingerOffsetY: Float = 50f
-    
+
     var canvasViewMatrix: android.graphics.Matrix = android.graphics.Matrix() // Needed for World Transform
     var currentZoom: Float = 1.0f
 
@@ -43,7 +44,7 @@ class StrokePipeline(
     // --- State ---
     private val currentStrokePoints = mutableListOf<StrokePoint>()
     private var isDrawing: Boolean = false
-    
+
     // Stabilizer State
     private var stabilizerX: Float = 0f
     private var stabilizerY: Float = 0f
@@ -57,7 +58,7 @@ class StrokePipeline(
     // Dependencies
     private val inputHandler = StrokeInputHandler
     private val predictor = StrokePredictor
-    
+
     data class PipelineUpdate(
         val previewPath: Path?,
         val previewPoints: List<StrokePoint>?,
@@ -70,7 +71,7 @@ class StrokePipeline(
 
     fun onTouchEvent(event: MotionEvent): Boolean {
         val action = event.actionMasked
-        
+
         // 1. Process Event -> Raw Points
         val rawEventPoints = inputHandler.processEvent(event)
         val stabilizedPoints = mutableListOf<StrokePoint>()
@@ -79,7 +80,7 @@ class StrokePipeline(
            isDrawing = true
            currentStrokePoints.clear()
            lastPointTimestamp = 0L
-           
+
            if (rawEventPoints.isNotEmpty()) {
                var startX = rawEventPoints.first().x
                var startY = rawEventPoints.first().y
@@ -89,16 +90,16 @@ class StrokePipeline(
                }
                stabilizerX = startX
                stabilizerY = startY
-               
+
                lastRecordedX = startX
                lastRecordedY = startY
                lastPointTimestamp = rawEventPoints.first().timestamp
            }
         }
-        
+
         // 2. Apply Stabilization
         val stabilization = globalStabilizationLevel.coerceIn(0f, 0.98f)
-        val lagAmount = stabilization * 60f 
+        val lagAmount = stabilization * 60f
         val factor = 1f / (1f + lagAmount)
 
         for (p in rawEventPoints) {
@@ -116,14 +117,14 @@ class StrokePipeline(
                 stabilizerX = targetX
                 stabilizerY = targetY
             }
-            
-            // Snap to Grid (if needed - currently passed function not implemented here, 
-            // assuming passed or handled largely in View previously? 
+
+            // Snap to Grid (if needed - currently passed function not implemented here,
+            // assuming passed or handled largely in View previously?
             // View had `snapFunction`. We should probably accept a snap callback.)
-            // For now, omitting snap inside pipeline unless required. 
+            // For now, omitting snap inside pipeline unless required.
             // User requirement: "Do NOT change drawing logic".
             // I should add snap callback.
-            
+
             // Transform stabilized point to world BEFORE filtering
             val worldP = transformToWorld(StrokePoint(stabilizerX, stabilizerY, p.pressure, p.timestamp))
 
@@ -131,12 +132,12 @@ class StrokePipeline(
             val dx = worldP.x - lastRecordedX
             val dy = worldP.y - lastRecordedY
             val distSq = dx * dx + dy * dy
-            
+
             // 0.5 world units (0.1mm at 5px/mm) is a good stable threshold for most zooms
-            val minDistSq = 0.25f 
-            
+            val minDistSq = 0.25f
+
             val isStart = (action == MotionEvent.ACTION_DOWN && stabilizedPoints.isEmpty() && currentStrokePoints.isEmpty())
-            
+
             if (distSq > minDistSq || isStart) {
                 var sanitizedTime = p.timestamp
                 if (sanitizedTime <= lastPointTimestamp) {
@@ -169,7 +170,7 @@ class StrokePipeline(
                 return true
             }
         }
-        
+
         return false
     }
 
@@ -239,10 +240,10 @@ class StrokePipeline(
         // 2. Generate Unified Path
         val liveSettings = activeFreehandSettings.copy(capEnd = false)
         val result = PerfectFreehandGenerator.generate(livePoints, activeSize, liveSettings, currentZoom)
-        
+
         // 3. Fill Preview
         var fillPath: Path? = null
-        if (isFillModeEnabled && livePoints.size >= 3) {
+        if (isFillActive && livePoints.size >= 3) {
             fillPath = Path()
             fillPath.moveTo(livePoints[0].x, livePoints[0].y)
             for (i in 1 until livePoints.size) {
@@ -258,13 +259,13 @@ class StrokePipeline(
             outlinePoints = result.left + result.right,
             lastRadius = result.lastRadius,
             fillPath = fillPath,
-            fillColor = if (isFillModeEnabled) fillModeColor else 0
+            fillColor = if (isFillActive) activeFillColor else 0
         ))
     }
 
     private fun finalizeStroke() {
         isDrawing = false
-        
+
         // Handle Multi-step continuation
         if (activeStrokeType == StrokeType.POLYLINE || activeStrokeType == StrokeType.ARC) {
              // If manual geometric, we might just update preview and return?
@@ -273,58 +274,73 @@ class StrokePipeline(
              // For now, let's assume we just update preview for these unless explicitly finished?
              // The View logic: "Skip automatic finalization".
              updatePreview()
-             isMultiStepInProgress = true 
+             isMultiStepInProgress = true
              return
         }
 
         // Interpolate Final
         val finalPointsRaw = getInterpolatedPoints(isFinal = true)
-        
+
         if (finalPointsRaw.isEmpty()) {
              reset()
              return
         }
-        
+
         // Simplify
         val tolerance = activeFreehandSettings.tolerance.coerceAtLeast(0.5f)
         val isSimplified = activeFreehandSettings.isSimplificationEnabled
-        
+
         val finalPoints = if (isSimplified && finalPointsRaw.size > 2) {
              StrokeSimplifier.simplify(finalPointsRaw, tolerance, activeSize * 2.0f)
         } else {
              finalPointsRaw
         }
-        
+
         // Generate High Fidelity Path
         val genResult = PerfectFreehandGenerator.generate(finalPointsRaw, activeSize, activeFreehandSettings, currentZoom)
         val path = Path(genResult.path)
         
+        var fPath: Path? = null
+        if (isFillActive && finalPointsRaw.size >= 3) {
+             fPath = Path()
+             fPath.moveTo(finalPointsRaw[0].x, finalPointsRaw[0].y)
+             for (i in 1 until finalPointsRaw.size) {
+                 fPath.lineTo(finalPointsRaw[i].x, finalPointsRaw[i].y)
+             }
+             fPath.close()
+        }
+
         val stroke = VectorStroke(
             points = finalPoints,
             color = activeColor,
+            strokeColor = activeStrokeColor,
+            fillColor = activeFillColor,
+            isStrokeEnabled = isStrokeActive,
+            isFillEnabled = isFillActive,
             maxWidth = activeSize,
             path = path,
+            fillPath = fPath,
             brushType = "FREEHAND",
             strokeType = activeStrokeType,
             leftPoints = genResult.left,
             rightPoints = genResult.right
         )
-        
+
         var fill: FillData? = null
-        if (isFillModeEnabled && finalPointsRaw.size >= 3) {
+        if (isFillActive && finalPointsRaw.size >= 3) {
              val fPath = Path()
              fPath.moveTo(finalPointsRaw[0].x, finalPointsRaw[0].y)
              for (i in 1 until finalPointsRaw.size) {
                  fPath.lineTo(finalPointsRaw[i].x, finalPointsRaw[i].y)
              }
              fPath.close()
-             fill = FillData(fPath, fillModeColor)
+             fill = FillData(fPath, activeFillColor)
         }
-        
+
         onStrokeCompleted(stroke, fill)
         reset()
     }
-    
+
     fun forceFinishGeometric() {
         if (!isMultiStepInProgress || currentStrokePoints.isEmpty()) return
         
@@ -338,12 +354,39 @@ class StrokePipeline(
         // Duplicate Logic (Should extract common finalizer)
          val genResult = PerfectFreehandGenerator.generate(finalPointsRaw, activeSize, activeFreehandSettings, currentZoom)
          val path = Path(genResult.path)
+         
+         var fPath: Path? = null
+         if (isFillActive && finalPointsRaw.size >= 3) {
+              fPath = Path()
+              fPath.moveTo(finalPointsRaw[0].x, finalPointsRaw[0].y)
+              for (i in 1 until finalPointsRaw.size) {
+                  fPath.lineTo(finalPointsRaw[i].x, finalPointsRaw[i].y)
+              }
+              fPath.close()
+         }
+
          val stroke = VectorStroke(
-             points = finalPointsRaw, color = activeColor, maxWidth = activeSize, path = path,
-             brushType = "FREEHAND", strokeType = activeStrokeType,
-             leftPoints = genResult.left, rightPoints = genResult.right
+             points = finalPointsRaw,
+             color = activeColor,
+             strokeColor = activeStrokeColor,
+             fillColor = activeFillColor,
+             isStrokeEnabled = isStrokeActive,
+             isFillEnabled = isFillActive,
+             maxWidth = activeSize,
+             path = path,
+             fillPath = fPath,
+             brushType = "FREEHAND",
+             strokeType = activeStrokeType,
+             leftPoints = genResult.left,
+             rightPoints = genResult.right
          )
-         onStrokeCompleted(stroke, null)
+
+         var fill: FillData? = null
+         if (isFillActive && finalPointsRaw.size >= 3) {
+              fill = FillData(fPath!!, activeFillColor)
+         }
+
+         onStrokeCompleted(stroke, fill)
          reset()
     }
 

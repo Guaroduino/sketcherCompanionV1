@@ -409,16 +409,25 @@ fun SketcherSurface(
         canvasViewRef?.activeSize = sizePx
     }
     
-    LaunchedEffect(sketchViewModel.currentColor, canvasViewRef) {
-        canvasViewRef?.activeColor = sketchViewModel.currentColor
+    val strokeColor by sketchViewModel.strokeColor.collectAsStateWithLifecycle()
+    val fillColor by sketchViewModel.fillColor.collectAsStateWithLifecycle()
+    val isStrokeActive by sketchViewModel.isStrokeActive.collectAsStateWithLifecycle()
+    val isFillActive by sketchViewModel.isFillActive.collectAsStateWithLifecycle()
+
+    LaunchedEffect(strokeColor, canvasViewRef) {
+        canvasViewRef?.activeStrokeColor = strokeColor
     }
     
-    LaunchedEffect(sketchViewModel.isFillModeEnabled, canvasViewRef) {
-        canvasViewRef?.isFillModeEnabled = sketchViewModel.isFillModeEnabled
+    LaunchedEffect(fillColor, canvasViewRef) {
+        canvasViewRef?.activeFillColor = fillColor
     }
     
-    LaunchedEffect(sketchViewModel.fillModeColor, canvasViewRef) {
-        canvasViewRef?.fillModeColor = sketchViewModel.fillModeColor
+    LaunchedEffect(isStrokeActive, canvasViewRef) {
+        canvasViewRef?.isStrokeActive = isStrokeActive
+    }
+    
+    LaunchedEffect(isFillActive, canvasViewRef) {
+        canvasViewRef?.isFillActive = isFillActive
     }
 
     // --- FIX: STARTUP AWAKENER REMOVED (Replaced by OnLayoutChangeListener in Factory) ---
@@ -580,9 +589,10 @@ fun SketcherSurface(
                 state.opacity = sketchViewModel.currentOpacity
                 
                 // Sync Active Configs for Perfect Freehand (Front Buffer)
-                val alpha = (sketchViewModel.currentOpacity * 255).toInt()
-                val blendedColor = androidx.core.graphics.ColorUtils.setAlphaComponent(sketchViewModel.currentColor, alpha)
-                canvasView.activeColor = blendedColor
+                canvasView.activeStrokeColor = strokeColor
+                canvasView.activeFillColor = fillColor
+                canvasView.isStrokeActive = isStrokeActive
+                canvasView.isFillActive = isFillActive
                 canvasView.activeSize = sizePx // Use pixels for rendering
 
                 // UX IMPROVEMENT: Stabilization only makes sense for Freehand. 
@@ -899,8 +909,8 @@ fun SketcherSurface(
                 onActiveLayerChanged = { sketchViewModel.setActiveLayer(it) },
                 onAddLayer = { sketchViewModel.addNewLayer(true) }, // Default add to top
                 onDeleteLayer = { sketchViewModel.removeActiveLayer() },
-                onMoveUp = { sketchViewModel.moveActiveLayerUp() },
-                onMoveDown = { sketchViewModel.moveActiveLayerDown() },
+                onMoveUp = { sketchViewModel.moveLayerUp(sketchViewModel.activeLayerIndex) },
+                onMoveDown = { sketchViewModel.moveLayerDown(sketchViewModel.activeLayerIndex) },
                 onDismiss = { showLayerManager = false }
             )
         }
