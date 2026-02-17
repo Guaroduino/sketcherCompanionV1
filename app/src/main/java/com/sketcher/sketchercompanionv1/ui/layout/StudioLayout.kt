@@ -2,6 +2,7 @@ package com.sketcher.sketchercompanionv1.ui.layout
 
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.graphics.Matrix
 import androidx.compose.animation.*
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -210,20 +211,21 @@ fun StudioLayout(
     Box(modifier = Modifier.fillMaxSize()) {
         
         // --- LAYER 1: CANVAS ---
-        AndroidView(
+        AndroidView<SketcherCanvasView>(
             modifier = Modifier.fillMaxSize(),
-            factory = { context ->
-                SketcherCanvasView(context).apply {
+            factory = { ctx ->
+                SketcherCanvasView(ctx).apply {
                     layoutParams = FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, 
                         ViewGroup.LayoutParams.MATCH_PARENT
                     )
-                    this.onStrokeCompleted = { stroke -> viewModel.addVectorStroke(stroke) }
-                    this.onHybridStrokeCompleted = { s, f -> viewModel.addHybridStroke(s, f) }
-                    this.canvasBackgroundColor = viewModel.backgroundColor
+                    onStrokeCompleted = { stroke -> viewModel.addVectorStroke(stroke) }
+                    onHybridStrokeCompleted = { s, f -> viewModel.addHybridStroke(s, f) }
+                    onCameraMatrixChanged = { matrix: android.graphics.Matrix -> viewModel.saveCameraState(matrix) }
+                    canvasBackgroundColor = viewModel.backgroundColor
                 }
             },
-            update = { view ->
+            update = { view: SketcherCanvasView ->
                 view.currentTool = viewModel.currentTool
                 
                 // Apply Opacity to Color
@@ -247,13 +249,39 @@ fun StudioLayout(
                 view.scaleConfig = viewModel.scaleConfig
                 view.currentUnit = viewModel.currentUnit
                 view.globalStabilizationLevel = viewModel.globalStabilizationLevel
+                view.isSnapToGridEnabled = viewModel.isSnapToGridEnabled
+                
+                // Force update when layer content changes (internal mutation)
+                val updateTrigger = viewModel.layerUpdateTrigger
+                
                 if (currentLayers.isNotEmpty()) {
                     view.setLayers(currentLayers, viewModel.componentLibrary, viewModel.editingContext)
                 }
                 view.invalidate()
             }
         )
-
+        
+        // --- 0. BACKGROUND UI LAYERS (Scale Indicator) ---
+        // We get current zoom from the ViewModel which tracks it via onCameraMatrixChanged
+        val currentCameraMatrix by viewModel.cameraMatrix.collectAsState()
+        val matrixValues = FloatArray(9)
+        currentCameraMatrix.getValues(matrixValues)
+        val currentZoom = matrixValues[Matrix.MSCALE_X]
+        
+        // Position below the Top-Left Corner button
+        // The corner button is at 'animTopOffset' (visually). Its size is 'scaler.baseButtonSize'.
+        // We add a margin to place the indicator below it.
+        val indicatorTopOffset = (if (swapVertical) animBottomOffset else animTopOffset) + scaler.baseButtonSize + scaler.smallMargin
+        
+        com.sketcher.sketchercompanionv1.ui.ScaleIndicator(
+            scaleConfig = viewModel.scaleConfig,
+            currentUnit = viewModel.currentUnit,
+            currentZoom = currentZoom,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(start = startPadding, top = indicatorTopOffset) 
+        )
+        
         // --- LAYER 2: COLLAPSIBLE FRAME (The "Yellow/Cyan" Zones) ---
         
         // MAIN BAR (User/Menu)
@@ -272,7 +300,6 @@ fun StudioLayout(
                  Row(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .padding(horizontal = scaler.margin)
                         .fillMaxHeight(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(scaler.margin)
@@ -816,23 +843,25 @@ fun StudioLayout(
                                      shape = theme.floatingShape()
                                  )
                              } else if (tool.isPlaceholder) {
-                                 com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
-                                     onClick = {
-                                         if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx
-                                         else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
-                                         else tool.onClick()
-                                     },
-                                     icon = tool.icon,
-                                     contentDescription = tool.contentDescription,
-                                     isActive = tool.isActive,
-                                     isEditMode = isEditMode,
-                                     backgroundColorOverride = androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.3f),
-                                     highlightColor = theme.highlightColor,
-                                     buttonColor = theme.buttonColor,
-                                     iconColor = theme.iconColor,
-                                     shape = theme.floatingShape(),
-                                     iconSize = scaler.smallIconSize
-                                 )
+                                  val isActionButton = tool.id == "undo" || tool.id == "redo" || tool.id == "play" || tool.id == "pause" || tool.id == "zoom_in" || tool.id == "zoom_out"
+                                  val bgColor = if (isActionButton) null else androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.3f)
+                                  com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
+                                      onClick = {
+                                          if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx
+                                          else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
+                                          else tool.onClick()
+                                      },
+                                      icon = tool.icon,
+                                      contentDescription = tool.contentDescription,
+                                      isActive = tool.isActive,
+                                      isEditMode = isEditMode,
+                                      backgroundColorOverride = bgColor,
+                                      highlightColor = theme.highlightColor,
+                                      buttonColor = theme.buttonColor,
+                                      iconColor = theme.iconColor,
+                                      shape = theme.floatingShape(),
+                                      iconSize = scaler.smallIconSize
+                                  )
                              } else {
                                  com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
                                      onClick = {
@@ -921,23 +950,25 @@ fun StudioLayout(
                                      shape = theme.floatingShape()
                                  )
                              } else if (tool.isPlaceholder) {
-                                 com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
-                                     onClick = {
-                                         if (isEditMode) toolPickerTarget = ToolLocation.RightBar to idx
-                                         else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
-                                         else tool.onClick()
-                                     },
-                                     icon = tool.icon,
-                                     contentDescription = tool.contentDescription,
-                                     isActive = tool.isActive,
-                                     isEditMode = isEditMode,
-                                     backgroundColorOverride = androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.3f),
-                                     highlightColor = theme.highlightColor,
-                                     buttonColor = theme.buttonColor,
-                                     iconColor = theme.iconColor,
-                                     shape = theme.floatingShape(),
-                                     iconSize = scaler.smallIconSize
-                                 )
+                                  val isActionButton = tool.id == "undo" || tool.id == "redo" || tool.id == "play" || tool.id == "pause" || tool.id == "zoom_in" || tool.id == "zoom_out"
+                                  val bgColor = if (isActionButton) null else androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.3f)
+                                  com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
+                                      onClick = {
+                                          if (isEditMode) toolPickerTarget = ToolLocation.RightBar to idx
+                                          else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
+                                          else tool.onClick()
+                                      },
+                                      icon = tool.icon,
+                                      contentDescription = tool.contentDescription,
+                                      isActive = tool.isActive,
+                                      isEditMode = isEditMode,
+                                      backgroundColorOverride = bgColor,
+                                      highlightColor = theme.highlightColor,
+                                      buttonColor = theme.buttonColor,
+                                      iconColor = theme.iconColor,
+                                      shape = theme.floatingShape(),
+                                      iconSize = scaler.smallIconSize
+                                  )
                              } else {
                                  com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
                                      onClick = {
@@ -1027,23 +1058,25 @@ fun StudioLayout(
                                      shape = theme.floatingShape()
                                  )
                              } else if (tool.isPlaceholder) {
-                                 com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
-                                     onClick = {
-                                         if (isEditMode) toolPickerTarget = ToolLocation.TopBar to idx
-                                         else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
-                                         else tool.onClick()
-                                     },
-                                     icon = tool.icon,
-                                     contentDescription = tool.contentDescription,
-                                     isActive = tool.isActive,
-                                     isEditMode = isEditMode,
-                                     backgroundColorOverride = androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.3f),
-                                     highlightColor = theme.highlightColor,
-                                     buttonColor = theme.buttonColor,
-                                     iconColor = theme.iconColor,
-                                     shape = theme.floatingShape(),
-                                     iconSize = scaler.smallIconSize
-                                 )
+                                  val isActionButton = tool.id == "undo" || tool.id == "redo" || tool.id == "play" || tool.id == "pause" || tool.id == "zoom_in" || tool.id == "zoom_out"
+                                  val bgColor = if (isActionButton) null else androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.3f)
+                                  com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
+                                      onClick = {
+                                          if (isEditMode) toolPickerTarget = ToolLocation.TopBar to idx
+                                          else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
+                                          else tool.onClick()
+                                      },
+                                      icon = tool.icon,
+                                      contentDescription = tool.contentDescription,
+                                      isActive = tool.isActive,
+                                      isEditMode = isEditMode,
+                                      backgroundColorOverride = bgColor,
+                                      highlightColor = theme.highlightColor,
+                                      buttonColor = theme.buttonColor,
+                                      iconColor = theme.iconColor,
+                                      shape = theme.floatingShape(),
+                                      iconSize = scaler.smallIconSize
+                                  )
                              } else {
                                  com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
                                      onClick = {
@@ -1133,23 +1166,25 @@ fun StudioLayout(
                                      shape = theme.floatingShape()
                                  )
                              } else if (tool.isPlaceholder) {
-                                 com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
-                                     onClick = {
-                                         if (isEditMode) toolPickerTarget = ToolLocation.BottomBar to idx
-                                         else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
-                                         else tool.onClick()
-                                     },
-                                     icon = tool.icon,
-                                     contentDescription = tool.contentDescription,
-                                     isActive = tool.isActive,
-                                     isEditMode = isEditMode,
-                                     backgroundColorOverride = androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.3f),
-                                     highlightColor = theme.highlightColor,
-                                     buttonColor = theme.buttonColor,
-                                     iconColor = theme.iconColor,
-                                     shape = theme.floatingShape(),
-                                     iconSize = scaler.smallIconSize
-                                 )
+                                  val isActionButton = tool.id == "undo" || tool.id == "redo" || tool.id == "play" || tool.id == "pause" || tool.id == "zoom_in" || tool.id == "zoom_out"
+                                  val bgColor = if (isActionButton) null else androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.3f)
+                                  com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
+                                      onClick = {
+                                          if (isEditMode) toolPickerTarget = ToolLocation.BottomBar to idx
+                                          else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
+                                          else tool.onClick()
+                                      },
+                                      icon = tool.icon,
+                                      contentDescription = tool.contentDescription,
+                                      isActive = tool.isActive,
+                                      isEditMode = isEditMode,
+                                      backgroundColorOverride = bgColor,
+                                      highlightColor = theme.highlightColor,
+                                      buttonColor = theme.buttonColor,
+                                      iconColor = theme.iconColor,
+                                      shape = theme.floatingShape(),
+                                      iconSize = scaler.smallIconSize
+                                  )
                              } else {
                                  com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
                                      onClick = {

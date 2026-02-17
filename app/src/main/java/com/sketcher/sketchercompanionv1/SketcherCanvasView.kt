@@ -4,9 +4,13 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.PointF
+import android.view.GestureDetector
 import android.view.View
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import com.sketcher.sketchercompanionv1.dto.*
+import com.sketcher.sketchercompanionv1.utils.UnitUtils
+import kotlin.math.round
 
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -16,10 +20,73 @@ import kotlin.math.max
 
 class SketcherCanvasView(context: Context) : View(context) {
 
+    init {
+        isClickable = true
+        isFocusable = true
+    }
+
     // --- TRANSFORMS & STATE ---
     private val viewMatrix = Matrix()
     private val cachedBitmapMatrix = Matrix()
     private var isDrawing: Boolean = false
+    
+    // Pan tracking state
+    private var lastPanX: Float = 0f
+    private var lastPanY: Float = 0f
+
+    // --- GESTURES ---
+    private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        override fun onScale(detector: ScaleGestureDetector): Boolean {
+            val currentScale = getMatrixScale(viewMatrix)
+            val projectedZoom = currentScale * detector.scaleFactor
+            // CLAMP ZOOM: 0.2f to 12.0f (Matched Legacy)
+            val clampedZoom = projectedZoom.coerceIn(0.2f, 12.0f)
+            val effectiveFactor = clampedZoom / currentScale
+            
+            viewMatrix.postScale(effectiveFactor, effectiveFactor, detector.focusX, detector.focusY)
+            setCameraMatrix(viewMatrix, isIntermediate = true)
+            onCameraMatrixChanged?.invoke(viewMatrix)
+            return true
+        }
+
+        override fun onScaleEnd(detector: ScaleGestureDetector) {
+            redrawAllCache()
+        }
+    })
+
+
+
+    // --- GESTURE DETECTOR (Legacy Pan Logic) ---
+    private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+        override fun onDown(e: MotionEvent): Boolean {
+            return true // Essential for detecting scroll/pan
+        }
+
+        override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dX: Float, dY: Float): Boolean {
+            // Only pan if 2+ fingers are down (Legacy behavior)
+            if (e2.pointerCount >= 2) {
+                viewMatrix.postTranslate(-dX, -dY)
+                setCameraMatrix(viewMatrix, isIntermediate = true)
+                onCameraMatrixChanged?.invoke(viewMatrix)
+                return true
+            }
+            return false
+        }
+    })
+
+    var onCameraMatrixChanged: ((Matrix) -> Unit)? = null
+
+    fun getMatrixValues(outValues: FloatArray) {
+        viewMatrix.getValues(outValues)
+    }
+
+    private fun getMatrixScale(matrix: Matrix): Float {
+        val v = FloatArray(9)
+        matrix.getValues(v)
+        val sX = v[Matrix.MSCALE_X]
+        val skX = v[Matrix.MSKEW_X]
+        return kotlin.math.sqrt(sX * sX + skX * skX)
+    }
     
     // SELECTION STATE (Wired from SketcherSurface/ViewModel)
     var selectionManager: SelectionManager? = null
@@ -110,15 +177,67 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     // --- CONFIGURATION SYNC ---
     var gridConfig: GridConfig = GridConfig()
-        set(value) { field = value; renderEngine.gridConfig = value; redrawAllCache() }
+        set(value) { field = value; renderEngine.gridConfig = value; redrawAllCache(); updateSnapFunction() }
     var scaleConfig: ScaleConfig = ScaleConfig()
-        set(value) { field = value; renderEngine.scaleConfig = value; redrawAllCache() }
+        set(value) { field = value; renderEngine.scaleConfig = value; redrawAllCache(); updateSnapFunction() }
     var currentUnit: DistanceUnit = DistanceUnit.M
-        set(value) { field = value; renderEngine.currentUnit = value; redrawAllCache() }
+        set(value) { field = value; renderEngine.currentUnit = value; redrawAllCache(); updateSnapFunction() }
     var canvasSizeConfig: CanvasSizeConfig? = null
-        set(value) { field = value; renderEngine.canvasSizeConfig = value; redrawAllCache() }
+        set(value) { field = value; renderEngine.canvasSizeConfig = value; redrawAllCache(); updateSnapFunction() }
     var canvasBackgroundColor: Int = android.graphics.Color.WHITE
         set(value) { field = value; renderEngine.canvasBackgroundColor = value; redrawAllCache() }
+        
+    // --- SNAP LOGIC ---
+    var isSnapToGridEnabled: Boolean = false
+        set(value) { 
+            field = value
+            updateSnapFunction()
+        }
+        
+    private fun updateSnapFunction() {
+        snapFunction = if (isSnapToGridEnabled) {
+            { screenX: Float, screenY: Float ->
+                // 1. Screen -> World
+                val inverseMatrix = Matrix()
+                viewMatrix.invert(inverseMatrix)
+                val pts = floatArrayOf(screenX, screenY)
+                inverseMatrix.mapPoints(pts)
+                val worldX = pts[0]
+                val worldY = pts[1]
+
+                // 2. Snap in World Space
+                val gridStepPx = UnitUtils.projectUnitsToPixels(
+                    value = gridConfig.spacing,
+                    unit = currentUnit,
+                    basePxPerMm = scaleConfig.basePixelsPerMillimeter
+                )
+                
+                // Calculate offset to align grid center with canvas center
+                val offsetX = canvasSizeConfig?.let { it.widthInPixels / 2f } ?: 0f
+                val offsetY = canvasSizeConfig?.let { it.heightInPixels / 2f } ?: 0f
+
+                val snappedWorldX: Float
+                val snappedWorldY: Float
+
+                if (gridStepPx > 0) {
+                    snappedWorldX = offsetX + round((worldX - offsetX) / gridStepPx) * gridStepPx
+                    snappedWorldY = offsetY + round((worldY - offsetY) / gridStepPx) * gridStepPx
+                } else {
+                    snappedWorldX = worldX
+                    snappedWorldY = worldY
+                }
+                
+                // 3. World -> Screen
+                pts[0] = snappedWorldX
+                pts[1] = snappedWorldY
+                viewMatrix.mapPoints(pts)
+                
+                Pair(pts[0], pts[1])
+            }
+        } else {
+            null
+        }
+    }
     
     var isDebugPredictionEnabled: Boolean = false
         set(value) { field = value; invalidate() }
@@ -134,6 +253,15 @@ class SketcherCanvasView(context: Context) : View(context) {
     private var activeLayerIndex: Int = 0
 
     fun setLayers(newLayers: List<Layer>, library: Map<String, ComponentDefinition>, editingCtx: List<LayerElement>?, activeIndex: Int = 0) {
+        // Optimization: Skip if no changes to content
+        if (layers.size == newLayers.size && 
+            layers == newLayers && 
+            componentLibrary === library && 
+            editingContext === editingCtx && 
+            activeLayerIndex == activeIndex) {
+            return
+        }
+
         layers.clear()
         layers.addAll(newLayers)
         componentLibrary = library
@@ -312,20 +440,31 @@ class SketcherCanvasView(context: Context) : View(context) {
     // --- INPUT GESTURES ---
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        // --- 1. GESTURES (Zoom/Pan) ---
+        // Delegate to Scale and Gesture Detectors
+        val wasInProgress = scaleDetector.isInProgress
+        scaleDetector.onTouchEvent(event)
+        gestureDetector.onTouchEvent(event)
+        
+        // Manual Pan Logic Removed (Replaced by GestureDetector)
+
+        // If we are zooming or have 2+ fingers, don't draw
+        if (scaleDetector.isInProgress || event.pointerCount >= 2 || (wasInProgress && (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_POINTER_UP))) {
+            if (event.actionMasked == MotionEvent.ACTION_UP || (event.pointerCount == 2 && event.actionMasked == MotionEvent.ACTION_POINTER_UP)) {
+                redrawAllCache()
+            }
+            return true
+        }
+
         // Basic Palm Rejection: If enabled and we have a stylus, ignore non-stylus events
         if (isPalmRejectionEnabled && event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS) {
-            return false
+            return true // Consume event to keep stream alive for gestures, but don't draw
         }
 
         strokePipeline.canvasViewMatrix.set(viewMatrix)
         
         // Calculate current zoom factor
-        val mValues = FloatArray(9)
-        viewMatrix.getValues(mValues)
-        val zoom = kotlin.math.sqrt(
-            mValues[android.graphics.Matrix.MSCALE_X] * mValues[android.graphics.Matrix.MSCALE_X] + 
-            mValues[android.graphics.Matrix.MSKEW_X] * mValues[android.graphics.Matrix.MSKEW_X]
-        )
+        val zoom = getMatrixScale(viewMatrix)
         strokePipeline.currentZoom = zoom
         
         return when (currentTool) {

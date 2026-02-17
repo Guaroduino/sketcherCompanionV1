@@ -41,11 +41,11 @@ class ToolbarRepository(context: Context) {
         
         val layout = SavedLayout(savedToolsMap, assignedMap)
         val json = gson.toJson(layout)
-        prefs.edit().putString("saved_layout_v1", json).apply()
+        prefs.edit().putString("saved_layout_v2", json).apply()
     }
 
     fun loadLayout(): Pair<Map<ToolLocation, List<StudioTool>>, Map<String, ToolPayload>>? {
-        val json = prefs.getString("saved_layout_v1", null) ?: return null
+        val json = prefs.getString("saved_layout_v2", null) ?: return null
         
         return try {
             val type = object : TypeToken<SavedLayout>() {}.type

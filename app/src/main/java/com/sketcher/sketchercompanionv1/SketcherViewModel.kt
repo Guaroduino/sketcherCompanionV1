@@ -146,6 +146,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         showPropertiesPanel = !showPropertiesPanel
     }
 
+
     fun activateTool(payload: ToolPayload) {
         when(payload) {
             ToolPayload.PENCIL -> selectTool(ToolType.FREEHAND)
@@ -285,29 +286,20 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     private fun initToolbarState() {
         _toolbarState.value = mapOf(
             ToolLocation.LeftBar to listOf(
-                StudioTool("edit", Icons.Default.Edit, "Edit", isActive = true, isPlaceholder = true),
-                StudioTool("create", Icons.Default.Add, "Create", isPlaceholder = true),
-                StudioTool("brush", Icons.Default.Brush, "Brush", isPlaceholder = false)
+                StudioTool("brush", Icons.Default.Brush, "Brush", isPlaceholder = false),
+                StudioTool("undo", Icons.Default.Undo, "Undo", isPlaceholder = true) { undo() },
+                StudioTool("redo", Icons.Default.Redo, "Redo", isPlaceholder = true) { redo() }
             ),
             ToolLocation.RightBar to listOf(
-                StudioTool("layers", Icons.Default.Layers, "Layers", isPlaceholder = true),
-                StudioTool("palette", Icons.Default.Palette, "Palette", isPlaceholder = true),
-                StudioTool("opacity", Icons.Default.Opacity, "Opacity", isPlaceholder = true),
                 StudioTool(StudioTool.PROPERTIES_TOOL_ID, Icons.Default.Tune, "Properties", isPlaceholder = false)
             ),
-            ToolLocation.TopBar to listOf(
-                StudioTool("play", Icons.Default.PlayArrow, "Play", isPlaceholder = true),
-                StudioTool("pause", Icons.Default.Pause, "Pause", isPlaceholder = true)
-            ),
-            ToolLocation.BottomBar to listOf(
-                StudioTool("zoom_in", Icons.Default.ZoomIn, "Zoom In", isPlaceholder = true),
-                StudioTool("zoom_out", Icons.Default.ZoomOut, "Zoom Out", isPlaceholder = true)
-            ),
+            ToolLocation.TopBar to listOf(),
+            ToolLocation.BottomBar to listOf(),
             ToolLocation.TopLeftCorner to listOf(
-                StudioTool("menu", Icons.Default.Menu, "Menu", isPlaceholder = true)
+                StudioTool("menu", Icons.Default.Menu, "Menu", isPlaceholder = false)
             ),
             ToolLocation.TopRightCorner to listOf(
-                StudioTool("settings", Icons.Default.Settings, "Settings", isPlaceholder = true)
+                StudioTool("settings", Icons.Default.Settings, "Settings", isPlaceholder = false)
             ),
             ToolLocation.BottomLeftCorner to listOf(
                 StudioTool("undo", Icons.Default.Undo, "Undo", isPlaceholder = false) { undo() }
@@ -1017,7 +1009,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         // StateFlow only emits if the value (reference) changes.
         // We create a shallow copy of the list to trigger the emission.
         _layers.value = _layers.value.toList()
+        layerUpdateTrigger++
     }
+
+    var layerUpdateTrigger by mutableStateOf(0)
 
     /**
      * Fallback for operations not yet fully converted to specific commands.
@@ -1055,6 +1050,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     
     // --- CAMERA ---
     val cameraMatrixValues = FloatArray(9).apply { Matrix().getValues(this) }
+    private val _cameraMatrix = MutableStateFlow(Matrix())
+    val cameraMatrix = _cameraMatrix.asStateFlow()
+
     private val homeCameraMatrixValues = FloatArray(9).apply {
         val saved = prefs.getString("home_camera_matrix_v3", null)
         if (saved != null) {
@@ -1070,13 +1068,20 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun resetCamera() { 
         homeCameraMatrixValues.copyInto(cameraMatrixValues)
         cameraUpdateTrigger++ 
+        val m = Matrix()
+        m.setValues(homeCameraMatrixValues)
+        _cameraMatrix.value = m
         showHomeRestoredFeedback = true
     }
     fun saveHomeCamera() {
         cameraMatrixValues.copyInto(homeCameraMatrixValues)
         prefs.edit().putString("home_camera_matrix_v3", homeCameraMatrixValues.joinToString(",")).apply()
     }
-    fun saveCameraState(matrix: Matrix) { matrix.getValues(cameraMatrixValues) }
+    fun saveCameraState(matrix: Matrix) { 
+        matrix.getValues(cameraMatrixValues)
+        cameraUpdateTrigger++
+        _cameraMatrix.value = Matrix(matrix)
+    }
     fun saveDimensions(w: Float, h: Float) { lastViewportWidth = w; lastViewportHeight = h }
     fun fitContent() {
          // Logic to fit content (Reused/Simplifed from original if possible, or copied from Step 87 snapshot if valid)

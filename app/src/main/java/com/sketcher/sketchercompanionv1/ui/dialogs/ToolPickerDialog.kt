@@ -21,6 +21,9 @@ import com.sketcher.sketchercompanionv1.ui.model.ToolRegistry
 import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
 import com.sketcher.sketchercompanionv1.ui.theme.sdp
 
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+
 @Composable
 fun ToolPickerDialog(
     location: ToolLocation,
@@ -52,13 +55,14 @@ fun ToolPickerDialog(
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(64.dp),
+                    columns = GridCells.Adaptive(80.dp), // Increased width for text
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(ToolRegistry.allTools) { tool ->
+                    // Filter out placeholders
+                    items(ToolRegistry.allTools.filter { !it.isPlaceholder }) { tool ->
                         ToolItem(tool = tool, theme = theme) {
                             onToolSelected(tool)
                             onDismiss()
@@ -102,7 +106,7 @@ fun ToolItem(
     theme: UiThemeConfig,
     onClick: () -> Unit
 ) {
-    val backgroundColor = if (tool.isPlaceholder) Color.Red.copy(alpha = 0.3f) else theme.buttonColor.copy(alpha = 0.2f)
+    val backgroundColor = theme.buttonColor.copy(alpha = 0.2f)
     
     Column(
         modifier = Modifier
@@ -124,5 +128,16 @@ fun ToolItem(
                 modifier = Modifier.size(24.dp)
             )
         }
+        
+        Spacer(modifier = Modifier.height(4.dp))
+        
+        Text(
+            text = tool.contentDescription,
+            style = MaterialTheme.typography.labelSmall,
+            color = theme.iconColor,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }

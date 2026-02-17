@@ -96,18 +96,21 @@ fun SizeOpacityPopup(
                     }
 
                     // Size Slider
+                    val unit = viewModel.currentUnit
+                    val formattedSize = String.format("%.1f", brushSize)
+                    
                     Column {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text("Size", style = MaterialTheme.typography.bodyMedium)
-                            Text("${brushSize.toInt()}", style = MaterialTheme.typography.bodySmall)
+                            Text("$formattedSize ${unit.symbol}", style = MaterialTheme.typography.bodySmall)
                         }
                         Slider(
                             value = brushSize,
                             onValueChange = { viewModel.updateBrushSize(it) },
-                            valueRange = 1f..100f
+                            valueRange = if (unit == com.sketcher.sketchercompanionv1.dto.DistanceUnit.MM) 0.1f..50f else 1f..100f
                         )
                     }
 

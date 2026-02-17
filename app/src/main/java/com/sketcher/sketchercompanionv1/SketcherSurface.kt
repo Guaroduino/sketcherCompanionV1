@@ -602,52 +602,18 @@ fun SketcherSurface(
 
                 container.addView(canvasView)
                 
-                // --- GESTOS ---
                 val scaleDetector = ScaleGestureDetector(ctx, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
                     override fun onScale(detector: ScaleGestureDetector): Boolean {
-                        val currentMatrixScale = InkUtils.getMatrixScale(cameraMatrix)
-                        val projectedZoom = currentMatrixScale * detector.scaleFactor
-                        
-                        // CLAMP ZOOM: 20% to 1200% (Increased for Icon Design)
-                        val clampedZoom = projectedZoom.coerceIn(0.2f, 12.0f)
-                        val effectiveScaleFactor = clampedZoom / currentMatrixScale
-                        
-                        cameraMatrix.postScale(effectiveScaleFactor, effectiveScaleFactor, detector.focusX, detector.focusY)
-                        canvasView.setCameraMatrix(cameraMatrix, isIntermediate = true) // Intermediate Draw
-                        cameraMatrix.invert(inverseMatrix)
-                        sketchViewModel.saveCameraState(cameraMatrix)
-                        
-                        // UPDATE STATE
-                        // We must update the outer 'currentZoom' state variable (which is a MutableFloatState)
-                        currentZoom = clampedZoom
-                        
-                        // Update Brush Size dynamically - Removed
-                        // (wetView.tag as? RuntimeState)?.updateActiveBrush(clampedZoom)
-
-                        return true
+                        // Forward check to view matrix (optional, but view handles it now)
+                         return true
                     }
-
                     override fun onScaleEnd(detector: ScaleGestureDetector) {
-                         canvasView.refreshView() // High Quality Redraw
+                         canvasView.refreshView()
                     }
                 })
 
                 val gestureDetector = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
-                    override fun onDown(e: MotionEvent): Boolean {
-                        return true // Essential for detecting scroll/pan
-                    }
-
-                    override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dX: Float, dY: Float): Boolean {
-                        if (e2.pointerCount >= 2) {
-                            isPanning = true
-                            cameraMatrix.postTranslate(-dX, -dY)
-                            canvasView.setCameraMatrix(cameraMatrix, isIntermediate = true) // Intermediate Draw
-                            cameraMatrix.invert(inverseMatrix)
-                            sketchViewModel.saveCameraState(cameraMatrix)
-                            return true
-                        }
-                        return false
-                    }
+                    override fun onDown(e: MotionEvent): Boolean = true
                 })
 
                 // val stabilizer = StrokeStabilizer() // REMOVED
@@ -685,389 +651,19 @@ fun SketcherSurface(
                 canvasView.onHybridStrokeCompleted = { s, f -> sketchViewModel.addHybridStroke(s, f) }
 
                 canvasView.setOnTouchListener { v, event ->
-                    // Configure snap function for freehand
-                    // Configure snap function for freehand
-                    canvasView.snapFunction = if (sketchViewModel.isSnapToGridEnabled) {
-                        { screenX: Float, screenY: Float ->
-                            // 1. Screen -> World
-                            val pts = floatArrayOf(screenX, screenY)
-                            inverseMatrix.mapPoints(pts)
-                            val worldX = pts[0]
-                            val worldY = pts[1]
-
-                            // 2. Snap in World Space
-                            val gridStepPx = UnitUtils.projectUnitsToPixels(
-                                value = sketchViewModel.gridConfig.spacing,
-                                unit = sketchViewModel.currentUnit,
-                                basePxPerMm = sketchViewModel.scaleConfig.basePixelsPerMillimeter
-                            )
-                            
-                            // Calculate offset to align grid center with canvas center
-                            val offsetX = sketchViewModel.canvasSizeConfig?.let { it.widthInPixels / 2f } ?: 0f
-                            val offsetY = sketchViewModel.canvasSizeConfig?.let { it.heightInPixels / 2f } ?: 0f
-
-                            val snappedWorldX: Float
-                            val snappedWorldY: Float
-
-                            if (gridStepPx > 0) {
-                                snappedWorldX = offsetX + kotlin.math.round((worldX - offsetX) / gridStepPx) * gridStepPx
-                                snappedWorldY = offsetY + kotlin.math.round((worldY - offsetY) / gridStepPx) * gridStepPx
-                            } else {
-                                snappedWorldX = worldX
-                                snappedWorldY = worldY
-                            }
-                            
-                            // 3. World -> Screen
-                            pts[0] = snappedWorldX
-                            pts[1] = snappedWorldY
-                            cameraMatrix.mapPoints(pts)
-                            
-                            Pair(pts[0], pts[1])
-                        }
-                    } else {
-                        null
-                    }
+                    // PASS PROP
+                    canvasView.isSnapToGridEnabled = sketchViewModel.isSnapToGridEnabled
                     
-                    // ... (rest of touch listener logic)
-                    
-                    // Only process scale gestures if NOT actively manipulating a selection
-                    val isManipulatingSelection = sketchViewModel.currentTool == ToolType.SELECTION && 
-                        (selTouchMode == SelectionTouchMode.DRAGGING_CONTENT || 
-                         selTouchMode == SelectionTouchMode.DRAGGING_CORNER || 
-                         selTouchMode == SelectionTouchMode.ROTATING)
-                    
-                    if (!isManipulatingSelection) {
-                        scaleDetector.onTouchEvent(event)
-                    }
-                    
-                    gestureDetector.onTouchEvent(event)
-
-                    if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
-                        if (isPanning) {
-                            canvasView.refreshView() // High Quality Redraw after Pan
-                            isPanning = false
-                        }
-                    }
-                    
-                    // BOTTOM DEAD ZONE ...
-                    val density = context.resources.displayMetrics.density
-                    val deadZonePx = 40 * density
-                    if (event.actionMasked == MotionEvent.ACTION_DOWN && event.y > (v.height - deadZonePx)) {
-                         return@setOnTouchListener false
-                    }
-                    
-                    
-                    // 2. PALM REJECTION CHECK (Blocks Tool Usage only)
-                    // If Palm Rejection enabled AND not using a Stylus -> Block drawing
-                    if (sketchViewModel.isPalmRejectionEnabled && event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS) {
-                         return@setOnTouchListener true // Consume event so it doesn't propagate, but don't draw
+                    // Wire up internal matrix changes to external state
+                    canvasView.onCameraMatrixChanged = { matrix ->
+                         sketchViewModel.saveCameraState(matrix)
+                         cameraMatrix.set(matrix)
+                         cameraMatrix.invert(inverseMatrix)
+                         currentZoom = InkUtils.getMatrixScale(matrix)
                     }
 
-
-
-                    val state = v.tag as RuntimeState
-                    val action = event.actionMasked
-                    
-                    // --- SYNC STATE FROM VIEWMODEL (CRITICAL FOR FIRST STROKE & COLOR LAG) ---
-                    if (action == MotionEvent.ACTION_DOWN) {
-                         state.toolType = sketchViewModel.currentTool
-                         state.color = sketchViewModel.currentColor
-                         state.size = sketchViewModel.currentSize
-                         state.opacity = sketchViewModel.currentOpacity
-                    }
-
-                    // --- TOOL CLASSIFICATION ---
-                    // --- TOOL CLASSIFICATION ---
-                    val isFillTool = state.toolType == ToolType.FILL
-                    val isVectorTool = isFillTool || state.toolType == ToolType.FREEHAND
-                    
-                    val isInkTool = false 
-
-                    // Parallel Capture: Capture Vector Points if it's a Vector Tool OR (Ink Tool + Fill Mode)
-                    val shouldCaptureVector = isVectorTool
-
-                        if (state.toolType == ToolType.SELECTION) {
-                            val touchPts = floatArrayOf(event.x, event.y)
-                            inverseMatrix.mapPoints(touchPts)
-                            val wx = touchPts[0]
-                            val wy = touchPts[1]
-
-                            when (action) {
-                                MotionEvent.ACTION_DOWN -> {
-                                    val manager = sketchViewModel.selectionManager
-                                    val bounds = manager.baseBounds
-                                    val zoom = InkUtils.getMatrixScale(cameraMatrix)
-                                    val handleSize = 25f / zoom 
-
-                                    activeHandle = -1
-                                    selTouchMode = SelectionTouchMode.IDLE
-                                    
-                                    if (!bounds.isEmpty) {
-                                        val selMatrix = manager.selectionMatrix
-                                        // 0:TL  1:TR  2:BL  3:BR  4:ROT  5:CENTER 
-                                        // 6:TC  7:BC  8:LC  9:RC
-                                        val pts = floatArrayOf(
-                                            bounds.left, bounds.top,                   // 0: TL
-                                            bounds.right, bounds.top,                  // 1: TR
-                                            bounds.left, bounds.bottom,                // 2: BL
-                                            bounds.right, bounds.bottom,               // 3: BR
-                                            bounds.centerX(), bounds.top - (30f / zoom),// 4: ROT
-                                            bounds.centerX(), bounds.centerY(),        // 5: CENTER
-                                            bounds.centerX(), bounds.top,              // 6: TC
-                                            bounds.centerX(), bounds.bottom,           // 7: BC
-                                            bounds.left, bounds.centerY(),             // 8: LC
-                                            bounds.right, bounds.centerY()             // 9: RC
-                                        )
-                                        selMatrix.mapPoints(pts)
-
-                                        // Hit test rotation handle
-                                        if (kotlin.math.hypot(wx - pts[8], wy - pts[9]) < handleSize) {
-                                            activeHandle = 4
-                                            selTouchMode = SelectionTouchMode.ROTATING
-                                            pivotX = pts[10]
-                                            pivotY = pts[11]
-                                            startAngle = Math.toDegrees(Math.atan2((wy - pivotY).toDouble(), (wx - pivotX).toDouble())).toFloat()
-                                            canvasView.redrawAllCache() // Clear background for live rotation
-                                        } else {
-                                            // Hit test corners
-                                            if (kotlin.math.hypot(wx - pts[0], wy - pts[1]) < handleSize) activeHandle = 0
-                                            else if (kotlin.math.hypot(wx - pts[2], wy - pts[3]) < handleSize) activeHandle = 1
-                                            else if (kotlin.math.hypot(wx - pts[4], wy - pts[5]) < handleSize) activeHandle = 2
-                                            else if (kotlin.math.hypot(wx - pts[6], wy - pts[7]) < handleSize) activeHandle = 3
-                                            // Hit test edges
-                                            else if (kotlin.math.hypot(wx - pts[12], wy - pts[13]) < handleSize) activeHandle = 6 // TC
-                                            else if (kotlin.math.hypot(wx - pts[14], wy - pts[15]) < handleSize) activeHandle = 7 // BC
-                                            else if (kotlin.math.hypot(wx - pts[16], wy - pts[17]) < handleSize) activeHandle = 8 // LC
-                                            else if (kotlin.math.hypot(wx - pts[18], wy - pts[19]) < handleSize) activeHandle = 9 // RC
-
-                                            if (activeHandle != -1) {
-                                                selTouchMode = SelectionTouchMode.DRAGGING_CORNER
-                                                canvasView.redrawAllCache() // Clear background for live scale
-                                                // Set Pivot (Opposite point)
-                                                val oppIdx = when(activeHandle) {
-                                                    0 -> 3 // TL -> BR
-                                                    1 -> 2 // TR -> BL
-                                                    2 -> 1 // BL -> TR
-                                                    3 -> 0 // BR -> TL
-                                                    6 -> 7 // TC -> BC
-                                                    7 -> 6 // BC -> TC
-                                                    8 -> 9 // LC -> RC
-                                                    9 -> 8 // RC -> LC
-                                                    else -> 5
-                                                }
-                                                pivotX = pts[oppIdx * 2]
-                                                pivotY = pts[oppIdx * 2 + 1]
-                                            } else {
-                                                // Content Drag Hit Test
-                                                val invM = Matrix()
-                                                selMatrix.invert(invM)
-                                                val localTouch = floatArrayOf(wx, wy)
-                                                invM.mapPoints(localTouch)
-                                                if (bounds.contains(localTouch[0], localTouch[1])) {
-                                                    selTouchMode = SelectionTouchMode.DRAGGING_CONTENT
-                                                    canvasView.redrawAllCache() // Clear background for live drag
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    if (selTouchMode == SelectionTouchMode.IDLE) {
-                                        selTouchMode = SelectionTouchMode.SELECTING_AREA
-                                        selPath.reset()
-                                        selPath.moveTo(wx, wy)
-                                        if (sketchViewModel.currentSelectionMode == SketcherViewModel.SelectionMode.RECTANGLE) {
-                                            initialBox.set(wx, wy, wx, wy)
-                                        }
-                                    }
-                                    
-                                    lastX = wx
-                                    lastY = wy
-                                }
-                            MotionEvent.ACTION_MOVE -> {
-                                val manager = sketchViewModel.selectionManager
-                                val dx = wx - lastX
-                                val dy = wy - lastY
-
-                                when (selTouchMode) {
-                                    SelectionTouchMode.SELECTING_AREA -> {
-                                        if (sketchViewModel.currentSelectionMode == SketcherViewModel.SelectionMode.RECTANGLE) {
-                                            val rectPath = android.graphics.Path()
-                                            rectPath.addRect(
-                                                kotlin.math.min(lastX, wx), kotlin.math.min(lastY, wy),
-                                                kotlin.math.max(lastX, wx), kotlin.math.max(lastY, wy),
-                                                android.graphics.Path.Direction.CW
-                                            )
-                                            canvasView.updateCurrentFill(rectPath, android.graphics.Color.argb(60, 0, 122, 255))
-                                        } else {
-                                            selPath.lineTo(wx, wy)
-                                            canvasView.updateCurrentFill(selPath, android.graphics.Color.argb(60, 0, 122, 255))
-                                        }
-                                    }
-                                    SelectionTouchMode.DRAGGING_CONTENT -> {
-                                        if (!canvasView.isSelectionDragging) canvasView.isSelectionDragging = true
-                                        val m = Matrix()
-                                        m.postTranslate(dx, dy)
-                                        manager.applyTransform(m)
-                                        lastX = wx
-                                        lastY = wy
-                                    }
-                                    SelectionTouchMode.DRAGGING_CORNER -> {
-                                        val selM = manager.selectionMatrix
-                                        val invM = android.graphics.Matrix()
-                                        selM.invert(invM)
-
-                                        // Map touch points and pivot to local space
-                                        val locLast = floatArrayOf(lastX, lastY)
-                                        val locCurr = floatArrayOf(wx, wy)
-                                        val locPivot = floatArrayOf(pivotX, pivotY)
-                                        invM.mapPoints(locLast)
-                                        invM.mapPoints(locCurr)
-                                        invM.mapPoints(locPivot)
-
-                                        val oldDX = locLast[0] - locPivot[0]
-                                        val oldDY = locLast[1] - locPivot[1]
-                                        val newDX = locCurr[0] - locPivot[0]
-                                        val newDY = locCurr[1] - locPivot[1]
-                                        
-                                        if (!canvasView.isSelectionDragging) canvasView.isSelectionDragging = true
-
-                                        // Calculate scale factors in local space
-                                        var sx = if (kotlin.math.abs(oldDX) > 0.01f) newDX / oldDX else 1f
-                                        var sy = if (kotlin.math.abs(oldDY) > 0.01f) newDY / oldDY else 1f
-
-                                        if (activeHandle <= 3) {
-                                            // Corner handle: Uniform scale if locked
-                                            if (sketchViewModel.isSelectionAspectRatioLocked) {
-                                                val s = if (kotlin.math.abs(sx) > kotlin.math.abs(sy)) sx else sy
-                                                sx = s
-                                                sy = s
-                                            }
-                                        } else {
-                                            // Edge handle: One-direction scale in local space
-                                            // 6:TC, 7:BC (Top/Bottom) -> Sy only
-                                            // 8:LC, 9:RC (Left/Right) -> Sx only
-                                            if (activeHandle == 6 || activeHandle == 7) sx = 1f
-                                            if (activeHandle == 8 || activeHandle == 9) sy = 1f
-                                        }
-
-                                        val sMatrix = android.graphics.Matrix()
-                                        sMatrix.postScale(sx, sy, locPivot[0], locPivot[1])
-                                        
-                                        // Incremental world matrix: I = M * S_local * M^-1
-                                        val imM = android.graphics.Matrix()
-                                        imM.set(invM)
-                                        imM.postConcat(sMatrix)
-                                        imM.postConcat(selM)
-                                        
-                                        manager.applyTransform(imM)
-                                        lastX = wx
-                                        lastY = wy
-                                    }
-                                    SelectionTouchMode.ROTATING -> {
-                                        val currentAngle = Math.toDegrees(Math.atan2((wy - pivotY).toDouble(), (wx - pivotX).toDouble())).toFloat()
-                                        val deltaAngle = currentAngle - startAngle
-                                        
-                                        val m = Matrix()
-                                        m.postRotate(deltaAngle, pivotX, pivotY)
-                                        if (!canvasView.isSelectionDragging) canvasView.isSelectionDragging = true
-                                        manager.applyTransform(m)
-                                        startAngle = currentAngle
-                                    }
-                                    else -> {}
-                                }
-                                canvasView.invalidate()
-                            }
-                            MotionEvent.ACTION_UP -> {
-                                val manager = sketchViewModel.selectionManager
-                                if (selTouchMode == SelectionTouchMode.SELECTING_AREA) {
-                                    canvasView.updateCurrentFill(null, 0)
-                                    val dist = kotlin.math.hypot(wx - lastX, wy - lastY)
-                                    val isAllLayers = sketchViewModel.selectionScope == SketcherViewModel.SelectionScope.ALL_LAYERS
-
-                                    if (dist < 5f) {
-                                        // Tap -> Select single
-                                        if (isAllLayers) {
-                                             for (i in layers.indices.reversed()) {
-                                                 // Try to select on this layer. If hit, it replaced selection (due to false flag) and we break.
-                                                 // If miss, it cleared selection, so we continue clean to next layer.
-                                                 if (manager.selectSingleAt(wx, wy, layers[i], sketchViewModel.componentLibrary, addToSelection = false)) {
-                                                     break 
-                                                 }
-                                             }
-                                        } else {
-                                            manager.selectSingleAt(wx, wy, layers[sketchViewModel.activeLayerIndex], sketchViewModel.componentLibrary, addToSelection = false)
-                                        }
-                                    } else {
-                                        val selectionPath = if (sketchViewModel.currentSelectionMode == SketcherViewModel.SelectionMode.RECTANGLE) {
-                                            android.graphics.Path().apply {
-                                                addRect(
-                                                    kotlin.math.min(lastX, wx), kotlin.math.min(lastY, wy),
-                                                    kotlin.math.max(lastX, wx), kotlin.math.max(lastY, wy),
-                                                    android.graphics.Path.Direction.CW
-                                                )
-                                            }
-                                        } else {
-                                            selPath
-                                        }
-
-                                        if (isAllLayers) {
-                                            manager.clearSelection()
-                                             layers.forEach { layer ->
-                                                 manager.selectArea(selectionPath, layer, sketchViewModel.componentLibrary, addToSelection = true)
-                                             }
-                                        } else {
-                                            manager.selectArea(selectionPath, layers[sketchViewModel.activeLayerIndex], sketchViewModel.componentLibrary, addToSelection = false)
-                                        }
-                                    }
-                                }
-                                manager.commitTransform() // Commit the transient transform to data
-                                if (canvasView.isSelectionDragging) canvasView.isSelectionDragging = false
-                                selTouchMode = SelectionTouchMode.IDLE
-                                canvasView.redrawAllCache() // REBUILD: Bake new positions OR Remove old selections from background
-                                canvasView.invalidate()
-                            }
-                        }
-                        return@setOnTouchListener true
-                    }
-
-                    if (state.toolType == ToolType.ERASER) {
-                        // OBJECT ERASER LOGIC (Robust activePointerId)
-                        if (action == MotionEvent.ACTION_DOWN) {
-                             activePointerId = event.getPointerId(0)
-                        }
-                        
-                        // Only process if this is the active pointer
-                        val pointerIndex = event.findPointerIndex(activePointerId)
-                        if (pointerIndex != -1) {
-                             if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
-                                val touchPts = floatArrayOf(event.getX(pointerIndex), event.getY(pointerIndex))
-                                inverseMatrix.mapPoints(touchPts)
-                                val worldX = touchPts[0]
-                                val worldY = touchPts[1]
-                                
-                                val erased = sketchViewModel.erase(worldX, worldY, state.size)
-                                
-                                if (erased) {
-                                      canvasView.setLayers(sketchViewModel.layers.value, sketchViewModel.componentLibrary, sketchViewModel.editingContext, sketchViewModel.activeLayerIndex)
-                                     canvasView.redrawAllCache()
-                                }
-                             }
-                        }
-                        
-                        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP) {
-                            if (event.getPointerId(event.actionIndex) == activePointerId) {
-                                activePointerId = -1
-                            }
-                        }
-                        if (action == MotionEvent.ACTION_CANCEL) {
-                            activePointerId = -1
-                        }
-
-                          return@setOnTouchListener true
-                     } else {
-                         // Delegate all other tools (Freehand, Fill, Geometric) to CanvasView (StrokePipeline)
-                         return@setOnTouchListener false
-                    }
+                    // Delegate to View's own touch handling
+                    false 
                 }
                 
                 container // Ensure factory returns the container
@@ -1145,29 +741,7 @@ fun SketcherSurface(
                 canvasView.globalStabilizationLevel = if (isGeometric) 0f else sketchViewModel.globalStabilizationLevel
                 
                 // SNAP FUNCTION
-                canvasView.snapFunction = { x, y ->
-                     if (sketchViewModel.isSnapToGridEnabled) {
-                         val gridStepPx = com.sketcher.sketchercompanionv1.utils.UnitUtils.projectUnitsToPixels(
-                             sketchViewModel.gridConfig.spacing, 
-                             sketchViewModel.currentUnit, 
-                             sketchViewModel.scaleConfig.basePixelsPerMillimeter
-                         )
-                         
-                         // Calculate offset to align snap with grid center (Paper Center)
-                         val offsetX = sketchViewModel.canvasSizeConfig?.let { it.widthInPixels / 2f } ?: 0f
-                         val offsetY = sketchViewModel.canvasSizeConfig?.let { it.heightInPixels / 2f } ?: 0f
-                         
-                         if (gridStepPx > 0f) {
-                             val rx = kotlin.math.round((x - offsetX) / gridStepPx) * gridStepPx + offsetX
-                             val ry = kotlin.math.round((y - offsetY) / gridStepPx) * gridStepPx + offsetY
-                             Pair(rx, ry)
-                         } else {
-                             Pair(x, y)
-                         }
-                     } else {
-                         Pair(x, y)
-                     }
-                }
+                canvasView.isSnapToGridEnabled = sketchViewModel.isSnapToGridEnabled
             }
         )
 
@@ -2383,8 +1957,8 @@ fun SizeSelectorPopup(
         ) {
             
             if (showSize) {
-                // Display Value with Unit
-                val formattedSize = if (unit == DistanceUnit.MM) String.format("%.1f", currentSize) else currentSize.toInt().toString()
+                // Display Value with Unit (Always formatted)
+                val formattedSize = String.format("%.1f", currentSize)
                 Text("${stringResource(R.string.label_size)}: $formattedSize ${unit.symbol}")
                 
                 Slider(
