@@ -11,8 +11,7 @@ data class StrokePoint(var x: Float, var y: Float, val pressure: Float, val time
 
 data class VectorStroke(
     val points: List<StrokePoint>,
-    val color: Int, // Deprecated, but keeping for compatibility if needed elsewhere
-    val strokeColor: Int = color,
+    val strokeColor: Int,
     val fillColor: Int = android.graphics.Color.TRANSPARENT,
     val isStrokeEnabled: Boolean = true,
     val isFillEnabled: Boolean = false,
@@ -45,7 +44,6 @@ data class VectorStroke(
     override fun copyElement(): LayerElement {
         return VectorStroke(
             points = points.map { it.copy() },
-            color = color,
             strokeColor = strokeColor,
             fillColor = fillColor,
             isStrokeEnabled = isStrokeEnabled,

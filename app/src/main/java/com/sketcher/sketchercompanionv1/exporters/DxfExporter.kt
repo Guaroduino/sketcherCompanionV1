@@ -100,7 +100,7 @@ object DxfExporter {
         
         // Write Color Overrides if transparent or special
         // Map Android Color to ACI
-        val aci = mapColorToAci(stroke.color)
+        val aci = mapColorToAci(stroke.strokeColor)
         writeCode(writer, 62, aci.toString())
 
         for (p in stroke.points) {

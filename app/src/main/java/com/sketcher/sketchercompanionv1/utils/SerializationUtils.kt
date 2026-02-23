@@ -162,10 +162,14 @@ fun VectorStroke.toVectorStrokeJson(): VectorStrokeJson {
     // Basic mapping
     return VectorStrokeJson(
         points = this.points.map { StrokePointJson(it.x, it.y, it.pressure, it.timestamp) },
-        color = this.color,
+        color = this.strokeColor,
         maxWidth = this.maxWidth,
         brushType = this.brushType,
-        strokeType = this.strokeType
+        strokeType = this.strokeType,
+        strokeColor = this.strokeColor,
+        fillColor = this.fillColor,
+        isStrokeEnabled = this.isStrokeEnabled,
+        isFillEnabled = this.isFillEnabled
     )
 }
 
@@ -196,11 +200,30 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         this.maxWidth
     )
     
+    val sColor = this.strokeColor ?: this.color
+    val fColor = this.fillColor ?: android.graphics.Color.TRANSPARENT
+    val sEnabled = this.isStrokeEnabled ?: true
+    val fEnabled = this.isFillEnabled ?: false
+
+    var fPath: android.graphics.Path? = null
+    if (fEnabled && pts.size >= 3) {
+        fPath = android.graphics.Path()
+        fPath.moveTo(pts[0].x, pts[0].y)
+        for (i in 1 until pts.size) {
+            fPath.lineTo(pts[i].x, pts[i].y)
+        }
+        fPath.close()
+    }
+    
     return VectorStroke(
         points = pts,
-        color = this.color,
+        strokeColor = sColor,
+        fillColor = fColor,
+        isStrokeEnabled = sEnabled,
+        isFillEnabled = fEnabled,
         maxWidth = this.maxWidth,
         path = result.path,
+        fillPath = fPath,
         brushType = this.brushType,
         strokeType = this.strokeType,
         leftPoints = result.left,

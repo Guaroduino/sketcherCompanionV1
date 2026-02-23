@@ -170,8 +170,8 @@ object SvgExporter {
         val d = PathToSvgHelper.pathToString(stroke.path)
         if (d.isEmpty()) return
         
-        val colorHex = colorToHex(stroke.color)
-        val alpha = (Color.alpha(stroke.color) / 255f)
+        val colorHex = colorToHex(stroke.strokeColor)
+        val alpha = (Color.alpha(stroke.strokeColor) / 255f)
         val strokeOpacity = if (alpha < 1f) "stroke-opacity=\"$alpha\"" else ""
         
         // VectorStroke typically uses the path as the FILL of the shape because it's an outline path?

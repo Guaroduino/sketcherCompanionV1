@@ -312,7 +312,6 @@ class StrokePipeline(
 
         val stroke = VectorStroke(
             points = finalPoints,
-            color = activeColor,
             strokeColor = activeStrokeColor,
             fillColor = activeFillColor,
             isStrokeEnabled = isStrokeActive,
@@ -367,7 +366,6 @@ class StrokePipeline(
 
          val stroke = VectorStroke(
              points = finalPointsRaw,
-             color = activeColor,
              strokeColor = activeStrokeColor,
              fillColor = activeFillColor,
              isStrokeEnabled = isStrokeActive,

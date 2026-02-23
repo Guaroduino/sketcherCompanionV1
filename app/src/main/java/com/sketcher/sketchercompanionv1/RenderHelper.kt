@@ -71,7 +71,7 @@ object RenderHelper {
     }
 
     fun drawVectorStroke(vStroke: VectorStroke, canvas: Canvas) {
-        vectorPaint.color = vStroke.color
+        vectorPaint.color = vStroke.strokeColor
         canvas.drawPath(vStroke.path, vectorPaint)
     }
 

@@ -21,8 +21,6 @@ fun DebugOverlay(
     onScaleChange: (Float) -> Unit,
     uiCollapsed: Boolean,
     onToggleUi: () -> Unit,
-    onSwitchToLegacy: () -> Unit,
-    isStudioMode: Boolean,
     swapVertical: Boolean,
     swapHorizontal: Boolean,
     onToggleSwapVertical: () -> Unit,
@@ -77,17 +75,10 @@ fun DebugOverlay(
                 ) {
                     Button(
                         onClick = onToggleUi, 
-                        modifier = Modifier.weight(1f).height(32.dp),
+                        modifier = Modifier.fillMaxWidth().height(32.dp),
                         contentPadding = PaddingValues(0.dp)
                     ) {
-                        Text(if (uiCollapsed) "Show" else "Hide", style = MaterialTheme.typography.labelSmall)
-                    }
-                    Button(
-                        onClick = onSwitchToLegacy, 
-                        modifier = Modifier.weight(1f).height(32.dp),
-                        contentPadding = PaddingValues(0.dp)
-                    ) {
-                        Text(if (isStudioMode) "Legacy" else "Studio", style = MaterialTheme.typography.labelSmall)
+                        Text(if (uiCollapsed) "Show UI" else "Hide UI", style = MaterialTheme.typography.labelSmall)
                     }
                 }
 

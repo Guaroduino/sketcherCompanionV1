@@ -415,7 +415,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         private set
 
     val activeContainer: MutableList<LayerElement>
-        get() = editingContext ?: _layers.value[activeLayerIndex].elements
+        get() = editingContext ?: layerManager.activeElements()
 
     var editingContainerMatrix by mutableStateOf<Matrix?>(null)
         private set
@@ -511,26 +511,6 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     var lastDrawingTool by mutableStateOf(ToolType.FREEHAND)
 
-    // --- LEGACY COLOR SYSTEM (For Compatibility) ---
-    var availableColors = mutableStateListOf(
-        prefs.getInt("color_slot_0", AndroidColor.BLACK),
-        prefs.getInt("color_slot_1", AndroidColor.RED),
-        prefs.getInt("color_slot_2", AndroidColor.BLUE),
-        prefs.getInt("color_slot_3", AndroidColor.YELLOW)
-    )
-    var selectedColorIndex by mutableIntStateOf(prefs.getInt("selected_color_index", 0))
-    var currentColor by mutableIntStateOf(prefs.getInt("current_color", AndroidColor.BLACK))
-
-    var isFillModeEnabled by mutableStateOf(false)
-    
-    private var _fillModeColor by mutableIntStateOf(prefs.getInt("fill_mode_color", AndroidColor.GREEN))
-    var fillModeColor: Int
-        get() = _fillModeColor
-        set(value) {
-            _fillModeColor = value
-            prefs.edit().putInt("fill_mode_color", value).apply()
-        }
-
     // --- NEW COLOR SYSTEM (INDEPENDENT STROKE & FILL) ---
     private val _strokeColor = MutableStateFlow(AndroidColor.BLACK)
     val strokeColor = _strokeColor.asStateFlow()
@@ -547,15 +527,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun setStrokeColor(color: Int) {
         _strokeColor.value = color
         _isStrokeActive.value = true
-        // Legacy sync
-        currentColor = color
     }
 
     fun setFillColor(color: Int) {
         _fillColor.value = color
         _isFillActive.value = true
-        // Legacy sync
-        fillModeColor = color
     }
 
     fun toggleStroke(enabled: Boolean) {
@@ -662,14 +638,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun deleteSelection() {
         if (selectionManager.selectedElements.isEmpty()) return
         performSnapshotAction("Borrar Selección") {
-            val newList = _layers.value.toMutableList()
+            val newList = layers.value.toMutableList()
             newList.forEachIndexed { index, layer ->
                 val remaining = layer.elements.filter { it !in selectionManager.selectedElements }.toMutableList()
                 if (remaining.size != layer.elements.size) {
                     newList[index] = layer.copy(elements = remaining)
                 }
             }
-            _layers.value = newList
+            layerManager.internalUpdateLayers(newList, activeLayerIndex)
             selectionManager.clearSelection()
         }
     }
@@ -695,9 +671,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             
             selectionManager.clearSelection()
             if (editingContext == null) {
-                val newList = _layers.value.toMutableList()
+                val newList = layers.value.toMutableList()
                 newList[activeLayerIndex] = newList[activeLayerIndex].copy()
-                _layers.value = newList
+                layerManager.internalUpdateLayers(newList, activeLayerIndex)
             }
         }
     }
@@ -738,7 +714,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 matrix = Matrix()
             )
             
-            val currentLayers = _layers.value.toMutableList()
+            val currentLayers = layers.value.toMutableList()
             val activeLayer = currentLayers[activeLayerIndex]
             
             // Remove from source layers
@@ -748,9 +724,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                  }
             }
             
-            activeLayer.elements.add(group)
-            currentLayers[activeLayerIndex] = activeLayer.copy()
-            _layers.value = currentLayers
+            // Re-find active layer after potentially copying all
+            val targetLayer = currentLayers[activeLayerIndex]
+            targetLayer.elements.add(group)
+            currentLayers[activeLayerIndex] = targetLayer.copy()
+            layerManager.internalUpdateLayers(currentLayers, activeLayerIndex)
             
             selectionManager.clearSelection()
             selectionManager.selectedElements.add(group)
@@ -764,7 +742,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         if (groups.isEmpty()) return
         
         performSnapshotAction("Desagrupar") {
-            val currentLayers = _layers.value.toMutableList()
+            val currentLayers = layers.value.toMutableList()
             groups.forEach { group ->
                  currentLayers.forEachIndexed { layerIndex, layer ->
                      if (layer.elements.contains(group)) {
@@ -787,7 +765,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                      }
                  }
             }
-            _layers.value = currentLayers
+            layerManager.internalUpdateLayers(currentLayers, activeLayerIndex)
             selectionManager.clearSelection()
         }
     }
@@ -814,9 +792,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         if (clipboard.isEmpty()) return
         
         performSnapshotAction("Pegar") {
-            if (_layers.value.isEmpty()) return@performSnapshotAction
+            if (layers.value.isEmpty()) return@performSnapshotAction
             
-            val currentLayers = _layers.value.toMutableList()
+            val currentLayers = layers.value.toMutableList()
             val offset = 50f 
             val m = Matrix()
             m.postTranslate(offset, offset)
@@ -830,31 +808,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             val activeLayer = currentLayers[activeLayerIndex]
             activeLayer.elements.addAll(pasted)
             currentLayers[activeLayerIndex] = activeLayer.copy()
-            _layers.value = currentLayers
+            layerManager.internalUpdateLayers(currentLayers, activeLayerIndex)
             
             selectionManager.clearSelection()
             selectionManager.selectedElements.addAll(pasted)
             selectionManager.recalculateBaseBounds(componentLibrary)
-        }
-    }
-
-    // --- COLORS ---
-    fun updateCurrentColorFromSlot() {
-        if (selectedColorIndex in availableColors.indices) {
-            currentColor = availableColors[selectedColorIndex]
-            prefs.edit().putInt("current_color", currentColor).apply()
-            prefs.edit().putInt("selected_color_index", selectedColorIndex).apply()
-        }
-    }
-    
-    fun updateColorSlot(index: Int, color: Int) {
-        if (index in availableColors.indices) {
-            availableColors[index] = color
-            prefs.edit().putInt("color_slot_$index", color).apply()
-            if (index == selectedColorIndex) {
-                currentColor = color
-                prefs.edit().putInt("current_color", color).apply()
-            }
         }
     }
 
@@ -875,8 +833,6 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         currentOpacity = config.opacity
         _brushOpacity.value = config.opacity // SYNC Studio UI
         currentFreehandSettings = config.freehandSettings
-        
-        isFillModeEnabled = (type == ToolType.FILL)
     }
 
     fun setToolSize(size: Float) {
@@ -989,168 +945,39 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     var lastViewportWidth: Float = 0f
     var lastViewportHeight: Float = 0f
     
-    private val _layers = MutableStateFlow<List<Layer>>(
-        listOf(Layer("layer_1", "Capa 1", mutableListOf()))
+    val layerManager = com.sketcher.sketchercompanionv1.managers.LayerManager(
+        performSnapshotAction = { label, action -> performSnapshotAction(label, action) }
     )
-    val layers: StateFlow<List<Layer>> = _layers.asStateFlow()
 
-    var activeLayerIndex by mutableIntStateOf(0)
+    val layers: StateFlow<List<Layer>> = layerManager.layers
+
+    var activeLayerIndex: Int
+        get() = layerManager.activeLayerIndex
+        set(value) { layerManager.setActiveLayer(value) }
     
     // --- LAYERS ---
-    fun toggleLayerVisibility(index: Int) { 
-        val currentList = _layers.value.toMutableList()
-        if (index in currentList.indices) {
-            currentList[index] = currentList[index].copy(isVisible = !currentList[index].isVisible)
-            _layers.value = currentList
-        }
-    }
-    fun setLayerOpacity(index: Int, opacity: Float) { 
-        val currentList = _layers.value.toMutableList()
-        if (index in currentList.indices) {
-            currentList[index] = currentList[index].copy(opacity = opacity)
-            _layers.value = currentList
-        }
-    }
-    fun setActiveLayer(index: Int) { if (index in _layers.value.indices) activeLayerIndex = index }
+    fun toggleLayerVisibility(index: Int) = layerManager.toggleLayerVisibility(index)
+    fun setLayerOpacity(index: Int, opacity: Float) = layerManager.setLayerOpacity(index, opacity)
+    fun setActiveLayer(index: Int) = layerManager.setActiveLayer(index)
     
-    fun addLayer() {
-        addNewLayer(toTop = true)
-    }
-
-    fun addNewLayer(toTop: Boolean) { 
-        performSnapshotAction("Nueva Capa") {
-            val newList = _layers.value.toMutableList()
-            val l = Layer("l_${System.currentTimeMillis()}", "Capa ${newList.size+1}", mutableListOf())
-            if(toTop) { newList.add(l); activeLayerIndex = newList.lastIndex } else { newList.add(0, l); activeLayerIndex = 0 }
-            _layers.value = newList
-        }
-    }
-
-    fun removeLayer(index: Int) {
-        if (_layers.value.size <= 1) return
-        performSnapshotAction("Eliminar Capa") {
-            val newList = _layers.value.toMutableList()
-            if (index in newList.indices) {
-                newList.removeAt(index)
-                _layers.value = newList
-                if (activeLayerIndex >= _layers.value.size) activeLayerIndex = _layers.value.size - 1
-            }
-        }
-    }
-
-    fun removeActiveLayer() { 
-        removeLayer(activeLayerIndex)
-    }
-
-    fun toggleLayerLock(index: Int) {
-        val currentList = _layers.value.toMutableList()
-        if (index in currentList.indices) {
-            currentList[index] = currentList[index].copy(isLocked = !currentList[index].isLocked)
-            _layers.value = currentList
-        }
-    }
-
-    fun renameLayer(index: Int, newName: String) {
-        val currentList = _layers.value.toMutableList()
-        if (index in currentList.indices) {
-            currentList[index] = currentList[index].copy(name = newName)
-            _layers.value = currentList
-        }
-    }
-
-    fun duplicateLayer(index: Int) {
-        val currentList = _layers.value.toMutableList()
-        if (index in currentList.indices) {
-            performSnapshotAction("Duplicar Capa") {
-                val source = currentList[index]
-                val copy = source.copy(
-                    id = "l_${System.currentTimeMillis()}",
-                    name = "${source.name} (Copy)",
-                    elements = source.elements.map { it.copyElement() }.toMutableList()
-                )
-                val newList = _layers.value.toMutableList()
-                newList.add(index + 1, copy)
-                _layers.value = newList
-                activeLayerIndex = index + 1
-            }
-        }
-    }
-
-    fun moveLayer(fromIndex: Int, toIndex: Int) {
-        val currentList = _layers.value.toMutableList()
-        if (fromIndex in currentList.indices && toIndex in currentList.indices) {
-            performSnapshotAction("Mover Capa") {
-                val item = currentList.removeAt(fromIndex)
-                currentList.add(toIndex, item)
-                _layers.value = currentList
-                // Keep the same layer active
-                if (activeLayerIndex == fromIndex) activeLayerIndex = toIndex
-                else if (fromIndex < activeLayerIndex && toIndex >= activeLayerIndex) activeLayerIndex--
-                else if (fromIndex > activeLayerIndex && toIndex <= activeLayerIndex) activeLayerIndex++
-            }
-        }
-    }
-
-    fun moveLayerUp(index: Int) {
-        moveLayer(index, index + 1)
-    }
-
-    fun moveLayerDown(index: Int) {
-        moveLayer(index, index - 1)
-    }
-
-    fun addLayerAbove(index: Int) {
-        performSnapshotAction("Nueva Capa Arriba") {
-            val newList = _layers.value.toMutableList()
-            if (index in newList.indices) {
-                val l = Layer("l_${System.currentTimeMillis()}", "Capa ${newList.size+1}", mutableListOf())
-                newList.add(index + 1, l)
-                _layers.value = newList
-                activeLayerIndex = index + 1
-            }
-        }
-    }
-
-    fun addLayerBelow(index: Int) {
-        performSnapshotAction("Nueva Capa Abajo") {
-            val newList = _layers.value.toMutableList()
-            if (index in newList.indices) {
-                val l = Layer("l_${System.currentTimeMillis()}", "Capa ${newList.size+1}", mutableListOf())
-                newList.add(index, l)
-                _layers.value = newList
-                activeLayerIndex = index
-            }
-        }
-    }
-
-    fun mergeLayers(fromIndex: Int, toIndex: Int) {
-        val currentList = _layers.value.toMutableList()
-        if (fromIndex in currentList.indices && toIndex in currentList.indices && fromIndex != toIndex) {
-            performSnapshotAction("Fusionar Capas") {
-                val fromLayer = currentList[fromIndex]
-                val toLayer = currentList[toIndex]
-                
-                // Transfer elements
-                toLayer.elements.addAll(fromLayer.elements.map { it.copyElement() })
-                
-                // Remove source
-                currentList.removeAt(fromIndex)
-                _layers.value = currentList
-                
-                // Update active index
-                val newToIndex = if (fromIndex < toIndex) toIndex - 1 else toIndex
-                activeLayerIndex = newToIndex.coerceIn(currentList.indices)
-            }
-        }
-    }
-
-    fun mergeLayerUp(index: Int) {
-        mergeLayers(index, index + 1)
-    }
-
-    fun mergeLayerDown(index: Int) {
-        mergeLayers(index, index - 1)
-    }
+    fun addLayer() = layerManager.addLayer()
+    fun addNewLayer(toTop: Boolean) = layerManager.addNewLayer(toTop)
+    fun removeLayer(index: Int) = layerManager.removeLayer(index)
+    fun removeActiveLayer() = layerManager.removeActiveLayer()
+    
+    fun toggleLayerLock(index: Int) = layerManager.toggleLayerLock(index)
+    fun renameLayer(index: Int, newName: String) = layerManager.renameLayer(index, newName)
+    fun duplicateLayer(index: Int) = layerManager.duplicateLayer(index)
+    
+    fun moveLayer(fromIndex: Int, toIndex: Int) = layerManager.moveLayer(fromIndex, toIndex)
+    fun moveLayerUp(index: Int) = layerManager.moveLayerUp(index)
+    fun moveLayerDown(index: Int) = layerManager.moveLayerDown(index)
+    fun addLayerAbove(index: Int) = layerManager.addLayerAbove(index)
+    fun addLayerBelow(index: Int) = layerManager.addLayerBelow(index)
+    
+    fun mergeLayers(fromIndex: Int, toIndex: Int) = layerManager.mergeLayers(fromIndex, toIndex)
+    fun mergeLayerUp(index: Int) = layerManager.mergeLayerUp(index)
+    fun mergeLayerDown(index: Int) = layerManager.mergeLayerDown(index)
 
     // --- UNDO/REDO STACK ---
     private val undoStack = ArrayDeque<UndoCommand>()
@@ -1191,41 +1018,43 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     private fun notifyLayersChanged() {
         // StateFlow only emits if the value (reference) changes.
         // We create a shallow copy of the list to trigger the emission.
-        _layers.value = _layers.value.toList()
+        layerManager.triggerLayerEmission()
         layerUpdateTrigger++
     }
 
     var layerUpdateTrigger by mutableStateOf(0)
 
-    /**
-     * Fallback for operations not yet fully converted to specific commands.
-     * This still takes a snapshot but wraps it in a command.
-     */
     private inner class SnapshotCommand(
         private val label: String,
         private val before: List<Layer>,
-        private val after: List<Layer>
+        private val after: List<Layer>,
+        private val activeIndex: Int
     ) : UndoCommand {
-        override fun execute() { restoreState(after) }
-        override fun undo() { restoreState(before) }
+        override fun execute() { restoreSnapshot(after, activeIndex) }
+        override fun undo() { restoreSnapshot(before, activeIndex) }
         override fun getLabel(): String = label
     }
 
     private fun performSnapshotAction(label: String, action: () -> Unit) {
         val before = createLayersSnapshot()
+        val activeIndexBefore = activeLayerIndex
         action()
         val after = createLayersSnapshot()
-        performAction(SnapshotCommand(label, before, after))
+        performAction(SnapshotCommand(label, before, after, activeIndexBefore))
     }
 
     private fun createLayersSnapshot(): List<Layer> {
-        return _layers.value.map { layer -> layer.copy(elements = layer.elements.map { it.copyElement() }.toMutableList()) }
+        return layers.value.map { layer -> layer.copy(elements = layer.elements.map { it.copyElement() }.toMutableList()) }
     }
     
-    private fun restoreState(state: List<Layer>) {
-        _layers.value = state.map { savedLayer ->
-            savedLayer.copy(elements = ArrayList(savedLayer.elements))
-        }
+    private fun restoreSnapshot(state: List<Layer>, restoredActiveIndex: Int) {
+        layerManager.internalUpdateLayers(
+            newList = state.map { savedLayer ->
+                savedLayer.copy(elements = savedLayer.elements.map { it.copyElement() }.toMutableList())
+            },
+            activeIndex = restoredActiveIndex
+        )
+        layerUpdateTrigger++
     }
     
     // --- ACTIONS ---
@@ -1311,12 +1140,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
              }
          }
 
-         if (_layers.value.all { it.elements.isEmpty() }) { resetCamera(); return }
+         if (layers.value.all { it.elements.isEmpty() }) { resetCamera(); return }
          var minX = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE
          var minY = Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
          var hasContent = false
          
-         _layers.value.forEach { layer ->
+         layers.value.forEach { layer ->
             layer.elements.forEach { element ->
                  val bounds = element.getBounds(componentLibrary)
                  if (bounds.left < minX) minX = bounds.left
@@ -1406,14 +1235,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 val dxfPaths = entry.value
 
                 // Find or Create Layer
-                val currentLayers = _layers.value.toMutableList()
+                val currentLayers = layers.value.toMutableList()
                 var targetLayer = currentLayers.find { it.name == layerName }
                 if (targetLayer == null) {
                     targetLayer = Layer("l_dxf_${UUID.randomUUID()}", layerName, mutableListOf())
                     currentLayers.add(targetLayer)
-                    _layers.value = currentLayers
+                    layerManager.internalUpdateLayers(currentLayers, activeLayerIndex)
                 }
-                val layerIndex = _layers.value.indexOf(targetLayer)
+                val layerIndex = layers.value.indexOf(targetLayer)
                 val mutableElements = targetLayer.elements.toMutableList()
 
                 dxfPaths.forEach { dp ->
@@ -1444,7 +1273,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                     val stroke = VectorStroke(
                          points = points,
-                         color = strokeColor,
+                         strokeColor = strokeColor,
                          brushType = brushType,
                          strokeType = StrokeType.FREEHAND,
                          maxWidth = defaultStrokeWidth, 
@@ -1452,9 +1281,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     )
                     mutableElements.add(stroke)
                 }
-                val newList = _layers.value.toMutableList()
+                val newList = layers.value.toMutableList()
                 newList[layerIndex] = targetLayer.copy(elements = mutableElements)
-                _layers.value = newList
+                layerManager.internalUpdateLayers(newList, activeLayerIndex)
             }
             
             // Fit camera if we scaled content to fit canvas
@@ -1524,7 +1353,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
              
              canvas.save()
              canvas.concat(matrix)
-             for (layer in _layers.value) {
+             for (layer in layers.value) {
                  if (!layer.isVisible) continue
                  val layerAlpha = if (layer.opacity < 1f) (layer.opacity * 255).toInt() else 255
                  val saveCount = if (layerAlpha < 255) canvas.saveLayerAlpha(null, layerAlpha) else canvas.save()
@@ -1563,7 +1392,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     // I should add them back.
     
     fun addVectorStroke(stroke: VectorStroke) {
-        val targetLayer = _layers.value[activeLayerIndex]
+        val targetLayer = layers.value[activeLayerIndex]
         if (targetLayer.isLocked) return
 
         editingContainerMatrix?.let { containerM ->
@@ -1575,20 +1404,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         performAction(AddStrokeCommand(targetLayer, stroke))
     }
     
-    fun addFill(fill: FillData) {
-        val targetLayer = _layers.value[activeLayerIndex]
-        if (targetLayer.isLocked) return
-
-        editingContainerMatrix?.let { containerM ->
-            val inverse = Matrix()
-            containerM.invert(inverse)
-            fill.transform(inverse)
-        }
-        performAction(AddFillCommand(targetLayer, fill))
-    }
 
     fun addHybridStroke(stroke: VectorStroke, fill: FillData?) {
-        val targetLayer = _layers.value[activeLayerIndex]
+        val targetLayer = layers.value[activeLayerIndex]
         if (targetLayer.isLocked) return
 
         val inverse = Matrix()
@@ -1607,7 +1425,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         val selected = selectionManager.selectedElements
         if (selected.isEmpty()) return ""
 
-        val currentLayers = _layers.value
+        val currentLayers = layers.value
         val layersFound = mutableSetOf<Int>()
         for (i in currentLayers.indices) {
             val layer = currentLayers[i]
@@ -1634,12 +1452,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun moveSelectionToLayer(targetLayerIndex: Int) {
-        if (targetLayerIndex !in _layers.value.indices) return
+        if (targetLayerIndex !in layers.value.indices) return
         val selected = selectionManager.selectedElements.toList()
         if (selected.isEmpty()) return
 
         performSnapshotAction("Mover a Capa") {
-            val currentLayers = _layers.value.toMutableList()
+            val currentLayers = layers.value.toMutableList()
             // 1. Remove from wherever they are
             for (element in selected) {
                 removeElementFromHierarchyInternal(currentLayers, element)
@@ -1650,7 +1468,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             for (i in currentLayers.indices) {
                 currentLayers[i] = currentLayers[i].copy()
             }
-            _layers.value = currentLayers
+            layerManager.internalUpdateLayers(currentLayers, activeLayerIndex)
         }
     }
 
@@ -1661,7 +1479,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun removeElementFromHierarchy(element: LayerElement) {
-        for (layer in _layers.value) {
+        for (layer in layers.value) {
             if (removeRecursive(layer.elements, element)) return
         }
     }
@@ -1692,9 +1510,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
     
     fun insertImageWithBitmap(bitmap: android.graphics.Bitmap, filename: String) {
-        if (activeLayerIndex !in _layers.value.indices) return
+        if (activeLayerIndex !in layers.value.indices) return
         performSnapshotAction("Insertar Imagen") {
-            val currentLayers = _layers.value.toMutableList()
+            val currentLayers = layers.value.toMutableList()
             val layer = currentLayers[activeLayerIndex]
             val matrix = Matrix()
             if (lastViewportWidth > 0) {
@@ -1708,7 +1526,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             )
             layer.elements.add(element)
             currentLayers[activeLayerIndex] = layer.copy()
-            _layers.value = currentLayers
+            layerManager.internalUpdateLayers(currentLayers, activeLayerIndex)
             selectionManager.clearSelection()
             selectionManager.selectedElements.add(element)
         }
@@ -1750,8 +1568,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 // Snapshot state on Main thread or copy it?
                 // StateFlow access is thread-safe for reading value, but content might change.
                 // ideally we capture state on Main, then save on IO.
-                val currentLayersSnapshot = _layers.value.map { it.copy(elements = ArrayList(it.elements)) } // Shallow-ish copy
-                val currentColors = availableColors.toList()
+                val currentLayersSnapshot = layers.value.map { it.copy(elements = ArrayList(it.elements)) } // Shallow-ish copy
                 val currentToolConfigs = toolConfigs.toMap()
                 val currentComponentLibrary = componentLibrary.toMap()
                 val savedProjectId = projectId
@@ -1767,7 +1584,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     id = savedProjectId,
                     layers = currentLayersSnapshot.map { it.toLayerJson() },
                     backgroundConfig = BackgroundConfig(color = savedBgColor, gridConfig = savedGridConfig),
-                    paletteColors = currentColors,
+                    paletteColors = emptyList(),
                     toolConfigs = currentToolConfigs,
                     canvasMetadata = CanvasMetadata(
                         width = savedViewportW, height = savedViewportH, 
@@ -1809,7 +1626,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         }
 
         data.layers.forEach { l -> newLayers.add(l.toLayer( { bitmaps[it] }, { svgs[it] } )) }
-        _layers.value = newLayers
+        layerManager.internalUpdateLayers(newLayers, 0)
         
         // Restore ToolConfigs (Cleaned)
         data.toolConfigs.forEach { (t, c) -> if (toolConfigs.containsKey(t)) toolConfigs[t] = c }
@@ -1818,10 +1635,6 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         backgroundColor = data.backgroundConfig.color
         val loadedGrid = data.backgroundConfig.gridConfig
         gridConfig = loadedGrid ?: GridConfig()
-        
-        if (data.paletteColors.isNotEmpty()) {
-            availableColors.clear(); availableColors.addAll(data.paletteColors)
-        }
         
         // Camera
         if (data.canvasMetadata.cameraMatrix.size == 9) {
@@ -1840,7 +1653,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         val totalBounds = RectF()
         var first = true
         
-        for (layer in _layers.value) {
+        for (layer in layers.value) {
             if (!layer.isVisible) continue
             for (element in layer.elements) {
                 val bounds = element.getBounds(componentLibrary)
@@ -1858,9 +1671,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun generateSvgContent(config: ExportSvgConfig): String {
         val projectData = ProjectData(
             id = projectId,
-            layers = _layers.value.map { it.toLayerJson() },
+            layers = layers.value.map { it.toLayerJson() },
             backgroundConfig = BackgroundConfig(color = backgroundColor, gridConfig = gridConfig),
-            paletteColors = availableColors.toList(),
+            paletteColors = emptyList(),
             toolConfigs = toolConfigs.toMap(),
             canvasMetadata = CanvasMetadata(
                 width = config.width,
@@ -1870,7 +1683,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             ),
             componentLibrary = componentLibrary.mapValues { it.value.toComponentDefinitionJson() }
         )
-        return SvgExporter.export(projectData, _layers.value, config)
+        return SvgExporter.export(projectData, layers.value, config)
     }
 
     fun exportSvg(context: Context, uri: android.net.Uri, config: ExportSvgConfig) {
@@ -1922,8 +1735,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 val height = canvasSizeConfig?.heightInPixels ?: 3508f // A4 at 300 DPI
 
                 // Snapshot for thread safety
-                val currentLayersSnapshot = _layers.value.toList()
-                val currentColors = availableColors.toList()
+                val currentLayersSnapshot = layers.value.toList()
                 val currentToolConfigs = toolConfigs.toMap()
                 val currentComponentLibrary = componentLibrary.toMap()
                 
@@ -1931,7 +1743,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     id = projectId,
                     layers = currentLayersSnapshot.map { it.toLayerJson() },
                     backgroundConfig = BackgroundConfig(color = backgroundColor, gridConfig = gridConfig),
-                    paletteColors = currentColors,
+                    paletteColors = emptyList(),
                     toolConfigs = currentToolConfigs,
                     canvasMetadata = CanvasMetadata(
                         width = width,
@@ -1970,7 +1782,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         ) / 2f
         
         // 1. Identify hits (Read Phase)
-        val currentLayers = _layers.value
+        val currentLayers = layers.value
         val layersToCheck = if (selectionScope == SelectionScope.ALL_LAYERS) currentLayers else 
             (if (activeLayerIndex in currentLayers.indices) listOf(currentLayers[activeLayerIndex]) else emptyList())
 
@@ -2000,17 +1812,17 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     
     fun clear() {
         performSnapshotAction("Limpiar Lienzo") {
-            _layers.value = mutableListOf()
+            layerManager.internalUpdateLayers(mutableListOf<Layer>(), 0)
             addNewLayerInternal(true) // Helper to add layer without recursive command
             selectionManager.clearSelection()
         }
     }
 
-    private fun addNewLayerInternal(toTop: Boolean) {
-        val currentLayers = _layers.value.toMutableList()
+    private fun addNewLayerInternal(toTop: Boolean) { 
+        val currentLayers = layers.value.toMutableList()
         val l = Layer("l_${System.currentTimeMillis()}", "Capa ${currentLayers.size+1}", mutableListOf())
-        if(toTop) { currentLayers.add(l); activeLayerIndex = currentLayers.lastIndex } else { currentLayers.add(0, l); activeLayerIndex = 0 }
-        _layers.value = currentLayers
+        val newIndex = if(toTop) { currentLayers.add(l); currentLayers.lastIndex } else { currentLayers.add(0, l); 0 }
+        layerManager.internalUpdateLayers(currentLayers, newIndex)
     }
     
 
@@ -2019,9 +1831,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
              // Construct ProjectData from current state for saving
              val projectData = com.sketcher.sketchercompanionv1.dto.ProjectData(
                  id = projectId,
-                 layers = _layers.value.map { it.toLayerJson() },
+                 layers = layers.value.map { it.toLayerJson() },
                  backgroundConfig = com.sketcher.sketchercompanionv1.dto.BackgroundConfig(backgroundColor, gridConfig),
-                 paletteColors = availableColors.toList(),
+                 paletteColors = emptyList(),
                  toolConfigs = emptyMap(), // Simplify for now or map toolConfigs
                  canvasMetadata = com.sketcher.sketchercompanionv1.dto.CanvasMetadata(
                      width = 2000f, // Use actualviewport if possible
@@ -2034,7 +1846,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
              com.sketcher.sketchercompanionv1.utils.TemplateManager.saveAsTemplate(
                  context, 
                  projectData,
-                 _layers.value,
+                 layers.value,
                  name
              )
          }
@@ -2058,9 +1870,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                             )
                             newLayers.add(l)
                         }
-                        _layers.value = newLayers
-                        if (_layers.value.isEmpty()) addNewLayerInternal(true)
-                        activeLayerIndex = 0
+                        layerManager.internalUpdateLayers(newLayers, 0)
+                        if (layers.value.isEmpty()) layerManager.addNewLayer(true)
                     }
                 }
             } catch (e: Exception) {
@@ -2166,12 +1977,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                  stroke.copy(points = newPoints, path = outlinePath)
             }
             
-            if (_layers.value.isNotEmpty()) {
-                val newList = _layers.value.toMutableList()
+            if (layers.value.isNotEmpty()) {
+                val newList = layers.value.toMutableList()
                 val activeLayer = newList[activeLayerIndex]
                 activeLayer.elements.addAll(transformedStrokes)
                 newList[activeLayerIndex] = activeLayer.copy()
-                _layers.value = newList
+                layerManager.internalUpdateLayers(newList, activeLayerIndex)
             }
         }
     }
@@ -2183,7 +1994,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                  context.contentResolver.openOutputStream(uri)?.use { outputStream ->
                      // Support exporting all layers with structure
                      // If selection only is needed later, we would need to filter layers
-                     com.sketcher.sketchercompanionv1.exporters.DxfExporter.export(_layers.value, outputStream)
+                     com.sketcher.sketchercompanionv1.exporters.DxfExporter.export(layers.value, outputStream)
                  }
              } catch (e: Exception) {
                  e.printStackTrace()

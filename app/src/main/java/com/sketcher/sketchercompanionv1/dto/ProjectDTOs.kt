@@ -91,7 +91,11 @@ data class VectorStrokeJson(
     val color: Int,
     val maxWidth: Float,
     val brushType: String = "FREEHAND",
-    val strokeType: StrokeType = StrokeType.FREEHAND
+    val strokeType: StrokeType = StrokeType.FREEHAND,
+    val strokeColor: Int? = null,
+    val fillColor: Int? = null,
+    val isStrokeEnabled: Boolean? = null,
+    val isFillEnabled: Boolean? = null
 )
 
 data class StrokePointJson(

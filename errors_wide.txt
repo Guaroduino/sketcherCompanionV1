@@ -1,0 +1,291 @@
+﻿> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:checkDebugAarMetadata UP-TO-DATE
+> Task :app:processDebugNavigationResources UP-TO-DATE
+> Task :app:compileDebugNavigationResources UP-TO-DATE
+> Task :app:generateDebugResValues UP-TO-DATE
+> Task :app:mapDebugSourceSetPaths UP-TO-DATE
+> Task :app:generateDebugResources UP-TO-DATE
+> Task :app:mergeDebugResources UP-TO-DATE
+> Task :app:packageDebugResources UP-TO-DATE
+> Task :app:parseDebugLocalResources UP-TO-DATE
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksDebug UP-TO-DATE
+> Task :app:processDebugMainManifest UP-TO-DATE
+> Task :app:processDebugManifest UP-TO-DATE
+> Task :app:processDebugManifestForPackage UP-TO-DATE
+> Task :app:processDebugResources UP-TO-DATE
+> Task :app:javaPreCompileDebug UP-TO-DATE
+> Task :app:mergeDebugShaders UP-TO-DATE
+> Task :app:compileDebugShaders NO-SOURCE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :app:mergeDebugAssets UP-TO-DATE
+> Task :app:compressDebugAssets UP-TO-DATE
+> Task :app:checkDebugDuplicateClasses UP-TO-DATE
+> Task :app:desugarDebugFileDependencies UP-TO-DATE
+> Task :app:mergeExtDexDebug UP-TO-DATE
+> Task :app:mergeLibDexDebug UP-TO-DATE
+> Task :app:mergeDebugJniLibFolders UP-TO-DATE
+> Task :app:mergeDebugNativeLibs UP-TO-DATE
+> Task :app:stripDebugDebugSymbols UP-TO-DATE
+> Task :app:validateSigningDebug UP-TO-DATE
+> Task :app:writeDebugAppMetadata UP-TO-DATE
+> Task :app:writeDebugSigningConfigVersions UP-TO-DATE
+
+> Task :app:compileDebugKotlin FAILED
+./gradlew : e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:674:30 Cannot access 'var _layers: ImageVector?': it is private in file.
+At line:1 char:1
++ ./gradlew assembleDebug --console=plain 2>&1 | Out-String -Width 400  ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpec    ified: (e: file:///C:/U...rivate     in file.:String) [], RemoteExcept    ion
+    + FullyQualifiedErrorId : NativeC    ommandError
+ 
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:674:38 Unresolved reference 'value'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:675:44 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:675:44 Not enough information to infer type argument for 'V'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:675:70 Unresolved reference 'copy'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:676:16 Cannot access 'var _layers: ImageVector?': it is private in file.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:676:24 Unresolved reference 'value'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:717:32 Cannot access 'var _layers: ImageVector?': it is private in file.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:717:40 Unresolved reference 'value'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:718:30 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:718:30 Not enough information to infer type argument for 'V'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:721:26 Overload resolution ambiguity between candidates:
+fun <T> Array<out T>.forEachIndexed(action: (@ParameterName(...) Int, T) -> Unit): Unit
+fun BooleanArray.forEachIndexed(action: (@ParameterName(...) Int, Boolean) -> Unit): Unit
+fun ByteArray.forEachIndexed(action: (@ParameterName(...) Int, Byte) -> Unit): Unit
+fun CharArray.forEachIndexed(action: (@ParameterName(...) Int, Char) -> Unit): Unit
+fun DoubleArray.forEachIndexed(action: (@ParameterName(...) Int, Double) -> Unit): Unit
+fun FloatArray.forEachIndexed(action: (@ParameterName(...) Int, Float) -> Unit): Unit
+fun IntArray.forEachIndexed(action: (@ParameterName(...) Int, Int) -> Unit): Unit
+fun LongArray.forEachIndexed(action: (@ParameterName(...) Int, Long) -> Unit): Unit
+fun ShortArray.forEachIndexed(action: (@ParameterName(...) Int, Short) -> Unit): Unit
+fun <T> Iterable<T>.forEachIndexed(action: (@ParameterName(...) Int, T) -> Unit): Unit
+fun UByteArray.forEachIndexed(action: (@ParameterName(...) Int, UByte) -> Unit): Unit
+fun UIntArray.forEachIndexed(action: (@ParameterName(...) Int, UInt) -> Unit): Unit
+fun ULongArray.forEachIndexed(action: (@ParameterName(...) Int, ULong) -> Unit): Unit
+fun UShortArray.forEachIndexed(action: (@ParameterName(...) Int, UShort) -> Unit): Unit
+fun <T> Sequence<T>.forEachIndexed(action: (@ParameterName(...) Int, T) -> Unit): Unit
+fun CharSequence.forEachIndexed(action: (@ParameterName(...) Int, Char) -> Unit): Unit
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:721:43 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:721:50 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:722:27 Unresolved reference 'elements'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:723:50 Unresolved reference 'copy'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:727:24 Unresolved reference 'elements'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:728:58 Unresolved reference 'copy'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:729:12 Cannot access 'var _layers: ImageVector?': it is private in file.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:729:20 Unresolved reference 'value'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:743:32 Cannot access 'var _layers: ImageVector?': it is private in file.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:743:40 Unresolved reference 'value'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:745:31 Overload resolution ambiguity between candidates:
+fun <T> Array<out T>.forEachIndexed(action: (@ParameterName(...) Int, T) -> Unit): Unit
+fun BooleanArray.forEachIndexed(action: (@ParameterName(...) Int, Boolean) -> Unit): Unit
+fun ByteArray.forEachIndexed(action: (@ParameterName(...) Int, Byte) -> Unit): Unit
+fun CharArray.forEachIndexed(action: (@ParameterName(...) Int, Char) -> Unit): Unit
+fun DoubleArray.forEachIndexed(action: (@ParameterName(...) Int, Double) -> Unit): Unit
+fun FloatArray.forEachIndexed(action: (@ParameterName(...) Int, Float) -> Unit): Unit
+fun IntArray.forEachIndexed(action: (@ParameterName(...) Int, Int) -> Unit): Unit
+fun LongArray.forEachIndexed(action: (@ParameterName(...) Int, Long) -> Unit): Unit
+fun ShortArray.forEachIndexed(action: (@ParameterName(...) Int, Short) -> Unit): Unit
+fun <T> Iterable<T>.forEachIndexed(action: (@ParameterName(...) Int, T) -> Unit): Unit
+fun UByteArray.forEachIndexed(action: (@ParameterName(...) Int, UByte) -> Unit): Unit
+fun UIntArray.forEachIndexed(action: (@ParameterName(...) Int, UInt) -> Unit): Unit
+fun ULongArray.forEachIndexed(action: (@ParameterName(...) Int, ULong) -> Unit): Unit
+fun UShortArray.forEachIndexed(action: (@ParameterName(...) Int, UShort) -> Unit): Unit
+fun <T> Sequence<T>.forEachIndexed(action: (@ParameterName(...) Int, T) -> Unit): Unit
+fun CharSequence.forEachIndexed(action: (@ParameterName(...) Int, Char) -> Unit): Unit
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:745:48 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:745:60 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:746:31 Unresolved reference 'elements'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:747:31 Unresolved reference 'elements'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:761:31 Unresolved reference 'elements'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:762:59 Unresolved reference 'copy'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:766:12 Cannot access 'var _layers: ImageVector?': it is private in file.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:766:20 Unresolved reference 'value'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:793:16 Cannot access 'var _layers: ImageVector?': it is private in file.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:793:24 Unresolved reference 'value'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:795:32 Cannot access 'var _layers: ImageVector?': it is private in file.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:795:40 Unresolved reference 'value'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:806:30 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:806:30 Not enough information to infer type argument for 'V'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:807:24 Unresolved reference 'elements'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:808:58 Unresolved reference 'copy'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:809:12 Cannot access 'var _layers: ImageVector?': it is private in file.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:809:20 Unresolved reference 'value'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1034:33 Unresolved reference 'restoreState'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1035:30 Unresolved reference 'restoreState'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1044:60 Too many arguments for 'SketcherViewModel.constructor(label: String, before: List<Layer>, after: List<Layer>): SketcherViewModel.SnapshotCommand'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1572:44 Cannot access 'var _layers: ImageVector?': it is private in file.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1572:52 Unresolved reference 'value'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1572:62 Unresolved reference 'copy'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1572:64 Unresolved reference 'it'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1572:93 Unresolved reference 'it'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1586:51 Overload resolution ambiguity between candidates:
+fun <R, T> Result<T>.map(transform: (@ParameterName(...) T) -> R): Result<R>
+    [R|Contract description]
+     <
+        CallsInPlace(transform, AT_MOST_ONCE)
+    >
+fun <T, R> Array<out T>.map(transform: (T) -> R): List<R>
+fun <R> BooleanArray.map(transform: (Boolean) -> R): List<R>
+fun <R> ByteArray.map(transform: (Byte) -> R): List<R>
+fun <R> CharArray.map(transform: (Char) -> R): List<R>
+fun <R> DoubleArray.map(transform: (Double) -> R): List<R>
+fun <R> FloatArray.map(transform: (Float) -> R): List<R>
+fun <R> IntArray.map(transform: (Int) -> R): List<R>
+fun <R> LongArray.map(transform: (Long) -> R): List<R>
+fun <R> ShortArray.map(transform: (Short) -> R): List<R>
+fun <T, R> Iterable<T>.map(transform: (T) -> R): List<R>
+fun <K, V, R> Map<out K, V>.map(transform: (Map.Entry<K, V>) -> R): List<R>
+fun <R> UByteArray.map(transform: (UByte) -> R): List<R>
+fun <R> UIntArray.map(transform: (UInt) -> R): List<R>
+fun <R> ULongArray.map(transform: (ULong) -> R): List<R>
+fun <R> UShortArray.map(transform: (UShort) -> R): List<R>
+fun <T, R> Sequence<T>.map(transform: (T) -> R): Sequence<R>
+fun <R> CharSequence.map(transform: (Char) -> R): List<R>
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1586:57 Unresolved reference 'it'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1630:8 Cannot access 'var _layers: ImageVector?': it is private in file.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1630:16 Unresolved reference 'value'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1657:22 Cannot access 'var _layers: ImageVector?': it is private in file.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1657:30 Method 'iterator()' is ambiguous for this expression. Applicable candidates:
+fun <T> Enumeration<T>.iterator(): Iterator<T>
+fun <T> Iterator<T>.iterator(): Iterator<T>
+fun <K, V> Map<out K, V>.iterator(): Iterator<Map.Entry<K, V>>
+fun <K, V> MutableMap<K, V>.iterator(): MutableIterator<MutableMap.MutableEntry<K, V>>
+fun CharSequence.iterator(): CharIterator
+fun BufferedInputStream.iterator(): ByteIterator
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1657:30 Unresolved reference 'value'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1659:34 Method 'iterator()' is ambiguous for this expression. Applicable candidates:
+fun <T> Enumeration<T>.iterator(): Iterator<T>
+fun <T> Iterator<T>.iterator(): Iterator<T>
+fun <K, V> Map<out K, V>.iterator(): Iterator<Map.Entry<K, V>>
+fun <K, V> MutableMap<K, V>.iterator(): MutableIterator<MutableMap.MutableEntry<K, V>>
+fun CharSequence.iterator(): CharIterator
+fun BufferedInputStream.iterator(): ByteIterator
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1675:21 Cannot access 'var _layers: ImageVector?': it is private in file.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1675:29 Unresolved reference 'value'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1675:41 Unresolved reference 'it'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1687:47 Cannot access 'var _layers: ImageVector?': it is private in file.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1687:55 Unresolved reference 'value'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1739:44 Cannot access 'var _layers: ImageVector?': it is private in file.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1739:52 Unresolved reference 'value'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1745:51 Overload resolution ambiguity between candidates:
+fun <R, T> Result<T>.map(transform: (@ParameterName(...) T) -> R): Result<R>
+    [R|Contract description]
+     <
+        CallsInPlace(transform, AT_MOST_ONCE)
+    >
+fun <T, R> Array<out T>.map(transform: (T) -> R): List<R>
+fun <R> BooleanArray.map(transform: (Boolean) -> R): List<R>
+fun <R> ByteArray.map(transform: (Byte) -> R): List<R>
+fun <R> CharArray.map(transform: (Char) -> R): List<R>
+fun <R> DoubleArray.map(transform: (Double) -> R): List<R>
+fun <R> FloatArray.map(transform: (Float) -> R): List<R>
+fun <R> IntArray.map(transform: (Int) -> R): List<R>
+fun <R> LongArray.map(transform: (Long) -> R): List<R>
+fun <R> ShortArray.map(transform: (Short) -> R): List<R>
+fun <T, R> Iterable<T>.map(transform: (T) -> R): List<R>
+fun <K, V, R> Map<out K, V>.map(transform: (Map.Entry<K, V>) -> R): List<R>
+fun <R> UByteArray.map(transform: (UByte) -> R): List<R>
+fun <R> UIntArray.map(transform: (UInt) -> R): List<R>
+fun <R> ULongArray.map(transform: (ULong) -> R): List<R>
+fun <R> UShortArray.map(transform: (UShort) -> R): List<R>
+fun <T, R> Sequence<T>.map(transform: (T) -> R): Sequence<R>
+fun <R> CharSequence.map(transform: (Char) -> R): List<R>
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1745:57 Unresolved reference 'it'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1786:28 Cannot access 'var _layers: ImageVector?': it is private in file.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1786:36 Unresolved reference 'value'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1788:34 Overload resolution ambiguity between candidates:
+fun <T> Array<out T>.contains(element: T): Boolean
+fun IntArray.contains(element: Int): Boolean
+fun <T> Iterable<T>.contains(element: T): Boolean
+fun <K, V> Map<out K, V>.contains(key: K): Boolean
+fun ClosedRange<Byte>.contains(value: Int): Boolean
+fun ClosedRange<Long>.contains(value: Int): Boolean
+fun ClosedRange<Short>.contains(value: Int): Boolean
+fun IntRange.contains(element: Int?): Boolean
+fun LongRange.contains(value: Int): Boolean
+fun OpenEndRange<Byte>.contains(value: Int): Boolean
+fun OpenEndRange<Long>.contains(value: Int): Boolean
+fun OpenEndRange<Short>.contains(value: Int): Boolean
+fun <T> Sequence<T>.contains(element: T): Boolean
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1788:60 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1788:67 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1788:105 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1790:22 Method 'iterator()' is ambiguous for this expression. Applicable candidates:
+fun <T> Enumeration<T>.iterator(): Iterator<T>
+fun <T> Iterator<T>.iterator(): Iterator<T>
+fun <K, V> Map<out K, V>.iterator(): Iterator<Map.Entry<K, V>>
+fun <K, V> MutableMap<K, V>.iterator(): MutableIterator<MutableMap.MutableEntry<K, V>>
+fun CharSequence.iterator(): CharIterator
+fun BufferedInputStream.iterator(): ByteIterator
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1792:34 Method 'iterator()' is ambiguous for this expression. Applicable candidates:
+fun <T> Enumeration<T>.iterator(): Iterator<T>
+fun <T> Iterator<T>.iterator(): Iterator<T>
+fun <K, V> Map<out K, V>.iterator(): Iterator<Map.Entry<K, V>>
+fun <K, V> MutableMap<K, V>.iterator(): MutableIterator<MutableMap.MutableEntry<K, V>>
+fun CharSequence.iterator(): CharIterator
+fun BufferedInputStream.iterator(): ByteIterator
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1796:29 Argument type mismatch: actual type is 'kotlin.Pair<A, B>', but 'kotlin.Pair<com.sketcher.sketchercompanionv1.Layer, com.sketcher.sketchercompanionv1.LayerElement>' was expected.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1796:35 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1816:12 Cannot access 'var _layers: ImageVector?': it is private in file.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1816:20 Unresolved reference 'value'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1816:28 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1816:28 Not enough information to infer type argument for 'T'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1823:28 Cannot access 'var _layers: ImageVector?': it is private in file.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1823:36 Unresolved reference 'value'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1824:79 Unresolved reference 'size'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1825:34 Unresolved reference 'add'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1825:75 Overload resolution ambiguity between candidates:
+val <T> Array<out T>.lastIndex: Int
+val BooleanArray.lastIndex: Int
+val ByteArray.lastIndex: Int
+val CharArray.lastIndex: Int
+val DoubleArray.lastIndex: Int
+val FloatArray.lastIndex: Int
+val IntArray.lastIndex: Int
+val LongArray.lastIndex: Int
+val ShortArray.lastIndex: Int
+val <T> List<T>.lastIndex: Int
+val UByteArray.lastIndex: Int
+val UIntArray.lastIndex: Int
+val ULongArray.lastIndex: Int
+val UShortArray.lastIndex: Int
+val CharSequence.lastIndex: Int
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1825:108 Unresolved reference 'add'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1826:8 Cannot access 'var _layers: ImageVector?': it is private in file.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1826:16 Unresolved reference 'value'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1835:26 Cannot access 'var _layers: ImageVector?': it is private in file.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1835:34 Unresolved reference 'value'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1835:46 Unresolved reference 'it'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1850:17 Cannot access 'var _layers: ImageVector?': it is private in file.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1850:25 Unresolved reference 'value'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1981:16 Cannot access 'var _layers: ImageVector?': it is private in file.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1981:24 Unresolved reference 'value'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1982:30 Cannot access 'var _layers: ImageVector?': it is private in file.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1982:38 Unresolved reference 'value'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1983:34 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1983:34 Not enough information to infer type argument for 'V'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1984:28 Unresolved reference 'elements'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1985:56 Unresolved reference 'copy'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1986:16 Cannot access 'var _layers: ImageVector?': it is private in file.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:1986:24 Unresolved reference 'value'.
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileDebugKotlin'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 2s
+30 actionable tasks: 1 executed, 29 up-to-date
+

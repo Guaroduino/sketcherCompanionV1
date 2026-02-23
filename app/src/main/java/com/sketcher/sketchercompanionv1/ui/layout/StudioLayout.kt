@@ -260,8 +260,6 @@ fun StudioLayout(
                 view.isDebugWireframe = viewModel.isDebugWireframe
                 view.canvasBackgroundColor = viewModel.backgroundColor
                 
-                view.isFillModeEnabled = viewModel.isFillModeEnabled
-                view.fillModeColor = viewModel.fillModeColor
                 view.gridConfig = viewModel.gridConfig
                 view.scaleConfig = viewModel.scaleConfig
                 view.currentUnit = viewModel.currentUnit

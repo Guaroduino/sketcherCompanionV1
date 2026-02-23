@@ -52,7 +52,6 @@ class MainActivity : ComponentActivity() {
             }
             
             // HOISTED STATE
-            var isStudioMode by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(true) }
             var uiCollapsed by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(true) }
             
             // SWAP STATES (Hoisted)
@@ -142,21 +141,14 @@ class MainActivity : ComponentActivity() {
                 com.sketcher.sketchercompanionv1.ui.theme.SketcherCompanionV1Theme {
                     Box(modifier = androidx.compose.ui.Modifier.fillMaxSize()) {
                         // 1. MAIN UI LAYER
-                        if (isStudioMode) {
-                            com.sketcher.sketchercompanionv1.ui.layout.StudioLayout(
-                                viewModel = sketchViewModel,
-                                uiCollapsed = uiCollapsed,
-                                onToggleUi = { uiCollapsed = !uiCollapsed },
-                                swapVertical = swapVertical,
-                                swapHorizontal = swapHorizontal,
-                                projectActions = projectActions
-                            )
-                        } else {
-                            SketcherSurface(
-                                sketchViewModel = sketchViewModel,
-                                projectActions = projectActions
-                            )
-                        }
+                        com.sketcher.sketchercompanionv1.ui.layout.StudioLayout(
+                            viewModel = sketchViewModel,
+                            uiCollapsed = uiCollapsed,
+                            onToggleUi = { uiCollapsed = !uiCollapsed },
+                            swapVertical = swapVertical,
+                            swapHorizontal = swapHorizontal,
+                            projectActions = projectActions
+                        )
                         
                         // 2. DEBUG OVERLAY (Persistent)
                         com.sketcher.sketchercompanionv1.ui.layout.DebugOverlay(
@@ -164,8 +156,6 @@ class MainActivity : ComponentActivity() {
                             onScaleChange = { sketchViewModel.updateInterfaceScale(it) },
                             uiCollapsed = uiCollapsed,
                             onToggleUi = { uiCollapsed = !uiCollapsed },
-                            onSwitchToLegacy = { isStudioMode = !isStudioMode },
-                            isStudioMode = isStudioMode,
                             swapVertical = swapVertical,
                             swapHorizontal = swapHorizontal,
                             onToggleSwapVertical = { swapVertical = !swapVertical },
