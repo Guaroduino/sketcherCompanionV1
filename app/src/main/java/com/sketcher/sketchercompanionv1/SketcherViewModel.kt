@@ -55,26 +55,20 @@ data class ExportPngConfig(
     val height: Int
 )
 
-data class ExportSvgConfig(
-    val includeBackground: Boolean,
-    val useHomeView: Boolean,
-    val width: Float,
-    val height: Float
-)
-
-data class DxfExportConfig(
-    val filename: String,
-    val exportSelectionOnly: Boolean
-)
 
 class SketcherViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE)
     private val themeRepository = ThemeRepository(application)
     private val toolbarRepository = ToolbarRepository(application)
+    private val projectFileManager = com.sketcher.sketchercompanionv1.managers.ProjectFileManager()
+    val toolManager = com.sketcher.sketchercompanionv1.managers.ToolManager(application)
+    val selectionManager = SelectionManager()
 
     // STATE
     // --- UI/DEBUG SETTINGS (Restored) ---
     var isDebugWireframe by mutableStateOf(false)
+    var lastViewportWidth by mutableFloatStateOf(0f)
+    var lastViewportHeight by mutableFloatStateOf(0f)
     
 
 
@@ -424,42 +418,20 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     var lastExportSvgConfig by mutableStateOf(ExportSvgConfig(includeBackground = true, useHomeView = true, width = 1920f, height = 1080f))
     var dxfExportConfig by mutableStateOf(DxfExportConfig("", false))
 
-    // --- SETTINGS LOADERS ---
-    private fun loadFreehandSettings(): FreehandSettings {
-        val json = prefs.getString("freehand_settings_v2", null) ?: return FreehandSettings()
-        return try {
-            Gson().fromJson(json, FreehandSettings::class.java)
-        } catch (e: Exception) {
-            FreehandSettings()
-        }
-    }
+    // --- TOOL STATE & CONFIG (Delegated to ToolManager) ---
+    val currentTool: ToolType get() = toolManager.currentTool
+    val currentStrokeType: StrokeType get() = toolManager.currentStrokeType
+    
+    val brushSize: StateFlow<Float> = toolManager.brushSize
+    val brushOpacity: StateFlow<Float> = toolManager.brushOpacity
+    val currentSize: Float get() = toolManager.currentSize
+    val currentOpacity: Float get() = toolManager.currentOpacity
+    val currentFreehandSettings: FreehandSettings get() = toolManager.currentFreehandSettings
 
-    private fun saveFreehandSettings(settings: FreehandSettings) {
-        val json = Gson().toJson(settings)
-        prefs.edit().putString("freehand_settings_v2", json).apply()
-    }
-
-    // --- TOOL STATE & CONFIG ---
-    // Safe init for ToolType
-    var currentTool by mutableStateOf(
-        try { 
-            val savedName = prefs.getString("current_tool", ToolType.FREEHAND.name) ?: ToolType.FREEHAND.name
-            if (ToolType.entries.any { it.name == savedName }) {
-                ToolType.valueOf(savedName)
-            } else {
-                ToolType.FREEHAND
-            }
-        } catch(e: Exception) { ToolType.FREEHAND }
-    )
-        private set
-
-    var currentStrokeType by mutableStateOf(
-        try {
-            val savedType = prefs.getString("current_stroke_type", StrokeType.FREEHAND.name) ?: StrokeType.FREEHAND.name
-            StrokeType.valueOf(savedType)
-        } catch (e: Exception) { StrokeType.FREEHAND }
-    )
-        private set
+    val strokeColor: StateFlow<Int> = toolManager.strokeColor
+    val fillColor: StateFlow<Int> = toolManager.fillColor
+    val isStrokeActive: StateFlow<Boolean> = toolManager.isStrokeActive
+    val isFillActive: StateFlow<Boolean> = toolManager.isFillActive
 
     var isGeometricStrokeInProgress by mutableStateOf(false)
         private set
@@ -468,93 +440,20 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         isGeometricStrokeInProgress = inProgress
     }
 
-    // --- BRUSH SIZE & OPACITY (Studio UI) ---
-    private val _brushSize = MutableStateFlow(2f)
-    val brushSize = _brushSize.asStateFlow()
+    fun updateBrushSize(newSize: Float) = toolManager.updateBrushSize(newSize)
+    fun updateBrushOpacity(newAlpha: Float) = toolManager.updateBrushOpacity(newAlpha)
+    fun updateStrokeType(type: StrokeType) = toolManager.updateStrokeType(type)
+    
+    fun setStrokeColor(color: Int) = toolManager.setStrokeColor(color)
+    fun setFillColor(color: Int) = toolManager.setFillColor(color)
+    fun toggleStroke(enabled: Boolean) = toolManager.toggleStroke(enabled)
+    fun toggleFill(enabled: Boolean) = toolManager.toggleFill(enabled)
+    
+    fun selectTool(type: ToolType) = toolManager.selectTool(type)
+    fun saveSizePreset(index: Int, size: Float) = toolManager.saveSizePreset(index, size)
+    val sizePresets: StateFlow<List<Float>> = toolManager.sizePresets
 
-    private val _brushOpacity = MutableStateFlow(1f)
-    val brushOpacity = _brushOpacity.asStateFlow()
-
-    private val _sizePresets = MutableStateFlow(listOf(5f, 15f, 30f))
-    val sizePresets = _sizePresets.asStateFlow()
-
-    fun updateBrushSize(newSize: Float) {
-        _brushSize.value = newSize
-        setToolSize(newSize)
-    }
-
-    fun updateBrushOpacity(newAlpha: Float) {
-        _brushOpacity.value = newAlpha
-        setToolOpacity(newAlpha)
-    }
-
-    fun saveSizePreset(index: Int, size: Float) {
-        val currentList = _sizePresets.value.toMutableList()
-        if (index in currentList.indices) {
-            currentList[index] = size
-            _sizePresets.value = currentList
-        }
-    }
-
-    fun updateStrokeType(type: StrokeType) {
-        currentStrokeType = type
-        prefs.edit().putString("current_stroke_type", type.name).apply()
-    }
-        
-    var currentSize by mutableFloatStateOf(2f) 
-        private set
-    var currentOpacity by mutableFloatStateOf(1f)
-        private set
-
-    var currentFreehandSettings by mutableStateOf(loadFreehandSettings())
-        private set
-
-    var lastDrawingTool by mutableStateOf(ToolType.FREEHAND)
-
-    // --- NEW COLOR SYSTEM (INDEPENDENT STROKE & FILL) ---
-    private val _strokeColor = MutableStateFlow(AndroidColor.BLACK)
-    val strokeColor = _strokeColor.asStateFlow()
-
-    private val _fillColor = MutableStateFlow(AndroidColor.argb(128, 0, 0, 255)) // Transparent Blue
-    val fillColor = _fillColor.asStateFlow()
-
-    private val _isStrokeActive = MutableStateFlow(true)
-    val isStrokeActive = _isStrokeActive.asStateFlow()
-
-    private val _isFillActive = MutableStateFlow(false)
-    val isFillActive = _isFillActive.asStateFlow()
-
-    fun setStrokeColor(color: Int) {
-        _strokeColor.value = color
-        _isStrokeActive.value = true
-    }
-
-    fun setFillColor(color: Int) {
-        _fillColor.value = color
-        _isFillActive.value = true
-    }
-
-    fun toggleStroke(enabled: Boolean) {
-        _isStrokeActive.value = enabled
-    }
-
-    fun toggleFill(enabled: Boolean) {
-        _isFillActive.value = enabled
-    }
-    private val toolConfigs: MutableMap<ToolType, ToolConfig> = mutableStateMapOf<ToolType, ToolConfig>().apply {
-        val savedFreehand = loadFreehandSettings()
-        
-        fun loadConfig(type: ToolType, defSize: Float, defOpacity: Float): ToolConfig {
-            val s = prefs.getFloat("tool_size_${type.name}", defSize)
-            val o = prefs.getFloat("tool_alpha_${type.name}", defOpacity)
-            return ToolConfig(size = s, opacity = o, freehandSettings = if (type == ToolType.FREEHAND) savedFreehand else FreehandSettings())
-        }
-
-        put(ToolType.FREEHAND, loadConfig(ToolType.FREEHAND, 2f, 1f))
-        put(ToolType.FILL, loadConfig(ToolType.FILL, 1f, 1.0f))
-        put(ToolType.ERASER, loadConfig(ToolType.ERASER, 10f, 1f))
-        put(ToolType.SELECTION, loadConfig(ToolType.SELECTION, 1f, 1f))
-    }
+    // legacy methods removed...
     
     // --- EXPOSED CONFIGS ---
     var fingerModeActive by mutableStateOf(false)
@@ -565,10 +464,6 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         private set
 
     init {
-        val freehandConfig = toolConfigs[ToolType.FREEHAND]!!
-        fingerModeActive = freehandConfig.isFingerMode
-        fingerOffsetXValue = freehandConfig.fingerOffsetX
-        fingerOffsetYValue = freehandConfig.fingerOffsetY
         selectTool(currentTool)
         
         // Try to load saved layout
@@ -601,26 +496,17 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     // --- GLOBAL OFFSET SETTERS ---
     fun setFingerMode(enabled: Boolean) {
         fingerModeActive = enabled
-        val currentConfigs = toolConfigs.toMap()
-        toolConfigs.clear()
-        currentConfigs.forEach { (type, config) ->
-            toolConfigs[type] = config.copy(isFingerMode = enabled)
-        }
+        toolManager.setFingerMode(enabled)
     }
 
     fun setFingerOffset(x: Float, y: Float) {
         fingerOffsetXValue = x
         fingerOffsetYValue = y
-        val currentConfigs = toolConfigs.toMap()
-        toolConfigs.clear()
-        currentConfigs.forEach { (type, config) ->
-             toolConfigs[type] = config.copy(fingerOffsetX = x, fingerOffsetY = y)
-        }
+        toolManager.setFingerOffset(x, y)
     }
 
 
     // --- SELECTION STATE ---
-    val selectionManager = SelectionManager()
     enum class SelectionMode { RECTANGLE, FREEHAND, TRANSFORM_BOX }
     enum class SelectionScope { CURRENT_LAYER, ALL_LAYERS }
     var currentSelectionMode by mutableStateOf(SelectionMode.RECTANGLE)
@@ -816,39 +702,6 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    // --- SELECT TOOL ---
-    fun selectTool(type: ToolType) {
-        if (type != ToolType.ERASER && type != ToolType.SELECTION && type != ToolType.FILL) {
-            lastDrawingTool = type
-        }
-
-        currentTool = type
-        prefs.edit().putString("current_tool", type.name).apply()
-        
-        // Safety fallback if config missing
-        val config = toolConfigs[type] ?: toolConfigs[ToolType.FREEHAND]!!
-        
-        currentSize = config.size
-        _brushSize.value = config.size // SYNC Studio UI
-        currentOpacity = config.opacity
-        _brushOpacity.value = config.opacity // SYNC Studio UI
-        currentFreehandSettings = config.freehandSettings
-    }
-
-    fun setToolSize(size: Float) {
-        currentSize = size
-        val config = toolConfigs[currentTool]!!
-        toolConfigs[currentTool] = config.copy(size = size)
-        prefs.edit().putFloat("tool_size_${currentTool.name}", size).apply()
-    }
-    
-    fun setToolOpacity(opacity: Float) {
-        currentOpacity = opacity
-        val config = toolConfigs[currentTool]!!
-        toolConfigs[currentTool] = config.copy(opacity = opacity)
-        prefs.edit().putFloat("tool_alpha_${currentTool.name}", opacity).apply()
-    }
-    
     // --- GLOBAL STABILIZER ---
     private val _smoothing = MutableStateFlow(prefs.getFloat("global_stabilization", 0f))
     val smoothing = _smoothing.asStateFlow()
@@ -872,10 +725,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun updateFreehandSettings(newSettings: FreehandSettings) {
-        currentFreehandSettings = newSettings
-        val config = toolConfigs[currentTool]!!
-        toolConfigs[currentTool] = config.copy(freehandSettings = newSettings)
-        saveFreehandSettings(newSettings)
+        toolManager.updateFreehandSettings(newSettings)
     }
 
     fun setFreehandSmoothing(value: Float) {
@@ -941,10 +791,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         }
     }
     
-    // VIEWPORT
-    var lastViewportWidth: Float = 0f
-    var lastViewportHeight: Float = 0f
     
+
     val layerManager = com.sketcher.sketchercompanionv1.managers.LayerManager(
         performSnapshotAction = { label, action -> performSnapshotAction(label, action) }
     )
@@ -1096,16 +944,16 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
     fun saveDimensions(w: Float, h: Float) { lastViewportWidth = w; lastViewportHeight = h }
     fun zoomIn() {
-        if (lastViewportWidth <= 0 || lastViewportHeight <= 0) return
+        if (lastViewportWidth <= 0.0f || lastViewportHeight <= 0.0f) return
         val m = Matrix(_cameraMatrix.value)
-        m.postScale(1.2f, 1.2f, lastViewportWidth / 2f, lastViewportHeight / 2f)
+        m.postScale(1.2f, 1.2f, lastViewportWidth / 2.0f, lastViewportHeight / 2.0f)
         saveCameraState(m)
     }
 
     fun zoomOut() {
-        if (lastViewportWidth <= 0 || lastViewportHeight <= 0) return
+        if (lastViewportWidth <= 0.0f || lastViewportHeight <= 0.0f) return
         val m = Matrix(_cameraMatrix.value)
-        m.postScale(0.8f, 0.8f, lastViewportWidth / 2f, lastViewportHeight / 2f)
+        m.postScale(0.8f, 0.8f, lastViewportWidth / 2.0f, lastViewportHeight / 2.0f)
         saveCameraState(m)
     }
 
@@ -1117,19 +965,19 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
          if (canvasSizeConfig != null) {
              val w = canvasSizeConfig!!.widthInPixels
              val h = canvasSizeConfig!!.heightInPixels
-             if (w > 0 && h > 0 && lastViewportWidth > 0 && lastViewportHeight > 0) {
+             if (w > 0 && h > 0 && lastViewportWidth > 0.0f && lastViewportHeight > 0.0f) {
                  val padding = 50f
-                 val scaleX = (lastViewportWidth - padding*2) / w
-                 val scaleY = (lastViewportHeight - padding*2) / h
-                 val scale = kotlin.math.min(scaleX, scaleY).coerceIn(0.1f, 12.0f) // Allow up to 12.0f for icon
+                 val scaleX = (lastViewportWidth - padding * 2.0f) / w.toFloat()
+                 val scaleY = (lastViewportHeight - padding * 2.0f) / h.toFloat()
+                 val scale = kotlin.math.min(scaleX, scaleY).coerceIn(0.1f, 12.0f)
                  
-                 val cx = w / 2f
-                 val cy = h / 2f
+                 val cx = w.toFloat() / 2.0f
+                 val cy = h.toFloat() / 2.0f
                  
                  val m = Matrix()
                  m.postTranslate(-cx, -cy)
                  m.postScale(scale, scale)
-                 m.postTranslate(lastViewportWidth/2, lastViewportHeight/2)
+                 m.postTranslate(lastViewportWidth / 2.0f, lastViewportHeight / 2.0f)
                  
                  // Save state
                  saveCameraState(m)
@@ -1176,7 +1024,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun setZoomOneHundred() {
-        if (lastViewportWidth <= 0 || lastViewportHeight <= 0) return
+        if (lastViewportWidth <= 0.0f || lastViewportHeight <= 0.0f) return
         
         val m = Matrix()
         m.setValues(cameraMatrixValues)
@@ -1515,8 +1363,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             val currentLayers = layers.value.toMutableList()
             val layer = currentLayers[activeLayerIndex]
             val matrix = Matrix()
-            if (lastViewportWidth > 0) {
-                 matrix.postTranslate(lastViewportWidth/2 - bitmap.width/2, lastViewportHeight/2 - bitmap.height/2)
+            if (lastViewportWidth > 0.0f && lastViewportHeight > 0.0f) {
+                 matrix.postTranslate(lastViewportWidth / 2.0f - bitmap.width / 2.0f, lastViewportHeight / 2.0f - bitmap.height / 2.0f)
             }
             val element = ImageElement(
                 id = java.util.UUID.randomUUID().toString(),
@@ -1569,7 +1417,6 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 // StateFlow access is thread-safe for reading value, but content might change.
                 // ideally we capture state on Main, then save on IO.
                 val currentLayersSnapshot = layers.value.map { it.copy(elements = ArrayList(it.elements)) } // Shallow-ish copy
-                val currentToolConfigs = toolConfigs.toMap()
                 val currentComponentLibrary = componentLibrary.toMap()
                 val savedProjectId = projectId
                 val savedBgColor = backgroundColor
@@ -1585,7 +1432,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     layers = currentLayersSnapshot.map { it.toLayerJson() },
                     backgroundConfig = BackgroundConfig(color = savedBgColor, gridConfig = savedGridConfig),
                     paletteColors = emptyList(),
-                    toolConfigs = currentToolConfigs,
+                    toolConfigs = emptyMap(),
                     canvasMetadata = CanvasMetadata(
                         width = savedViewportW, height = savedViewportH, 
                         cameraMatrix = savedCameraMatrix,
@@ -1629,7 +1476,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         layerManager.internalUpdateLayers(newLayers, 0)
         
         // Restore ToolConfigs (Cleaned)
-        data.toolConfigs.forEach { (t, c) -> if (toolConfigs.containsKey(t)) toolConfigs[t] = c }
+        data.toolConfigs.forEach { (t, c) -> toolManager.applyToolConfig(t, c) }
         selectTool(currentTool) // Refresh
         
         backgroundColor = data.backgroundConfig.color
@@ -1674,7 +1521,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             layers = layers.value.map { it.toLayerJson() },
             backgroundConfig = BackgroundConfig(color = backgroundColor, gridConfig = gridConfig),
             paletteColors = emptyList(),
-            toolConfigs = toolConfigs.toMap(),
+            toolConfigs = emptyMap(),
             canvasMetadata = CanvasMetadata(
                 width = config.width,
                 height = config.height,
@@ -1736,7 +1583,6 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                 // Snapshot for thread safety
                 val currentLayersSnapshot = layers.value.toList()
-                val currentToolConfigs = toolConfigs.toMap()
                 val currentComponentLibrary = componentLibrary.toMap()
                 
                 val projectData = ProjectData(
@@ -1744,7 +1590,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     layers = currentLayersSnapshot.map { it.toLayerJson() },
                     backgroundConfig = BackgroundConfig(color = backgroundColor, gridConfig = gridConfig),
                     paletteColors = emptyList(),
-                    toolConfigs = currentToolConfigs,
+                    toolConfigs = emptyMap(),
                     canvasMetadata = CanvasMetadata(
                         width = width,
                         height = height,
