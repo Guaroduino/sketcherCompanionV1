@@ -171,7 +171,7 @@ object PdfExporter {
         for (layer in layers) {
             if (!layer.isVisible) continue
             for (element in layer.elements) {
-                val bounds = element.getBounds(componentLibrary)
+                val bounds = element.getBoundingBox(componentLibrary)
                 minX = minOf(minX, bounds.left)
                 minY = minOf(minY, bounds.top)
                 maxX = maxOf(maxX, bounds.right)

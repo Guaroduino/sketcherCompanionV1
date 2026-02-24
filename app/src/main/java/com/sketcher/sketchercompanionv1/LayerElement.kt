@@ -9,21 +9,20 @@ sealed interface LayerElement : Transformable {
 }
 
 interface Transformable {
-    fun getBounds(library: Map<String, ComponentDefinition> = emptyMap()): RectF
+    fun getBoundingBox(library: Map<String, ComponentDefinition> = emptyMap()): RectF
     fun transform(matrix: Matrix) // Mutates the element's data
 }
 
-
-
 data class FillData(val path: Path, val color: Int) : LayerElement {
-    override fun getBounds(library: Map<String, ComponentDefinition>): RectF {
-        val rect = RectF()
-        path.computeBounds(rect, true)
-        return rect
+    private val cachedBounds = RectF().apply { path.computeBounds(this, true) }
+
+    override fun getBoundingBox(library: Map<String, ComponentDefinition>): RectF {
+        return cachedBounds
     }
 
     override fun transform(matrix: Matrix) {
         path.transform(matrix)
+        path.computeBounds(cachedBounds, true)
     }
 
     override fun copyElement(): LayerElement {

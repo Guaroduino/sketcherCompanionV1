@@ -8,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -524,11 +525,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun deleteSelection() {
         if (selectionManager.selectedElements.isEmpty()) return
         performSnapshotAction("Borrar Selección") {
-            val newList = layers.value.toMutableList()
+            val newList = layers.toMutableList()
             newList.forEachIndexed { index, layer ->
                 val remaining = layer.elements.filter { it !in selectionManager.selectedElements }.toMutableList()
                 if (remaining.size != layer.elements.size) {
-                    newList[index] = layer.copy(elements = remaining)
+                    newList[index] = layer.copy(elements = remaining.toMutableStateList())
                 }
             }
             layerManager.internalUpdateLayers(newList, activeLayerIndex)
@@ -557,7 +558,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             
             selectionManager.clearSelection()
             if (editingContext == null) {
-                val newList = layers.value.toMutableList()
+                val newList = layers.toMutableList()
                 newList[activeLayerIndex] = newList[activeLayerIndex].copy()
                 layerManager.internalUpdateLayers(newList, activeLayerIndex)
             }
@@ -600,7 +601,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 matrix = Matrix()
             )
             
-            val currentLayers = layers.value.toMutableList()
+            val currentLayers = layers.toMutableList()
             val activeLayer = currentLayers[activeLayerIndex]
             
             // Remove from source layers
@@ -628,7 +629,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         if (groups.isEmpty()) return
         
         performSnapshotAction("Desagrupar") {
-            val currentLayers = layers.value.toMutableList()
+            val currentLayers = layers.toMutableList()
             groups.forEach { group ->
                  currentLayers.forEachIndexed { layerIndex, layer ->
                      if (layer.elements.contains(group)) {
@@ -678,9 +679,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         if (clipboard.isEmpty()) return
         
         performSnapshotAction("Pegar") {
-            if (layers.value.isEmpty()) return@performSnapshotAction
+            if (layers.isEmpty()) return@performSnapshotAction
             
-            val currentLayers = layers.value.toMutableList()
+            val currentLayers = layers.toMutableList()
             val offset = 50f 
             val m = Matrix()
             m.postTranslate(offset, offset)
@@ -797,7 +798,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         performSnapshotAction = { label, action -> performSnapshotAction(label, action) }
     )
 
-    val layers: StateFlow<List<Layer>> = layerManager.layers
+    val layers: androidx.compose.runtime.snapshots.SnapshotStateList<Layer> get() = layerManager.layers
 
     var activeLayerIndex: Int
         get() = layerManager.activeLayerIndex
@@ -866,7 +867,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     private fun notifyLayersChanged() {
         // StateFlow only emits if the value (reference) changes.
         // We create a shallow copy of the list to trigger the emission.
-        layerManager.triggerLayerEmission()
+        
         layerUpdateTrigger++
     }
 
@@ -892,13 +893,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun createLayersSnapshot(): List<Layer> {
-        return layers.value.map { layer -> layer.copy(elements = layer.elements.map { it.copyElement() }.toMutableList()) }
+        return layers.map { layer -> layer.copy(elements = layer.elements.map { it.copyElement() }.toMutableStateList()) }
     }
     
     private fun restoreSnapshot(state: List<Layer>, restoredActiveIndex: Int) {
         layerManager.internalUpdateLayers(
             newList = state.map { savedLayer ->
-                savedLayer.copy(elements = savedLayer.elements.map { it.copyElement() }.toMutableList())
+                savedLayer.copy(elements = savedLayer.elements.map { it.copyElement() }.toMutableStateList())
             },
             activeIndex = restoredActiveIndex
         )
@@ -988,14 +989,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
              }
          }
 
-         if (layers.value.all { it.elements.isEmpty() }) { resetCamera(); return }
+         if (layers.all { it.elements.isEmpty() }) { resetCamera(); return }
          var minX = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE
          var minY = Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
          var hasContent = false
          
-         layers.value.forEach { layer ->
+         layers.forEach { layer ->
             layer.elements.forEach { element ->
-                 val bounds = element.getBounds(componentLibrary)
+                 val bounds = element.getBoundingBox(componentLibrary)
                  if (bounds.left < minX) minX = bounds.left
                  if (bounds.right > maxX) maxX = bounds.right
                  if (bounds.top < minY) minY = bounds.top
@@ -1083,14 +1084,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 val dxfPaths = entry.value
 
                 // Find or Create Layer
-                val currentLayers = layers.value.toMutableList()
+                val currentLayers = layers.toMutableList()
                 var targetLayer = currentLayers.find { it.name == layerName }
                 if (targetLayer == null) {
-                    targetLayer = Layer("l_dxf_${UUID.randomUUID()}", layerName, mutableListOf())
+                    targetLayer = Layer("l_dxf_${UUID.randomUUID()}", layerName, mutableStateListOf())
                     currentLayers.add(targetLayer)
                     layerManager.internalUpdateLayers(currentLayers, activeLayerIndex)
                 }
-                val layerIndex = layers.value.indexOf(targetLayer)
+                val layerIndex = layers.indexOf(targetLayer)
                 val mutableElements = targetLayer.elements.toMutableList()
 
                 dxfPaths.forEach { dp ->
@@ -1129,8 +1130,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     )
                     mutableElements.add(stroke)
                 }
-                val newList = layers.value.toMutableList()
-                newList[layerIndex] = targetLayer.copy(elements = mutableElements)
+                val newList = layers.toMutableList()
+                newList[layerIndex] = targetLayer.copy(elements = mutableElements.toMutableStateList())
                 layerManager.internalUpdateLayers(newList, activeLayerIndex)
             }
             
@@ -1201,7 +1202,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
              
              canvas.save()
              canvas.concat(matrix)
-             for (layer in layers.value) {
+             for (layer in layers) {
                  if (!layer.isVisible) continue
                  val layerAlpha = if (layer.opacity < 1f) (layer.opacity * 255).toInt() else 255
                  val saveCount = if (layerAlpha < 255) canvas.saveLayerAlpha(null, layerAlpha) else canvas.save()
@@ -1240,7 +1241,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     // I should add them back.
     
     fun addVectorStroke(stroke: VectorStroke) {
-        val targetLayer = layers.value[activeLayerIndex]
+        val targetLayer = layers[activeLayerIndex]
         if (targetLayer.isLocked) return
 
         editingContainerMatrix?.let { containerM ->
@@ -1254,7 +1255,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     
 
     fun addHybridStroke(stroke: VectorStroke, fill: FillData?) {
-        val targetLayer = layers.value[activeLayerIndex]
+        val targetLayer = layers[activeLayerIndex]
         if (targetLayer.isLocked) return
 
         val inverse = Matrix()
@@ -1273,7 +1274,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         val selected = selectionManager.selectedElements
         if (selected.isEmpty()) return ""
 
-        val currentLayers = layers.value
+        val currentLayers = layers
         val layersFound = mutableSetOf<Int>()
         for (i in currentLayers.indices) {
             val layer = currentLayers[i]
@@ -1300,12 +1301,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun moveSelectionToLayer(targetLayerIndex: Int) {
-        if (targetLayerIndex !in layers.value.indices) return
+        if (targetLayerIndex !in layers.indices) return
         val selected = selectionManager.selectedElements.toList()
         if (selected.isEmpty()) return
 
         performSnapshotAction("Mover a Capa") {
-            val currentLayers = layers.value.toMutableList()
+            val currentLayers = layers.toMutableList()
             // 1. Remove from wherever they are
             for (element in selected) {
                 removeElementFromHierarchyInternal(currentLayers, element)
@@ -1327,7 +1328,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun removeElementFromHierarchy(element: LayerElement) {
-        for (layer in layers.value) {
+        for (layer in layers) {
             if (removeRecursive(layer.elements, element)) return
         }
     }
@@ -1358,9 +1359,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
     
     fun insertImageWithBitmap(bitmap: android.graphics.Bitmap, filename: String) {
-        if (activeLayerIndex !in layers.value.indices) return
+        if (activeLayerIndex !in layers.indices) return
         performSnapshotAction("Insertar Imagen") {
-            val currentLayers = layers.value.toMutableList()
+            val currentLayers = layers.toMutableList()
             val layer = currentLayers[activeLayerIndex]
             val matrix = Matrix()
             if (lastViewportWidth > 0.0f && lastViewportHeight > 0.0f) {
@@ -1416,7 +1417,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 // Snapshot state on Main thread or copy it?
                 // StateFlow access is thread-safe for reading value, but content might change.
                 // ideally we capture state on Main, then save on IO.
-                val currentLayersSnapshot = layers.value.map { it.copy(elements = ArrayList(it.elements)) } // Shallow-ish copy
+                val currentLayersSnapshot = layers.map { it.copy(elements = it.elements.toMutableStateList()) } // Shallow-ish copy
                 val currentComponentLibrary = componentLibrary.toMap()
                 val savedProjectId = projectId
                 val savedBgColor = backgroundColor
@@ -1500,10 +1501,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         val totalBounds = RectF()
         var first = true
         
-        for (layer in layers.value) {
+        for (layer in layers) {
             if (!layer.isVisible) continue
             for (element in layer.elements) {
-                val bounds = element.getBounds(componentLibrary)
+                val bounds = element.getBoundingBox(componentLibrary)
                 if (first) {
                     totalBounds.set(bounds)
                     first = false
@@ -1518,7 +1519,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun generateSvgContent(config: ExportSvgConfig): String {
         val projectData = ProjectData(
             id = projectId,
-            layers = layers.value.map { it.toLayerJson() },
+            layers = layers.map { it.toLayerJson() },
             backgroundConfig = BackgroundConfig(color = backgroundColor, gridConfig = gridConfig),
             paletteColors = emptyList(),
             toolConfigs = emptyMap(),
@@ -1530,7 +1531,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             ),
             componentLibrary = componentLibrary.mapValues { it.value.toComponentDefinitionJson() }
         )
-        return SvgExporter.export(projectData, layers.value, config)
+        return SvgExporter.export(projectData, layers, config)
     }
 
     fun exportSvg(context: Context, uri: android.net.Uri, config: ExportSvgConfig) {
@@ -1582,7 +1583,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 val height = canvasSizeConfig?.heightInPixels ?: 3508f // A4 at 300 DPI
 
                 // Snapshot for thread safety
-                val currentLayersSnapshot = layers.value.toList()
+                val currentLayersSnapshot = layers.toList()
                 val currentComponentLibrary = componentLibrary.toMap()
                 
                 val projectData = ProjectData(
@@ -1628,14 +1629,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         ) / 2f
         
         // 1. Identify hits (Read Phase)
-        val currentLayers = layers.value
+        val currentLayers = layers
         val layersToCheck = if (selectionScope == SelectionScope.ALL_LAYERS) currentLayers else 
             (if (activeLayerIndex in currentLayers.indices) listOf(currentLayers[activeLayerIndex]) else emptyList())
 
         for (layer in layersToCheck) {
             // Check for intersection
             for (element in layer.elements) {
-                val bounds = element.getBounds(componentLibrary)
+                val bounds = element.getBoundingBox(componentLibrary)
                  // Simple rect intersection for eraser
                 if (RectF.intersects(bounds, RectF(x - radiusWorld, y - radiusWorld, x + radiusWorld, y + radiusWorld))) {
                     hits.add(layer to element)
@@ -1665,8 +1666,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun addNewLayerInternal(toTop: Boolean) { 
-        val currentLayers = layers.value.toMutableList()
-        val l = Layer("l_${System.currentTimeMillis()}", "Capa ${currentLayers.size+1}", mutableListOf())
+        val currentLayers = layers.toMutableList()
+        val l = Layer("l_${System.currentTimeMillis()}", "Capa ${currentLayers.size+1}", mutableStateListOf())
         val newIndex = if(toTop) { currentLayers.add(l); currentLayers.lastIndex } else { currentLayers.add(0, l); 0 }
         layerManager.internalUpdateLayers(currentLayers, newIndex)
     }
@@ -1677,7 +1678,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
              // Construct ProjectData from current state for saving
              val projectData = com.sketcher.sketchercompanionv1.dto.ProjectData(
                  id = projectId,
-                 layers = layers.value.map { it.toLayerJson() },
+                 layers = layers.map { it.toLayerJson() },
                  backgroundConfig = com.sketcher.sketchercompanionv1.dto.BackgroundConfig(backgroundColor, gridConfig),
                  paletteColors = emptyList(),
                  toolConfigs = emptyMap(), // Simplify for now or map toolConfigs
@@ -1692,7 +1693,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
              com.sketcher.sketchercompanionv1.utils.TemplateManager.saveAsTemplate(
                  context, 
                  projectData,
-                 layers.value,
+                 layers,
                  name
              )
          }
@@ -1710,14 +1711,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                             val l = Layer(
                                 id = lJson.id, 
                                 name = lJson.name, 
-                                elements = mutableListOf(), 
+                                elements = mutableStateListOf(), 
                                 isVisible = lJson.isVisible, 
                                 opacity = lJson.opacity
                             )
                             newLayers.add(l)
                         }
                         layerManager.internalUpdateLayers(newLayers, 0)
-                        if (layers.value.isEmpty()) layerManager.addNewLayer(true)
+                        if (layers.isEmpty()) layerManager.addNewLayer(true)
                     }
                 }
             } catch (e: Exception) {
@@ -1823,8 +1824,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                  stroke.copy(points = newPoints, path = outlinePath)
             }
             
-            if (layers.value.isNotEmpty()) {
-                val newList = layers.value.toMutableList()
+            if (layers.isNotEmpty()) {
+                val newList = layers.toMutableList()
                 val activeLayer = newList[activeLayerIndex]
                 activeLayer.elements.addAll(transformedStrokes)
                 newList[activeLayerIndex] = activeLayer.copy()
@@ -1840,7 +1841,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                  context.contentResolver.openOutputStream(uri)?.use { outputStream ->
                      // Support exporting all layers with structure
                      // If selection only is needed later, we would need to filter layers
-                     com.sketcher.sketchercompanionv1.exporters.DxfExporter.export(layers.value, outputStream)
+                     com.sketcher.sketchercompanionv1.exporters.DxfExporter.export(layers, outputStream)
                  }
              } catch (e: Exception) {
                  e.printStackTrace()
@@ -1896,3 +1897,4 @@ class EraseCommand(
 
     override fun getLabel(): String = "Borrador"
 }
+

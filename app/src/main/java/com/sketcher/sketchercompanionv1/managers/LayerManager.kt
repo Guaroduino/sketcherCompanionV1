@@ -3,18 +3,15 @@ package com.sketcher.sketchercompanionv1.managers
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateListOf
 import com.sketcher.sketchercompanionv1.Layer
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 
 class LayerManager(
     private val performSnapshotAction: (String, () -> Unit) -> Unit
 ) {
-    private val _layers = MutableStateFlow<List<Layer>>(
-        listOf(Layer("layer_1", "Capa 1", mutableListOf()))
+    val layers = mutableStateListOf<Layer>(
+        Layer("layer_1", "Capa 1", mutableStateListOf())
     )
-    val layers: StateFlow<List<Layer>> = _layers.asStateFlow()
 
     var activeLayerIndex by mutableIntStateOf(0)
         private set
@@ -23,28 +20,25 @@ class LayerManager(
      * Initializes the layers without triggering a snapshot operation, generally used for loading state.
      */
     fun internalUpdateLayers(newList: List<Layer>, activeIndex: Int) {
-        _layers.value = newList
+        layers.clear()
+        layers.addAll(newList)
         activeLayerIndex = activeIndex.coerceIn(newList.indices)
     }
 
     fun toggleLayerVisibility(index: Int) {
-        val currentList = _layers.value.toMutableList()
-        if (index in currentList.indices) {
-            currentList[index] = currentList[index].copy(isVisible = !currentList[index].isVisible)
-            _layers.value = currentList
+        if (index in layers.indices) {
+            layers[index] = layers[index].copy(isVisible = !layers[index].isVisible)
         }
     }
 
     fun setLayerOpacity(index: Int, opacity: Float) {
-        val currentList = _layers.value.toMutableList()
-        if (index in currentList.indices) {
-            currentList[index] = currentList[index].copy(opacity = opacity)
-            _layers.value = currentList
+        if (index in layers.indices) {
+            layers[index] = layers[index].copy(opacity = opacity)
         }
     }
 
     fun setActiveLayer(index: Int) {
-        if (index in _layers.value.indices) activeLayerIndex = index
+        if (index in layers.indices) activeLayerIndex = index
     }
 
     fun addLayer() {
@@ -53,28 +47,24 @@ class LayerManager(
 
     fun addNewLayer(toTop: Boolean) {
         performSnapshotAction("Nueva Capa") {
-            val newList = _layers.value.toMutableList()
-            val l = Layer("l_${System.currentTimeMillis()}", "Capa ${newList.size + 1}", mutableListOf())
+            val l = Layer("l_${System.currentTimeMillis()}", "Capa ${layers.size + 1}", mutableStateListOf())
             if (toTop) {
-                newList.add(l)
-                activeLayerIndex = newList.lastIndex
+                layers.add(l)
+                activeLayerIndex = layers.lastIndex
             } else {
-                newList.add(0, l)
+                layers.add(0, l)
                 activeLayerIndex = 0
             }
-            _layers.value = newList
         }
     }
 
     fun removeLayer(index: Int) {
-        if (_layers.value.size <= 1) return
+        if (layers.size <= 1) return
         performSnapshotAction("Eliminar Capa") {
-            val newList = _layers.value.toMutableList()
-            if (index in newList.indices) {
-                newList.removeAt(index)
-                _layers.value = newList
-                if (activeLayerIndex >= _layers.value.size) {
-                    activeLayerIndex = _layers.value.size - 1
+            if (index in layers.indices) {
+                layers.removeAt(index)
+                if (activeLayerIndex >= layers.size) {
+                    activeLayerIndex = layers.size - 1
                 }
             }
         }
@@ -85,46 +75,39 @@ class LayerManager(
     }
 
     fun toggleLayerLock(index: Int) {
-        val currentList = _layers.value.toMutableList()
-        if (index in currentList.indices) {
-            currentList[index] = currentList[index].copy(isLocked = !currentList[index].isLocked)
-            _layers.value = currentList
+        if (index in layers.indices) {
+            layers[index] = layers[index].copy(isLocked = !layers[index].isLocked)
         }
     }
 
     fun renameLayer(index: Int, newName: String) {
-        val currentList = _layers.value.toMutableList()
-        if (index in currentList.indices) {
-            currentList[index] = currentList[index].copy(name = newName)
-            _layers.value = currentList
+        if (index in layers.indices) {
+            layers[index] = layers[index].copy(name = newName)
         }
     }
 
     fun duplicateLayer(index: Int) {
-        val currentList = _layers.value.toMutableList()
-        if (index in currentList.indices) {
+        if (index in layers.indices) {
             performSnapshotAction("Duplicar Capa") {
-                val source = currentList[index]
+                val source = layers[index]
+                val copiedElements = mutableStateListOf<com.sketcher.sketchercompanionv1.LayerElement>()
+                source.elements.forEach { copiedElements.add(it.copyElement()) }
                 val copy = source.copy(
                     id = "l_${System.currentTimeMillis()}",
                     name = "${source.name} (Copy)",
-                    elements = source.elements.map { it.copyElement() }.toMutableList()
+                    elements = copiedElements
                 )
-                val newList = _layers.value.toMutableList()
-                newList.add(index + 1, copy)
-                _layers.value = newList
+                layers.add(index + 1, copy)
                 activeLayerIndex = index + 1
             }
         }
     }
 
     fun moveLayer(fromIndex: Int, toIndex: Int) {
-        val currentList = _layers.value.toMutableList()
-        if (fromIndex in currentList.indices && toIndex in currentList.indices) {
+        if (fromIndex in layers.indices && toIndex in layers.indices) {
             performSnapshotAction("Mover Capa") {
-                val item = currentList.removeAt(fromIndex)
-                currentList.add(toIndex, item)
-                _layers.value = currentList
+                val item = layers.removeAt(fromIndex)
+                layers.add(toIndex, item)
                 // Keep the same layer active
                 if (activeLayerIndex == fromIndex) activeLayerIndex = toIndex
                 else if (fromIndex < activeLayerIndex && toIndex >= activeLayerIndex) activeLayerIndex--
@@ -143,11 +126,9 @@ class LayerManager(
 
     fun addLayerAbove(index: Int) {
         performSnapshotAction("Nueva Capa Arriba") {
-            val newList = _layers.value.toMutableList()
-            if (index in newList.indices) {
-                val l = Layer("l_${System.currentTimeMillis()}", "Capa ${newList.size + 1}", mutableListOf())
-                newList.add(index + 1, l)
-                _layers.value = newList
+            if (index in layers.indices) {
+                val l = Layer("l_${System.currentTimeMillis()}", "Capa ${layers.size + 1}", mutableStateListOf())
+                layers.add(index + 1, l)
                 activeLayerIndex = index + 1
             }
         }
@@ -155,33 +136,29 @@ class LayerManager(
 
     fun addLayerBelow(index: Int) {
         performSnapshotAction("Nueva Capa Abajo") {
-            val newList = _layers.value.toMutableList()
-            if (index in newList.indices) {
-                val l = Layer("l_${System.currentTimeMillis()}", "Capa ${newList.size + 1}", mutableListOf())
-                newList.add(index, l)
-                _layers.value = newList
+            if (index in layers.indices) {
+                val l = Layer("l_${System.currentTimeMillis()}", "Capa ${layers.size + 1}", mutableStateListOf())
+                layers.add(index, l)
                 activeLayerIndex = index
             }
         }
     }
 
     fun mergeLayers(fromIndex: Int, toIndex: Int) {
-        val currentList = _layers.value.toMutableList()
-        if (fromIndex in currentList.indices && toIndex in currentList.indices && fromIndex != toIndex) {
+        if (fromIndex in layers.indices && toIndex in layers.indices && fromIndex != toIndex) {
             performSnapshotAction("Fusionar Capas") {
-                val fromLayer = currentList[fromIndex]
-                val toLayer = currentList[toIndex]
+                val fromLayer = layers[fromIndex]
+                val toLayer = layers[toIndex]
 
                 // Transfer elements
                 toLayer.elements.addAll(fromLayer.elements.map { it.copyElement() })
 
                 // Remove source
-                currentList.removeAt(fromIndex)
-                _layers.value = currentList
+                layers.removeAt(fromIndex)
 
                 // Update active index
                 val newToIndex = if (fromIndex < toIndex) toIndex - 1 else toIndex
-                activeLayerIndex = newToIndex.coerceIn(currentList.indices)
+                activeLayerIndex = newToIndex.coerceIn(layers.indices)
             }
         }
     }
@@ -197,14 +174,7 @@ class LayerManager(
     /**
      * For internal ViewModel logic when directly mutating elements in the current active layer.
      */
-    fun activeElements(): MutableList<com.sketcher.sketchercompanionv1.LayerElement> {
-        return _layers.value[activeLayerIndex].elements
-    }
-
-    /**
-     * Re-assigns the shallow copy for triggering recompositions properly.
-     */
-    fun triggerLayerEmission() {
-        _layers.value = _layers.value.toList()
+    fun activeElements(): androidx.compose.runtime.snapshots.SnapshotStateList<com.sketcher.sketchercompanionv1.LayerElement> {
+        return layers[activeLayerIndex].elements
     }
 }

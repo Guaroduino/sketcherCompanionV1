@@ -1,0 +1,46 @@
+﻿
+./gradlew : e: file:///C:/Users/corad/
+   ified: (e: file:///C:/U...' was e  
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+e: file:///C:/Users/corad/OneDrive/Doc
+FAILURE: Build failed with an 
+
+

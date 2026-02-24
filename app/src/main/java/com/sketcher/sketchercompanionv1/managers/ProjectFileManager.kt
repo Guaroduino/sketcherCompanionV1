@@ -94,7 +94,7 @@ class ProjectFileManager {
         for (layer in layers) {
             if (!layer.isVisible) continue
             for (element in layer.elements) {
-                val bounds = element.getBounds(componentLibrary)
+                val bounds = element.getBoundingBox(componentLibrary)
                 if (first) {
                     totalBounds.set(bounds)
                     first = false

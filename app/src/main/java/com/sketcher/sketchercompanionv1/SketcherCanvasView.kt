@@ -18,6 +18,14 @@ import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
 // Layer and FillData are now defined in Layer.kt and LayerElement.kt respectively
 
 class SketcherCanvasView(context: Context) : View(context) {
@@ -25,6 +33,15 @@ class SketcherCanvasView(context: Context) : View(context) {
     init {
         isClickable = true
         isFocusable = true
+    }
+
+    // --- COROUTINES ---
+    private val viewScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var redrawJob: Job? = null
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        viewScope.cancel()
     }
 
     // --- TRANSFORMS & STATE ---
@@ -121,18 +138,14 @@ class SketcherCanvasView(context: Context) : View(context) {
             redrawAllCache() 
         }
     
-    // BITMAP CACHING
-    private var backingBitmap: android.graphics.Bitmap? = null
-    private var backingCanvas: Canvas? = null
+    // CACHING
+    private var backingPicture: android.graphics.Picture? = null
 
     var onSizeChangedCallback: ((Int, Int) -> Unit)? = null
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         if (w > 0 && h > 0) {
-            backingBitmap?.recycle()
-            backingBitmap = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
-            backingCanvas = Canvas(backingBitmap!!)
             redrawAllCache()
             onSizeChangedCallback?.invoke(w, h)
         }
@@ -168,31 +181,43 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     // --- CACHE MANAGEMENT ---
     fun redrawAllCache() {
-        val canvas = backingCanvas ?: return
         if (width <= 0 || height <= 0) return
         
-        // Ensure bitmap matches dimensions
-        if (backingBitmap == null || backingBitmap?.width != width || backingBitmap?.height != height) {
-            backingBitmap?.recycle()
-            backingBitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
-            backingCanvas = Canvas(backingBitmap!!)
+        redrawJob?.cancel()
+        
+        // Snapshot state for background rendering
+        val currentMatrix = Matrix(viewMatrix)
+        val layersSnapshot = layers.toList()
+        val currentWidth = width
+        val currentHeight = height
+        val currentSelectionManager = selectionManager
+        val dragging = isSelectionDragging
+        val librarySnapshot = componentLibrary
+        
+        // Use Coroutines to draw offscreen and swap
+        redrawJob = viewScope.launch {
+            val offscreenPicture = withContext(Dispatchers.Default) {
+                val picture = android.graphics.Picture()
+                val canvas = picture.beginRecording(currentWidth, currentHeight)
+                
+                renderEngine.drawLayers(
+                    canvas, 
+                    layersSnapshot, 
+                    currentMatrix, 
+                    librarySnapshot, 
+                    currentSelectionManager, 
+                    dragging
+                )
+                
+                picture.endRecording()
+                picture
+            }
+            
+            // Swap to new picture on Main Thread
+            backingPicture = offscreenPicture
+            cachedBitmapMatrix.set(currentMatrix)
+            invalidate()
         }
-
-        val targetCanvas = backingCanvas ?: return
-        
-        // Use RenderEngine to redraw everything into the cache
-        renderEngine.drawLayers(
-            targetCanvas, 
-            layers, 
-            viewMatrix, 
-            componentLibrary, 
-            selectionManager, 
-            isSelectionDragging
-        )
-        
-        // Snapshot the matrix used for this cache
-        cachedBitmapMatrix.set(viewMatrix)
-        invalidate()
     }
 
     fun bakeStroke(stroke: VectorStroke) { redrawAllCache() }
@@ -368,9 +393,9 @@ class SketcherCanvasView(context: Context) : View(context) {
                         element.path.computeBounds(bounds, true)
                         bounds.contains(worldX, worldY)
                     }
-                    is ImageElement -> element.getBounds(componentLibrary).contains(worldX, worldY)
-                    is SvgElement -> element.getBounds(componentLibrary).contains(worldX, worldY)
-                    is ComponentInstance -> element.getBounds(componentLibrary).contains(worldX, worldY)
+                    is ImageElement -> element.getBoundingBox(componentLibrary).contains(worldX, worldY)
+                    is SvgElement -> element.getBoundingBox(componentLibrary).contains(worldX, worldY)
+                    is ComponentInstance -> element.getBoundingBox(componentLibrary).contains(worldX, worldY)
                     else -> false
                 }
                 if (removed) {
@@ -412,20 +437,20 @@ class SketcherCanvasView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         
-        // 1. Draw Cached Bitmap (Background & Layers)
-        backingBitmap?.let { bitmap ->
+        // 1. Draw Cached Picture (Background & Layers)
+        backingPicture?.let { picture ->
             if (viewMatrix == cachedBitmapMatrix) {
-                canvas.drawBitmap(bitmap, 0f, 0f, null)
+                canvas.drawPicture(picture)
             } else {
                 // High-performance scaling for intermediate frames
                 if (cachedBitmapMatrix.invert(drawTransformMatrix)) {
                      drawTransformMatrix.postConcat(viewMatrix)
                      canvas.save()
                      canvas.concat(drawTransformMatrix)
-                     canvas.drawBitmap(bitmap, 0f, 0f, null)
+                     canvas.drawPicture(picture)
                      canvas.restore()
                 } else {
-                     canvas.drawBitmap(bitmap, 0f, 0f, null)
+                     canvas.drawPicture(picture)
                 }
             }
         } ?: run {

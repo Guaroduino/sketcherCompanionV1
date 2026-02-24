@@ -30,7 +30,7 @@ object PerfectFreehandGenerator {
     // Constants from reference
     private const val MIN_STREAMLINE_T = 0.15f
     private const val STREAMLINE_T_RANGE = 0.85f
-    private const val END_NOISE_THRESHOLD = 0.85f // Approximate reference (checked TS usually 0.95 or similar based on unit)
+    private const val END_NOISE_THRESHOLD = 0.99f // Approximate reference (checked TS usually 0.95 or similar based on unit)
     private const val STOP = 0.001f // Epsilon
     private const val PI = Math.PI.toFloat()
     private const val FIXED_PI = PI + 0.0001f // To avoid floating point issues with perfect PI 
@@ -69,13 +69,15 @@ object PerfectFreehandGenerator {
         rawPoints: List<StrokePoint>,
         baseWidth: Float, // Used as 'size'
         settings: FreehandSettings = FreehandSettings(),
-        zoom: Float = 1.0f // Current viewport scale
+        isComplete: Boolean = false,
+        zoom: Float = 1.0f, // Current viewport scale
+        outPath: Path = Path() // Reusable path
     ): FreehandResult {
-        val path = Path()
+        val path = outPath.apply { rewind() } // Rewind keeps interior structures
         if (rawPoints.isEmpty()) return FreehandResult(path, emptyList(), emptyList(), emptyList(), 0f)
 
         // 1. Get Stroke Points
-        val strokePoints = getStrokePoints(rawPoints, baseWidth, settings, zoom)
+        val strokePoints = getStrokePoints(rawPoints, baseWidth, settings, isComplete, zoom)
 
         // 2. Get Outline Points
         val outline = getStrokeOutlinePoints(strokePoints, baseWidth, settings)
@@ -118,6 +120,7 @@ object PerfectFreehandGenerator {
         input: List<StrokePoint>,
         size: Float,
         settings: FreehandSettings,
+        isComplete: Boolean,
         zoom: Float = 1.0f
     ): List<StrokePointInternal> {
         if (input.isEmpty()) return emptyList()
@@ -175,7 +178,13 @@ object PerfectFreehandGenerator {
         
         for (i in 1 until pts.size) {
             val rawP = pts[i]
-            val point = lrp(prev.point, Vec2(rawP.x, rawP.y), t)
+            val isLastPoint = i == pts.size - 1
+            
+            val point = if (isComplete && isLastPoint) {
+                Vec2(rawP.x, rawP.y)
+            } else {
+                lrp(prev.point, Vec2(rawP.x, rawP.y), t)
+            }
             
             if (point == prev.point) continue 
             
@@ -303,8 +312,8 @@ object PerfectFreehandGenerator {
             var pressure = curr.pressure
             val isLastPoint = i == points.size - 1
 
-            if (!isLastPoint && (totalLength - curr.runningLength) < 3f) {
-                // strict reference check
+            if (!isLastPoint && (totalLength - curr.runningLength) < END_NOISE_THRESHOLD) {
+                continue
             }
 
             // Calculate Base Radius via Pressure/Velocity
@@ -543,7 +552,7 @@ object PerfectFreehandGenerator {
         val step = 1f / segments
         for (k in 1 until segments) { // < 1
             val t = k * step
-            cap.add(rotAround(start, center, FIXED_PI * 3 * t))
+            cap.add(rotAround(start, center, FIXED_PI * t))
         }
         // Explicitly close or rely on polygon? Ref uses < 1
         return cap

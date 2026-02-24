@@ -23,14 +23,15 @@ data class VectorStroke(
     val leftPoints: List<android.graphics.PointF> = emptyList(),
     val rightPoints: List<android.graphics.PointF> = emptyList()
 ) : LayerElement {
-    override fun getBounds(library: Map<String, ComponentDefinition>): RectF {
-        val rect = RectF()
-        path.computeBounds(rect, true)
-        return rect
+    private val cachedBounds = RectF().apply { path.computeBounds(this, true) }
+
+    override fun getBoundingBox(library: Map<String, ComponentDefinition>): RectF {
+        return cachedBounds
     }
 
     override fun transform(matrix: Matrix) {
         path.transform(matrix)
+        path.computeBounds(cachedBounds, true)
         val pts = FloatArray(2)
         points.forEach { p ->
             pts[0] = p.x

@@ -34,7 +34,7 @@ data class SvgElement(
         return m
     }
 
-    override fun getBounds(library: Map<String, ComponentDefinition>): RectF {
+    override fun getBoundingBox(library: Map<String, ComponentDefinition>): RectF {
         val svg = getSvg() ?: return RectF()
         
         // Document dimensions

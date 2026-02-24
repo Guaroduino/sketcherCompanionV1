@@ -170,6 +170,26 @@ class RenderEngine {
         }
         
         // Draw Layers
+        
+        // Calculate visible world bounds for Frustum Culling
+        tempInverseMatrix.set(viewMatrix)
+        val inverted = viewMatrix.invert(tempInverseMatrix)
+        var visibleWorldBounds: RectF? = null
+        if (inverted) {
+            tempScreenBounds[0] = 0f
+            tempScreenBounds[1] = 0f
+            tempScreenBounds[2] = canvas.width.toFloat()
+            tempScreenBounds[3] = canvas.height.toFloat()
+            tempInverseMatrix.mapPoints(tempWorldBounds, tempScreenBounds)
+            
+            val wMinX = kotlin.math.min(tempWorldBounds[0], tempWorldBounds[2])
+            val wMaxX = kotlin.math.max(tempWorldBounds[0], tempWorldBounds[2])
+            val wMinY = kotlin.math.min(tempWorldBounds[1], tempWorldBounds[3])
+            val wMaxY = kotlin.math.max(tempWorldBounds[1], tempWorldBounds[3])
+            
+            visibleWorldBounds = RectF(wMinX, wMinY, wMaxX, wMaxY)
+        }
+
         for (layer in layers) {
              if (!layer.isVisible) continue
              
@@ -186,6 +206,14 @@ class RenderEngine {
              for (element in layer.elements) {
                   val isSelected = selectionManager?.selectedElements?.contains(element) == true
                   if (isSelected && isSelectionDragging) continue 
+
+                  // Frustum culling filter
+                  if (visibleWorldBounds != null) {
+                      val elementBounds = element.getBoundingBox(componentLibrary)
+                      if (!RectF.intersects(visibleWorldBounds, elementBounds)) {
+                          continue
+                      }
+                  }
 
                   drawElementRecursive(canvas, element, componentLibrary)
              }

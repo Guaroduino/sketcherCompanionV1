@@ -14,13 +14,13 @@ data class GroupElement(
         matrix.postConcat(tMatrix)
     }
 
-    override fun getBounds(library: Map<String, ComponentDefinition>): RectF {
+    override fun getBoundingBox(library: Map<String, ComponentDefinition>): RectF {
         val unionRect = RectF()
         if (elements.isEmpty()) return unionRect
         
         // 1. Calculate union of children
         elements.forEachIndexed { index, element ->
-            val childBounds = (element as? Transformable)?.getBounds(library) ?: RectF()
+            val childBounds = (element as? Transformable)?.getBoundingBox(library) ?: RectF()
             if (index == 0) unionRect.set(childBounds)
             else unionRect.union(childBounds)
         }

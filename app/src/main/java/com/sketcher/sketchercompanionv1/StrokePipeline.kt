@@ -40,6 +40,12 @@ class StrokePipeline(
     var canvasViewMatrix: android.graphics.Matrix = android.graphics.Matrix() // Needed for World Transform
     var currentZoom: Float = 1.0f
 
+    // --- Object Pooling & Caching ---
+    private val reusablePreviewPath = Path()
+    private val reusableFillPath = Path()
+    private var liveSettingsCache = FreehandSettings()
+    private var lastBaseSettings: FreehandSettings? = null
+
 
     // --- State ---
     private val currentStrokePoints = mutableListOf<StrokePoint>()
@@ -237,14 +243,26 @@ class StrokePipeline(
 
         if (livePoints.isEmpty()) return
 
-        // 2. Generate Unified Path
-        val liveSettings = activeFreehandSettings.copy(capEnd = false)
-        val result = PerfectFreehandGenerator.generate(livePoints, activeSize, liveSettings, currentZoom)
+        // Update settings cache if base changed
+        if (activeFreehandSettings !== lastBaseSettings) {
+            liveSettingsCache = activeFreehandSettings.copy(capEnd = false)
+            lastBaseSettings = activeFreehandSettings
+        }
+
+        // 2. Generate Unified Path using reusable path
+        val result = PerfectFreehandGenerator.generate(
+            livePoints, 
+            activeSize, 
+            liveSettingsCache, 
+            false, 
+            currentZoom,
+            reusablePreviewPath
+        )
 
         // 3. Fill Preview
         var fillPath: Path? = null
         if (isFillActive && livePoints.size >= 3) {
-            fillPath = Path()
+            fillPath = reusableFillPath.apply { rewind() }
             fillPath.moveTo(livePoints[0].x, livePoints[0].y)
             for (i in 1 until livePoints.size) {
                 fillPath.lineTo(livePoints[i].x, livePoints[i].y)
@@ -297,7 +315,7 @@ class StrokePipeline(
         }
 
         // Generate High Fidelity Path
-        val genResult = PerfectFreehandGenerator.generate(finalPointsRaw, activeSize, activeFreehandSettings, currentZoom)
+        val genResult = PerfectFreehandGenerator.generate(finalPointsRaw, activeSize, activeFreehandSettings, true, currentZoom)
         val path = Path(genResult.path)
         
         var fPath: Path? = null
@@ -351,7 +369,7 @@ class StrokePipeline(
         }
         
         // Duplicate Logic (Should extract common finalizer)
-         val genResult = PerfectFreehandGenerator.generate(finalPointsRaw, activeSize, activeFreehandSettings, currentZoom)
+         val genResult = PerfectFreehandGenerator.generate(finalPointsRaw, activeSize, activeFreehandSettings, true, currentZoom)
          val path = Path(genResult.path)
          
          var fPath: Path? = null

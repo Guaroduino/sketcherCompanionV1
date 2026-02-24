@@ -13,11 +13,11 @@ data class ComponentInstance(
         matrix.postConcat(tMatrix)
     }
 
-    override fun getBounds(library: Map<String, ComponentDefinition>): RectF {
+    override fun getBoundingBox(library: Map<String, ComponentDefinition>): RectF {
         val definition = library[definitionId] ?: return RectF()
         val rect = RectF()
         for (element in definition.elements) {
-            val childBounds = (element as? Transformable)?.getBounds(library) ?: RectF()
+            val childBounds = (element as? Transformable)?.getBoundingBox(library) ?: RectF()
             if (rect.isEmpty) rect.set(childBounds)
             else rect.union(childBounds)
         }

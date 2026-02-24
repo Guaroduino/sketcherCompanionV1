@@ -42,7 +42,7 @@ class SelectionManager {
         selectionPath.computeBounds(selectionBounds, true)
 
         layer.elements.forEach { element ->
-            val elementBounds = element.getBounds(library)
+            val elementBounds = element.getBoundingBox(library)
             if (RectF.intersects(selectionBounds, elementBounds)) {
                 selectedElements.add(element)
             }
@@ -58,9 +58,9 @@ class SelectionManager {
         
         selectedElements.forEachIndexed { index, element ->
             if (index == 0) {
-                baseBounds.set(element.getBounds(library))
+                baseBounds.set(element.getBoundingBox(library))
             } else {
-                baseBounds.union(element.getBounds(library))
+                baseBounds.union(element.getBoundingBox(library))
             }
         }
     }
@@ -98,7 +98,7 @@ class SelectionManager {
 
     private fun isHit(element: LayerElement, x: Float, y: Float, library: Map<String, ComponentDefinition>): Boolean {
         // Simple bounds check for now. Can be refined for strokes.
-        return element.getBounds(library).contains(x, y)
+        return element.getBoundingBox(library).contains(x, y)
     }
 }
 

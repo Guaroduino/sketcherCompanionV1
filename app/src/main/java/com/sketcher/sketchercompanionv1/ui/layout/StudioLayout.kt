@@ -1,4 +1,4 @@
-package com.sketcher.sketchercompanionv1.ui.layout
+﻿package com.sketcher.sketchercompanionv1.ui.layout
 
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -90,7 +90,7 @@ fun StudioLayout(
     val interfaceScale = viewModel.interfaceScale
     
     val theme by viewModel.themeConfig.collectAsState()
-    val currentLayers by viewModel.layers.collectAsState()
+    val currentLayers = viewModel.layers
     val tools by viewModel.toolbarState.collectAsState()
     val assignedToolsMap by viewModel.assignedTools.collectAsState()
     val assignedColorsMap by viewModel.assignedToolColors.collectAsState()
@@ -1515,7 +1515,7 @@ fun StudioLayout(
                                 Spacer(modifier = Modifier.height(12.dp))
 
                                 // Angle Slider
-                                Text("Shadow Angle: ${theme.shadowAngle.toInt()}°", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
+                                Text("Shadow Angle: ${theme.shadowAngle.toInt()}Â°", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
                                 Slider(
                                     value = theme.shadowAngle,
                                     onValueChange = { 
@@ -1788,7 +1788,7 @@ fun StudioLayout(
                             Spacer(modifier = Modifier.height(12.dp))
 
                             // Angle Slider
-                            Text("Shadow Angle: ${theme.shadowAngle.toInt()}°", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
+                            Text("Shadow Angle: ${theme.shadowAngle.toInt()}Â°", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
                             Slider(
                                 value = theme.shadowAngle,
                                 onValueChange = { 
@@ -1832,3 +1832,4 @@ fun StudioLayout(
         )
     }
 }
+

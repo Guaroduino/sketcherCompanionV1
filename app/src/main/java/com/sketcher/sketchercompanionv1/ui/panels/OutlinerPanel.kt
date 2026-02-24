@@ -1,4 +1,4 @@
-package com.sketcher.sketchercompanionv1.ui.panels
+﻿package com.sketcher.sketchercompanionv1.ui.panels
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -30,7 +30,7 @@ import com.sketcher.sketchercompanionv1.ui.components.BigTouchBox
 @Composable
 fun OutlinerPanel(viewModel: SketcherViewModel) {
     val theme by viewModel.themeConfig.collectAsState()
-    val layers by viewModel.layers.collectAsState()
+    val layers = viewModel.layers
     val activeLayerIndex = viewModel.activeLayerIndex
     
     val scaler = LocalUiScaler.current
@@ -340,3 +340,4 @@ fun OutlinerCompactAction(
 object ScalerConstants {
     const val ITEM_SPACING = 6
 }
+

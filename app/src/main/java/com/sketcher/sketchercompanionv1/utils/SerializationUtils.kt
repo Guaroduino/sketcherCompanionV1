@@ -1,6 +1,7 @@
 ﻿package com.sketcher.sketchercompanionv1.utils
 
 import android.graphics.Matrix
+import androidx.compose.runtime.toMutableStateList
 import android.graphics.Path
 import android.graphics.PointF
 
@@ -179,7 +180,7 @@ fun LayerJson.toLayer(
 ): Layer {
     val customElements = this.elements.map { elJson ->
         elJson.toLayerElement(bitmapLoader, svgLoader)
-    }.toMutableList()
+    }.toMutableStateList()
     
     return Layer(
         id = this.id,
@@ -196,8 +197,10 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     // We use PerfectFreehandGenerator for all vector strokes now.
     // Legacy strokes will be reconstructed using the new engine.
     val result = PerfectFreehandGenerator.generate(
-        pts, 
-        this.maxWidth
+        rawPoints = pts, 
+        baseWidth = this.maxWidth,
+        settings = FreehandSettings(),
+        isComplete = true
     )
     
     val sColor = this.strokeColor ?: this.color
