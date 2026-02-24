@@ -10,7 +10,8 @@ object StrokePredictor {
      */
     fun getPredictedPoint(
         points: List<StrokePoint>, 
-        predictionLatencyMillis: Long = 35
+        predictionLatencyMillis: Long = 35,
+        currentZoom: Float = 1.0f // NUEVO: Parámetro de Zoom
     ): StrokePoint? {
         if (points.size < 3) return null
 
@@ -38,10 +39,14 @@ object StrokePredictor {
 
         val vx = v2x / dt2
         val vy = v2y / dt2
-        val speed = kotlin.math.sqrt(vx * vx + vy * vy)
+        
+        // VELOCIDAD EN PANTALLA: Multiplicamos por el zoom para saber 
+        // qué tan rápido se está moviendo el lápiz físicamente sobre el cristal.
+        val worldSpeed = kotlin.math.sqrt(vx * vx + vy * vy)
+        val screenSpeed = worldSpeed * currentZoom
 
-        // Zona muerta: si casi no se mueve, no predecimos
-        if (speed < 0.05f) return null 
+        // Zona muerta adaptada a la pantalla (0.05 píxeles de pantalla por milisegundo)
+        if (screenSpeed < 0.05f) return null 
 
         // 3. Producto Punto para Detección de Curvatura / Ángulo
         val mag1 = kotlin.math.sqrt(v1x * v1x + v1y * v1y)
@@ -53,13 +58,12 @@ object StrokePredictor {
             val cosTheta = (dot / (mag1 * mag2)).coerceIn(-1f, 1f)
             
             // cosTheta == 1.0 es línea recta. cosTheta < 0 es un giro de más de 90 grados.
-            // Mapeamos de 0.5 (giro moderado) a 1.0 (recto) hacia un multiplicador de 0.0 a 1.0
             curveDampening = ((cosTheta - 0.5f) / 0.5f).coerceIn(0f, 1f)
         }
 
         // 4. Amortiguación de velocidad para trazos cortos/lentos
-        // Reduce la predicción hasta un 20% si la velocidad es muy baja
-        val speedDampening = (speed / 1.0f).coerceIn(0.2f, 1.0f)
+        // Usamos screenSpeed para que se sienta igual sin importar el zoom
+        val speedDampening = (screenSpeed / 1.5f).coerceIn(0.2f, 1.0f)
 
         // 5. Extrapolación Final
         val effectiveMillis = predictionLatencyMillis * curveDampening * speedDampening
@@ -68,6 +72,10 @@ object StrokePredictor {
         val predX = p0.x + (vx * effectiveMillis * finalDamping)
         val predY = p0.y + (vy * effectiveMillis * finalDamping)
 
-        return StrokePoint(predX, predY, p0.pressure, p0.timestamp + effectiveMillis.toLong())
+        // 6. Extrapolación de Presión (Para mejorar el final del trazo vivo)
+        val dp = (p0.pressure - p1.pressure) / dt2
+        val predPressure = (p0.pressure + (dp * effectiveMillis * finalDamping)).coerceIn(0f, 1f)
+
+        return StrokePoint(predX, predY, predPressure, p0.timestamp + effectiveMillis.toLong())
     }
 }
