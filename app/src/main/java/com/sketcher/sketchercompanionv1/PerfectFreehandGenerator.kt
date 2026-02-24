@@ -67,20 +67,21 @@ object PerfectFreehandGenerator {
 
     fun generate(
         rawPoints: List<StrokePoint>,
-        baseWidth: Float, // Used as 'size'
         settings: FreehandSettings = FreehandSettings(),
-        isComplete: Boolean = false,
         zoom: Float = 1.0f, // Current viewport scale
         outPath: Path = Path() // Reusable path
     ): FreehandResult {
         val path = outPath.apply { rewind() } // Rewind keeps interior structures
+        val size = settings.size
+        val isComplete = settings.isComplete
+        
         if (rawPoints.isEmpty()) return FreehandResult(path, emptyList(), emptyList(), emptyList(), 0f)
 
         // 1. Get Stroke Points
-        val strokePoints = getStrokePoints(rawPoints, baseWidth, settings, isComplete, zoom)
+        val strokePoints = getStrokePoints(rawPoints, size, settings, isComplete, zoom)
 
         // 2. Get Outline Points
-        val outline = getStrokeOutlinePoints(strokePoints, baseWidth, settings)
+        val outline = getStrokeOutlinePoints(strokePoints, size, settings)
 
         if (outline.polygon.size < 3) return FreehandResult(path, emptyList(), emptyList(), emptyList(), 0f)
 
@@ -277,12 +278,11 @@ object PerfectFreehandGenerator {
         val capStart = settings.capStart
         val capEnd = settings.capEnd
         
-        // Correct Easing for Taper (Quad/Cubic approximations from reference)
-        val taperStartEase: (Float) -> Float = { t -> t * (2 - t) } 
-        val taperEndEase: (Float) -> Float = { t -> val tm = t - 1; tm * tm * tm + 1 }
+        // Easing (Hermite curve) for tapering
+        val hermiteEase: (Float) -> Float = { t -> t * t * (3 - 2 * t) }
 
         val totalLength = points.last().runningLength
-        val taperStart = settings.taperStart // Allow negative
+        val taperStart = settings.taperStart
         val taperEnd = settings.taperEnd
 
         val minDistance = (size * smoothing).pow(2)
@@ -340,40 +340,24 @@ object PerfectFreehandGenerator {
             if (firstRadius == null) firstRadius = radius
             
             // Tapering
-            // Handle Start
-            var ts = 1f
-            if (taperStart > 0) {
-                // Standard Taper (Thinning)
-                if (curr.runningLength < taperStart) {
-                    val t = curr.runningLength / taperStart
-                    ts = lrp(settings.taperStartTipRatio, 1f, taperStartEase(t))
-                }
-            } else if (taperStart < 0) {
-                // Widening Taper (Ensanchamiento)
-                val absTaper = -taperStart
-                if (curr.runningLength < absTaper) {
-                    val t = curr.runningLength / absTaper
-                    ts = lrp(1f, settings.wideningStartRatio, 1f - taperStartEase(t))
+            if (taperStart > 0f) {
+                val dist = curr.runningLength
+                if (dist < taperStart) {
+                    val tf = hermiteEase(dist / taperStart)
+                    radius *= tf
                 }
             }
-            
-            // Handle End
-            var te = 1f
-            if (taperEnd > 0) {
-                if (totalLength - curr.runningLength < taperEnd) {
-                    val t = (totalLength - curr.runningLength) / taperEnd
-                    te = lrp(settings.taperEndTipRatio, 1f, taperEndEase(t))
-                }
-            } else if (taperEnd < 0) {
-                val absTaper = -taperEnd
-                if (totalLength - curr.runningLength < absTaper) {
-                    val t = (totalLength - curr.runningLength) / absTaper
-                    te = lrp(1f, settings.wideningEndRatio, 1f - taperEndEase(t))
+            if (taperEnd > 0f) {
+                val distFromEnd = totalLength - curr.runningLength
+                if (distFromEnd < taperEnd) {
+                    // Only apply end taper if we are close to the end
+                    val tf = hermiteEase(distFromEnd / taperEnd)
+                    radius *= tf
                 }
             }
             
             // Fuse Taper/Widening (Multiply to allow both to coexist)
-            radius = max(0.01f, radius * ts * te)
+            radius = max(0.01f, radius)
 
             // Sharp Corners
             val nextVector = if (i < points.size - 1) points[i + 1].vector else points[i].vector
@@ -444,46 +428,38 @@ object PerfectFreehandGenerator {
         // 1pt / Dot
         if (points.size == 1) {
             val r = firstRadius ?: radius
-            return if (!(taperStart != 0f || taperEnd != 0f)) { // isComplete assumed false or irrel
-                 val dot = drawDot(firstPoint, r)
-                 OutlineResult(dot, emptyList(), dot, r) // Roughly correct return structure
-            } else {
-                 OutlineResult(emptyList(), emptyList(), emptyList(), 0f)
-            }
+            val dot = drawDot(firstPoint, r)
+            return OutlineResult(dot, emptyList(), dot, r)
         }
         
-        // Start Cap
-        // Do not draw cap if Tapering (Thinning OR Widening) is active
-        // Actually, if Widening, we likely WANT a cap because it's thick!
-        // Standard P.F. disables cap if Taper > 0 (sharp tip).
-        // If Taper < 0 (Wide tip), we definitely need a cap.
-        val startTaperingActive = taperStart > 0f // Only skip cap if "Sharp" taper
-        if (startTaperingActive) {
-             // No cap
-        } else if (capStart) {
-            val firstRight = rightPts.firstOrNull() ?: firstPoint
-            startCap.addAll(drawRoundStartCap(firstPoint, firstRight, START_CAP_SEGMENTS))
-        } else {
-            val firstLeft = leftPts.firstOrNull() ?: firstPoint
-            val firstRight = rightPts.firstOrNull() ?: firstPoint
-            startCap.addAll(drawFlatStartCap(firstPoint, firstLeft, firstRight))
-        }
-
-        // End Cap
+        // --- Lógica Estricta de la Tapa Final (End Cap) ---
+        // taperEnd > 0: point
+        // taperEnd <= 0 && capEnd == true: arc right to left
+        // taperEnd <= 0 && capEnd == false: nothing (flat line from right to left naturally formed)
         val endTaperingActive = taperEnd > 0f
-        val direction = per(neg(points.last().vector))
         if (endTaperingActive) {
             endCap.add(lastPoint)
         } else if (capEnd) {
-             endCap.addAll(drawRoundEndCap(lastPoint, direction, radius, END_CAP_SEGMENTS))
-        } else {
-             endCap.addAll(drawFlatEndCap(lastPoint, direction, radius))
+            val direction = points.last().vector // Outward direction is continuing the stroke
+            endCap.addAll(drawRoundCap(lastPoint, direction, radius, END_CAP_SEGMENTS))
         }
 
+        // --- Lógica Estricta de la Tapa Inicial (Start Cap) ---
+        // taperStart > 0: point
+        // taperStart <= 0 && capStart == true: arc left to right
+        val startTaperingActive = taperStart > 0f
+        if (startTaperingActive) {
+            startCap.add(firstPoint)
+        } else if (capStart) {
+            val direction = neg(points[0].vector) // Outward direction is opposite of stroke
+            startCap.addAll(drawRoundCap(firstPoint, direction, firstRadius ?: radius, START_CAP_SEGMENTS))
+        }
+
+        // Ensamblaje Estricto del Polígono: Right (inicio a fin) -> End Cap -> Left (fin a inicio) -> Start Cap
         val polygon = ArrayList<Vec2>()
-        polygon.addAll(leftPts)
+        polygon.addAll(rightPts)
         polygon.addAll(endCap)
-        polygon.addAll(rightPts.reversed())
+        polygon.addAll(leftPts.reversed())
         polygon.addAll(startCap)
         
         return OutlineResult(leftPts, rightPts, polygon, radius)
@@ -524,47 +500,24 @@ object PerfectFreehandGenerator {
         return dotPts
     }
 
-    private fun drawRoundStartCap(center: Vec2, rightPoint: Vec2, segments: Int): List<Vec2> {
+    private fun drawRoundCap(center: Vec2, outwardDirection: Vec2, radius: Float, segments: Int): List<Vec2> {
         val cap = ArrayList<Vec2>()
-        val step = 1f / segments
-        for (k in 1..segments) {
-            val t = k * step
-            cap.add(rotAround(rightPoint, center, FIXED_PI * t))
+        val dir = uni(outwardDirection)
+        val centerAngle = kotlin.math.atan2(dir.y, dir.x)
+
+        // Starting point of the sweep is always +90 degrees from the outward direction
+        val startAngle = centerAngle + kotlin.math.PI / 2
+        // We sweep 180 degrees (-PI) from +90 to -90
+        val step = -kotlin.math.PI / segments
+        
+        for (i in 1 until segments) { 
+            val theta = startAngle + i * step
+            cap.add(Vec2(
+                center.x + kotlin.math.cos(theta).toFloat() * radius,
+                center.y + kotlin.math.sin(theta).toFloat() * radius
+            ))
         }
         return cap
-    }
-
-    private fun drawFlatStartCap(center: Vec2, leftPoint: Vec2, rightPoint: Vec2): List<Vec2> {
-        val cornersVector = sub(leftPoint, rightPoint)
-        val offsetA = mul(cornersVector, 0.5f)
-        val offsetB = mul(cornersVector, 0.51f)
-        return listOf(
-            sub(center, offsetA),
-            sub(center, offsetB),
-            add(center, offsetB),
-            add(center, offsetA)
-        )
-    }
-
-    private fun drawRoundEndCap(center: Vec2, direction: Vec2, radius: Float, segments: Int): List<Vec2> {
-        val cap = ArrayList<Vec2>()
-        val start = prj(center, direction, radius)
-        val step = 1f / segments
-        for (k in 1 until segments) { // < 1
-            val t = k * step
-            cap.add(rotAround(start, center, FIXED_PI * t))
-        }
-        // Explicitly close or rely on polygon? Ref uses < 1
-        return cap
-    }
-
-    private fun drawFlatEndCap(center: Vec2, direction: Vec2, radius: Float): List<Vec2> {
-        return listOf(
-            add(center, mul(direction, radius)),
-            add(center, mul(direction, radius * 0.99f)),
-            sub(center, mul(direction, radius * 0.99f)),
-            sub(center, mul(direction, radius))
-        )
     }
 }
 

@@ -736,18 +736,18 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun setFreehandTolerance(value: Float) {
-         if (currentFreehandSettings.tolerance != value) {
+         if (currentFreehandSettings.simplificationTolerance != value) {
             val enabled = value > 0f
             updateFreehandSettings(currentFreehandSettings.copy(
-                tolerance = value,
+                simplificationTolerance = value,
                 isSimplificationEnabled = enabled
             ))
         }
     }
 
     fun setFreehandPredictionLatency(ms: Float) {
-         if (currentFreehandSettings.predictionLatency != ms) {
-            updateFreehandSettings(currentFreehandSettings.copy(predictionLatency = ms))
+         if (currentFreehandSettings.predictionLatency != ms.toLong()) {
+            updateFreehandSettings(currentFreehandSettings.copy(predictionLatency = ms.toLong()))
         }
     }
 
@@ -758,19 +758,6 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             updateFreehandSettings(currentFreehandSettings.copy(minWidthRatio = ratio))
         }
     }
-
-    fun setFreehandMinPredictionVelocity(speed: Float) {
-        if (currentFreehandSettings.minPredictionVelocity != speed) {
-            updateFreehandSettings(currentFreehandSettings.copy(minPredictionVelocity = speed))
-        }
-    }
-    
-    fun setFreehandMaxPredictionVelocity(speed: Float) {
-        if (currentFreehandSettings.maxPredictionVelocity != speed) {
-             updateFreehandSettings(currentFreehandSettings.copy(maxPredictionVelocity = speed))
-        }
-    }
-
 
 
     

@@ -235,16 +235,16 @@ fun FreehandSettingsContent(
 
     // Min/Max prediction
     SettingSlider(
-        label = "PredicciÃ³n: ${currentSettings.predictionLatency.toInt()}ms",
-        value = currentSettings.predictionLatency,
+        label = "PredicciÃ³n: ${currentSettings.predictionLatency}ms",
+        value = currentSettings.predictionLatency.toFloat(),
         valueRange = 0f..50f,
-        onValueChange = { onSettingsChanged(currentSettings.copy(predictionLatency = it)) }
+        onValueChange = { onSettingsChanged(currentSettings.copy(predictionLatency = it.toLong())) }
     )
 
     HorizontalDivider()
     Text("CompresiÃ³n (Salida)", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
     
-    val tolerance = currentSettings.tolerance
+    val tolerance = currentSettings.simplificationTolerance
     val toleranceLabel = if (tolerance == 0f) "Desactivado (Raw)" else String.format("%.1f", tolerance)
     
     SettingSlider(
@@ -254,7 +254,7 @@ fun FreehandSettingsContent(
         steps = 19,
         onValueChange = { 
             val enabled = it > 0f
-            onSettingsChanged(currentSettings.copy(tolerance = it, isSimplificationEnabled = enabled))
+            onSettingsChanged(currentSettings.copy(simplificationTolerance = it, isSimplificationEnabled = enabled))
         }
     )
     

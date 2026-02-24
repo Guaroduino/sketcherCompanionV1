@@ -135,42 +135,34 @@ data class PathCommandJson(
 )
 
 data class FreehandSettings(
-    // New Params matching Perfect Freehand
+    // Perfect Freehand Exact Params
+    val size: Float = 9f,
     val thinning: Float = 0.5f,
-    val velocityThinning: Float = 0.0f, // New: Thinning based on speed
-    val velocityMaxInput: Float = 1.0f, // New: Speed sensitivity (px/ms)
     val smoothing: Float = 0.5f,
     val streamline: Float = 0.5f,
     val simulatePressure: Boolean = true,
-    
-    // Tapering (Lengths) - Negative values will simulate widening
     val taperStart: Float = 0.0f,
     val taperEnd: Float = 0.0f,
-    
-    // Tapering (Intensity/Limits)
-    val taperStartTipRatio: Float = 0.0f, // 0 = sharp, 1 = no taper
-    val taperEndTipRatio: Float = 0.0f,
-    val wideningStartRatio: Float = 2.0f, // Multiplier for thickness if taper < 0
-    val wideningEndRatio: Float = 2.0f,
-    
-    // Caps
     val capStart: Boolean = true, 
     val capEnd: Boolean = true,
-    val useCurveForPolygon: Boolean = false, // New Toggle: Flat (false) or Curved (true) polygon
+    val isComplete: Boolean = false,
+    
+    // Custom App Params
+    val predictionLatency: Long = 35L,
+    val simplificationTolerance: Float = 1.0f,
 
-    // Legacy / Other
-    val predictionLatency: Float = 20.0f,
-    val tolerance: Float = 1.0f,
+    // Internal / Extras
+    val velocityThinning: Float = 0.0f,
+    val velocityMaxInput: Float = 1.0f,
+    val useCurveForPolygon: Boolean = false,
     val isSimplificationEnabled: Boolean = true,
-    val minPredictionVelocity: Float = 0.5f,
-    val maxPredictionVelocity: Float = 3.5f,
-    val minWidthRatio: Float = 0.1f, // Kept for compat/UI
-    val useSplines: Boolean = true, // Kept for generator logic
-    val isMonoline: Boolean = false, // Kept if needed later
-
-    // Deprecating old influence fields
-    val pressureInfluence: Float = 0.0f, // Deprecated
-    val velocityInfluence: Float = 0.0f  // Deprecated
+    val taperStartTipRatio: Float = 0.0f,
+    val taperEndTipRatio: Float = 0.0f,
+    val wideningStartRatio: Float = 2.0f,
+    val wideningEndRatio: Float = 2.0f,
+    val minWidthRatio: Float = 0.1f,
+    val useSplines: Boolean = true,
+    val isMonoline: Boolean = false
 )
 
 enum class ToolType { FREEHAND, FILL, ERASER, SELECTION, ANDROID_INK }

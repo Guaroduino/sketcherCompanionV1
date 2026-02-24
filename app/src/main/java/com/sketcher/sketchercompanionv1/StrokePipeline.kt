@@ -252,9 +252,7 @@ class StrokePipeline(
         // 2. Generate Unified Path using reusable path
         val result = PerfectFreehandGenerator.generate(
             livePoints, 
-            activeSize, 
-            liveSettingsCache, 
-            false, 
+            liveSettingsCache.copy(size = activeSize, isComplete = false), 
             currentZoom,
             reusablePreviewPath
         )
@@ -305,7 +303,7 @@ class StrokePipeline(
         }
 
         // Simplify
-        val tolerance = activeFreehandSettings.tolerance.coerceAtLeast(0.5f)
+        val tolerance = activeFreehandSettings.simplificationTolerance.coerceAtLeast(0.5f)
         val isSimplified = activeFreehandSettings.isSimplificationEnabled
 
         val finalPoints = if (isSimplified && finalPointsRaw.size > 2) {
@@ -315,7 +313,11 @@ class StrokePipeline(
         }
 
         // Generate High Fidelity Path
-        val genResult = PerfectFreehandGenerator.generate(finalPointsRaw, activeSize, activeFreehandSettings, true, currentZoom)
+        val genResult = PerfectFreehandGenerator.generate(
+            finalPointsRaw, 
+            activeFreehandSettings.copy(size = activeSize, isComplete = true), 
+            currentZoom
+        )
         val path = Path(genResult.path)
         
         var fPath: Path? = null
@@ -369,7 +371,11 @@ class StrokePipeline(
         }
         
         // Duplicate Logic (Should extract common finalizer)
-         val genResult = PerfectFreehandGenerator.generate(finalPointsRaw, activeSize, activeFreehandSettings, true, currentZoom)
+         val genResult = PerfectFreehandGenerator.generate(
+             finalPointsRaw, 
+             activeFreehandSettings.copy(size = activeSize, isComplete = true), 
+             currentZoom
+         )
          val path = Path(genResult.path)
          
          var fPath: Path? = null
