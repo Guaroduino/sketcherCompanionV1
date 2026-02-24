@@ -38,6 +38,8 @@ class StrokePipeline(
     var fingerOffsetY: Float = 50f
 
     var canvasViewMatrix: android.graphics.Matrix = android.graphics.Matrix() // Needed for World Transform
+    private val reusableInverseMatrix = android.graphics.Matrix()
+    private val reusablePointBuffer = FloatArray(2)
     var currentZoom: Float = 1.0f
 
     // --- Object Pooling & Caching ---
@@ -77,6 +79,7 @@ class StrokePipeline(
 
     fun onTouchEvent(event: MotionEvent): Boolean {
         val action = event.actionMasked
+        canvasViewMatrix.invert(reusableInverseMatrix)
 
         // 1. Process Event -> Raw Points
         val rawEventPoints = inputHandler.processEvent(event)
@@ -132,7 +135,10 @@ class StrokePipeline(
             // I should add snap callback.
 
             // Transform stabilized point to world BEFORE filtering
-            val worldP = transformToWorld(StrokePoint(stabilizerX, stabilizerY, p.pressure, p.timestamp))
+            reusablePointBuffer[0] = stabilizerX
+            reusablePointBuffer[1] = stabilizerY
+            reusableInverseMatrix.mapPoints(reusablePointBuffer)
+            val worldP = StrokePoint(reusablePointBuffer[0], reusablePointBuffer[1], p.pressure, p.timestamp)
 
             // 2.5 Filter in World Space (Fixed world distance instead of screen pixels)
             val dx = worldP.x - lastRecordedX
@@ -229,13 +235,7 @@ class StrokePipeline(
         }
     }
 
-    private fun transformToWorld(p: StrokePoint): StrokePoint {
-        val pts = floatArrayOf(p.x, p.y)
-        val inverse = android.graphics.Matrix()
-        canvasViewMatrix.invert(inverse)
-        inverse.mapPoints(pts)
-        return StrokePoint(pts[0], pts[1], p.pressure, p.timestamp)
-    }
+
 
     private fun updatePreview() {
         // 1. Determine points based on type
@@ -245,7 +245,7 @@ class StrokePipeline(
 
         // Update settings cache if base changed
         if (activeFreehandSettings !== lastBaseSettings) {
-            liveSettingsCache = activeFreehandSettings.copy(capEnd = false)
+            liveSettingsCache = activeFreehandSettings
             lastBaseSettings = activeFreehandSettings
         }
 
