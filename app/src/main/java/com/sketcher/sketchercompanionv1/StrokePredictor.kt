@@ -11,71 +11,81 @@ object StrokePredictor {
     fun getPredictedPoint(
         points: List<StrokePoint>, 
         predictionLatencyMillis: Long = 35,
-        currentZoom: Float = 1.0f // NUEVO: Parámetro de Zoom
+        currentZoom: Float = 1.0f
     ): StrokePoint? {
-        if (points.size < 3) return null
+        if (points.size < 4) return null
 
-        val p0 = points.last() // Punto actual
+        val p0 = points[points.size - 1] // Actual
+        val p1 = points[points.size - 2] // Anterior inmediato
+        val p2 = points[points.size - 3] // Tras-anterior inmediato
 
-        // 1. Buscar hacia atrás para encontrar vectores estables en el tiempo
-        var p1 = points[points.size - 2]
-        var p2 = points.first()
+        // 1. Detección de Zig-Zag (Instantánea por Hardware)
+        // Usamos los últimos 3 eventos puros para no perder esquinas rápidas
+        val rawV1x = p0.x - p1.x
+        val rawV1y = p0.y - p1.y
+        val rawMag1 = kotlin.math.sqrt(rawV1x * rawV1x + rawV1y * rawV1y)
 
-        for (i in points.indices.reversed()) {
-            val dt = p0.timestamp - points[i].timestamp
-            if (dt in 10..25) p1 = points[i]
-            if (dt > 25) { p2 = points[i]; break }
+        val rawV2x = p1.x - p2.x
+        val rawV2y = p1.y - p2.y
+        val rawMag2 = kotlin.math.sqrt(rawV2x * rawV2x + rawV2y * rawV2y)
+
+        var zigZagDampening = 1.0f
+        if (rawMag1 > 0f && rawMag2 > 0f) {
+            val dot = (rawV1x * rawV2x + rawV1y * rawV2y)
+            val cosTheta = (dot / (rawMag1 * rawMag2)).coerceIn(-1f, 1f)
+            
+            // Si cosTheta baja de 0.4 (giro mayor a ~66 grados), la predicción cae a 0 rápidamente.
+            zigZagDampening = ((cosTheta - 0.4f) / 0.6f).coerceIn(0f, 1f)
         }
 
-        if (p1 === p0 || p1 === p2) return null
+        // Si es una esquina muy cerrada, apagamos la predicción en este frame para evitar picos
+        if (zigZagDampening < 0.05f) return null
 
-        // 2. Calcular vectores de movimiento
-        val v2x = p0.x - p1.x
-        val v2y = p0.y - p1.y
-        val dt2 = (p0.timestamp - p1.timestamp).toFloat().coerceAtLeast(1f)
+        // 2. Cálculo de Velocidad Estable (Promediada en el tiempo)
+        var pStable = p1
+        for (i in points.indices.reversed()) {
+            val dt = p0.timestamp - points[i].timestamp
+            if (dt in 10..25) { pStable = points[i]; break }
+        }
 
-        val v1x = p1.x - p2.x
-        val v1y = p1.y - p2.y
-
-        val vx = v2x / dt2
-        val vy = v2y / dt2
+        val dtStable = (p0.timestamp - pStable.timestamp).toFloat().coerceAtLeast(1f)
+        val vx = (p0.x - pStable.x) / dtStable
+        val vy = (p0.y - pStable.y) / dtStable
         
-        // VELOCIDAD EN PANTALLA: Multiplicamos por el zoom para saber 
-        // qué tan rápido se está moviendo el lápiz físicamente sobre el cristal.
         val worldSpeed = kotlin.math.sqrt(vx * vx + vy * vy)
         val screenSpeed = worldSpeed * currentZoom
 
-        // Zona muerta adaptada a la pantalla (0.05 píxeles de pantalla por milisegundo)
         if (screenSpeed < 0.05f) return null 
 
-        // 3. Producto Punto para Detección de Curvatura / Ángulo
-        val mag1 = kotlin.math.sqrt(v1x * v1x + v1y * v1y)
-        val mag2 = kotlin.math.sqrt(v2x * v2x + v2y * v2y)
+        // 3. Amortiguación Dinámica
+        val speedDampening = (screenSpeed / 1.5f).coerceIn(0.1f, 1.0f)
+        
+        // Multiplicador final
+        val effectiveMillis = predictionLatencyMillis * zigZagDampening * speedDampening
+        val finalDamping = 0.85f
 
-        var curveDampening = 1.0f
-        if (mag1 > 0f && mag2 > 0f) {
-            val dot = (v1x * v2x + v1y * v2y)
-            val cosTheta = (dot / (mag1 * mag2)).coerceIn(-1f, 1f)
-            
-            // cosTheta == 1.0 es línea recta. cosTheta < 0 es un giro de más de 90 grados.
-            curveDampening = ((cosTheta - 0.5f) / 0.5f).coerceIn(0f, 1f)
+        val predDistanceX = vx * effectiveMillis * finalDamping
+        val predDistanceY = vy * effectiveMillis * finalDamping
+
+        // 4. LÍMITE ANTI-OVERSHOOT (Clamp)
+        // Evita que la predicción salga "disparada" si hacemos un trazo cortito muy rápido.
+        // La distancia predicha no debe exceder un múltiplo de la distancia estable recorrida.
+        val maxExtrapolation = kotlin.math.sqrt((p0.x - pStable.x)*(p0.x - pStable.x) + (p0.y - pStable.y)*(p0.y - pStable.y)) * 2.5f
+        val predMag = kotlin.math.sqrt(predDistanceX * predDistanceX + predDistanceY * predDistanceY)
+
+        var finalX = p0.x + predDistanceX
+        var finalY = p0.y + predDistanceY
+
+        if (predMag > maxExtrapolation && predMag > 0.01f) {
+            val scale = maxExtrapolation / predMag
+            finalX = p0.x + predDistanceX * scale
+            finalY = p0.y + predDistanceY * scale
         }
 
-        // 4. Amortiguación de velocidad para trazos cortos/lentos
-        // Usamos screenSpeed para que se sienta igual sin importar el zoom
-        val speedDampening = (screenSpeed / 1.5f).coerceIn(0.2f, 1.0f)
-
-        // 5. Extrapolación Final
-        val effectiveMillis = predictionLatencyMillis * curveDampening * speedDampening
-        val finalDamping = 0.85f // Suavizado general
-
-        val predX = p0.x + (vx * effectiveMillis * finalDamping)
-        val predY = p0.y + (vy * effectiveMillis * finalDamping)
-
-        // 6. Extrapolación de Presión (Para mejorar el final del trazo vivo)
-        val dp = (p0.pressure - p1.pressure) / dt2
+        // 5. Extrapolación de presión
+        val dp = (p0.pressure - pStable.pressure) / dtStable
         val predPressure = (p0.pressure + (dp * effectiveMillis * finalDamping)).coerceIn(0f, 1f)
 
-        return StrokePoint(predX, predY, predPressure, p0.timestamp + effectiveMillis.toLong())
+        return StrokePoint(finalX, finalY, predPressure, p0.timestamp + effectiveMillis.toLong())
     }
 }
