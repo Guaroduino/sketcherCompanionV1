@@ -5,19 +5,26 @@ import kotlin.math.sqrt
 object StrokePredictor {
     
     /**
-     * Calculates a predicted point based on the last two points of the stroke.
-     * Uses linear extrapolation: Predicted = Current + Velocity * predictionMillis
+     * Calculates a predicted point based on a smoothed velocity history.
+     * Uses linear extrapolation with a damping factor over a constant time window.
      */
     fun getPredictedPoint(
         points: List<StrokePoint>, 
-        maxPredictionMillis: Long = 20,
-        minSpeed: Float = 0.5f,
-        maxSpeed: Float = 4.0f
+        maxPredictionMillis: Long = 20
     ): StrokePoint? {
-        if (points.size < 2) return null
+        if (points.size < 3) return null
         
         val curr = points.last()
-        val prev = points[points.size - 2]
+        var prev = points.first()
+
+        // Seek backwards to find a point with a delta t of >= 15ms
+        for (i in points.size - 2 downTo 0) {
+            val p = points[i]
+            if (curr.timestamp - p.timestamp >= 15) {
+                prev = p
+                break
+            }
+        }
         
         val dt = (curr.timestamp - prev.timestamp).toFloat()
         
@@ -25,31 +32,23 @@ object StrokePredictor {
         if (dt <= 0) return null
         
         // Calculate Velocity (px/ms)
-        val dx = curr.x - prev.x
-        val dy = curr.y - prev.y
-        val dist = sqrt(dx * dx + dy * dy)
-        val speed = dist / dt
+        val vx = (curr.x - prev.x) / dt
+        val vy = (curr.y - prev.y) / dt
+        val speed = sqrt(vx * vx + vy * vy)
         
-        // Velocity Factor (0.0 to 1.0)
-        // If speed < minSpeed, factor = 0
-        // If speed > maxSpeed, factor = 1
-        val velocityFactor = ((speed - minSpeed) / (maxSpeed - minSpeed)).coerceIn(0f, 1f)
+        // Deadzone: ignore very slow movements to prevent jitter
+        if (speed < 0.05f) return null
         
-        val effectivePredictionMillis = (maxPredictionMillis * velocityFactor).toLong()
+        val effectiveMillis = maxPredictionMillis.toFloat()
+        val damping = 0.85f
         
-        if (effectivePredictionMillis <= 0) return null
-        
-        val vx = dx / dt
-        val vy = dy / dt
-        
-        // Extrapolate
-        val predX = curr.x + vx * effectivePredictionMillis
-        val predY = curr.y + vy * effectivePredictionMillis
+        // Extrapolate with damping
+        val predX = curr.x + (vx * effectiveMillis * damping)
+        val predY = curr.y + (vy * effectiveMillis * damping)
         
         val predPressure = curr.pressure
-        val predTime = curr.timestamp + effectivePredictionMillis
+        val predTime = curr.timestamp + maxPredictionMillis
         
         return StrokePoint(predX, predY, predPressure, predTime)
     }
 }
-

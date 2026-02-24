@@ -58,6 +58,10 @@ class SketcherCanvasView(context: Context) : View(context) {
     // Pan tracking state
     private var lastPanX: Float = 0f
     private var lastPanY: Float = 0f
+
+    // Transient Strokes Cache
+    private val transientStrokes = mutableListOf<VectorStroke>()
+    private val transientFills = mutableListOf<FillData>()
     
     // Temp storage for coordinate mapping
     private val tempTouchPoint = FloatArray(2)
@@ -174,6 +178,8 @@ class SketcherCanvasView(context: Context) : View(context) {
                  onStrokeCompleted?.invoke(stroke)
                  fill?.let { onFillCompleted?.invoke(it) }
             }
+            transientStrokes.add(stroke)
+            if (fill != null) transientFills.add(fill)
             redrawAllCache()
             isDrawing = false
         }
@@ -193,6 +199,8 @@ class SketcherCanvasView(context: Context) : View(context) {
         val currentSelectionManager = selectionManager
         val dragging = isSelectionDragging
         val librarySnapshot = componentLibrary
+        val strokesBaking = transientStrokes.toList()
+        val fillsBaking = transientFills.toList()
         
         // Use Coroutines to draw offscreen and swap
         redrawJob = viewScope.launch {
@@ -216,6 +224,8 @@ class SketcherCanvasView(context: Context) : View(context) {
             // Swap to new picture on Main Thread
             backingPicture = offscreenPicture
             cachedBitmapMatrix.set(currentMatrix)
+            transientStrokes.removeAll(strokesBaking)
+            transientFills.removeAll(fillsBaking)
             invalidate()
         }
     }
@@ -456,6 +466,17 @@ class SketcherCanvasView(context: Context) : View(context) {
         } ?: run {
              canvas.drawColor(canvasBackgroundColor)
         }
+
+        // Draw Transient Strokes manually while background rendering finishes
+        canvas.save()
+        canvas.concat(viewMatrix)
+        for (fill in transientFills) {
+            renderEngine.drawElementRecursive(canvas, fill, componentLibrary)
+        }
+        for (stroke in transientStrokes) {
+            renderEngine.drawElementRecursive(canvas, stroke, componentLibrary)
+        }
+        canvas.restore()
 
         // 2. Draw Live Content (Stroke & Fill)
         renderEngine.drawLiveStroke(
