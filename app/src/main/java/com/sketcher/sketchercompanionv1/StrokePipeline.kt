@@ -420,7 +420,7 @@ class StrokePipeline(
                     val latencyMs = activeFreehandSettings.predictionLatency.toLong()
                     val predictedPt = predictor.getPredictedPoint(
                         points = currentStrokePoints,
-                        maxPredictionMillis = latencyMs
+                        predictionLatencyMillis = latencyMs
                     )
                     if (predictedPt != null) currentStrokePoints + predictedPt else currentStrokePoints.toList()
                 } else {
