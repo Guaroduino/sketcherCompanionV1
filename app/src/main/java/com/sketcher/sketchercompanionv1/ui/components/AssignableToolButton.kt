@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.AutoFixNormal
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.BorderColor
 import androidx.compose.material.icons.filled.FormatColorFill
+import android.util.Log
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -71,7 +72,16 @@ fun AssignableToolButton(
         modifier = Modifier
             .size(48.dp) // Touch size matching BigTouchBox
             .combinedClickable(
-                onClick = onClick,
+                onClick = {
+                    Log.d("AssignableButton", "onClick: desc=$contentDescription isActive=$isActive, subCount=${subTools.size}")
+                    if (isActive && !isEditMode && subTools.isNotEmpty()) {
+                        Log.d("AssignableButton", "Showing submenu!")
+                        showSubMenu = true
+                    } else {
+                        Log.d("AssignableButton", "Delegating to original onClick")
+                        onClick()
+                    }
+                },
                 onLongClick = {
                     if (!isEditMode && subTools.isNotEmpty()) {
                         showSubMenu = true
@@ -119,6 +129,17 @@ fun AssignableToolButton(
                     modifier = Modifier
                         .size(iconSize)
                         .then(if (isEditMode) Modifier.alpha(0.6f) else Modifier)
+                )
+            }
+            
+            // Debug text
+            if (subTools.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .offset(x = 12.dp, y = 12.dp)
+                        .clip(CircleShape)
+                        .background(Color.Red)
                 )
             }
         }

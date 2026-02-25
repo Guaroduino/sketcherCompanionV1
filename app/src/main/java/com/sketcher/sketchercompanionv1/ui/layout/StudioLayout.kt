@@ -100,6 +100,20 @@ fun StudioLayout(
     val isEditMode by viewModel.isEditMode.collectAsState()
     val cameraMatrix by viewModel.cameraMatrix.collectAsState()
 
+    val currentTool = viewModel.toolManager.currentTool
+    val resolveIsActive: (StudioTool) -> Boolean = { tool ->
+        val payload = assignedToolsMap[tool.id]
+        if (payload == ToolPayload.PENCIL || tool.registryId == "pencil" || tool.registryId == "brush") {
+            currentTool == ToolType.FREEHAND
+        } else if (payload == ToolPayload.ERASER || tool.registryId == "eraser") {
+            currentTool == ToolType.ERASER
+        } else if (tool.registryId.startsWith("tool_selection") || tool.registryId == "tool_transform") {
+            currentTool == ToolType.SELECTION
+        } else {
+            tool.isActive
+        }
+    }
+
     // Tool Picker State
     var toolPickerTarget by remember { mutableStateOf<Pair<ToolLocation, Int?>?>(null) }
     
@@ -848,7 +862,7 @@ fun StudioLayout(
                                          else showSizeOpacityPopup = true
                                      },
                                      brushSize = currentSizeVal,
-                                     isActive = tool.isActive,
+                                     isActive = resolveIsActive(tool),
                                      isEditMode = isEditMode,
                                      backgroundColorOverride = if (tool.isPlaceholder) Color.Red.copy(alpha = 0.3f) else null,
                                      highlightColor = theme.highlightColor,
@@ -867,7 +881,7 @@ fun StudioLayout(
                                       },
                                       icon = tool.icon,
                                       contentDescription = tool.contentDescription,
-                                      isActive = tool.isActive,
+                                      isActive = resolveIsActive(tool),
                                       isEditMode = isEditMode,
                                       backgroundColorOverride = bgColor,
                                       highlightColor = theme.highlightColor,
@@ -891,7 +905,7 @@ fun StudioLayout(
                                          },
                                          icon = tool.icon,
                                          contentDescription = tool.contentDescription,
-                                         isActive = tool.isActive,
+                                         isActive = resolveIsActive(tool),
                                          isEditMode = isEditMode,
                                          highlightColor = theme.highlightColor,
                                          buttonColor = theme.buttonColor,
@@ -904,8 +918,11 @@ fun StudioLayout(
                                           colorPreview = assignedColorsMap[tool.id]?.let { Color(it) },
                                           isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && assignedColorsMap[tool.id] == strokeColorVal && isStrokeActiveVal) ||
                                                        (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && assignedColorsMap[tool.id] == fillColorVal && isFillActiveVal),
-                                          subTools = if (tool.parentGroupId != null && !isEditMode) com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.allTools.filter { it.parentGroupId == tool.parentGroupId && it.id != tool.id } else emptyList(),
-                                          onSubToolClick = { subTool -> viewModel.getActionForTool(subTool.id).invoke() }
+                                           subTools = if (!isEditMode) com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId) else emptyList(),
+                                           onSubToolClick = { subTool -> 
+                                               viewModel.replaceTool(ToolLocation.LeftBar, idx, subTool)
+                                               viewModel.getActionForTool(subTool.id).invoke() 
+                                           }
                                       )
                              }
                          }
@@ -967,7 +984,7 @@ fun StudioLayout(
                                          else showSizeOpacityPopup = true
                                      },
                                      brushSize = currentSizeVal,
-                                     isActive = tool.isActive,
+                                     isActive = resolveIsActive(tool),
                                      isEditMode = isEditMode,
                                      backgroundColorOverride = if (tool.isPlaceholder) Color.Red.copy(alpha = 0.3f) else null,
                                      highlightColor = theme.highlightColor,
@@ -986,7 +1003,7 @@ fun StudioLayout(
                                       },
                                       icon = tool.icon,
                                       contentDescription = tool.contentDescription,
-                                      isActive = tool.isActive,
+                                      isActive = resolveIsActive(tool),
                                       isEditMode = isEditMode,
                                       backgroundColorOverride = bgColor,
                                       highlightColor = theme.highlightColor,
@@ -1010,7 +1027,7 @@ fun StudioLayout(
                                      },
                                      icon = tool.icon,
                                      contentDescription = tool.contentDescription,
-                                     isActive = tool.isActive,
+                                     isActive = resolveIsActive(tool),
                                      isEditMode = isEditMode,
                                      highlightColor = theme.highlightColor,
                                      buttonColor = theme.buttonColor,
@@ -1085,7 +1102,7 @@ fun StudioLayout(
                                          else showSizeOpacityPopup = true
                                      },
                                      brushSize = currentSizeVal,
-                                     isActive = tool.isActive,
+                                     isActive = resolveIsActive(tool),
                                      isEditMode = isEditMode,
                                      backgroundColorOverride = if (tool.isPlaceholder) Color.Red.copy(alpha = 0.3f) else null,
                                      highlightColor = theme.highlightColor,
@@ -1104,7 +1121,7 @@ fun StudioLayout(
                                       },
                                       icon = tool.icon,
                                       contentDescription = tool.contentDescription,
-                                      isActive = tool.isActive,
+                                      isActive = resolveIsActive(tool),
                                       isEditMode = isEditMode,
                                       backgroundColorOverride = bgColor,
                                       highlightColor = theme.highlightColor,
@@ -1128,7 +1145,7 @@ fun StudioLayout(
                                      },
                                      icon = tool.icon,
                                      contentDescription = tool.contentDescription,
-                                     isActive = tool.isActive,
+                                     isActive = resolveIsActive(tool),
                                      isEditMode = isEditMode,
                                      highlightColor = theme.highlightColor,
                                      buttonColor = theme.buttonColor,
@@ -1204,7 +1221,7 @@ fun StudioLayout(
                                          else showSizeOpacityPopup = true
                                      },
                                      brushSize = currentSizeVal,
-                                     isActive = tool.isActive,
+                                     isActive = resolveIsActive(tool),
                                      isEditMode = isEditMode,
                                      backgroundColorOverride = if (tool.isPlaceholder) Color.Red.copy(alpha = 0.3f) else null,
                                      highlightColor = theme.highlightColor,
@@ -1223,7 +1240,7 @@ fun StudioLayout(
                                       },
                                       icon = tool.icon,
                                       contentDescription = tool.contentDescription,
-                                      isActive = tool.isActive,
+                                      isActive = resolveIsActive(tool),
                                       isEditMode = isEditMode,
                                       backgroundColorOverride = bgColor,
                                       highlightColor = theme.highlightColor,
@@ -1247,7 +1264,7 @@ fun StudioLayout(
                                      },
                                      icon = tool.icon,
                                      contentDescription = tool.contentDescription,
-                                     isActive = tool.isActive,
+                                     isActive = resolveIsActive(tool),
                                      isEditMode = isEditMode,
                                      highlightColor = theme.highlightColor,
                                      buttonColor = theme.buttonColor,

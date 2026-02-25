@@ -65,15 +65,18 @@ class ToolbarRepository(context: Context) {
             
             val reconstructedTools = layout.tools.mapValues { (_, savedList) ->
                 savedList.mapNotNull { saved ->
+                    // Migration: collapse separate selection tools into the generic parent
+                    val effectiveRegistryId = if (saved.registryId.startsWith("tool_selection_")) "tool_selection" else saved.registryId
+
                     // Find base template
-                    val baseTool = ToolRegistry.getToolById(saved.registryId) 
+                    val baseTool = ToolRegistry.getToolById(effectiveRegistryId) 
                         ?: ToolRegistry.getToolById("pencil") // Fallback
                     
                     if (baseTool == null) return@mapNotNull null
                     
                     var restored = baseTool.copy(
                         id = saved.instanceId,
-                        registryId = saved.registryId,
+                        registryId = effectiveRegistryId,
                         isPlaceholder = saved.isPlaceholder
                     )
                     

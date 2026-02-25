@@ -25,9 +25,10 @@ object ToolRegistry {
         StudioTool("undo", Icons.Default.Undo, "Undo", isPlaceholder = false),
         StudioTool("redo", Icons.Default.Redo, "Redo", isPlaceholder = false),
         // Selection tools
-        StudioTool("tool_selection_freehand", Icons.Outlined.AllOut, "Lasso Selection", isPlaceholder = false, parentGroupId = "selection_group"),
-        StudioTool("tool_selection_polygon", Icons.Outlined.Timeline, "Polygon Selection", isPlaceholder = false, parentGroupId = "selection_group"),
-        StudioTool("tool_selection_rect", Icons.Outlined.Crop, "Rect Selection", isPlaceholder = false, parentGroupId = "selection_group"),
+        StudioTool("tool_selection", Icons.Outlined.AllOut, "Selection", isPlaceholder = false),
+        StudioTool("tool_selection_freehand", Icons.Outlined.AllOut, "Lasso Selection", isPlaceholder = false, parentGroupId = "tool_selection"),
+        StudioTool("tool_selection_polygon", Icons.Outlined.Timeline, "Polygon Selection", isPlaceholder = false, parentGroupId = "tool_selection"),
+        StudioTool("tool_selection_rect", Icons.Outlined.Crop, "Rect Selection", isPlaceholder = false, parentGroupId = "tool_selection"),
         
         // Contextual Selection Actions
         StudioTool("context_deselect", Icons.Outlined.Deselect, "Deselect", isPlaceholder = false, isContextual = true),
@@ -61,4 +62,10 @@ object ToolRegistry {
     )
 
     fun getToolById(id: String): StudioTool? = allTools.find { it.id == id }
+
+    fun getSubToolsFor(registryId: String): List<StudioTool> {
+        val tool = allTools.find { it.id == registryId } ?: return emptyList()
+        val groupId = tool.parentGroupId ?: tool.id
+        return allTools.filter { !it.isPlaceholder && (it.parentGroupId == groupId || it.id == groupId) && it.id != registryId }
+    }
 }

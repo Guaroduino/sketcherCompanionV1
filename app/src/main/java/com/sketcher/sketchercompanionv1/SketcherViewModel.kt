@@ -380,6 +380,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         "home_view" -> ({ resetCamera() })
         "stroke_color" -> ({ _showStrokeColorPicker.value = true })
         "fill_color" -> ({ _showFillColorPicker.value = true })
+        "tool_selection" -> ({
+             selectTool(ToolType.SELECTION)
+             // Default to freehand if the parent is tapped
+             currentSelectionMode = SelectionMode.FREEHAND
+        })
         "tool_selection_freehand" -> ({ 
              selectTool(ToolType.SELECTION)
              currentSelectionMode = SelectionMode.FREEHAND 

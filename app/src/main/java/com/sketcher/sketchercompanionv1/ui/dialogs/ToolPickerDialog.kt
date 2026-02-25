@@ -61,9 +61,9 @@ fun ToolPickerDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Filter out placeholders and wrong context tools
+                    // Filter out placeholders, wrong context tools, and sub-tools (they belong in dropdowns)
                     val isContextSlot = location == ToolLocation.ContextBar
-                    items(ToolRegistry.allTools.filter { !it.isPlaceholder && it.isContextual == isContextSlot }) { tool ->
+                    items(ToolRegistry.allTools.filter { !it.isPlaceholder && it.isContextual == isContextSlot && it.parentGroupId == null }) { tool ->
                         ToolItem(tool = tool, theme = theme) {
                             onToolSelected(tool)
                             onDismiss()
