@@ -1287,6 +1287,14 @@ fun StudioLayout(
                 .padding(bottom = (if (swapVertical) animTopOffset else animBottomOffset) + scaler.floatingBarWidth + scaler.margin)
         ) {
             ContextActionBar(
+                modifier = Modifier.advancedShadow(
+                    color = Color.Black,
+                    alpha = shadowAlpha,
+                    cornersRadius = scaler.baseBarHeight / 2,
+                    shadowBlurRadius = shadowBlur,
+                    offsetX = shadowOffsetX,
+                    offsetY = shadowOffsetY
+                ),
                 tools = contextTools,
                 isVisible = isContextBarVisible,
                 isEditMode = isEditMode,

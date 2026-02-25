@@ -21,6 +21,7 @@ import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
 
 @Composable
 fun ContextActionBar(
+    modifier: Modifier = Modifier,
     tools: List<StudioTool>,
     isVisible: Boolean,
     isEditMode: Boolean,
@@ -36,9 +37,8 @@ fun ContextActionBar(
         modifier = Modifier.padding(bottom = scaler.margin)
     ) {
         Row(
-            modifier = Modifier
+            modifier = modifier
                 .height(scaler.baseBarHeight)
-                .shadow(8.dp, CircleShape)
                 .clip(CircleShape)
                 .background(theme.barBackgroundColor.copy(alpha = 0.9f))
                 .padding(horizontal = scaler.smallMargin),
