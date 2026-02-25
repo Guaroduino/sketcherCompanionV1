@@ -148,6 +148,7 @@ fun AssignableToolButton(
             DropdownMenu(
                 expanded = showSubMenu,
                 onDismissRequest = { showSubMenu = false },
+                offset = DpOffset(x = 0.dp, y = 8.dp),
                 modifier = Modifier.background(theme?.barBackgroundColor ?: Color.DarkGray)
             ) {
                 subTools.forEach { subTool ->
