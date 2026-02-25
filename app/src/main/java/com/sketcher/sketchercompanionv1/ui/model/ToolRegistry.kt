@@ -5,6 +5,14 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.BorderColor
 import androidx.compose.material.icons.filled.FormatColorFill
+import androidx.compose.material.icons.filled.CropFree
+import androidx.compose.material.icons.filled.Polyline
+import androidx.compose.material.icons.filled.Deselect
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Flip
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.OpenWith
+import androidx.compose.material.icons.outlined.*
 
 object ToolRegistry {
     val allTools = listOf(
@@ -16,6 +24,20 @@ object ToolRegistry {
         StudioTool("square", Icons.Default.CheckBoxOutlineBlank, "Square", isPlaceholder = false),
         StudioTool("undo", Icons.Default.Undo, "Undo", isPlaceholder = false),
         StudioTool("redo", Icons.Default.Redo, "Redo", isPlaceholder = false),
+        // Selection tools
+        StudioTool("tool_selection_freehand", Icons.Outlined.AllOut, "Lasso Selection", isPlaceholder = false, parentGroupId = "selection_group"),
+        StudioTool("tool_selection_polygon", Icons.Outlined.Timeline, "Polygon Selection", isPlaceholder = false, parentGroupId = "selection_group"),
+        StudioTool("tool_selection_rect", Icons.Outlined.Crop, "Rect Selection", isPlaceholder = false, parentGroupId = "selection_group"),
+        
+        // Contextual Selection Actions
+        StudioTool("context_deselect", Icons.Outlined.Deselect, "Deselect", isPlaceholder = false, isContextual = true),
+        StudioTool("context_transform", Icons.Outlined.OpenWith, "Transform", isPlaceholder = false, isContextual = true),
+        StudioTool("context_copy", Icons.Outlined.ContentCopy, "Duplicate", isPlaceholder = false, isContextual = true),
+        StudioTool("context_delete", Icons.Outlined.Delete, "Delete", isPlaceholder = false, isContextual = true),
+        StudioTool("context_flip_horizontal", Icons.Outlined.Flip, "Flip Horizontal", isPlaceholder = false, isContextual = true),
+        StudioTool("context_flip_vertical", Icons.Outlined.Flip, "Flip Vertical", isPlaceholder = false, isContextual = true),
+        
+        // Existing tools...
         StudioTool("layers", Icons.Default.Layers, "Layers", isPlaceholder = true),
         StudioTool("palette", Icons.Default.Palette, "Palette", isPlaceholder = true),
         StudioTool("opacity", Icons.Default.Opacity, "Opacity", isPlaceholder = true),

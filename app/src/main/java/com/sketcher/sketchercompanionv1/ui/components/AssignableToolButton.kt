@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import com.sketcher.sketchercompanionv1.ui.model.ToolLocation
+import com.sketcher.sketchercompanionv1.ui.model.StudioTool
 import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
 
 // Define ToolPayload as requested
@@ -58,17 +59,26 @@ fun AssignableToolButton(
     theme: UiThemeConfig? = null,
     colorPreview: Color? = null,
     payload: ToolPayload? = null,
-    isSelected: Boolean = false
+    isSelected: Boolean = false,
+    subTools: List<StudioTool> = emptyList(),
+    onSubToolClick: ((StudioTool) -> Unit)? = null
 ) {
     val backgroundColor = if (isActive || isSelected) highlightColor else buttonColor
     val drawBorder = isSelected // Show border if selected
+    var showSubMenu by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
             .size(48.dp) // Touch size matching BigTouchBox
             .combinedClickable(
                 onClick = onClick,
-                onLongClick = onLongClick
+                onLongClick = {
+                    if (!isEditMode && subTools.isNotEmpty()) {
+                        showSubMenu = true
+                    } else {
+                        onLongClick?.invoke()
+                    }
+                }
             ),
         contentAlignment = Alignment.Center
     ) {
@@ -110,6 +120,25 @@ fun AssignableToolButton(
                         .size(iconSize)
                         .then(if (isEditMode) Modifier.alpha(0.6f) else Modifier)
                 )
+            }
+        }
+
+        if (showSubMenu && subTools.isNotEmpty()) {
+            DropdownMenu(
+                expanded = showSubMenu,
+                onDismissRequest = { showSubMenu = false },
+                modifier = Modifier.background(theme?.barBackgroundColor ?: Color.DarkGray)
+            ) {
+                subTools.forEach { subTool ->
+                    DropdownMenuItem(
+                        text = { Text(subTool.contentDescription, color = theme?.iconColor ?: Color.White) },
+                        leadingIcon = { Icon(subTool.icon, contentDescription = null, tint = theme?.iconColor ?: Color.White) },
+                        onClick = {
+                            showSubMenu = false
+                            onSubToolClick?.invoke(subTool)
+                        }
+                    )
+                }
             }
         }
     }

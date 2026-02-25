@@ -8,5 +8,6 @@ enum class ToolLocation {
     TopLeftCorner,
     TopRightCorner,
     BottomLeftCorner,
-    BottomRightCorner
+    BottomRightCorner,
+    ContextBar
 }

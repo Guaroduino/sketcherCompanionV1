@@ -126,6 +126,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     private val _toolbarState = MutableStateFlow<Map<ToolLocation, List<StudioTool>>>(emptyMap())
     val toolbarState = _toolbarState.asStateFlow()
 
+    private val _contextualToolbar = MutableStateFlow<List<StudioTool>>(emptyList())
+    val contextualToolbar = _contextualToolbar.asStateFlow()
+
     private val _isEditMode = MutableStateFlow(false)
     val isEditMode = _isEditMode.asStateFlow()
 
@@ -149,7 +152,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun updateLastActiveToolColor(color: Int) {
         lastActiveColorToolId?.let { id ->
             _assignedToolColors.value = _assignedToolColors.value + (id to color)
-            toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value)
+            toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
         }
     }
 
@@ -236,7 +239,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         activateTool(payload, toolId)
         
         // 4. Save
-        toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value)
+        toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
     }
 
     fun addTool(location: ToolLocation, tool: StudioTool) {
@@ -261,64 +264,111 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             }
         )
         
-        val currentMap = _toolbarState.value.toMutableMap()
-        val list = currentMap[location]?.toMutableList() ?: mutableListOf()
-        list.add(uniqueTool)
-        currentMap[location] = list
-        _toolbarState.value = currentMap
+        if (location == ToolLocation.ContextBar) {
+            val list = _contextualToolbar.value.toMutableList()
+            list.add(uniqueTool)
+            _contextualToolbar.value = list
+        } else {
+            val currentMap = _toolbarState.value.toMutableMap()
+            val list = currentMap[location]?.toMutableList() ?: mutableListOf()
+            list.add(uniqueTool)
+            currentMap[location] = list
+            _toolbarState.value = currentMap
+        }
         
-        toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value)
+        toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
     }
 
     fun removeTool(location: ToolLocation, index: Int) {
-        val currentMap = _toolbarState.value.toMutableMap()
-        val list = currentMap[location]?.toMutableList() ?: return
-        if (index in list.indices) {
-            val tool = list.removeAt(index)
-            // Cleanup assignment
-            _assignedTools.value = _assignedTools.value - tool.id
-            
-            currentMap[location] = list
-            _toolbarState.value = currentMap
-            toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value)
+        if (location == ToolLocation.ContextBar) {
+            val list = _contextualToolbar.value.toMutableList()
+            if (index in list.indices) {
+                val tool = list.removeAt(index)
+                _assignedTools.value = _assignedTools.value - tool.id
+                _contextualToolbar.value = list
+            }
+        } else {
+            val currentMap = _toolbarState.value.toMutableMap()
+            val list = currentMap[location]?.toMutableList() ?: return
+            if (index in list.indices) {
+                val tool = list.removeAt(index)
+                // Cleanup assignment
+                _assignedTools.value = _assignedTools.value - tool.id
+                
+                currentMap[location] = list
+                _toolbarState.value = currentMap
+            }
         }
+        
+        toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
     }
 
     fun replaceTool(location: ToolLocation, index: Int, newTool: StudioTool) {
-        val currentMap = _toolbarState.value.toMutableMap()
-        val list = currentMap[location]?.toMutableList() ?: return
-        if (index in list.indices) {
-            val oldTool = list[index]
-            _assignedTools.value = _assignedTools.value - oldTool.id
-            
-            val uniqueId = UUID.randomUUID().toString()
-            val initialPayload = getPayloadFromToolId(newTool.id)
-            
-            if (initialPayload != null) {
-                _assignedTools.value = _assignedTools.value + (uniqueId to initialPayload)
-            }
-            
-            val uniqueTool = newTool.copy(
-                id = uniqueId,
-                registryId = newTool.id,
-                onClick = {
-                    val payload = _assignedTools.value[uniqueId]
-                    if (payload != null) {
-                        activateTool(payload, uniqueId)
-                    } else {
-                        getActionForTool(newTool.id).invoke()
-                    }
+        if (location == ToolLocation.ContextBar) {
+            val list = _contextualToolbar.value.toMutableList()
+            if (index in list.indices) {
+                val oldTool = list[index]
+                _assignedTools.value = _assignedTools.value - oldTool.id
+                
+                val uniqueId = UUID.randomUUID().toString()
+                val initialPayload = getPayloadFromToolId(newTool.id)
+                if (initialPayload != null) {
+                    _assignedTools.value = _assignedTools.value + (uniqueId to initialPayload)
                 }
-            )
-            
-            list[index] = uniqueTool
-            currentMap[location] = list
-            _toolbarState.value = currentMap
-            toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value)
+                
+                val uniqueTool = newTool.copy(
+                    id = uniqueId,
+                    registryId = newTool.id,
+                    onClick = {
+                        val payload = _assignedTools.value[uniqueId]
+                        if (payload != null) {
+                            activateTool(payload, uniqueId)
+                        } else {
+                            getActionForTool(newTool.id).invoke()
+                        }
+                    }
+                )
+                
+                list[index] = uniqueTool
+                _contextualToolbar.value = list
+            }
+        } else {
+            val currentMap = _toolbarState.value.toMutableMap()
+            val list = currentMap[location]?.toMutableList() ?: return
+            if (index in list.indices) {
+                val oldTool = list[index]
+                _assignedTools.value = _assignedTools.value - oldTool.id
+                
+                val uniqueId = UUID.randomUUID().toString()
+                val initialPayload = getPayloadFromToolId(newTool.id)
+                
+                if (initialPayload != null) {
+                    _assignedTools.value = _assignedTools.value + (uniqueId to initialPayload)
+                }
+                
+                val uniqueTool = newTool.copy(
+                    id = uniqueId,
+                    registryId = newTool.id,
+                    onClick = {
+                        val payload = _assignedTools.value[uniqueId]
+                        if (payload != null) {
+                            activateTool(payload, uniqueId)
+                        } else {
+                            getActionForTool(newTool.id).invoke()
+                        }
+                    }
+                )
+                
+                list[index] = uniqueTool
+                currentMap[location] = list
+                _toolbarState.value = currentMap
+            }
         }
+        
+        toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
     }
 
-    private fun getActionForTool(id: String): () -> Unit = when(id) {
+    internal fun getActionForTool(id: String): () -> Unit = when(id) {
         "undo" -> ({ undo() })
         "redo" -> ({ redo() })
         "menu" -> ({})
@@ -330,6 +380,30 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         "home_view" -> ({ resetCamera() })
         "stroke_color" -> ({ _showStrokeColorPicker.value = true })
         "fill_color" -> ({ _showFillColorPicker.value = true })
+        "tool_selection_freehand" -> ({ 
+             selectTool(ToolType.SELECTION)
+             currentSelectionMode = SelectionMode.FREEHAND 
+        })
+        "tool_selection_rect" -> ({ 
+             selectTool(ToolType.SELECTION)
+             currentSelectionMode = SelectionMode.RECTANGLE 
+        })
+        "tool_selection_polygon" -> ({ 
+             selectTool(ToolType.SELECTION)
+             currentSelectionMode = SelectionMode.POLYGON 
+        })
+        "tool_transform" -> ({ 
+             selectTool(ToolType.SELECTION)
+             currentSelectionMode = SelectionMode.TRANSFORM_BOX 
+        })
+        "context_deselect" -> ({ clearSelection() })
+        "context_delete" -> ({ deleteSelection() })
+        "context_copy" -> ({ duplicateSelection() })
+        "context_transform" -> ({ 
+             currentSelectionMode = SelectionMode.TRANSFORM_BOX 
+        })
+        "context_flip_horizontal" -> ({ /* TODO: Implement */ })
+        "context_flip_vertical" -> ({ /* TODO: Implement */ })
         else -> ({})
     }
 
@@ -470,12 +544,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         // Try to load saved layout
         val loaded = toolbarRepository.loadLayout()
         if (loaded != null) {
-            val (tools, assigned, colors) = loaded
-            _assignedTools.value = assigned
-            _assignedToolColors.value = colors
+            _assignedTools.value = loaded.assignedMap
+            _assignedToolColors.value = loaded.toolColors
             
             // Re-bind actions (since they aren't serialized)
-            val toolsWithActions = tools.mapValues { (_, list) ->
+            val toolsWithActions = loaded.tools.mapValues { (_, list) ->
                 list.map { tool ->
                     tool.copy(onClick = {
                         val payload = _assignedTools.value[tool.id]
@@ -489,9 +562,21 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 }
             }
             _toolbarState.value = toolsWithActions
+            
+            val contextualWithActions = loaded.contextualTools.map { tool ->
+                tool.copy(onClick = {
+                    getActionForTool(tool.registryId).invoke()
+                })
+            }
+            _contextualToolbar.value = contextualWithActions
         } else {
             initToolbarState()
         }
+    }
+
+    fun updateContextualToolbar(newList: List<StudioTool>) {
+        _contextualToolbar.value = newList
+        toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
     }
 
     // --- GLOBAL OFFSET SETTERS ---
@@ -508,7 +593,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
 
     // --- SELECTION STATE ---
-    enum class SelectionMode { RECTANGLE, FREEHAND, TRANSFORM_BOX }
+    enum class SelectionMode { RECTANGLE, FREEHAND, POLYGON, TRANSFORM_BOX }
     enum class SelectionScope { CURRENT_LAYER, ALL_LAYERS }
     var currentSelectionMode by mutableStateOf(SelectionMode.RECTANGLE)
     var selectionScope by mutableStateOf(SelectionScope.CURRENT_LAYER)
@@ -521,20 +606,17 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         get() = selectionManager.selectedElements.size == 1 && (selectionManager.selectedElements.first() is GroupElement || selectionManager.selectedElements.first() is ComponentInstance)
 
     val isSelectionEmpty: Boolean get() = selectionManager.selectedElements.isEmpty()
+    val hasSelection: Boolean get() = selectionManager.hasSelection.value
+    val selectionCount: Int get() = selectionManager.selectionCount.value
+
+    fun clearSelection() = selectionManager.clearSelection()
 
     fun deleteSelection() {
-        if (selectionManager.selectedElements.isEmpty()) return
-        performSnapshotAction("Borrar Selección") {
-            val newList = layers.toMutableList()
-            newList.forEachIndexed { index, layer ->
-                val remaining = layer.elements.filter { it !in selectionManager.selectedElements }.toMutableList()
-                if (remaining.size != layer.elements.size) {
-                    newList[index] = layer.copy(elements = remaining.toMutableStateList())
-                }
-            }
-            layerManager.internalUpdateLayers(newList, activeLayerIndex)
-            selectionManager.clearSelection()
-        }
+        selectionManager.deleteSelected(layerManager, activeLayerIndex) { label, action -> performSnapshotAction(label, action) }
+    }
+
+    fun duplicateSelection() {
+        selectionManager.duplicateSelected(layerManager, activeLayerIndex) { label, action -> performSnapshotAction(label, action) }
     }
 
     // --- RESTORED LOGIC ---

@@ -8,6 +8,8 @@ data class StudioTool(
     val contentDescription: String,
     val isActive: Boolean = false,
     val isPlaceholder: Boolean = false,
+    val isContextual: Boolean = false,
+    val parentGroupId: String? = null,
     val registryId: String = id,
     val onClick: () -> Unit = {}
 ) {

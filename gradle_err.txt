@@ -18,16 +18,48 @@
 > Task :app:processDebugResources UP-TO-DATE
 
 > Task :app:compileDebugKotlin FAILED
-e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:739:37 Unresolved reference 'tolerance'.
-e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:742:16 No parameter with name 'tolerance' found.
-e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:749:13 Operator '!=' cannot be applied to 'kotlin.Long' and 'kotlin.Float'.
-e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:750:84 Argument type mismatch: actual type is 'kotlin.Float', but 'kotlin.Long' was expected.
-e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:763:36 Unresolved reference 'minPredictionVelocity'.
-e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:764:64 No parameter with name 'minPredictionVelocity' found.
-e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:769:36 Unresolved reference 'maxPredictionVelocity'.
-e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherViewModel.kt:770:65 No parameter with name 'maxPredictionVelocity' found.
-e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/utils/SerializationUtils.kt:201:8 No parameter with name 'baseWidth' found.
-e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/utils/SerializationUtils.kt:203:8 No parameter with name 'isComplete' found.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SelectionManager.kt:20:8 Conflicting declarations:
+var activeTransform: Matrix?
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SelectionManager.kt:25:8 Conflicting declarations:
+var activeTransform: Matrix?
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SelectionManager.kt:87:12 Overload resolution ambiguity between candidates:
+var activeTransform: Matrix?
+var activeTransform: Matrix?
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SelectionManager.kt:87:37 Overload resolution ambiguity between candidates:
+var activeTransform: Matrix?
+var activeTransform: Matrix?
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SelectionManager.kt:88:8 Overload resolution ambiguity between candidates:
+var activeTransform: Matrix?
+var activeTransform: Matrix?
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SelectionManager.kt:88:26 Unresolved reference 'postConcat'.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SelectionManager.kt:94:8 Overload resolution ambiguity between candidates:
+var activeTransform: Matrix?
+var activeTransform: Matrix?
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SelectionManager.kt:94:25 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SelectionManager.kt:94:25 Unresolved reference. None of the following candidates is applicable because of a receiver type mismatch:
+fun <T, R> T.let(block: (T) -> R): R
+    [R|Contract description]
+     <
+        CallsInPlace(block, EXACTLY_ONCE)
+    >
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SelectionManager.kt:94:31 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SelectionManager.kt:96:13 Overload resolution ambiguity between candidates:
+var activeTransform: Matrix?
+var activeTransform: Matrix?
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SelectionManager.kt:131:8 Overload resolution ambiguity between candidates:
+var activeTransform: Matrix?
+var activeTransform: Matrix?
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherCanvasView.kt:503:25 Overload resolution ambiguity between candidates:
+var activeTransform: Matrix?
+var activeTransform: Matrix?
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherCanvasView.kt:503:42 Cannot infer type for this parameter. Please specify it explicitly.
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherCanvasView.kt:503:42 Unresolved reference. None of the following candidates is applicable because of a receiver type mismatch:
+fun <T, R> T.let(block: (T) -> R): R
+    [R|Contract description]
+     <
+        CallsInPlace(block, EXACTLY_ONCE)
+    >
+e: file:///C:/Users/corad/OneDrive/Documentos/GitHub/sketcherCompanionV1/app/src/main/java/com/sketcher/sketchercompanionv1/SketcherCanvasView.kt:503:46 Cannot infer type for this parameter. Please specify it explicitly.
 
 FAILURE: Build failed with an exception.
 
@@ -42,5 +74,5 @@ Execution failed for task ':app:compileDebugKotlin'.
 > Run with --scan to get full insights.
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 9s
+BUILD FAILED in 2s
 16 actionable tasks: 1 executed, 15 up-to-date

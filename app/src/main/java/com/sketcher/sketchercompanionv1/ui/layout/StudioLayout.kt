@@ -71,8 +71,11 @@ import com.sketcher.sketchercompanionv1.ui.dialogs.ToolPropertiesPanel
 import com.sketcher.sketchercompanionv1.ui.dialogs.QuickSmoothingPopup
 import com.sketcher.sketchercompanionv1.ui.dialogs.SizeOpacityPopup
 import com.sketcher.sketchercompanionv1.ui.components.DynamicSizeButton
-import com.sketcher.sketchercompanionv1.ui.components.StudioColorButton
+import com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton
+import com.sketcher.sketchercompanionv1.ui.components.SelectionContextBar
+import com.sketcher.sketchercompanionv1.ui.components.ContextActionBar
 import com.sketcher.sketchercompanionv1.ui.panels.OutlinerPanel
+import com.sketcher.sketchercompanionv1.dto.ToolType
 
 @Composable
 fun StudioLayout(
@@ -557,23 +560,6 @@ fun StudioLayout(
         }
 
         // Right Panel Toggle
-        // Position Logic:
-        // The button should be aligned to CenterEnd.
-        // It needs to be offset to the left of the panel.
-        // Distance from Right Edge = (Panel Width if visible)
-        // Since panel width animates (via visibility?), no, panel width is state.
-        // We want it to move with the panel.
-        // The simplest way to "attach" it is to use the same offset logic as the HUD but minus the gap?
-        // Let's use `animRightOffset`.
-        // `animRightOffset` target is `PanelWidth + Gap` (Expanded) or `Gap` (Collapsed).
-        // If we offset by `-animRightOffset`, we are at `Right - (Panel + Gap)`.
-        // The button thickness is small. 
-        // We want Button at `Right - PanelWidth - ButtonThickness`.
-        // If we use `-animRightOffset`, we are at `Right - PanelWidth - Gap`.
-        // If Button is inside the Gap, we can align it to the *right* of that gap space?
-        // Let's try `offset(x = -(animRightOffset - scaler.panelGap))` -> This puts it at `Right - PanelWidth`.
-        // Then subtract button thickness? Or just align it there.
-        // SIDE PANEL TOGGLE
         Box(
             modifier = Modifier
                 .align(panelAlign)
@@ -605,7 +591,6 @@ fun StudioLayout(
                  )
              }
         }
-
 
         // --- LAYER 4: FLOATING HUD (The "Magenta/Green" Zones) ---
         // Linked to Physics Animations for Offset. The offsets now include the "Panel Gap".
@@ -918,7 +903,9 @@ fun StudioLayout(
                                           payload = assignedToolsMap[tool.id],
                                           colorPreview = assignedColorsMap[tool.id]?.let { Color(it) },
                                           isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && assignedColorsMap[tool.id] == strokeColorVal && isStrokeActiveVal) ||
-                                                       (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && assignedColorsMap[tool.id] == fillColorVal && isFillActiveVal)
+                                                       (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && assignedColorsMap[tool.id] == fillColorVal && isFillActiveVal),
+                                          subTools = if (tool.parentGroupId != null && !isEditMode) com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.allTools.filter { it.parentGroupId == tool.parentGroupId && it.id != tool.id } else emptyList(),
+                                          onSubToolClick = { subTool -> viewModel.getActionForTool(subTool.id).invoke() }
                                       )
                              }
                          }
@@ -1287,6 +1274,32 @@ fun StudioLayout(
                     }
                 }
             }
+        }
+
+        // --- CONTEXT ACTION BAR ---
+        val isContextSelectionActive = viewModel.hasSelection
+        val isContextBarVisible = isContextSelectionActive || viewModel.currentTool == ToolType.SELECTION
+        val contextTools by viewModel.contextualToolbar.collectAsState(initial = emptyList())
+        
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = (if (swapVertical) animTopOffset else animBottomOffset) + scaler.floatingBarWidth + scaler.margin)
+        ) {
+            ContextActionBar(
+                tools = contextTools,
+                isVisible = isContextBarVisible,
+                isEditMode = isEditMode,
+                theme = theme,
+                onToolClick = { index, tool ->
+                    if (isEditMode) {
+                        val isNew = tool == null
+                        toolPickerTarget = Pair(ToolLocation.ContextBar, if (isNew) null else index)
+                    } else {
+                        tool?.onClick?.invoke()
+                    }
+                }
+            )
         }
 
         // --- EXIT EDIT MODE BUTTON ---

@@ -361,6 +361,8 @@ class SketcherCanvasView(context: Context) : View(context) {
     var snapFunction: ((Float, Float) -> Pair<Float, Float>)? = null
         set(value) { field = value; strokePipeline.snapFunction = value }
     var currentTool: ToolType = ToolType.FREEHAND
+    var currentSelectionMode: SketcherViewModel.SelectionMode = SketcherViewModel.SelectionMode.RECTANGLE
+    // selectionManager declaration removed to avoid conflict
     
     // --- PREVIEW STATE ---
     private var currentVectorPreviewPath: android.graphics.Path? = null
@@ -550,7 +552,7 @@ class SketcherCanvasView(context: Context) : View(context) {
         strokePipeline.currentZoom = zoom
         
         return when (currentTool) {
-            ToolType.SELECTION -> false // Handled by Surface? (Verify this later)
+            ToolType.SELECTION -> handleSelectionInput(event)
             ToolType.ERASER -> handleEraserInput(event)
             else -> strokePipeline.onTouchEvent(event)
         }
@@ -582,6 +584,45 @@ class SketcherCanvasView(context: Context) : View(context) {
             }
         }
         return true
+    }
+
+    private fun handleSelectionInput(event: MotionEvent): Boolean {
+        // Map screen coordinates to world coordinates
+        tempTouchPoint[0] = event.x
+        tempTouchPoint[1] = event.y
+        inverseMatrix.mapPoints(tempTouchPoint)
+        
+        val worldX = tempTouchPoint[0]
+        val worldY = tempTouchPoint[1]
+
+        val manager = selectionManager
+        if (manager != null) {
+            when (currentSelectionMode) {
+                SketcherViewModel.SelectionMode.RECTANGLE -> { /* TODO */ }
+                SketcherViewModel.SelectionMode.POLYGON -> { /* TODO */ }
+                SketcherViewModel.SelectionMode.FREEHAND -> {
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> manager.startSelection(worldX, worldY)
+                        MotionEvent.ACTION_MOVE -> manager.updateSelection(worldX, worldY)
+                        MotionEvent.ACTION_UP -> {
+                            if (layers.isNotEmpty() && activeLayerIndex in layers.indices) {
+                                manager.finalizeSelection(layers[activeLayerIndex])
+                            }
+                        }
+                    }
+                }
+                SketcherViewModel.SelectionMode.TRANSFORM_BOX -> {
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> manager.handleTransformDown(worldX, worldY)
+                        MotionEvent.ACTION_MOVE -> manager.handleTransformMove(worldX, worldY)
+                        MotionEvent.ACTION_UP -> manager.handleTransformUp()
+                    }
+                }
+            }
+            invalidate()
+            return true
+        }
+        return false
     }
 
 }
