@@ -68,6 +68,10 @@ fun AssignableToolButton(
     val drawBorder = isSelected // Show border if selected
     var showSubMenu by remember { mutableStateOf(false) }
 
+    LaunchedEffect(subTools) {
+        android.util.Log.d("AssignableButton", "subTools for $contentDescription : ${subTools.size}")
+    }
+
     Box(
         modifier = Modifier
             .size(48.dp) // Touch size matching BigTouchBox

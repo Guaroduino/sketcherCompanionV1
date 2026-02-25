@@ -1039,7 +1039,12 @@ fun StudioLayout(
                                       payload = assignedToolsMap[tool.id],
                                       colorPreview = assignedColorsMap[tool.id]?.let { Color(it) },
                                       isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && assignedColorsMap[tool.id] == strokeColorVal && isStrokeActiveVal) ||
-                                                   (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && assignedColorsMap[tool.id] == fillColorVal && isFillActiveVal)
+                                                   (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && assignedColorsMap[tool.id] == fillColorVal && isFillActiveVal),
+                                      subTools = if (!isEditMode) com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId) else emptyList(),
+                                      onSubToolClick = { subTool -> 
+                                          viewModel.replaceTool(ToolLocation.RightBar, idx, subTool)
+                                          viewModel.getActionForTool(subTool.id).invoke() 
+                                      }
                                   )
                              }
                          }
@@ -1157,7 +1162,12 @@ fun StudioLayout(
                                       payload = assignedToolsMap[tool.id],
                                       colorPreview = assignedColorsMap[tool.id]?.let { Color(it) },
                                       isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && assignedColorsMap[tool.id] == strokeColorVal && isStrokeActiveVal) ||
-                                                   (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && assignedColorsMap[tool.id] == fillColorVal && isFillActiveVal)
+                                                   (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && assignedColorsMap[tool.id] == fillColorVal && isFillActiveVal),
+                                      subTools = if (!isEditMode) com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId) else emptyList(),
+                                      onSubToolClick = { subTool -> 
+                                          viewModel.replaceTool(ToolLocation.TopBar, idx, subTool)
+                                          viewModel.getActionForTool(subTool.id).invoke() 
+                                      }
                                   )
                              }
                          }
@@ -1276,7 +1286,12 @@ fun StudioLayout(
                                       payload = assignedToolsMap[tool.id],
                                       colorPreview = assignedColorsMap[tool.id]?.let { Color(it) },
                                       isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && assignedColorsMap[tool.id] == strokeColorVal && isStrokeActiveVal) ||
-                                                   (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && assignedColorsMap[tool.id] == fillColorVal && isFillActiveVal)
+                                                   (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && assignedColorsMap[tool.id] == fillColorVal && isFillActiveVal),
+                                      subTools = if (!isEditMode) com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId) else emptyList(),
+                                      onSubToolClick = { subTool -> 
+                                          viewModel.replaceTool(ToolLocation.BottomBar, idx, subTool)
+                                          viewModel.getActionForTool(subTool.id).invoke() 
+                                      }
                                   )
                              }
                          }
