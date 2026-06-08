@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1
+package com.sketcher.sketchercompanionv1
 
 import android.app.Application
 import android.content.Context
@@ -48,14 +48,6 @@ import com.sketcher.sketchercompanionv1.ui.model.StudioTool
 import com.sketcher.sketchercompanionv1.ui.model.ToolLocation
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-
-data class ExportPngConfig(
-    val transparentBackground: Boolean,
-    val useHomeView: Boolean,
-    val width: Int,
-    val height: Int
-)
-
 
 class SketcherViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE)
