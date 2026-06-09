@@ -70,6 +70,83 @@ class SelectionManager {
         return false
     }
 
+    private fun distanceToSegment(px: Float, py: Float, x1: Float, y1: Float, x2: Float, y2: Float): Float {
+        val dx = x2 - x1
+        val dy = y2 - y1
+        if (dx == 0f && dy == 0f) {
+            return kotlin.math.hypot(px - x1, py - y1)
+        }
+        val t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)
+        return if (t < 0f) {
+            kotlin.math.hypot(px - x1, py - y1)
+        } else if (t > 1f) {
+            kotlin.math.hypot(px - x2, py - y2)
+        } else {
+            val nearestX = x1 + t * dx
+            val nearestY = y1 + t * dy
+            kotlin.math.hypot(px - nearestX, py - nearestY)
+        }
+    }
+
+    private fun isElementInSelection(
+        element: LayerElement,
+        selectionPath: Path,
+        selectionRegion: android.graphics.Region,
+        library: Map<String, ComponentDefinition>
+    ): Boolean {
+        when (element) {
+            is VectorStroke -> {
+                // 1. Check if any stroke point is inside the selection region
+                for (p in element.points) {
+                    if (selectionRegion.contains(p.x.toInt(), p.y.toInt())) {
+                        return true
+                    }
+                }
+                // 2. Also check if the element path intersects the selection path
+                if (element.points.size >= 2) {
+                    val intersect = Path()
+                    try {
+                        if (intersect.op(selectionPath, element.path, Path.Op.INTERSECT)) {
+                            if (!intersect.isEmpty) return true
+                        }
+                    } catch (e: Exception) {
+                        // Fallback
+                    }
+                }
+                return false
+            }
+            is GroupElement -> {
+                return element.elements.any { isElementInSelection(it, selectionPath, selectionRegion, library) }
+            }
+            is FillData -> {
+                val intersect = Path()
+                try {
+                    if (intersect.op(selectionPath, element.path, Path.Op.INTERSECT)) {
+                        return !intersect.isEmpty
+                    }
+                } catch (e: Exception) {
+                    // Fallback
+                }
+                return false
+            }
+            else -> {
+                val rect = element.getBoundingBox(library)
+                val selectionBounds = RectF()
+                selectionPath.computeBounds(selectionBounds, true)
+                if (!RectF.intersects(selectionBounds, rect)) return false
+                
+                // If bounding boxes intersect, check if any corner or center is in selection region
+                if (selectionRegion.contains(rect.left.toInt(), rect.top.toInt())) return true
+                if (selectionRegion.contains(rect.right.toInt(), rect.top.toInt())) return true
+                if (selectionRegion.contains(rect.left.toInt(), rect.bottom.toInt())) return true
+                if (selectionRegion.contains(rect.right.toInt(), rect.bottom.toInt())) return true
+                if (selectionRegion.contains(rect.centerX().toInt(), rect.centerY().toInt())) return true
+                
+                return false
+            }
+        }
+    }
+
     fun selectArea(selectionPath: Path, layer: Layer, library: Map<String, ComponentDefinition>, addToSelection: Boolean = false) {
         if (!addToSelection) {
             selectedElements.clear()
@@ -78,9 +155,17 @@ class SelectionManager {
         val selectionBounds = RectF()
         selectionPath.computeBounds(selectionBounds, true)
 
+        val selectionRegion = android.graphics.Region()
+        val clipRect = android.graphics.Rect(
+            selectionBounds.left.toInt(),
+            selectionBounds.top.toInt(),
+            selectionBounds.right.toInt(),
+            selectionBounds.bottom.toInt()
+        )
+        selectionRegion.setPath(selectionPath, android.graphics.Region(clipRect))
+
         layer.elements.forEach { element ->
-            val elementBounds = element.getBoundingBox(library)
-            if (RectF.intersects(selectionBounds, elementBounds)) {
+            if (isElementInSelection(element, selectionPath, selectionRegion, library)) {
                 selectedElements.add(element)
             }
         }
@@ -209,7 +294,7 @@ class SelectionManager {
         val screenPts = FloatArray(18)
         val combinedMatrix = Matrix()
         combinedMatrix.set(viewMatrix)
-        combinedMatrix.postConcat(selectionMatrix)
+        combinedMatrix.preConcat(selectionMatrix)
         combinedMatrix.mapPoints(screenPts, localPts)
 
         // 48 pixels touch target size (~16-24dp tolerance)
@@ -462,6 +547,42 @@ class SelectionManager {
     }
 
     private fun isHit(element: LayerElement, x: Float, y: Float, library: Map<String, ComponentDefinition>): Boolean {
-        return element.getBoundingBox(library).contains(x, y)
+        when (element) {
+            is VectorStroke -> {
+                if (element.points.isEmpty()) return false
+                // Touch tolerance of 15dp / screen units, plus half width
+                val tolerance = (element.maxWidth * 0.5f + 15f).coerceAtLeast(15f)
+                if (element.points.size == 1) {
+                    return kotlin.math.hypot(x - element.points[0].x, y - element.points[0].y) < tolerance
+                }
+                for (i in 0 until element.points.size - 1) {
+                    val p1 = element.points[i]
+                    val p2 = element.points[i + 1]
+                    if (distanceToSegment(x, y, p1.x, p1.y, p2.x, p2.y) < tolerance) {
+                        return true
+                    }
+                }
+                return false
+            }
+            is GroupElement -> {
+                return element.elements.any { isHit(it, x, y, library) }
+            }
+            is FillData -> {
+                val rect = element.getBoundingBox(library)
+                if (!rect.contains(x, y)) return false
+                val region = android.graphics.Region()
+                val clip = android.graphics.Region(
+                    rect.left.toInt(),
+                    rect.top.toInt(),
+                    rect.right.toInt(),
+                    rect.bottom.toInt()
+                )
+                region.setPath(element.path, clip)
+                return region.contains(x.toInt(), y.toInt())
+            }
+            else -> {
+                return element.getBoundingBox(library).contains(x, y)
+            }
+        }
     }
 }

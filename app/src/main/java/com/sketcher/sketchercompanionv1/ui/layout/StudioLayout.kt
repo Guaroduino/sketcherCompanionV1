@@ -47,6 +47,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.window.Dialog
+import android.os.Build
+import android.view.WindowManager
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.window.DialogWindowProvider
 import com.sketcher.sketchercompanionv1.SketcherCanvasView
 import com.sketcher.sketchercompanionv1.SketcherViewModel
 import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
@@ -389,7 +393,7 @@ fun StudioLayout(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(scaler.baseBarHeight)
-                    .background(theme.barBackgroundColor, theme.panelShape())
+                    .glassmorphicBackground(theme, theme.panelShape())
             ) {
                  Row(
                     modifier = Modifier
@@ -454,7 +458,7 @@ fun StudioLayout(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(scaler.baseBarHeight)
-                    .background(theme.barBackgroundColor, theme.panelShape())
+                    .glassmorphicBackground(theme, theme.panelShape())
             )
         }
 
@@ -473,7 +477,7 @@ fun StudioLayout(
                         top = if (swapVertical) animRightPanelBottomPadding else animRightPanelTopPadding, 
                         bottom = if (swapVertical) animRightPanelTopPadding else animRightPanelBottomPadding
                     ) 
-                    .background(theme.barBackgroundColor, theme.panelShape())
+                    .glassmorphicBackground(theme, theme.panelShape())
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     // TOP: LAYERS
@@ -572,12 +576,12 @@ fun StudioLayout(
                 ),
             contentAlignment = if (swapVertical) Alignment.BottomCenter else Alignment.TopCenter
         ) {
-            Box(
-                modifier = Modifier
-                    .width(scaler.toggleLength)
-                    .height(scaler.toggleThickness)
-                    .clip(if (swapVertical) RoundedCornerShape(topStart = 8.sdp, topEnd = 8.sdp) else RoundedCornerShape(bottomStart = 8.sdp, bottomEnd = 8.sdp))
-                    .background(theme.barBackgroundColor),
+                    val shape = if (swapVertical) RoundedCornerShape(topStart = 8.sdp, topEnd = 8.sdp) else RoundedCornerShape(bottomStart = 8.sdp, bottomEnd = 8.sdp)
+                    Box(
+                        modifier = Modifier
+                            .width(scaler.toggleLength)
+                            .height(scaler.toggleThickness)
+                            .glassmorphicBackground(theme, shape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -608,12 +612,12 @@ fun StudioLayout(
                 ),
             contentAlignment = if (swapVertical) Alignment.TopCenter else Alignment.BottomCenter
         ) {
-            Box(
-                modifier = Modifier
-                    .width(scaler.toggleLength)
-                    .height(scaler.toggleThickness)
-                    .clip(if (swapVertical) RoundedCornerShape(bottomStart = 8.sdp, bottomEnd = 8.sdp) else RoundedCornerShape(topStart = 8.sdp, topEnd = 8.sdp))
-                    .background(theme.barBackgroundColor),
+                    val shape = if (swapVertical) RoundedCornerShape(bottomStart = 8.sdp, bottomEnd = 8.sdp) else RoundedCornerShape(topStart = 8.sdp, topEnd = 8.sdp)
+                    Box(
+                        modifier = Modifier
+                            .width(scaler.toggleLength)
+                            .height(scaler.toggleThickness)
+                            .glassmorphicBackground(theme, shape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -641,12 +645,12 @@ fun StudioLayout(
                 ),
             contentAlignment = if (swapHorizontal) Alignment.CenterStart else Alignment.CenterEnd
         ) {
+             val shape = if (swapHorizontal) RoundedCornerShape(topEnd = 8.sdp, bottomEnd = 8.sdp) else RoundedCornerShape(topStart = 8.sdp, bottomStart = 8.sdp)
              Box(
                  modifier = Modifier
                      .width(scaler.toggleThickness)
                      .height(scaler.toggleLength)
-                     .clip(if (swapHorizontal) RoundedCornerShape(topEnd = 8.sdp, bottomEnd = 8.sdp) else RoundedCornerShape(topStart = 8.sdp, bottomStart = 8.sdp))
-                     .background(theme.barBackgroundColor),
+                     .glassmorphicBackground(theme, shape),
                  contentAlignment = Alignment.Center
              ) {
                  Icon(
@@ -693,13 +697,18 @@ fun StudioLayout(
                             offsetX = shadowOffsetX,
                             offsetY = shadowOffsetY
                         )
-                        .clip(theme.floatingShape())
-                        .background(
-                            when {
-                                topLeftTool?.isActive == true -> theme.highlightColor
-                                isEditMode -> theme.barBackgroundColor.copy(alpha = 0.5f)
-                                topLeftTool?.isPlaceholder == true -> Color.Red.copy(alpha = 0.3f)
-                                else -> theme.barBackgroundColor
+                        .then(
+                            if (topLeftTool?.isActive == true || isEditMode || topLeftTool?.isPlaceholder == true) {
+                                Modifier.clip(theme.floatingShape()).background(
+                                    when {
+                                        topLeftTool?.isActive == true -> theme.highlightColor
+                                        isEditMode -> theme.barBackgroundColor.copy(alpha = 0.5f)
+                                        topLeftTool?.isPlaceholder == true -> Color.Red.copy(alpha = 0.3f)
+                                        else -> theme.barBackgroundColor
+                                    }
+                                )
+                            } else {
+                                Modifier.glassmorphicBackground(theme, theme.floatingShape())
                             }
                         )
                         .then(
@@ -745,13 +754,18 @@ fun StudioLayout(
                             offsetX = shadowOffsetX,
                             offsetY = shadowOffsetY
                         )
-                        .clip(theme.floatingShape())
-                        .background(
-                            when {
-                                topRightTool?.isActive == true -> theme.highlightColor
-                                isEditMode -> theme.barBackgroundColor.copy(alpha = 0.5f)
-                                topRightTool?.isPlaceholder == true -> Color.Red.copy(alpha = 0.3f)
-                                else -> theme.barBackgroundColor
+                        .then(
+                            if (topRightTool?.isActive == true || isEditMode || topRightTool?.isPlaceholder == true) {
+                                Modifier.clip(theme.floatingShape()).background(
+                                    when {
+                                        topRightTool?.isActive == true -> theme.highlightColor
+                                        isEditMode -> theme.barBackgroundColor.copy(alpha = 0.5f)
+                                        topRightTool?.isPlaceholder == true -> Color.Red.copy(alpha = 0.3f)
+                                        else -> theme.barBackgroundColor
+                                    }
+                                )
+                            } else {
+                                Modifier.glassmorphicBackground(theme, theme.floatingShape())
                             }
                         )
                         .then(
@@ -796,13 +810,18 @@ fun StudioLayout(
                             offsetX = shadowOffsetX,
                             offsetY = shadowOffsetY
                         )
-                        .clip(theme.floatingShape())
-                        .background(
-                            when {
-                                bottomLeftTool?.isActive == true -> theme.highlightColor
-                                isEditMode -> theme.barBackgroundColor.copy(alpha = 0.5f)
-                                bottomLeftTool?.isPlaceholder == true -> Color.Red.copy(alpha = 0.3f)
-                                else -> theme.barBackgroundColor
+                        .then(
+                            if (bottomLeftTool?.isActive == true || isEditMode || bottomLeftTool?.isPlaceholder == true) {
+                                Modifier.clip(theme.floatingShape()).background(
+                                    when {
+                                        bottomLeftTool?.isActive == true -> theme.highlightColor
+                                        isEditMode -> theme.barBackgroundColor.copy(alpha = 0.5f)
+                                        bottomLeftTool?.isPlaceholder == true -> Color.Red.copy(alpha = 0.3f)
+                                        else -> theme.barBackgroundColor
+                                    }
+                                )
+                            } else {
+                                Modifier.glassmorphicBackground(theme, theme.floatingShape())
                             }
                         )
                         .then(
@@ -847,13 +866,18 @@ fun StudioLayout(
                             offsetX = shadowOffsetX,
                             offsetY = shadowOffsetY
                         )
-                        .clip(theme.floatingShape())
-                        .background(
-                            when {
-                                bottomRightTool?.isActive == true -> theme.highlightColor
-                                isEditMode -> theme.barBackgroundColor.copy(alpha = 0.5f)
-                                bottomRightTool?.isPlaceholder == true -> Color.Red.copy(alpha = 0.3f)
-                                else -> theme.barBackgroundColor
+                        .then(
+                            if (bottomRightTool?.isActive == true || isEditMode || bottomRightTool?.isPlaceholder == true) {
+                                Modifier.clip(theme.floatingShape()).background(
+                                    when {
+                                        bottomRightTool?.isActive == true -> theme.highlightColor
+                                        isEditMode -> theme.barBackgroundColor.copy(alpha = 0.5f)
+                                        bottomRightTool?.isPlaceholder == true -> Color.Red.copy(alpha = 0.3f)
+                                        else -> theme.barBackgroundColor
+                                    }
+                                )
+                            } else {
+                                Modifier.glassmorphicBackground(theme, theme.floatingShape())
                             }
                         )
                         .then(
@@ -887,8 +911,7 @@ fun StudioLayout(
                         offsetX = shadowOffsetX,
                         offsetY = shadowOffsetY
                     )
-                    .clip(theme.floatingShape())
-                    .background(theme.barBackgroundColor)
+                    .glassmorphicBackground(theme, theme.floatingShape())
             ) {
                 Column(
                     modifier = Modifier.padding(vertical = scaler.smallMargin),
@@ -1014,8 +1037,7 @@ fun StudioLayout(
                         offsetX = shadowOffsetX,
                         offsetY = shadowOffsetY
                     )
-                    .clip(theme.floatingShape())
-                    .background(theme.barBackgroundColor)
+                    .glassmorphicBackground(theme, theme.floatingShape())
             ) {
                  Column(
                     modifier = Modifier.padding(vertical = scaler.smallMargin),
@@ -1142,8 +1164,7 @@ fun StudioLayout(
                         offsetX = shadowOffsetX,
                         offsetY = shadowOffsetY
                     )
-                    .clip(theme.floatingShape())
-                    .background(theme.barBackgroundColor)
+                    .glassmorphicBackground(theme, theme.floatingShape())
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = scaler.smallMargin, vertical = 4.dp), 
@@ -1270,8 +1291,7 @@ fun StudioLayout(
                         offsetX = shadowOffsetX,
                         offsetY = shadowOffsetY
                     )
-                    .clip(theme.floatingShape())
-                    .background(theme.barBackgroundColor)
+                    .glassmorphicBackground(theme, theme.floatingShape())
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = scaler.smallMargin, vertical = 4.dp),
@@ -1483,266 +1503,8 @@ fun StudioLayout(
             )
         }
 
-        // --- DIALOGS ---
-        if (showPersonalizationDialog) {
-            Dialog(onDismissRequest = { showPersonalizationDialog = false }) {
-                 Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    modifier = Modifier.padding(16.dp).width(300.dp)
-                ) {
-                Column(
-                        modifier = Modifier
-                            .padding(24.dp)
-                            .verticalScroll(rememberScrollState()),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text("Customize Theme", style = MaterialTheme.typography.titleLarge, color = theme.iconColor)
-                        Spacer(modifier = Modifier.height(24.dp))
-                        
-                        // Shape Switch
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("Round Shapes", color = theme.iconColor)
-                            Switch(
-                                checked = theme.isRound,
-                                onCheckedChange = { viewModel.updateTheme(theme.copy(isRound = it)) }
-                            )
-                        }
-                        
-                        Spacer(modifier = Modifier.height(24.dp))
-                        
-                        // Edit Toolbars Switch
-                        val isEditModeByVM by viewModel.isEditMode.collectAsState()
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("Edit Toolbars", color = theme.iconColor)
-                            Switch(
-                                checked = isEditModeByVM,
-                                onCheckedChange = { viewModel.toggleEditMode() }
-                            )
-                        }
- 
-                        Spacer(modifier = Modifier.height(24.dp))
-                        
-                        // UI Scale Slider
-                        var tempScale by remember { mutableStateOf(interfaceScale) }
-                        Text("UI Scale: ${String.format("%.1f", tempScale)}x", color = theme.iconColor, style = MaterialTheme.typography.labelMedium)
-                        Slider(
-                            value = tempScale,
-                            onValueChange = { tempScale = it },
-                            onValueChangeFinished = { viewModel.updateInterfaceScale(tempScale) },
-                            valueRange = 0.5f..1.5f,
-                            modifier = Modifier.fillMaxWidth()
-                        )
- 
-                        Spacer(modifier = Modifier.height(24.dp))
-                        // --- SEPARATE COLOR PICKERS ---
-                        var pickingColorFor by remember { mutableStateOf<String?>(null) }
-                        
-                        ColorPreviewRow(
-                            label = "Bar Color",
-                            color = theme.barBackgroundColor,
-                            labelColor = theme.iconColor,
-                            onClick = { pickingColorFor = "bar" }
-                        )
-                        
-                        ColorPreviewRow(
-                            label = "Button Color",
-                            color = theme.buttonColor,
-                            labelColor = theme.iconColor,
-                            onClick = { pickingColorFor = "button" }
-                        )
-                        
-                        ColorPreviewRow(
-                            label = "Icon Color",
-                            color = theme.iconColor,
-                            labelColor = theme.iconColor,
-                            onClick = { pickingColorFor = "icon" }
-                        )
-                        
-                        ColorPreviewRow(
-                            label = "Highlight Color",
-                            color = theme.highlightColor,
-                            labelColor = theme.iconColor,
-                            onClick = { pickingColorFor = "highlight" }
-                        )
 
-                        if (pickingColorFor != null) {
-                            val initialColor = when(pickingColorFor) {
-                                "bar" -> theme.barBackgroundColor
-                                "button" -> theme.buttonColor
-                                "icon" -> theme.iconColor
-                                "highlight" -> theme.highlightColor
-                                else -> Color.Transparent
-                            }
-                            
-                            ColorPickerDialog(
-                                initialColor = initialColor,
-                                recentColors = theme.recentColors,
-                                onDismiss = { pickingColorFor = null },
-                                onColorSelected = { newColor ->
-                                    // Update recent colors
-                                    val newRecents = (listOf(newColor) + theme.recentColors)
-                                        .distinct()
-                                        .take(12)
-                                
-                                    when(pickingColorFor) {
-                                        "bar" -> viewModel.updateTheme(theme.copy(barBackgroundColor = newColor, recentColors = newRecents))
-                                        "button" -> viewModel.updateTheme(theme.copy(buttonColor = newColor, recentColors = newRecents))
-                                        "icon" -> viewModel.updateTheme(theme.copy(iconColor = newColor, recentColors = newRecents))
-                                        "highlight" -> viewModel.updateTheme(theme.copy(highlightColor = newColor, recentColors = newRecents))
-                                    }
-                                    pickingColorFor = null
-                                }
-                            )
-                        }
-                        
-                        Spacer(modifier = Modifier.height(24.dp))
-                        
-                        // Opacity Slider (Optional now since color picker has alpha, but keeping for direct access)
-                        Text("Bar Opacity: ${(theme.barBackgroundColor.alpha * 100).toInt()}%", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
-                        Slider(
-                            value = theme.barBackgroundColor.alpha,
-                            onValueChange = { 
-                                viewModel.updateTheme(theme.copy(barBackgroundColor = theme.barBackgroundColor.copy(alpha = it))) 
-                            },
-                            valueRange = 0f..1f
-                        )
-                        
-                        Spacer(modifier = Modifier.height(12.dp))
 
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // --- SHADOW CONTROLS ---
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("Enable Shadows", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
-                            Switch(
-                                checked = theme.isShadowEnabled,
-                                onCheckedChange = { viewModel.updateTheme(theme.copy(isShadowEnabled = it)) }
-                            )
-                        }
-
-                        // Shadow Options UI: Only show if shadows enabled AND opacity is 100%
-                        val canShowShadowOptions = theme.isShadowEnabled && theme.barBackgroundColor.alpha == 1f
-                        
-                        AnimatedVisibility(visible = canShowShadowOptions) {
-                            Column {
-                                Spacer(modifier = Modifier.height(12.dp))
-                                
-                                // Shadow Opacity Slider
-                                Text("Shadow Opacity: ${(theme.shadowOpacity * 100).toInt()}%", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
-                                Slider(
-                                    value = theme.shadowOpacity,
-                                    onValueChange = { 
-                                        viewModel.updateTheme(theme.copy(shadowOpacity = it)) 
-                                    },
-                                    valueRange = 0f..1f
-                                )
-                                
-                                Spacer(modifier = Modifier.height(12.dp))
-
-                                // Shadow Blur Slider
-                                Text("Shadow Blur: ${theme.shadowBlur.value.toInt()} dp", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
-                                Slider(
-                                    value = theme.shadowBlur.value,
-                                    onValueChange = { 
-                                        viewModel.updateTheme(theme.copy(shadowBlur = it.dp)) 
-                                    },
-                                    valueRange = 0f..24f
-                                )
-                                
-                                Spacer(modifier = Modifier.height(12.dp))
-
-                                // Angle Slider
-                                Text("Shadow Angle: ${theme.shadowAngle.toInt()}Â°", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
-                                Slider(
-                                    value = theme.shadowAngle,
-                                    onValueChange = { 
-                                        viewModel.updateTheme(theme.copy(shadowAngle = it)) 
-                                    },
-                                    valueRange = 0f..360f
-                                )
-                            }
-                        }
-
-                        if (theme.isShadowEnabled && theme.barBackgroundColor.alpha < 1f) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                "Shadows hidden because Opacity < 100%", 
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.error.copy(alpha=0.7f)
-                            )
-                        }
-                        
-                        Spacer(modifier = Modifier.height(24.dp))
-
-                        // --- INTERFACE MIRROR ---
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(theme.buttonColor.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
-                                .padding(horizontal = 12.dp, vertical = 8.dp)
-                        ) {
-                            Column {
-                                Text(
-                                    "Interface Mirror",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = theme.iconColor.copy(alpha = 0.6f),
-                                    modifier = Modifier.padding(bottom = 8.dp)
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text("Swap Vertical", color = theme.iconColor)
-                                    Switch(
-                                        checked = swapVertical,
-                                        onCheckedChange = { viewModel.toggleSwapVertical() }
-                                    )
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text("Swap Horizontal", color = theme.iconColor)
-                                    Switch(
-                                        checked = swapHorizontal,
-                                        onCheckedChange = { viewModel.toggleSwapHorizontal() }
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(24.dp))
-                        Button(
-                            onClick = { showPersonalizationDialog = false },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = theme.buttonColor,
-                                contentColor = theme.iconColor
-                            )
-                        ) {
-                            Text("Close")
-                        }
-                    }
-                }
-            }
-        }
-
-        // --- PROPERTIES PANEL ---
         if (viewModel.showPropertiesPanel) {
             Dialog(onDismissRequest = { viewModel.togglePropertiesPanel() }) {
                 ToolPropertiesPanel(viewModel = viewModel, onDismiss = { viewModel.togglePropertiesPanel() })
@@ -1799,12 +1561,15 @@ fun StudioLayout(
         }
     }
 
-    // --- DIALOGS ---
     if (showPersonalizationDialog) {
         Dialog(onDismissRequest = { showPersonalizationDialog = false }) {
-             Surface(
+             Card(
                 shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surface,
+                colors = CardDefaults.cardColors(
+                    containerColor = theme.barBackgroundColor.copy(alpha = 0.98f),
+                    contentColor = theme.iconColor
+                ),
+                border = androidx.compose.foundation.BorderStroke(1.dp, theme.iconColor.copy(alpha = 0.1f)),
                 modifier = Modifier.padding(16.dp).width(300.dp)
             ) {
                 Column(
@@ -2066,4 +1831,9 @@ fun StudioLayout(
         )
     }
 }
+
+fun Modifier.glassmorphicBackground(
+    theme: UiThemeConfig,
+    shape: androidx.compose.ui.graphics.Shape
+): Modifier = this.background(theme.barBackgroundColor, shape)
 
