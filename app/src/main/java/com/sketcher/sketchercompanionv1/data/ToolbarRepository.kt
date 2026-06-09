@@ -77,7 +77,7 @@ class ToolbarRepository(context: Context) {
                     var restored = baseTool.copy(
                         id = saved.instanceId,
                         registryId = effectiveRegistryId,
-                        isPlaceholder = saved.isPlaceholder
+                        isPlaceholder = baseTool.isPlaceholder
                     )
                     
                     // Apply payload if present (assigned tool)
@@ -99,7 +99,7 @@ class ToolbarRepository(context: Context) {
                 var restored = baseTool.copy(
                     id = saved.instanceId,
                     registryId = saved.registryId,
-                    isPlaceholder = saved.isPlaceholder
+                    isPlaceholder = baseTool.isPlaceholder
                 )
                 
                 val assignedPayload = layout.assignedMap[saved.instanceId]

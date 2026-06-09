@@ -1,5 +1,6 @@
 package com.sketcher.sketchercompanionv1.ui.components
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -26,6 +27,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
@@ -61,6 +64,7 @@ fun AssignableToolButton(
     colorPreview: Color? = null,
     payload: ToolPayload? = null,
     isSelected: Boolean = false,
+    isNone: Boolean = false,
     subTools: List<StudioTool> = emptyList(),
     onSubToolClick: ((StudioTool) -> Unit)? = null
 ) {
@@ -108,7 +112,33 @@ fun AssignableToolButton(
                 ),
             contentAlignment = Alignment.Center
         ) {
-            if (colorPreview != null) {
+            if (isNone && (payload == ToolPayload.STROKE_COLOR || payload == ToolPayload.FILL_COLOR)) {
+                // "None" indicator: circle with diagonal slash
+                val noneColor = iconColor.copy(alpha = 0.55f)
+                Canvas(modifier = Modifier.size(24.dp)) {
+                    val strokeWidth = 2.5.dp.toPx()
+                    val radius = size.minDimension / 2f - strokeWidth / 2f
+                    val cx = size.width / 2f
+                    val cy = size.height / 2f
+                    // Circle outline
+                    drawCircle(
+                        color = noneColor,
+                        radius = radius,
+                        style = Stroke(width = strokeWidth)
+                    )
+                    // Diagonal slash (top-right to bottom-left, like a prohibition sign)
+                    val angle = Math.toRadians(45.0)
+                    val dx = (radius * kotlin.math.cos(angle)).toFloat()
+                    val dy = (radius * kotlin.math.sin(angle)).toFloat()
+                    drawLine(
+                        color = noneColor,
+                        start = androidx.compose.ui.geometry.Offset(cx - dx, cy + dy),
+                        end = androidx.compose.ui.geometry.Offset(cx + dx, cy - dy),
+                        strokeWidth = strokeWidth,
+                        cap = StrokeCap.Round
+                    )
+                }
+            } else if (colorPreview != null) {
                 if (payload == ToolPayload.STROKE_COLOR) {
                     // Hollow circle for Stroke
                     Box(
@@ -117,7 +147,7 @@ fun AssignableToolButton(
                             .border(width = 3.dp, color = colorPreview, shape = CircleShape)
                     )
                 } else {
-                    // Solid circle for Fill (and others if any)
+                    // Solid circle for Fill
                     Box(
                         modifier = Modifier
                             .size(24.dp)
@@ -135,16 +165,25 @@ fun AssignableToolButton(
                         .then(if (isEditMode) Modifier.alpha(0.6f) else Modifier)
                 )
             }
-            
-            // Debug text
+            // Sub-tools group indicator: small triangle in the bottom-right corner
             if (subTools.isNotEmpty()) {
-                Box(
+                Canvas(
                     modifier = Modifier
-                        .size(8.dp)
-                        .offset(x = 12.dp, y = 12.dp)
-                        .clip(CircleShape)
-                        .background(Color.Red)
-                )
+                        .size(5.dp)
+                        .align(Alignment.BottomEnd)
+                        .offset(x = (-4).dp, y = (-4).dp)
+                ) {
+                    val path = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(size.width, size.height)
+                        lineTo(size.width, size.height - size.minDimension)
+                        lineTo(size.width - size.minDimension, size.height)
+                        close()
+                    }
+                    drawPath(
+                        path = path,
+                        color = iconColor.copy(alpha = 0.7f)
+                    )
+                }
             }
         }
 

@@ -4,6 +4,10 @@ import android.app.Application
 import android.content.Context
 import android.graphics.Color as AndroidColor
 import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
+import android.net.wifi.WifiManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -14,6 +18,11 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.sketcher.sketchercompanionv1.projection.LiveProjectionServer
+import com.sketcher.sketchercompanionv1.projection.ProjectionClient
+import java.io.ByteArrayOutputStream
+import java.net.Inet4Address
+import java.net.NetworkInterface
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -89,6 +98,22 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     var isRotationLocked by mutableStateOf(prefs.getBoolean("rotation_lock", false))
     var isPalmRejectionEnabled by mutableStateOf(prefs.getBoolean("palm_rejection", false))
     var showTooltips by mutableStateOf(prefs.getBoolean("show_tooltips", true))
+
+    // LAYOUT MIRROR
+    var swapVertical by mutableStateOf(prefs.getBoolean("swap_vertical", false))
+        private set
+    var swapHorizontal by mutableStateOf(prefs.getBoolean("swap_horizontal", false))
+        private set
+
+    fun toggleSwapVertical() {
+        swapVertical = !swapVertical
+        prefs.edit().putBoolean("swap_vertical", swapVertical).apply()
+    }
+
+    fun toggleSwapHorizontal() {
+        swapHorizontal = !swapHorizontal
+        prefs.edit().putBoolean("swap_horizontal", swapHorizontal).apply()
+    }
     
     var interfaceScale by mutableStateOf(prefs.getFloat("interface_scale", 1.0f))
         private set
@@ -373,31 +398,34 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         "stroke_color" -> ({ _showStrokeColorPicker.value = true })
         "fill_color" -> ({ _showFillColorPicker.value = true })
         "tool_selection" -> ({
+             if (currentSelectionMode == SelectionMode.TRANSFORM_BOX) confirmTransform()
              selectTool(ToolType.SELECTION)
-             // Default to freehand if the parent is tapped
              currentSelectionMode = SelectionMode.FREEHAND
         })
         "tool_selection_freehand" -> ({ 
+             if (currentSelectionMode == SelectionMode.TRANSFORM_BOX) confirmTransform()
              selectTool(ToolType.SELECTION)
              currentSelectionMode = SelectionMode.FREEHAND 
         })
         "tool_selection_rect" -> ({ 
+             if (currentSelectionMode == SelectionMode.TRANSFORM_BOX) confirmTransform()
              selectTool(ToolType.SELECTION)
              currentSelectionMode = SelectionMode.RECTANGLE 
         })
         "tool_selection_polygon" -> ({ 
+             if (currentSelectionMode == SelectionMode.TRANSFORM_BOX) confirmTransform()
              selectTool(ToolType.SELECTION)
              currentSelectionMode = SelectionMode.POLYGON 
         })
         "tool_transform" -> ({ 
              selectTool(ToolType.SELECTION)
-             currentSelectionMode = SelectionMode.TRANSFORM_BOX 
+             enterTransformMode()
         })
         "context_deselect" -> ({ clearSelection() })
         "context_delete" -> ({ deleteSelection() })
         "context_copy" -> ({ duplicateSelection() })
         "context_transform" -> ({ 
-             currentSelectionMode = SelectionMode.TRANSFORM_BOX 
+             enterTransformMode()
         })
         "context_flip_horizontal" -> ({ /* TODO: Implement */ })
         "context_flip_vertical" -> ({ /* TODO: Implement */ })
@@ -521,7 +549,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun toggleStroke(enabled: Boolean) = toolManager.toggleStroke(enabled)
     fun toggleFill(enabled: Boolean) = toolManager.toggleFill(enabled)
     
-    fun selectTool(type: ToolType) = toolManager.selectTool(type)
+    fun selectTool(type: ToolType) {
+        if (currentTool == ToolType.SELECTION && type != ToolType.SELECTION) {
+            if (currentSelectionMode == SelectionMode.TRANSFORM_BOX) {
+                confirmTransform()
+            }
+        }
+        toolManager.selectTool(type)
+    }
     fun saveSizePreset(index: Int, size: Float) = toolManager.saveSizePreset(index, size)
     val sizePresets: StateFlow<List<Float>> = toolManager.sizePresets
 
@@ -606,14 +641,58 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     val hasSelection: Boolean get() = selectionManager.hasSelection.value
     val selectionCount: Int get() = selectionManager.selectionCount.value
 
-    fun clearSelection() = selectionManager.clearSelection()
+    fun clearSelection() {
+        if (currentSelectionMode == SelectionMode.TRANSFORM_BOX) {
+            confirmTransform()
+        }
+        selectionManager.clearSelection()
+    }
 
     fun deleteSelection() {
+        if (currentSelectionMode == SelectionMode.TRANSFORM_BOX) {
+            confirmTransform()
+        }
         selectionManager.deleteSelected(layerManager, activeLayerIndex) { label, action -> performSnapshotAction(label, action) }
     }
 
     fun duplicateSelection() {
+        if (currentSelectionMode == SelectionMode.TRANSFORM_BOX) {
+            confirmTransform()
+        }
         selectionManager.duplicateSelected(layerManager, activeLayerIndex) { label, action -> performSnapshotAction(label, action) }
+    }
+
+    private var layersSnapshotBeforeTransform: List<Layer>? = null
+
+    fun enterTransformMode() {
+        if (selectionManager.selectedElements.isEmpty()) return
+        layersSnapshotBeforeTransform = createLayersSnapshot()
+        selectionManager.backupOriginalElements()
+        currentSelectionMode = SelectionMode.TRANSFORM_BOX
+    }
+
+    fun confirmTransform() {
+        selectionManager.commitTransformSession(componentLibrary)
+        val before = layersSnapshotBeforeTransform
+        if (before != null) {
+            val activeIndexBefore = activeLayerIndex
+            val after = createLayersSnapshot()
+            performAction(SnapshotCommand("Transformar", before, after, activeIndexBefore))
+        }
+        layersSnapshotBeforeTransform = null
+        selectionManager.clearBackup()
+        currentSelectionMode = SelectionMode.FREEHAND
+    }
+
+    fun cancelTransform() {
+        val activeIndex = activeLayerIndex
+        if (layers.isNotEmpty() && activeIndex in layers.indices) {
+            val activeLayer = layers[activeIndex]
+            selectionManager.cancelTransformSession(activeLayer, componentLibrary)
+        }
+        layersSnapshotBeforeTransform = null
+        selectionManager.clearBackup()
+        currentSelectionMode = SelectionMode.FREEHAND
     }
 
     // --- RESTORED LOGIC ---
@@ -872,6 +951,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     
     // --- LAYERS ---
     fun toggleLayerVisibility(index: Int) = layerManager.toggleLayerVisibility(index)
+    fun toggleLayerClientVisibility(index: Int) = layerManager.toggleLayerClientVisibility(index)
     fun setLayerOpacity(index: Int, opacity: Float) = layerManager.setLayerOpacity(index, opacity)
     fun setActiveLayer(index: Int) = layerManager.setActiveLayer(index)
     
@@ -907,12 +987,19 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         notifyLayersChanged()
     }
 
+    private var lastUndoTime = 0L
+    private var lastRedoTime = 0L
+
     private fun updateUndoRedoSupport() {
         canUndo = undoStack.isNotEmpty()
         canRedo = redoStack.isNotEmpty()
     }
     
     fun undo() {
+        val now = System.currentTimeMillis()
+        if (now - lastUndoTime < 300L) return
+        lastUndoTime = now
+
         if (undoStack.isEmpty()) return
         val command = undoStack.pop()
         command.undo()
@@ -922,6 +1009,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun redo() {
+        val now = System.currentTimeMillis()
+        if (now - lastRedoTime < 300L) return
+        lastRedoTime = now
+
         if (redoStack.isEmpty()) return
         val command = redoStack.pop()
         command.execute()
@@ -1779,7 +1870,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                                 name = lJson.name, 
                                 elements = mutableStateListOf(), 
                                 isVisible = lJson.isVisible, 
-                                opacity = lJson.opacity
+                                opacity = lJson.opacity,
+                                isVisibleOnClient = lJson.isVisibleOnClient ?: false
                             )
                             newLayers.add(l)
                         }
@@ -1929,6 +2021,399 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 collectStrokes(element.elements, target, newMatrix)
             }
         }
+    }
+
+    // ── LIVE PROJECTION ─────────────────────────────────────────────────
+
+    var isProjectionActive by mutableStateOf(false)
+        private set
+    var projectionUrl by mutableStateOf("")
+        private set
+    var projectionClientCount by mutableIntStateOf(0)
+        private set
+    var isProjectionPaused by mutableStateOf(false)
+        private set
+    var projectionMode by mutableStateOf("sync") // "sync" | "fixed"
+        private set
+    var fixedZoomMode by mutableStateOf("fit") // "fit" | "home"
+
+    fun toggleProjectionPause() {
+        isProjectionPaused = !isProjectionPaused
+        updateProjectionViewports()
+    }
+
+    fun updateProjectionMode(mode: String) {
+        if (mode == "sync" || mode == "fixed") {
+            projectionMode = mode
+            projectionServer?.clients?.forEach { client ->
+                client.mode = mode
+            }
+            updateProjectionViewports()
+        }
+    }
+
+    // Viewport rectangles to draw on the canvas for each connected client
+    // Each entry: [left, top, right, bottom] in screen coordinates
+    data class ProjectionViewport(val left: Float, val top: Float, val right: Float, val bottom: Float, val color: Int, val label: String)
+    var projectionViewports by mutableStateOf<List<ProjectionViewport>>(emptyList())
+        private set
+
+    private var projectionServer: LiveProjectionServer? = null
+    private val viewportColors = listOf(
+        AndroidColor.parseColor("#00E5FF"),  // cyan
+        AndroidColor.parseColor("#FF6D00"),  // orange
+        AndroidColor.parseColor("#D500F9"),  // magenta
+        AndroidColor.parseColor("#76FF03"),  // lime
+    )
+
+    fun startProjection() {
+        if (isProjectionActive) return
+        val ip = getLocalIpAddress() ?: run {
+            android.util.Log.w("Projection", "No WiFi IP found")
+            return
+        }
+        val port = 8080
+        try {
+            val server = LiveProjectionServer(
+                port = port,
+                getCurrentMode = { projectionMode },
+                onClientCountChanged = { count ->
+                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                        projectionClientCount = count
+                        updateProjectionViewports()
+                    }
+                },
+                onClientUpdated = {
+                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                        updateProjectionViewports()
+                    }
+                }
+            )
+            server.start(0, false)
+            projectionServer = server
+            projectionUrl = "http://$ip:$port"
+            isProjectionActive = true
+            android.util.Log.d("Projection", "Server started at $projectionUrl")
+        } catch (e: Exception) {
+            android.util.Log.e("Projection", "Failed to start server", e)
+        }
+    }
+
+    fun stopProjection() {
+        projectionServer?.stop()
+        projectionServer = null
+        isProjectionActive = false
+        isProjectionPaused = false
+        projectionMode = "sync"
+        projectionUrl = ""
+        projectionClientCount = 0
+        projectionViewports = emptyList()
+    }
+
+    /**
+     * Renders all canvas layers using the current viewport zoom/pan off-screen to the client's screen AR.
+     * Called ~15fps from the capture loop.
+     */
+    fun renderAndSendSyncFrame(
+        livePoints: List<StrokePoint>?,
+        livePath: android.graphics.Path?,
+        liveFillPath: android.graphics.Path?,
+        liveRadius: Float
+    ) {
+        val server = projectionServer ?: return
+        val clients = server.clients
+        val isPaused = isProjectionPaused
+        if (clients.isEmpty() || isPaused) return
+
+        // Take a snapshot of layers and component library on the main thread first
+        val layersSnapshot = layers.map { layer ->
+            layer.copy(elements = layer.elements.toMutableStateList())
+        }
+        val compLibSnapshot = HashMap(componentLibrary)
+        val bgCol = backgroundColor
+        val cameraMatrixValuesSnapshot = cameraMatrixValues.clone()
+        val phoneW = lastViewportWidth
+        val phoneH = lastViewportHeight
+
+        val strokeColorVal = strokeColor.value
+        val fillColorVal = fillColor.value
+        val isStrokeActiveVal = isStrokeActive.value
+        val isFillActiveVal = isFillActive.value
+
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            try {
+                val jpegByClient = mutableMapOf<Int, ByteArray>()
+                for (client in clients) {
+                    val outW = client.clientWidth.coerceAtLeast(320)
+                    val outH = client.clientHeight.coerceAtLeast(240)
+
+                    val bitmap = android.graphics.Bitmap.createBitmap(outW, outH, android.graphics.Bitmap.Config.ARGB_8888)
+                    val canvas = android.graphics.Canvas(bitmap)
+                    canvas.drawColor(bgCol)
+
+                    val fitMatrix = android.graphics.Matrix()
+                    val pW = phoneW.coerceAtLeast(1f)
+                    val pH = phoneH.coerceAtLeast(1f)
+                    val phoneAR = pW / pH
+                    val clientAR = outW.toFloat() / outH.toFloat()
+
+                    val scale: Float
+                    val tx: Float
+                    val ty: Float
+                    if (clientAR > phoneAR) {
+                        scale = outW.toFloat() / pW
+                        tx = 0f
+                        ty = (outH - pH * scale) / 2f
+                    } else {
+                        scale = outH.toFloat() / pH
+                        tx = (outW - pW * scale) / 2f
+                        ty = 0f
+                    }
+
+                    val phoneCameraMatrix = android.graphics.Matrix()
+                    phoneCameraMatrix.setValues(cameraMatrixValuesSnapshot)
+
+                    fitMatrix.set(phoneCameraMatrix)
+                    fitMatrix.postScale(scale, scale)
+                    fitMatrix.postTranslate(tx, ty)
+
+                    val renderEngine = RenderEngine()
+                    renderEngine.canvasBackgroundColor = bgCol
+                    renderEngine.drawLayers(
+                        canvas = canvas,
+                        layers = layersSnapshot,
+                        viewMatrix = fitMatrix,
+                        componentLibrary = compLibSnapshot,
+                        selectionManager = null,
+                        isTransformActive = false,
+                        drawGrid = false,
+                        clientMode = true
+                    )
+
+                    // Render active live stroke if it's currently in progress
+                    if (livePath != null || livePoints != null) {
+                        renderEngine.drawLiveStroke(
+                            canvas = canvas,
+                            previewPoints = livePoints,
+                            previewPath = livePath,
+                            previewColor = strokeColorVal,
+                            fillPath = liveFillPath,
+                            fillColor = fillColorVal,
+                            isFillActive = isFillActiveVal,
+                            isStrokeActive = isStrokeActiveVal,
+                            currentLiveGeneratedRadius = liveRadius,
+                            viewMatrix = fitMatrix,
+                            isDrawing = true
+                        )
+                    }
+
+                    val out = ByteArrayOutputStream()
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 75, out)
+                    bitmap.recycle()
+                    jpegByClient[client.id] = out.toByteArray()
+                }
+                if (jpegByClient.isNotEmpty()) {
+                    server.broadcastSyncFrames(jpegByClient)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("Projection", "Error rendering sync frame", e)
+            }
+        }
+    }
+
+    /**
+     * Renders all canvas layers to a bitmap fitted to each fixed-mode client's AR.
+     * Called ~2fps from the capture loop.
+     */
+    fun renderAndSendFixedSnapshot(
+        livePoints: List<StrokePoint>?,
+        livePath: android.graphics.Path?,
+        liveFillPath: android.graphics.Path?,
+        liveRadius: Float
+    ) {
+        val server = projectionServer ?: return
+        val clients = server.clients
+        val isPaused = isProjectionPaused
+        if (clients.isEmpty() || isPaused) return
+
+        val client = clients.firstOrNull() ?: return
+        val outW = client.clientWidth.coerceAtLeast(320)
+        val outH = client.clientHeight.coerceAtLeast(240)
+        
+        // Take a snapshot of layers and component library on the main thread first
+        val layersSnapshot = layers.map { layer ->
+            layer.copy(elements = layer.elements.toMutableStateList())
+        }
+        val compLibSnapshot = HashMap(componentLibrary)
+        val bgCol = backgroundColor
+        val zoomMode = fixedZoomMode
+        val homeMatrixValues = homeCameraMatrixValues.clone()
+        val phoneW = lastViewportWidth
+        val phoneH = lastViewportHeight
+
+        val strokeColorVal = strokeColor.value
+        val fillColorVal = fillColor.value
+        val isStrokeActiveVal = isStrokeActive.value
+        val isFillActiveVal = isFillActive.value
+
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            try {
+                val bitmap = android.graphics.Bitmap.createBitmap(outW, outH, android.graphics.Bitmap.Config.ARGB_8888)
+                val canvas = android.graphics.Canvas(bitmap)
+                canvas.drawColor(bgCol)
+
+                val fitMatrix = android.graphics.Matrix()
+                if (zoomMode == "home") {
+                    val homeMatrix = android.graphics.Matrix()
+                    homeMatrix.setValues(homeMatrixValues)
+                    
+                    val pW = phoneW.coerceAtLeast(1f)
+                    val pH = phoneH.coerceAtLeast(1f)
+                    val scale = minOf(outW.toFloat() / pW, outH.toFloat() / pH)
+                    
+                    fitMatrix.postTranslate(-pW / 2f, -pH / 2f)
+                    fitMatrix.postScale(scale, scale)
+                    fitMatrix.postTranslate(outW / 2f, outH / 2f)
+                    fitMatrix.preConcat(homeMatrix)
+                } else {
+                    // Compute zoom-to-fit matrix for all layers
+                    val allBounds = android.graphics.RectF()
+                    var first = true
+                    for (layer in layersSnapshot) {
+                        if (!layer.isVisible || !layer.isVisibleOnClient) continue
+                        for (element in layer.elements) {
+                            val b = element.getBoundingBox(compLibSnapshot)
+                            if (b.isEmpty) continue
+                            if (first) { allBounds.set(b); first = false } else allBounds.union(b)
+                        }
+                    }
+
+                    if (!allBounds.isEmpty) {
+                        val scaleX = outW / allBounds.width()
+                        val scaleY = outH / allBounds.height()
+                        val scale = minOf(scaleX, scaleY) * 0.9f
+                        val tx = (outW - allBounds.width() * scale) / 2f - allBounds.left * scale
+                        val ty = (outH - allBounds.height() * scale) / 2f - allBounds.top * scale
+                        fitMatrix.setScale(scale, scale)
+                        fitMatrix.postTranslate(tx, ty)
+                    }
+                }
+
+                val renderEngine = RenderEngine()
+                renderEngine.canvasBackgroundColor = bgCol
+                renderEngine.drawLayers(
+                    canvas = canvas,
+                    layers = layersSnapshot,
+                    viewMatrix = fitMatrix,
+                    componentLibrary = compLibSnapshot,
+                    selectionManager = null,
+                    isTransformActive = false,
+                    drawGrid = false,
+                    clientMode = true
+                )
+
+                // Render active live stroke if it's currently in progress
+                if (livePath != null || livePoints != null) {
+                    renderEngine.drawLiveStroke(
+                        canvas = canvas,
+                        previewPoints = livePoints,
+                        previewPath = livePath,
+                        previewColor = strokeColorVal,
+                        fillPath = liveFillPath,
+                        fillColor = fillColorVal,
+                        isFillActive = isFillActiveVal,
+                        isStrokeActive = isStrokeActiveVal,
+                        currentLiveGeneratedRadius = liveRadius,
+                        viewMatrix = fitMatrix,
+                        isDrawing = true
+                    )
+                }
+
+                val out = ByteArrayOutputStream()
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
+                bitmap.recycle()
+                server.broadcastFixedSnapshot(out.toByteArray())
+            } catch (e: Exception) {
+                android.util.Log.e("Projection", "Error rendering fixed snapshot", e)
+            }
+        }
+    }
+
+
+
+    /** Recalculates the on-canvas viewport rectangles for the projection indicator overlay. */
+    private fun updateProjectionViewports() {
+        val server = projectionServer ?: run { projectionViewports = emptyList(); return }
+        if (isProjectionPaused || projectionMode == "fixed" || server.clients.isEmpty()) {
+            projectionViewports = emptyList()
+            return
+        }
+        val vW = lastViewportWidth
+        val vH = lastViewportHeight
+        if (vW <= 0 || vH <= 0) return
+
+        val vAR = vW / vH
+        val newViewports = mutableListOf<ProjectionViewport>()
+        server.clients.forEachIndexed { index, client ->
+            val color = viewportColors[index % viewportColors.size]
+            val label = "Cliente ${index + 1}"
+            val clientAR = client.clientWidth.toFloat() / client.clientHeight.toFloat()
+
+            val (rL, rT, rR, rB) = if (kotlin.math.abs(clientAR - vAR) < 0.05f) {
+                // Nearly same AR — full viewport
+                listOf(0f, 0f, vW, vH)
+            } else if (clientAR > vAR) {
+                // Client wider: full width, centered height strip
+                val h = vW / clientAR
+                val top = (vH - h) / 2f
+                listOf(0f, top, vW, top + h)
+            } else {
+                // Client taller: full height, centered width strip
+                val w = vH * clientAR
+                val left = (vW - w) / 2f
+                listOf(left, 0f, left + w, vH)
+            }
+            newViewports.add(ProjectionViewport(rL, rT, rR, rB, color, label))
+        }
+        projectionViewports = newViewports
+    }
+
+    private fun getLocalIpAddress(): String? {
+        try {
+            val interfaces = java.util.Collections.list(NetworkInterface.getNetworkInterfaces())
+            // 1. Try to find WiFi/Wlan interface first
+            for (intf in interfaces) {
+                val name = intf.name.lowercase()
+                if (name.contains("wlan") || name.contains("wifi") || name.contains("ap")) {
+                    for (addr in intf.inetAddresses) {
+                        if (!addr.isLoopbackAddress && addr is Inet4Address) {
+                            return addr.hostAddress
+                        }
+                    }
+                }
+            }
+            // 2. Fallback to any other non-cellular interface
+            for (intf in interfaces) {
+                val name = intf.name.lowercase()
+                if (name.contains("rmnet") || name.contains("ccmni") || name.contains("p2p") || name.contains("dummy")) continue
+                for (addr in intf.inetAddresses) {
+                    if (!addr.isLoopbackAddress && addr is Inet4Address) {
+                        val ip = addr.hostAddress ?: continue
+                        if (!ip.startsWith("10.0.2") && !ip.startsWith("127.")) {
+                            return ip
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Projection", "getLocalIpAddress failed", e)
+        }
+        return null
+    }
+
+    override fun onCleared() {
+        stopProjection()
+        super.onCleared()
     }
 }
 

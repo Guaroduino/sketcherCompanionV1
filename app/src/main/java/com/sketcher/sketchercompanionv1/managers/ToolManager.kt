@@ -17,11 +17,13 @@ class ToolManager(context: Context) {
     var currentTool by mutableStateOf(
         try { 
             val savedName = prefs.getString("current_tool", ToolType.FREEHAND.name) ?: ToolType.FREEHAND.name
-            if (ToolType.entries.any { it.name == savedName }) {
+            val saved = if (ToolType.entries.any { it.name == savedName }) {
                 ToolType.valueOf(savedName)
             } else {
                 ToolType.FREEHAND
             }
+            // Selection and Eraser should not persist between sessions
+            if (saved == ToolType.SELECTION || saved == ToolType.ERASER) ToolType.FREEHAND else saved
         } catch(e: Exception) { ToolType.FREEHAND }
     )
         private set

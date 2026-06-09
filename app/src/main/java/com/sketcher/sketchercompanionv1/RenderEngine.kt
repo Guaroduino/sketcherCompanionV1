@@ -107,7 +107,9 @@ class RenderEngine {
         viewMatrix: Matrix,
         componentLibrary: Map<String, ComponentDefinition>,
         selectionManager: SelectionManager?,
-        isSelectionDragging: Boolean
+        isTransformActive: Boolean,
+        drawGrid: Boolean = true,
+        clientMode: Boolean = false
     ) {
         // Draw Background
         val sizeConfig = canvasSizeConfig
@@ -147,13 +149,15 @@ class RenderEngine {
             // provided the paper is drawn relative to that 0,0.
             
             // We need to pass the paper bounds to drawGrid for clamping though.
-            tempPaperRect.set(left, top, right, bottom)
-            drawGrid(
-                canvas = canvas, 
-                viewMatrix = viewMatrix, 
-                isFinite = true, 
-                paperBounds = tempPaperRect
-            )
+            if (drawGrid) {
+                tempPaperRect.set(left, top, right, bottom)
+                drawGrid(
+                    canvas = canvas, 
+                    viewMatrix = viewMatrix, 
+                    isFinite = true, 
+                    paperBounds = tempPaperRect
+                )
+            }
             
             canvas.restore()
             
@@ -161,11 +165,13 @@ class RenderEngine {
             // Infinite Canvas
             canvas.drawColor(canvasBackgroundColor)
             
-            canvas.save()
-            canvas.save()
-            canvas.concat(viewMatrix)
-            drawGrid(canvas, viewMatrix, false, null)
-            canvas.restore()   
+            if (drawGrid) {
+                canvas.save()
+                canvas.save()
+                canvas.concat(viewMatrix)
+                drawGrid(canvas, viewMatrix, false, null)
+                canvas.restore()   
+            }
             // Note: drawGrid previously restored its own save, but we'll refactor drawGrid to be cleaner
         }
         
@@ -191,7 +197,12 @@ class RenderEngine {
         }
 
         for (layer in layers) {
-             if (!layer.isVisible) continue
+             val visible = if (clientMode) {
+                 layer.isVisible && layer.isVisibleOnClient
+             } else {
+                 layer.isVisible
+             }
+             if (!visible) continue
              
              // Setup Layer Paint/Alpha
              val layerAlpha = if (layer.opacity < 1f) (layer.opacity * 255).toInt() else 255
@@ -205,7 +216,7 @@ class RenderEngine {
              
              for (element in layer.elements) {
                   val isSelected = selectionManager?.selectedElements?.contains(element) == true
-                  if (isSelected && isSelectionDragging) continue 
+                  if (isSelected && isTransformActive) continue 
 
                   // Frustum culling filter
                   if (visibleWorldBounds != null) {

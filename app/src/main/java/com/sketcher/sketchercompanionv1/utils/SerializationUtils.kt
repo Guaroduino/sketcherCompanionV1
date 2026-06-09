@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1.utils
+package com.sketcher.sketchercompanionv1.utils
 
 import android.graphics.Matrix
 import androidx.compose.runtime.toMutableStateList
@@ -32,7 +32,8 @@ fun Layer.toLayerJson(): LayerJson {
         name = this.name,
         isVisible = this.isVisible,
         opacity = this.opacity,
-        elements = elementsJson
+        elements = elementsJson,
+        isVisibleOnClient = this.isVisibleOnClient
     )
 }
 
@@ -187,7 +188,8 @@ fun LayerJson.toLayer(
         name = this.name,
         elements = customElements,
         isVisible = this.isVisible,
-        opacity = this.opacity
+        opacity = this.opacity,
+        isVisibleOnClient = this.isVisibleOnClient ?: false
     )
 }
 

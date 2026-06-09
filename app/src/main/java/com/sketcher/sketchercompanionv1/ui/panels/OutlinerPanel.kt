@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1.ui.panels
+package com.sketcher.sketchercompanionv1.ui.panels
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -85,6 +85,7 @@ fun OutlinerPanel(viewModel: SketcherViewModel) {
                         renamingIndex = actualIndex 
                     },
                     onToggleVisibility = { viewModel.toggleLayerVisibility(actualIndex) },
+                    onToggleClientVisibility = { viewModel.toggleLayerClientVisibility(actualIndex) },
                     onDelete = { viewModel.removeLayer(actualIndex) },
                     onOpacityChange = { viewModel.setLayerOpacity(actualIndex, it) },
                     // Reorder
@@ -170,6 +171,7 @@ fun LayerItem(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onToggleVisibility: () -> Unit,
+    onToggleClientVisibility: () -> Unit,
     onDelete: () -> Unit,
     onOpacityChange: (Float) -> Unit,
     onMoveUp: () -> Unit,
@@ -219,6 +221,19 @@ fun LayerItem(
             )
             
             Row(horizontalArrangement = Arrangement.spacedBy(4.sdp)) {
+                BigTouchBox(onClick = onToggleClientVisibility, touchSize = 32.sdp) {
+                    Icon(
+                        Icons.Default.Cast,
+                        null,
+                        tint = if (layer.isVisibleOnClient) {
+                            if (isActive) Color.White else Color(0xFF4CAF50)
+                        } else {
+                            if (isActive) Color.White.copy(alpha = 0.3f) else contentColor.copy(alpha = 0.3f)
+                        },
+                        modifier = Modifier.size(18.sdp)
+                    )
+                }
+
                 BigTouchBox(onClick = onToggleVisibility, touchSize = 32.sdp) {
                     Icon(
                         if (layer.isVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,

@@ -31,6 +31,12 @@ class LayerManager(
         }
     }
 
+    fun toggleLayerClientVisibility(index: Int) {
+        if (index in layers.indices) {
+            layers[index] = layers[index].copy(isVisibleOnClient = !layers[index].isVisibleOnClient)
+        }
+    }
+
     fun setLayerOpacity(index: Int, opacity: Float) {
         if (index in layers.indices) {
             layers[index] = layers[index].copy(opacity = opacity)

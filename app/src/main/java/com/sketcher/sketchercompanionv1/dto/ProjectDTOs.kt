@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1.dto
+package com.sketcher.sketchercompanionv1.dto
 
 /**
  * Main project Data Transfer Object.
@@ -44,7 +44,8 @@ data class LayerJson(
     val name: String,
     val isVisible: Boolean,
     val opacity: Float,
-    val elements: List<LayerElementJson>
+    val elements: List<LayerElementJson>,
+    val isVisibleOnClient: Boolean? = false
 )
 
 data class LayerElementJson(

@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1.ui.layout
+package com.sketcher.sketchercompanionv1.ui.layout
 
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -11,6 +11,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.Orientation
@@ -29,6 +31,8 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -76,6 +80,7 @@ import com.sketcher.sketchercompanionv1.ui.components.SelectionContextBar
 import com.sketcher.sketchercompanionv1.ui.components.ContextActionBar
 import com.sketcher.sketchercompanionv1.ui.panels.OutlinerPanel
 import com.sketcher.sketchercompanionv1.dto.ToolType
+import androidx.core.view.drawToBitmap
 
 @Composable
 fun StudioLayout(
@@ -114,8 +119,50 @@ fun StudioLayout(
         }
     }
 
+    val resolveIsActionButton: (StudioTool) -> Boolean = { tool ->
+        tool.registryId == "undo" || tool.registryId == "redo" || tool.registryId == "play" || tool.registryId == "pause" || 
+        tool.registryId == "zoom_in" || tool.registryId == "zoom_out" || tool.registryId == "zoom_fit" || tool.registryId == "home_view" ||
+        tool.registryId.startsWith("tool_selection") || tool.registryId == "tool_transform"
+    }
+
     // Tool Picker State
     var toolPickerTarget by remember { mutableStateOf<Pair<ToolLocation, Int?>?>(null) }
+
+    val canvasViewRef = remember { mutableStateOf<SketcherCanvasView?>(null) }
+    val isProjectionActive = viewModel.isProjectionActive
+
+    LaunchedEffect(isProjectionActive) {
+        if (!isProjectionActive) return@LaunchedEffect
+        var frameCount = 0
+        while (viewModel.isProjectionActive) {
+            if (viewModel.projectionMode == "sync") {
+                canvasViewRef.value?.let { view ->
+                    val livePoints = view.getLiveStrokePoints()
+                    val livePath = view.getLiveStrokePath()?.let { android.graphics.Path(it) }
+                    val liveFillPath = view.getLiveFillPath()?.let { android.graphics.Path(it) }
+                    val liveRadius = view.getLiveGeneratedRadius()
+                    viewModel.renderAndSendSyncFrame(livePoints, livePath, liveFillPath, liveRadius)
+                } ?: run {
+                    viewModel.renderAndSendSyncFrame(null, null, null, 0f)
+                }
+            }
+            frameCount++
+            if (frameCount % 8 == 0) {
+                if (viewModel.projectionMode == "fixed") {
+                    canvasViewRef.value?.let { view ->
+                        val livePoints = view.getLiveStrokePoints()
+                        val livePath = view.getLiveStrokePath()?.let { android.graphics.Path(it) }
+                        val liveFillPath = view.getLiveFillPath()?.let { android.graphics.Path(it) }
+                        val liveRadius = view.getLiveGeneratedRadius()
+                        viewModel.renderAndSendFixedSnapshot(livePoints, livePath, liveFillPath, liveRadius)
+                    } ?: run {
+                        viewModel.renderAndSendFixedSnapshot(null, null, null, 0f)
+                    }
+                }
+            }
+            kotlinx.coroutines.delay(66)
+        }
+    }
     
     // Panel Internal States (Independent Folding)
     var showTopBar by remember { mutableStateOf(false) }
@@ -144,7 +191,7 @@ fun StudioLayout(
     }
 
     // Panel Size State
-    var rightPanelWidth by remember(scaler) { mutableStateOf(scaler.sidePanelWidth) }
+    var rightPanelWidth by remember(scaler) { mutableStateOf(scaler.sidePanelWidth * 1.4f) }
     var layersPanelWeight by remember { mutableFloatStateOf(0.5f) }
     var showPersonalizationDialog by remember { mutableStateOf(false) }
     var showStabilizationPopup by remember { mutableStateOf(false) }
@@ -257,9 +304,14 @@ fun StudioLayout(
                     onHybridStrokeCompleted = { s, f -> viewModel.addHybridStroke(s, f) }
                     onCameraMatrixChanged = { matrix: android.graphics.Matrix -> viewModel.saveCameraState(matrix) }
                     canvasBackgroundColor = viewModel.backgroundColor
+                    canvasViewRef.value = this
                 }
             },
             update = { view: SketcherCanvasView ->
+                if (canvasViewRef.value != view) {
+                    canvasViewRef.value = view
+                }
+                view.projectionViewports = viewModel.projectionViewports
                 view.currentTool = viewModel.currentTool
                 
                 view.activeStrokeColor = strokeColorVal
@@ -282,6 +334,8 @@ fun StudioLayout(
                 view.currentUnit = viewModel.currentUnit
                 view.globalStabilizationLevel = viewModel.globalStabilizationLevel
                 view.isSnapToGridEnabled = viewModel.isSnapToGridEnabled
+                view.selectionManager = viewModel.selectionManager
+                view.currentSelectionMode = viewModel.currentSelectionMode
                 // Synchronize Camera Matrix (Studio UI Activation)
                 // BREAK FEEDBACK LOOP: Only update if the camera actually changed from an external source
                 if (!view.isCameraEqual(cameraMatrix)) {
@@ -456,7 +510,7 @@ fun StudioLayout(
                                         val newWidth = rightPanelWidth + adjustedDelta
                                         // Apply scale to min/max limits
                                         val minWidth = 200.dp * interfaceScale
-                                        val maxWidth = 450.dp * interfaceScale
+                                        val maxWidth = 630.dp * interfaceScale
                                         rightPanelWidth = newWidth.coerceIn(minWidth, maxWidth)
                                     }
                                 ),
@@ -822,9 +876,9 @@ fun StudioLayout(
         if (leftTools.isNotEmpty() || isEditMode) {
             Box(
                 modifier = Modifier
-                    .padding(start = startPadding)
+                    .padding(start = if (swapHorizontal) 0.dp else startPadding, end = if (swapHorizontal) endPadding else 0.dp)
                     .width(scaler.floatingBarWidth)
-                    .align(Alignment.CenterStart)
+                    .align(oppositePanelAlign)
                     .advancedShadow(
                         color = Color.Black,
                         alpha = shadowAlpha,
@@ -842,8 +896,7 @@ fun StudioLayout(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     leftTools.forEachIndexed { idx, tool ->
-                         val isActionButton = tool.id == "undo" || tool.id == "redo" || tool.id == "play" || tool.id == "pause" || 
-                                              tool.id == "zoom_in" || tool.id == "zoom_out" || tool.id == "zoom_fit" || tool.id == "home_view"
+                         val isActionButton = resolveIsActionButton(tool)
                          val isRealAction = !tool.isPlaceholder || isActionButton
                          if (tool.id == "divider") {
                              Box(
@@ -870,8 +923,8 @@ fun StudioLayout(
                                      iconColor = theme.iconColor,
                                      shape = theme.floatingShape()
                                  )
-                             } else if (tool.isPlaceholder || tool.id.contains("zoom") || tool.id == "home_view") {
-                                  val isActionButton = tool.id == "undo" || tool.id == "redo" || tool.id == "play" || tool.id == "pause" || tool.id == "zoom_in" || tool.id == "zoom_out" || tool.id == "zoom_fit" || tool.id == "home_view"; val isRealAction = !tool.isPlaceholder || isActionButton
+                             } else if (tool.isPlaceholder || tool.registryId.contains("zoom") || tool.registryId == "home_view") {
+                                  val isActionButton = resolveIsActionButton(tool); val isRealAction = !tool.isPlaceholder || isActionButton
                                   val bgColor = if (isActionButton) null else androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.3f)
                                   com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
                                       onClick = {
@@ -915,9 +968,15 @@ fun StudioLayout(
                                           location = ToolLocation.LeftBar,
                                           theme = theme,
                                           payload = assignedToolsMap[tool.id],
-                                          colorPreview = assignedColorsMap[tool.id]?.let { Color(it) },
-                                          isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && assignedColorsMap[tool.id] == strokeColorVal && isStrokeActiveVal) ||
-                                                       (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && assignedColorsMap[tool.id] == fillColorVal && isFillActiveVal),
+                                          colorPreview = when (assignedToolsMap[tool.id]) {
+                                              ToolPayload.STROKE_COLOR -> Color(strokeColorVal)
+                                              ToolPayload.FILL_COLOR -> Color(fillColorVal)
+                                              else -> assignedColorsMap[tool.id]?.let { Color(it) }
+                                          },
+                                          isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && isStrokeActiveVal) ||
+                                                       (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && isFillActiveVal),
+                                       isNone = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && !isStrokeActiveVal) ||
+                                                (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && !isFillActiveVal),
                                            subTools = if (!isEditMode) com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId) else emptyList(),
                                            onSubToolClick = { subTool -> 
                                                viewModel.replaceTool(ToolLocation.LeftBar, idx, subTool)
@@ -944,9 +1003,9 @@ fun StudioLayout(
         if (rightTools.isNotEmpty() || isEditMode) {
             Box(
                 modifier = Modifier
-                    .padding(end = endPadding)
+                    .padding(end = if (swapHorizontal) 0.dp else endPadding, start = if (swapHorizontal) startPadding else 0.dp)
                     .width(scaler.floatingBarWidth)
-                    .align(Alignment.CenterEnd)
+                    .align(panelAlign)
                     .advancedShadow(
                         color = Color.Black,
                         alpha = shadowAlpha,
@@ -964,8 +1023,7 @@ fun StudioLayout(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     rightTools.forEachIndexed { idx, tool ->
-                         val isActionButton = tool.id == "undo" || tool.id == "redo" || tool.id == "play" || tool.id == "pause" || 
-                                              tool.id == "zoom_in" || tool.id == "zoom_out" || tool.id == "zoom_fit" || tool.id == "home_view"
+                         val isActionButton = resolveIsActionButton(tool)
                          val isRealAction = !tool.isPlaceholder || isActionButton
                          if (tool.id == "divider") {
                              Box(
@@ -992,8 +1050,8 @@ fun StudioLayout(
                                      iconColor = theme.iconColor,
                                      shape = theme.floatingShape()
                                  )
-                             } else if (tool.isPlaceholder || tool.id.contains("zoom") || tool.id == "home_view") {
-                                  val isActionButton = tool.id == "undo" || tool.id == "redo" || tool.id == "play" || tool.id == "pause" || tool.id == "zoom_in" || tool.id == "zoom_out" || tool.id == "zoom_fit" || tool.id == "home_view"; val isRealAction = !tool.isPlaceholder || isActionButton
+                             } else if (tool.isPlaceholder || tool.registryId.contains("zoom") || tool.registryId == "home_view") {
+                                  val isActionButton = resolveIsActionButton(tool); val isRealAction = !tool.isPlaceholder || isActionButton
                                   val bgColor = if (isActionButton) null else androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.3f)
                                   com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
                                       onClick = {
@@ -1037,9 +1095,15 @@ fun StudioLayout(
                                       location = ToolLocation.RightBar,
                                       theme = theme,
                                       payload = assignedToolsMap[tool.id],
-                                      colorPreview = assignedColorsMap[tool.id]?.let { Color(it) },
-                                      isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && assignedColorsMap[tool.id] == strokeColorVal && isStrokeActiveVal) ||
-                                                   (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && assignedColorsMap[tool.id] == fillColorVal && isFillActiveVal),
+                                       colorPreview = when (assignedToolsMap[tool.id]) {
+                                           ToolPayload.STROKE_COLOR -> Color(strokeColorVal)
+                                           ToolPayload.FILL_COLOR -> Color(fillColorVal)
+                                           else -> assignedColorsMap[tool.id]?.let { Color(it) }
+                                       },
+                                       isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && isStrokeActiveVal) ||
+                                                    (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && isFillActiveVal),
+                                       isNone = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && !isStrokeActiveVal) ||
+                                                (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && !isFillActiveVal),
                                       subTools = if (!isEditMode) com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId) else emptyList(),
                                       onSubToolClick = { subTool -> 
                                           viewModel.replaceTool(ToolLocation.RightBar, idx, subTool)
@@ -1069,7 +1133,7 @@ fun StudioLayout(
                     .offset(x = if (swapHorizontal) (animHorizontalOffset / 2) else -(animHorizontalOffset / 2))
                     .padding(top = if (swapVertical) animBottomOffset else animTopOffset)
                     .height(scaler.floatingBarWidth)
-                    .align(Alignment.TopCenter)
+                    .align(if (swapVertical) Alignment.BottomCenter else Alignment.TopCenter)
                     .advancedShadow(
                         color = Color.Black,
                         alpha = shadowAlpha,
@@ -1087,8 +1151,7 @@ fun StudioLayout(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     topTools.forEachIndexed { idx, tool ->
-                         val isActionButton = tool.id == "undo" || tool.id == "redo" || tool.id == "play" || tool.id == "pause" || 
-                                              tool.id == "zoom_in" || tool.id == "zoom_out" || tool.id == "zoom_fit" || tool.id == "home_view"
+                         val isActionButton = resolveIsActionButton(tool)
                          val isRealAction = !tool.isPlaceholder || isActionButton
                          if (tool.id == "divider") {
                              Box(
@@ -1115,8 +1178,8 @@ fun StudioLayout(
                                      iconColor = theme.iconColor,
                                      shape = theme.floatingShape()
                                  )
-                             } else if (tool.isPlaceholder || tool.id.contains("zoom") || tool.id == "home_view") {
-                                  val isActionButton = tool.id == "undo" || tool.id == "redo" || tool.id == "play" || tool.id == "pause" || tool.id == "zoom_in" || tool.id == "zoom_out" || tool.id == "zoom_fit" || tool.id == "home_view"; val isRealAction = !tool.isPlaceholder || isActionButton
+                             } else if (tool.isPlaceholder || tool.registryId.contains("zoom") || tool.registryId == "home_view") {
+                                  val isActionButton = resolveIsActionButton(tool); val isRealAction = !tool.isPlaceholder || isActionButton
                                   val bgColor = if (isActionButton) null else androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.3f)
                                   com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
                                       onClick = {
@@ -1160,9 +1223,15 @@ fun StudioLayout(
                                       location = ToolLocation.TopBar,
                                       theme = theme,
                                       payload = assignedToolsMap[tool.id],
-                                      colorPreview = assignedColorsMap[tool.id]?.let { Color(it) },
-                                      isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && assignedColorsMap[tool.id] == strokeColorVal && isStrokeActiveVal) ||
-                                                   (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && assignedColorsMap[tool.id] == fillColorVal && isFillActiveVal),
+                                       colorPreview = when (assignedToolsMap[tool.id]) {
+                                           ToolPayload.STROKE_COLOR -> Color(strokeColorVal)
+                                           ToolPayload.FILL_COLOR -> Color(fillColorVal)
+                                           else -> assignedColorsMap[tool.id]?.let { Color(it) }
+                                       },
+                                       isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && isStrokeActiveVal) ||
+                                                    (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && isFillActiveVal),
+                                       isNone = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && !isStrokeActiveVal) ||
+                                                (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && !isFillActiveVal),
                                       subTools = if (!isEditMode) com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId) else emptyList(),
                                       onSubToolClick = { subTool -> 
                                           viewModel.replaceTool(ToolLocation.TopBar, idx, subTool)
@@ -1192,7 +1261,7 @@ fun StudioLayout(
                     .offset(x = if (swapHorizontal) (animHorizontalOffset / 2) else -(animHorizontalOffset / 2))
                     .padding(bottom = if (swapVertical) animTopOffset else animBottomOffset)
                     .height(scaler.floatingBarWidth)
-                    .align(Alignment.BottomCenter)
+                    .align(if (swapVertical) Alignment.TopCenter else Alignment.BottomCenter)
                     .advancedShadow(
                         color = Color.Black,
                         alpha = shadowAlpha,
@@ -1211,8 +1280,7 @@ fun StudioLayout(
                 ) {
 
                     bottomTools.forEachIndexed { idx, tool ->
-                         val isActionButton = tool.id == "undo" || tool.id == "redo" || tool.id == "play" || tool.id == "pause" || 
-                                              tool.id == "zoom_in" || tool.id == "zoom_out" || tool.id == "zoom_fit" || tool.id == "home_view"
+                         val isActionButton = resolveIsActionButton(tool)
                          val isRealAction = !tool.isPlaceholder || isActionButton
                          if (tool.id == "divider") {
                              Box(
@@ -1239,8 +1307,8 @@ fun StudioLayout(
                                      iconColor = theme.iconColor,
                                      shape = theme.floatingShape()
                                  )
-                             } else if (tool.isPlaceholder || tool.id.contains("zoom") || tool.id == "home_view") {
-                                  val isActionButton = tool.id == "undo" || tool.id == "redo" || tool.id == "play" || tool.id == "pause" || tool.id == "zoom_in" || tool.id == "zoom_out" || tool.id == "zoom_fit" || tool.id == "home_view"; val isRealAction = !tool.isPlaceholder || isActionButton
+                             } else if (tool.isPlaceholder || tool.registryId.contains("zoom") || tool.registryId == "home_view") {
+                                  val isActionButton = resolveIsActionButton(tool); val isRealAction = !tool.isPlaceholder || isActionButton
                                   val bgColor = if (isActionButton) null else androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.3f)
                                   com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
                                       onClick = {
@@ -1284,9 +1352,15 @@ fun StudioLayout(
                                       location = ToolLocation.BottomBar,
                                       theme = theme,
                                       payload = assignedToolsMap[tool.id],
-                                      colorPreview = assignedColorsMap[tool.id]?.let { Color(it) },
-                                      isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && assignedColorsMap[tool.id] == strokeColorVal && isStrokeActiveVal) ||
-                                                   (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && assignedColorsMap[tool.id] == fillColorVal && isFillActiveVal),
+                                       colorPreview = when (assignedToolsMap[tool.id]) {
+                                           ToolPayload.STROKE_COLOR -> Color(strokeColorVal)
+                                           ToolPayload.FILL_COLOR -> Color(fillColorVal)
+                                           else -> assignedColorsMap[tool.id]?.let { Color(it) }
+                                       },
+                                       isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && isStrokeActiveVal) ||
+                                                    (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && isFillActiveVal),
+                                       isNone = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && !isStrokeActiveVal) ||
+                                                (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && !isFillActiveVal),
                                       subTools = if (!isEditMode) com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId) else emptyList(),
                                       onSubToolClick = { subTool -> 
                                           viewModel.replaceTool(ToolLocation.BottomBar, idx, subTool)
@@ -1311,7 +1385,28 @@ fun StudioLayout(
         // --- CONTEXT ACTION BAR ---
         val isContextSelectionActive = viewModel.hasSelection
         val isContextBarVisible = isContextSelectionActive || viewModel.currentTool == ToolType.SELECTION
-        val contextTools by viewModel.contextualToolbar.collectAsState(initial = emptyList())
+        val rawContextTools by viewModel.contextualToolbar.collectAsState(initial = emptyList())
+        val isTransformMode = viewModel.currentSelectionMode == com.sketcher.sketchercompanionv1.SketcherViewModel.SelectionMode.TRANSFORM_BOX
+        val contextTools = if (isTransformMode) {
+            listOf(
+                StudioTool(
+                    id = "context_cancel_transform",
+                    icon = Icons.Default.Close,
+                    contentDescription = "Cancelar",
+                    isPlaceholder = false,
+                    onClick = { viewModel.cancelTransform() }
+                ),
+                StudioTool(
+                    id = "context_confirm_transform",
+                    icon = Icons.Default.Check,
+                    contentDescription = "Confirmar",
+                    isPlaceholder = false,
+                    onClick = { viewModel.confirmTransform() }
+                )
+            )
+        } else {
+            rawContextTools
+        }
         
         Box(
             modifier = Modifier
@@ -1396,8 +1491,10 @@ fun StudioLayout(
                     color = MaterialTheme.colorScheme.surface,
                     modifier = Modifier.padding(16.dp).width(300.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
+                Column(
+                        modifier = Modifier
+                            .padding(24.dp)
+                            .verticalScroll(rememberScrollState()),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text("Customize Theme", style = MaterialTheme.typography.titleLarge, color = theme.iconColor)
@@ -1589,6 +1686,47 @@ fun StudioLayout(
                         }
                         
                         Spacer(modifier = Modifier.height(24.dp))
+
+                        // --- INTERFACE MIRROR ---
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(theme.buttonColor.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Column {
+                                Text(
+                                    "Interface Mirror",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = theme.iconColor.copy(alpha = 0.6f),
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Swap Vertical", color = theme.iconColor)
+                                    Switch(
+                                        checked = swapVertical,
+                                        onCheckedChange = { viewModel.toggleSwapVertical() }
+                                    )
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Swap Horizontal", color = theme.iconColor)
+                                    Switch(
+                                        checked = swapHorizontal,
+                                        onCheckedChange = { viewModel.toggleSwapHorizontal() }
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(24.dp))
                         Button(
                             onClick = { showPersonalizationDialog = false },
                             modifier = Modifier.fillMaxWidth(),
@@ -1670,7 +1808,9 @@ fun StudioLayout(
                 modifier = Modifier.padding(16.dp).width(300.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(24.dp),
+                    modifier = Modifier
+                        .padding(24.dp)
+                        .verticalScroll(rememberScrollState()),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text("Customize Theme", style = MaterialTheme.typography.titleLarge, color = theme.iconColor)
@@ -1861,6 +2001,47 @@ fun StudioLayout(
                         )
                     }
                     
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    // --- INTERFACE MIRROR ---
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(theme.buttonColor.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Column {
+                            Text(
+                                "Interface Mirror",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = theme.iconColor.copy(alpha = 0.6f),
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Swap Vertical", color = theme.iconColor)
+                                Switch(
+                                    checked = swapVertical,
+                                    onCheckedChange = { viewModel.toggleSwapVertical() }
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Swap Horizontal", color = theme.iconColor)
+                                Switch(
+                                    checked = swapHorizontal,
+                                    onCheckedChange = { viewModel.toggleSwapHorizontal() }
+                                )
+                            }
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(24.dp))
                     Button(
                         onClick = { showPersonalizationDialog = false },

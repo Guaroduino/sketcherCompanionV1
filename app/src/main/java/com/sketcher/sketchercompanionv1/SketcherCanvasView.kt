@@ -1,9 +1,14 @@
-﻿package com.sketcher.sketchercompanionv1
+package com.sketcher.sketchercompanionv1
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.DashPathEffect
 import android.graphics.Matrix
+import android.graphics.Paint
 import android.graphics.PointF
+import android.graphics.RectF
+import android.graphics.Typeface
 import android.view.GestureDetector
 import android.view.View
 import android.view.MotionEvent
@@ -13,6 +18,7 @@ import android.os.Looper
 import com.sketcher.sketchercompanionv1.dto.*
 import com.sketcher.sketchercompanionv1.utils.UnitUtils
 import kotlin.math.round
+import androidx.core.view.drawToBitmap
 
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -54,6 +60,29 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     private val redrawHandler = Handler(Looper.getMainLooper())
     private val delayedRedrawRunnable = Runnable { redrawAllCache() }
+    
+    // Viewport indicators for live canvas projection
+    var projectionViewports: List<SketcherViewModel.ProjectionViewport> = emptyList()
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    var isCapturingForProjection: Boolean = false
+
+    fun drawToBitmapForProjection(): android.graphics.Bitmap {
+        isCapturingForProjection = true
+        try {
+            return this.drawToBitmap()
+        } finally {
+            isCapturingForProjection = false
+        }
+    }
+
+    fun getLiveStrokePoints(): List<StrokePoint>? = currentVectorPreviewPoints?.toList()
+    fun getLiveStrokePath(): android.graphics.Path? = currentVectorPreviewPath
+    fun getLiveFillPath(): android.graphics.Path? = currentFillPath
+    fun getLiveGeneratedRadius(): Float = currentLiveGeneratedRadius
     
     // Pan tracking state
     private var lastPanX: Float = 0f
@@ -197,7 +226,7 @@ class SketcherCanvasView(context: Context) : View(context) {
         val currentWidth = width
         val currentHeight = height
         val currentSelectionManager = selectionManager
-        val dragging = isSelectionDragging
+        val isTransformModeActive = currentTool == ToolType.SELECTION && currentSelectionMode == SketcherViewModel.SelectionMode.TRANSFORM_BOX
         val librarySnapshot = componentLibrary
         val strokesBaking = transientStrokes.toList()
         val fillsBaking = transientFills.toList()
@@ -214,7 +243,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                     currentMatrix, 
                     librarySnapshot, 
                     currentSelectionManager, 
-                    dragging
+                    isTransformModeActive
                 )
                 
                 picture.endRecording()
@@ -495,16 +524,37 @@ class SketcherCanvasView(context: Context) : View(context) {
             isDrawing = isDrawing
         )
 
+        // Selection path preview drawing
+        if (currentTool == ToolType.SELECTION && (currentSelectionMode == SketcherViewModel.SelectionMode.FREEHAND || currentSelectionMode == SketcherViewModel.SelectionMode.RECTANGLE || currentSelectionMode == SketcherViewModel.SelectionMode.POLYGON)) {
+            selectionManager?.let { manager ->
+                val path = manager.lassoPath
+                if (!path.isEmpty) {
+                    val paint = Paint().apply {
+                        style = Paint.Style.STROKE
+                        strokeWidth = 2f * resources.displayMetrics.density
+                        color = Color.parseColor("#FF007AFF")
+                        pathEffect = DashPathEffect(floatArrayOf(10f, 10f), 0f)
+                        isAntiAlias = true
+                    }
+                    canvas.save()
+                    canvas.concat(viewMatrix)
+                    canvas.drawPath(path, paint)
+                    canvas.restore()
+                }
+            }
+        }
+
         // 3. Selection Overlays
-        if (isSelectionDragging) {
+        val isTransformBox = currentTool == ToolType.SELECTION && currentSelectionMode == SketcherViewModel.SelectionMode.TRANSFORM_BOX
+        if (isTransformBox) {
              selectionManager?.let { manager ->
-                 canvas.save()
-                 canvas.concat(viewMatrix)
-                 manager.activeTransform?.let { canvas.concat(it) }
-                 for (element in manager.selectedElements) {
-                     renderEngine.drawElementRecursive(canvas, element, componentLibrary)
-                 }
-                 canvas.restore()
+                  canvas.save()
+                  canvas.concat(viewMatrix)
+                  canvas.concat(manager.selectionMatrix)
+                  for (element in manager.selectedElements) {
+                      renderEngine.drawElementRecursive(canvas, element, componentLibrary)
+                  }
+                  canvas.restore()
              }
         }
 
@@ -512,6 +562,55 @@ class SketcherCanvasView(context: Context) : View(context) {
         selectionManager?.let { manager ->
             if (manager.selectedElements.isNotEmpty()) {
                 renderEngine.drawSelectionOverlay(canvas, manager, viewMatrix)
+            }
+        }
+
+        // 5. Draw Projection Viewports (Indicator overlay)
+        if (!isCapturingForProjection && projectionViewports.isNotEmpty()) {
+            val paint = Paint().apply {
+                style = Paint.Style.STROKE
+                strokeWidth = 3f * resources.displayMetrics.density
+                pathEffect = DashPathEffect(floatArrayOf(10f, 10f), 0f)
+                isAntiAlias = true
+            }
+            val textPaint = Paint().apply {
+                textSize = 12f * resources.displayMetrics.density
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                isAntiAlias = true
+            }
+            val textBgPaint = Paint().apply {
+                style = Paint.Style.FILL
+                isAntiAlias = true
+            }
+
+            for (viewport in projectionViewports) {
+                paint.color = viewport.color
+                textPaint.color = Color.WHITE
+                textBgPaint.color = viewport.color
+
+                // Draw viewport rect in screen/view space (so no viewMatrix transformation)
+                val rect = RectF(viewport.left, viewport.top, viewport.right, viewport.bottom)
+                canvas.drawRect(rect, paint)
+
+                // Draw label at the top-left of the rectangle
+                val text = viewport.label
+                val textWidth = textPaint.measureText(text)
+                val textHeight = textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
+                
+                // Draw a small background pill for the label
+                val labelRect = RectF(
+                    rect.left,
+                    rect.top,
+                    rect.left + textWidth + 8f * resources.displayMetrics.density,
+                    rect.top + textHeight + 4f * resources.displayMetrics.density
+                )
+                canvas.drawRect(labelRect, textBgPaint)
+                canvas.drawText(
+                    text,
+                    rect.left + 4f * resources.displayMetrics.density,
+                    rect.top - textPaint.fontMetrics.ascent + 2f * resources.displayMetrics.density,
+                    textPaint
+                )
             }
         }
         
@@ -541,7 +640,7 @@ class SketcherCanvasView(context: Context) : View(context) {
         }
 
         // Basic Palm Rejection: If enabled and we have a stylus, ignore non-stylus events
-        if (isPalmRejectionEnabled && event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS) {
+        if (currentTool != ToolType.SELECTION && isPalmRejectionEnabled && event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS) {
             return true // Consume event to keep stream alive for gestures, but don't draw
         }
 
@@ -598,27 +697,32 @@ class SketcherCanvasView(context: Context) : View(context) {
         val manager = selectionManager
         if (manager != null) {
             when (currentSelectionMode) {
-                SketcherViewModel.SelectionMode.RECTANGLE -> { /* TODO */ }
-                SketcherViewModel.SelectionMode.POLYGON -> { /* TODO */ }
+                SketcherViewModel.SelectionMode.RECTANGLE,
+                SketcherViewModel.SelectionMode.POLYGON,
                 SketcherViewModel.SelectionMode.FREEHAND -> {
+                    // Update selection mode in selectionManager so it knows how to build the path
+                    manager.isRectangleMode = currentSelectionMode == SketcherViewModel.SelectionMode.RECTANGLE
+                    
                     when (event.actionMasked) {
                         MotionEvent.ACTION_DOWN -> manager.startSelection(worldX, worldY)
                         MotionEvent.ACTION_MOVE -> manager.updateSelection(worldX, worldY)
                         MotionEvent.ACTION_UP -> {
                             if (layers.isNotEmpty() && activeLayerIndex in layers.indices) {
-                                manager.finalizeSelection(layers[activeLayerIndex])
+                                manager.finalizeSelection(layers[activeLayerIndex], componentLibrary)
                             }
                         }
                     }
                 }
                 SketcherViewModel.SelectionMode.TRANSFORM_BOX -> {
                     when (event.actionMasked) {
-                        MotionEvent.ACTION_DOWN -> manager.handleTransformDown(worldX, worldY)
+                        MotionEvent.ACTION_DOWN -> manager.handleTransformDown(worldX, worldY, event.x, event.y, viewMatrix)
                         MotionEvent.ACTION_MOVE -> manager.handleTransformMove(worldX, worldY)
                         MotionEvent.ACTION_UP -> manager.handleTransformUp()
                     }
                 }
             }
+            // Sync selection manager state with canvas dragging state
+            isSelectionDragging = manager.activeTransform != null
             invalidate()
             return true
         }

@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1
+package com.sketcher.sketchercompanionv1
 
 import android.graphics.Path
 
@@ -31,6 +31,7 @@ data class VectorStroke(
 
     override fun transform(matrix: Matrix) {
         path.transform(matrix)
+        fillPath?.transform(matrix)
         path.computeBounds(cachedBounds, true)
         val pts = FloatArray(2)
         points.forEach { p ->

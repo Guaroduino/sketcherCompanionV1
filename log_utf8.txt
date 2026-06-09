@@ -1,0 +1,32 @@
+﻿--------- beginning of main
+06-08 20:03:50.038 27538 27538 D Projection: Server started at http://192.168.0.190:8080
+06-08 20:03:55.656 27538 30391 D Projection: Client connected: 1 (total: 1)
+06-08 20:03:55.668 27538 30391 D ProjectionClientLogs: [Client 1] [log] WebSocket connected. Sending hello...
+06-08 20:03:55.668 27538 30391 D Projection: Client 1 dims: 1382x1115
+06-08 20:03:55.668 27538 30391 D ProjectionClientLogs: [Client 1] [log] Attempting WebSocket connection to ws://192.168.0.190:8080/ws
+06-08 20:03:55.673 27538 30391 D ProjectionClientLogs: [Client 1] [log] Received text message: {\
+06-08 20:03:57.556 27538 30391 D Projection: Client disconnected: 1 (total: 0)
+06-08 20:03:57.679 27538 30403 D Projection: Client connected: 2 (total: 1)
+06-08 20:03:57.697 27538 30403 D ProjectionClientLogs: [Client 2] [log] WebSocket connected. Sending hello...
+06-08 20:03:57.698 27538 30403 D Projection: Client 2 dims: 1382x1115
+06-08 20:03:57.698 27538 30403 D ProjectionClientLogs: [Client 2] [log] Attempting WebSocket connection to ws://192.168.0.190:8080/ws
+06-08 20:03:57.704 27538 30403 D ProjectionClientLogs: [Client 2] [log] Received text message: {\
+06-08 20:05:45.728 27538 30403 D Projection: Client 2 dims: 1806x1115
+06-08 20:11:10.630 27538 30403 W Projection: WS exception for client 2
+06-08 20:11:10.630 27538 30403 W Projection: java.net.SocketException: Socket closed
+06-08 20:11:10.630 27538 30403 W Projection: 	at java.net.SocketInputStream.socketRead0(Native Method)
+06-08 20:11:10.630 27538 30403 W Projection: 	at java.net.SocketInputStream.socketRead(SocketInputStream.java:118)
+06-08 20:11:10.630 27538 30403 W Projection: 	at java.net.SocketInputStream.read(SocketInputStream.java:173)
+06-08 20:11:10.630 27538 30403 W Projection: 	at java.net.SocketInputStream.read(SocketInputStream.java:143)
+06-08 20:11:10.630 27538 30403 W Projection: 	at java.io.BufferedInputStream.fill(BufferedInputStream.java:239)
+06-08 20:11:10.630 27538 30403 W Projection: 	at java.io.BufferedInputStream.read(BufferedInputStream.java:258)
+06-08 20:11:10.630 27538 30403 W Projection: 	at fi.iki.elonen.NanoWSD$WebSocketFrame.read(NanoWSD.java:435)
+06-08 20:11:10.630 27538 30403 W Projection: 	at fi.iki.elonen.NanoWSD$WebSocket.readWebsocket(NanoWSD.java:248)
+06-08 20:11:10.630 27538 30403 W Projection: 	at fi.iki.elonen.NanoWSD$WebSocket.access$200(NanoWSD.java:65)
+06-08 20:11:10.630 27538 30403 W Projection: 	at fi.iki.elonen.NanoWSD$WebSocket$1.send(NanoWSD.java:88)
+06-08 20:11:10.630 27538 30403 W Projection: 	at fi.iki.elonen.NanoHTTPD$HTTPSession.execute(NanoHTTPD.java:957)
+06-08 20:11:10.630 27538 30403 W Projection: 	at fi.iki.elonen.NanoHTTPD$ClientHandler.run(NanoHTTPD.java:192)
+06-08 20:11:10.630 27538 30403 W Projection: 	at java.lang.Thread.run(Thread.java:1564)
+06-08 20:11:10.630 27538 30403 D Projection: Client disconnected: 2 (total: 0)
+06-08 20:11:28.025   406   406 D Projection: Server started at http://192.168.0.190:8080
+06-08 20:11:45.638   997   997 D Projection: Server started at http://192.168.0.190:8080

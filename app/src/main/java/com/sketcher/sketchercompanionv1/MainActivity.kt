@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1
+package com.sketcher.sketchercompanionv1
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -54,9 +54,9 @@ class MainActivity : ComponentActivity() {
             // HOISTED STATE
             var uiCollapsed by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(true) }
             
-            // SWAP STATES (Hoisted)
-            var swapVertical by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-            var swapHorizontal by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+            // SWAP STATES (now backed by ViewModel with persistence)
+            val swapVertical = sketchViewModel.swapVertical
+            val swapHorizontal = sketchViewModel.swapHorizontal
 
             // DIALOG STATES (Hoisted)
             var showSettingsPopup by remember { mutableStateOf(false) }
@@ -150,18 +150,6 @@ class MainActivity : ComponentActivity() {
                             projectActions = projectActions
                         )
                         
-                        // 2. DEBUG OVERLAY (Persistent)
-                        com.sketcher.sketchercompanionv1.ui.layout.DebugOverlay(
-                            userScale = interfaceScale,
-                            onScaleChange = { sketchViewModel.updateInterfaceScale(it) },
-                            uiCollapsed = uiCollapsed,
-                            onToggleUi = { uiCollapsed = !uiCollapsed },
-                            swapVertical = swapVertical,
-                            swapHorizontal = swapHorizontal,
-                            onToggleSwapVertical = { swapVertical = !swapVertical },
-                            onToggleSwapHorizontal = { swapHorizontal = !swapHorizontal }
-                        )
-
                         // 3. COMMON DIALOGS
                         if (showSettingsPopup) {
                             SettingsDialog(
