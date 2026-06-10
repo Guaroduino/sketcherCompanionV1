@@ -72,7 +72,7 @@ class MainActivity : ComponentActivity() {
             var showPdfExportDialog by remember { mutableStateOf(false) }
 
             // SAF LAUNCHERS (Hoisted)
-            val saveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+            val saveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
                 uri?.let { sketchViewModel.saveProjectToZip(context, it) }
             }
             val loadLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -99,12 +99,12 @@ class MainActivity : ComponentActivity() {
             val dxfExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/dxf")) { uri ->
                 uri?.let { sketchViewModel.exportDxf(context, it) }
             }
-
+ 
             val projectActions = remember {
                 com.sketcher.sketchercompanionv1.ui.model.ProjectActions(
                     onNew = { sketchViewModel.clear() },
-                    onSave = { saveLauncher.launch("sketch.zip") },
-                    onLoad = { loadLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
+                    onSave = { saveLauncher.launch("drawing.skc") },
+                    onLoad = { loadLauncher.launch(arrayOf("*/*")) },
                     onImportImage = { importImageLauncher.launch("image/*") },
                     onImportSvg = { importSvgLauncher.launch("*/*") },
                     onImportDxf = { dxfImportLauncher.launch(arrayOf("*/*")) },

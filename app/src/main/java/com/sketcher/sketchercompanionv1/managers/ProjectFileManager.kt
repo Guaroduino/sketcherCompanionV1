@@ -20,9 +20,9 @@ import java.io.OutputStream
 
 class ProjectFileManager {
 
-    suspend fun saveProject(context: Context, projectData: ProjectData, layers: List<Layer>, uri: Uri) {
+    suspend fun saveProject(context: Context, projectData: ProjectData, layers: List<Layer>, components: Collection<ComponentDefinition>, uri: Uri) {
         withContext(Dispatchers.IO) {
-            ZipStorageManager.saveProject(context, projectData, layers, uri)
+            ZipStorageManager.saveProject(context, projectData, layers, uri, components)
         }
     }
 
@@ -75,9 +75,9 @@ class ProjectFileManager {
         }
     }
 
-    suspend fun saveTemplate(context: Context, projectData: ProjectData, layers: List<Layer>, name: String) {
+    suspend fun saveTemplate(context: Context, projectData: ProjectData, layers: List<Layer>, components: Collection<ComponentDefinition>, name: String) {
         withContext(Dispatchers.IO) {
-            TemplateManager.saveAsTemplate(context, projectData, layers, name)
+            TemplateManager.saveAsTemplate(context, projectData, layers, components, name)
         }
     }
 

@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1.utils
+package com.sketcher.sketchercompanionv1.utils
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -7,6 +7,9 @@ import android.net.Uri
 import com.google.gson.Gson
 import com.sketcher.sketchercompanionv1.Layer
 import com.sketcher.sketchercompanionv1.ImageElement
+import com.sketcher.sketchercompanionv1.ComponentDefinition
+import com.sketcher.sketchercompanionv1.LayerElement
+import com.sketcher.sketchercompanionv1.GroupElement
 import com.sketcher.sketchercompanionv1.dto.ProjectData
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
@@ -20,11 +23,52 @@ object ZipStorageManager {
     private const val ENTRY_PROJECT_JSON = "project.json"
     private const val DIR_ASSETS = "assets/"
 
+    private fun collectAssets(
+        elements: List<LayerElement>,
+        savedFileNames: MutableSet<String>,
+        zipOut: ZipOutputStream
+    ) {
+        elements.forEach { element ->
+            when (element) {
+                is ImageElement -> {
+                    val fileName = element.imageFileName
+                    if (fileName.isNotEmpty() && savedFileNames.add(fileName)) {
+                        val entryName = "$DIR_ASSETS$fileName"
+                        val imageEntry = ZipEntry(entryName)
+                        zipOut.putNextEntry(imageEntry)
+                        element.bitmap.compress(Bitmap.CompressFormat.PNG, 100, zipOut)
+                        zipOut.closeEntry()
+                    }
+                }
+                is com.sketcher.sketchercompanionv1.SvgElement -> {
+                    val fileName = element.svgFileName
+                    if (fileName.isNotEmpty() && savedFileNames.add(fileName)) {
+                        val entryName = "$DIR_ASSETS$fileName"
+                        val svgEntry = ZipEntry(entryName)
+                        zipOut.putNextEntry(svgEntry)
+                        zipOut.write(element.svgContent.toByteArray(Charsets.UTF_8))
+                        zipOut.closeEntry()
+                    }
+                }
+                is GroupElement -> {
+                    collectAssets(element.elements, savedFileNames, zipOut)
+                }
+                else -> { /* Ignore other elements */ }
+            }
+        }
+    }
+
     /**
      * Saves the project to a .skc (ZIP) file.
      * Guaranteed to use PNG for image assets to preserve transparency.
      */
-    fun saveProject(context: Context, projectData: ProjectData, layers: List<Layer>, uri: Uri) {
+    fun saveProject(
+        context: Context,
+        projectData: ProjectData,
+        layers: List<Layer>,
+        uri: Uri,
+        components: Collection<ComponentDefinition> = emptyList()
+    ) {
         val contentResolver = context.contentResolver
         
         // Use try-with-resources logic
@@ -38,41 +82,17 @@ object ZipStorageManager {
                 zipOut.write(jsonString.toByteArray(Charsets.UTF_8))
                 zipOut.closeEntry()
 
-                // 2. Write Assets (Images)
-                // Iterate layers to find ImageElements and save their bitmaps
-                // We trust the imageFileName in the ImageElement matches what we expect
+                // 2. Write Assets (Images & SVGs)
                 val savedFileNames = mutableSetOf<String>()
 
+                // Collect from layers (recursively)
                 layers.forEach { layer ->
-                    layer.elements.forEach { element ->
-                        if (element is ImageElement) {
-                            val fileName = element.imageFileName
-                            if (fileName.isNotEmpty() && !savedFileNames.contains(fileName)) {
-                                savedFileNames.add(fileName)
-                                
-                                val entryName = "$DIR_ASSETS$fileName"
-                                val imageEntry = ZipEntry(entryName)
-                                zipOut.putNextEntry(imageEntry)
-                                
-                                // CRITICAL: Compress as PNG for transparency
-                                // Quality 100 for max lossless quality (PNG is always lossless but compression level varies)
-                                // Android Bitmap.CompressFormat.PNG ignores quality parameter effectively (always lossless)
-                                element.bitmap.compress(Bitmap.CompressFormat.PNG, 100, zipOut)
-                                
-                                zipOut.closeEntry()
-                            }
-                        } else if (element is com.sketcher.sketchercompanionv1.SvgElement) {
-                            val fileName = element.svgFileName
-                             if (fileName.isNotEmpty() && !savedFileNames.contains(fileName)) {
-                                savedFileNames.add(fileName)
-                                val entryName = "$DIR_ASSETS$fileName"
-                                val svgEntry = ZipEntry(entryName)
-                                zipOut.putNextEntry(svgEntry)
-                                zipOut.write(element.svgContent.toByteArray(Charsets.UTF_8))
-                                zipOut.closeEntry()
-                             }
-                        }
-                    }
+                    collectAssets(layer.elements, savedFileNames, zipOut)
+                }
+
+                // Collect from component definitions (recursively)
+                components.forEach { component ->
+                    collectAssets(component.elements, savedFileNames, zipOut)
                 }
             }
         }

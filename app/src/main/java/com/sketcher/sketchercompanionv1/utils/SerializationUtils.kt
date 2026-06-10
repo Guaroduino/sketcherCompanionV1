@@ -103,18 +103,20 @@ fun LayerElementJson.toLayerElement(
             val imgJson = this.image!!
             val matrix = Matrix()
             matrix.setValues(imgJson.matrixValues.toFloatArray())
+            val bitmap = bitmapLoader(imgJson.fileName) ?: android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
             ImageElement(
-                bitmap = bitmapLoader(imgJson.fileName)!!,
+                bitmap = bitmap,
                 imageFileName = imgJson.fileName,
                 matrix = matrix
             )
         }
         "SVG" -> {
             val svgJson = this.svg!!
+            val content = svgLoader(svgJson.fileName) ?: ""
             SvgElement(
                 id = svgJson.id,
                 svgFileName = svgJson.fileName,
-                svgContent = svgLoader(svgJson.fileName)!!,
+                svgContent = content,
                 matrixValues = svgJson.matrixValues.toFloatArray()
             )
         }

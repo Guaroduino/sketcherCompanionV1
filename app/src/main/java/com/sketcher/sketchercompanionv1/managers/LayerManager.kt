@@ -22,7 +22,7 @@ class LayerManager(
     fun internalUpdateLayers(newList: List<Layer>, activeIndex: Int) {
         layers.clear()
         layers.addAll(newList)
-        activeLayerIndex = activeIndex.coerceIn(newList.indices)
+        activeLayerIndex = if (newList.isEmpty()) 0 else activeIndex.coerceIn(newList.indices)
     }
 
     fun toggleLayerVisibility(index: Int) {

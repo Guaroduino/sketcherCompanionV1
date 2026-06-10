@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1.utils
+package com.sketcher.sketchercompanionv1.utils
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -16,7 +16,7 @@ object TemplateManager {
     /**
      * Saves the current project state as a template.
      */
-    fun saveAsTemplate(context: Context, projectData: ProjectData, layers: List<Layer>, templateName: String) {
+    fun saveAsTemplate(context: Context, projectData: ProjectData, layers: List<Layer>, components: Collection<com.sketcher.sketchercompanionv1.ComponentDefinition>, templateName: String) {
         val templatesDir = File(context.filesDir, TEMPLATE_DIR)
         if (!templatesDir.exists()) {
             templatesDir.mkdirs()
@@ -28,7 +28,7 @@ object TemplateManager {
         // ContentResolver.openOutputStream(Uri.fromFile(file)) works on standard Android.
         val uri = Uri.fromFile(file)
         
-        ZipStorageManager.saveProject(context, projectData, layers, uri)
+        ZipStorageManager.saveProject(context, projectData, layers, uri, components)
     }
 
     /**

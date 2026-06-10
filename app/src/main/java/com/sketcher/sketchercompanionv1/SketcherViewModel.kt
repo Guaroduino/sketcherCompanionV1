@@ -1618,11 +1618,23 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     ),
                     componentLibrary = currentComponentLibrary.mapValues { it.value.toComponentDefinitionJson() }
                 )
-                com.sketcher.sketchercompanionv1.utils.ZipStorageManager.saveProject(context, projectData, currentLayersSnapshot, uri)
+                com.sketcher.sketchercompanionv1.utils.ZipStorageManager.saveProject(
+                    context = context,
+                    projectData = projectData,
+                    layers = currentLayersSnapshot,
+                    uri = uri,
+                    components = currentComponentLibrary.values
+                )
                 withContext(Dispatchers.Main) {
                     currentFileUri = uri
+                    android.widget.Toast.makeText(context, "Proyecto guardado correctamente", android.widget.Toast.LENGTH_SHORT).show()
                 }
-            } catch (e: Exception) { e.printStackTrace() }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "Error al guardar: ${e.localizedMessage}", android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
 
@@ -1633,8 +1645,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 withContext(Dispatchers.Main) {
                     restoreProjectState(projectData, bitmapMap, svgMap)
                     currentFileUri = uri
+                    android.widget.Toast.makeText(context, "Proyecto cargado correctamente", android.widget.Toast.LENGTH_SHORT).show()
                 }
-            } catch (e: Exception) { e.printStackTrace() }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "Error al cargar: ${e.localizedMessage}", android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
     
@@ -1642,6 +1660,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         val newLayers = mutableListOf<Layer>()
         undoStack.clear()
         redoStack.clear()
+        updateUndoRedoSupport()
         
         projectId = data.id
         
@@ -1853,20 +1872,25 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     
     fun clear() {
-        performSnapshotAction("Limpiar Lienzo") {
-            layerManager.internalUpdateLayers(mutableListOf<Layer>(), 0)
-            addNewLayerInternal(true) // Helper to add layer without recursive command
-            selectionManager.clearSelection()
-        }
+        undoStack.clear()
+        redoStack.clear()
+        updateUndoRedoSupport()
+        componentLibrary.clear()
+        projectId = java.util.UUID.randomUUID().toString()
+        currentFileUri = null
+        backgroundColor = android.graphics.Color.WHITE
+        gridConfig = GridConfig()
+        
+        // Reset camera
+        val identity = android.graphics.Matrix()
+        identity.getValues(cameraMatrixValues)
+        cameraUpdateTrigger++
+        
+        val newLayer = Layer("l_${System.currentTimeMillis()}", "Capa 1", androidx.compose.runtime.mutableStateListOf())
+        layerManager.internalUpdateLayers(mutableListOf(newLayer), 0)
+        selectionManager.clearSelection()
+        notifyLayersChanged()
     }
-
-    private fun addNewLayerInternal(toTop: Boolean) { 
-        val currentLayers = layers.toMutableList()
-        val l = Layer("l_${System.currentTimeMillis()}", "Capa ${currentLayers.size+1}", mutableStateListOf())
-        val newIndex = if(toTop) { currentLayers.add(l); currentLayers.lastIndex } else { currentLayers.add(0, l); 0 }
-        layerManager.internalUpdateLayers(currentLayers, newIndex)
-    }
-    
 
     fun saveTemplate(context: Context, name: String) {
          launchIO {
@@ -1886,10 +1910,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
              )
              
              com.sketcher.sketchercompanionv1.utils.TemplateManager.saveAsTemplate(
-                 context, 
-                 projectData,
-                 layers,
-                 name
+                 context = context, 
+                 projectData = projectData,
+                 layers = layers,
+                 components = componentLibrary.values,
+                 templateName = name
              )
          }
     }
