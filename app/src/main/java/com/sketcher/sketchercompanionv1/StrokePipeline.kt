@@ -83,6 +83,7 @@ class StrokePipeline(
     // --- State ---
     private val currentStrokePoints = mutableListOf<StrokePoint>()
     private var isDrawing: Boolean = false
+    private var currentStrokeId: Int = 0
 
     // Stabilizer State
     private var stabilizerX: Float = 0f
@@ -119,6 +120,7 @@ class StrokePipeline(
         val stabilizedPoints = mutableListOf<StrokePoint>()
 
         if (action == MotionEvent.ACTION_DOWN) {
+           currentStrokeId++
            isDrawing = true
            currentStrokePoints.clear()
            committedPath.rewind()
@@ -427,6 +429,32 @@ class StrokePipeline(
             val genResultLeftSnap = genResult.left.toList()
             val genResultRightSnap = genResult.right.toList()
             val finalPointsSnap = finalPoints.toList()
+            val strokeIdSnap = currentStrokeId
+
+            // Generate temporary fill path for preview during async processing
+            var fillPath: Path? = null
+            if (isFillActiveSnap && finalPointsSnap.size >= 3) {
+                fillPath = Path().apply {
+                    moveTo(finalPointsSnap[0].x, finalPointsSnap[0].y)
+                    for (i in 1 until finalPointsSnap.size) {
+                        lineTo(finalPointsSnap[i].x, finalPointsSnap[i].y)
+                    }
+                    close()
+                }
+            }
+
+            // Immediately show the finalized stroke preview (with correct final path/fill)
+            // to avoid any blinking or blank frames while processing
+            onUpdate(PipelineUpdate(
+                previewPath = Path(rawPath),
+                previewPoints = finalPointsSnap,
+                centerPoints = genResult.center,
+                outlinePoints = genResult.left + genResult.right,
+                lastRadius = genResult.lastRadius,
+                fillPath = fillPath,
+                fillColor = if (isFillActiveSnap) activeFillColorSnap else 0,
+                committedPreviewPath = null
+            ))
 
             pipelineScope.launch {
                 consolidationMutex.withLock {
@@ -471,10 +499,13 @@ class StrokePipeline(
 
                     withContext(Dispatchers.Main) {
                         onStrokeCompleted(stroke, fill)
+                        // Only reset if no new stroke drawing session has started
+                        if (currentStrokeId == strokeIdSnap) {
+                            reset()
+                        }
                     }
                 }
             }
-            reset()
         } else {
             val (path, strokePoints) = rawPath to finalPoints
             var fPath: Path? = null

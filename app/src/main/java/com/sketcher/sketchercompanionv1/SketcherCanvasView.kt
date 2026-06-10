@@ -313,6 +313,8 @@ class SketcherCanvasView(context: Context) : View(context) {
         
         val bitmap = backingBitmap
         if (viewMatrix != cachedBitmapMatrix || bitmap == null) {
+            fill?.let { transientFills.add(it) }
+            transientStrokes.add(stroke)
             redrawAllCache()
             return
         }
