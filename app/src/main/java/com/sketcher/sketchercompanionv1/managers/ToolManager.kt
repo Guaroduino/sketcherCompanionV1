@@ -76,6 +76,14 @@ class ToolManager(context: Context) {
     var currentFreehandSettings by mutableStateOf(loadFreehandSettings())
         private set
 
+    // --- EXPERIMENTAL: Flattened Outer Stroke ---
+    var isFlattenedOuterStrokeEnabled by mutableStateOf(false)
+        private set
+
+    fun toggleFlattenedOuterStroke() {
+        isFlattenedOuterStrokeEnabled = !isFlattenedOuterStrokeEnabled
+    }
+
     // --- FINGER OFFSET ---
     var fingerModeActive by mutableStateOf(false)
         private set

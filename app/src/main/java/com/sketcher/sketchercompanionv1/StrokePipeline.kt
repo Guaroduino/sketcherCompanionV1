@@ -6,6 +6,13 @@ import android.graphics.Color
 import android.graphics.PointF
 import com.sketcher.sketchercompanionv1.dto.*
 import com.sketcher.sketchercompanionv1.utils.StrokeSimplifier
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Encapsulates the logic for processing raw touch events into vector strokes.
@@ -30,12 +37,16 @@ class StrokePipeline(
     var activeFillColor: Int = Color.TRANSPARENT
     var isStrokeActive: Boolean = true
     var isFillActive: Boolean = false
+    var isFlattenedOuterStrokeEnabled: Boolean = false
 
     var globalStabilizationLevel: Float = 0f
 
     var isFingerMode: Boolean = false
     var fingerOffsetX: Float = 0f
     var fingerOffsetY: Float = 50f
+
+    private val pipelineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private val consolidationMutex = Mutex()
 
     var canvasViewMatrix: android.graphics.Matrix = android.graphics.Matrix() // Needed for World Transform
     private val reusableInverseMatrix = android.graphics.Matrix()
@@ -404,47 +415,108 @@ class StrokePipeline(
             activeFreehandSettings.copy(size = activeSize, isComplete = true), 
             currentZoom
         )
-        val path = Path(genResult.path)
-        
-        var fPath: Path? = null
-        if (isFillActive && finalPoints.size >= 3) {
-             fPath = Path()
-             fPath.moveTo(finalPoints[0].x, finalPoints[0].y)
-             for (i in 1 until finalPoints.size) {
-                 fPath.lineTo(finalPoints[i].x, finalPoints[i].y)
-             }
-             fPath.close()
-        }
+        val rawPath = Path(genResult.path)
 
-        val stroke = VectorStroke(
-            points = finalPoints,
-            strokeColor = activeStrokeColor,
-            fillColor = activeFillColor,
-            isStrokeEnabled = isStrokeActive,
-            isFillEnabled = isFillActive,
-            maxWidth = activeSize,
-            path = path,
-            fillPath = fPath,
-            brushType = "FREEHAND",
-            strokeType = activeStrokeType,
-            leftPoints = genResult.left,
-            rightPoints = genResult.right
-        )
+        if (isFlattenedOuterStrokeEnabled && activeStrokeType == StrokeType.FREEHAND) {
+            val activeStrokeTypeSnap = activeStrokeType
+            val activeStrokeColorSnap = activeStrokeColor
+            val activeFillColorSnap = activeFillColor
+            val isStrokeActiveSnap = isStrokeActive
+            val isFillActiveSnap = isFillActive
+            val activeSizeSnap = activeSize
+            val genResultLeftSnap = genResult.left.toList()
+            val genResultRightSnap = genResult.right.toList()
+            val finalPointsSnap = finalPoints.toList()
 
-        var fill: FillData? = null
-        if (isFillActive && finalPoints.size >= 3) {
-             val fillPathToUse = fPath ?: Path().apply {
-                 moveTo(finalPoints[0].x, finalPoints[0].y)
-                 for (i in 1 until finalPoints.size) {
-                     lineTo(finalPoints[i].x, finalPoints[i].y)
+            pipelineScope.launch {
+                consolidationMutex.withLock {
+                    val (path, strokePoints) = flattenOuterStroke(rawPath, finalPointsSnap)
+                    
+                    var fPath: Path? = null
+                    if (isFillActiveSnap && strokePoints.size >= 3) {
+                         fPath = Path()
+                         fPath.moveTo(strokePoints[0].x, strokePoints[0].y)
+                         for (i in 1 until strokePoints.size) {
+                             fPath.lineTo(strokePoints[i].x, strokePoints[i].y)
+                         }
+                         fPath.close()
+                    }
+
+                    val stroke = VectorStroke(
+                        points = strokePoints,
+                        strokeColor = activeStrokeColorSnap,
+                        fillColor = activeFillColorSnap,
+                        isStrokeEnabled = isStrokeActiveSnap,
+                        isFillEnabled = isFillActiveSnap,
+                        maxWidth = activeSizeSnap,
+                        path = path,
+                        fillPath = fPath,
+                        brushType = "FREEHAND",
+                        strokeType = activeStrokeTypeSnap,
+                        leftPoints = genResultLeftSnap,
+                        rightPoints = genResultRightSnap
+                    )
+
+                    var fill: FillData? = null
+                    if (isFillActiveSnap && strokePoints.size >= 3) {
+                         val fillPathToUse = fPath ?: Path().apply {
+                             moveTo(strokePoints[0].x, strokePoints[0].y)
+                             for (i in 1 until strokePoints.size) {
+                                 lineTo(strokePoints[i].x, strokePoints[i].y)
+                             }
+                             close()
+                         }
+                         fill = FillData(fillPathToUse, activeFillColorSnap)
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        onStrokeCompleted(stroke, fill)
+                    }
+                }
+            }
+            reset()
+        } else {
+            val (path, strokePoints) = rawPath to finalPoints
+            var fPath: Path? = null
+            if (isFillActive && strokePoints.size >= 3) {
+                 fPath = Path()
+                 fPath.moveTo(strokePoints[0].x, strokePoints[0].y)
+                 for (i in 1 until strokePoints.size) {
+                     fPath.lineTo(strokePoints[i].x, strokePoints[i].y)
                  }
-                 close()
-             }
-             fill = FillData(fillPathToUse, activeFillColor)
-        }
+                 fPath.close()
+            }
 
-        onStrokeCompleted(stroke, fill)
-        reset()
+            val stroke = VectorStroke(
+                points = strokePoints,
+                strokeColor = activeStrokeColor,
+                fillColor = activeFillColor,
+                isStrokeEnabled = isStrokeActive,
+                isFillEnabled = isFillActive,
+                maxWidth = activeSize,
+                path = path,
+                fillPath = fPath,
+                brushType = "FREEHAND",
+                strokeType = activeStrokeType,
+                leftPoints = genResult.left,
+                rightPoints = genResult.right
+            )
+
+            var fill: FillData? = null
+            if (isFillActive && strokePoints.size >= 3) {
+                 val fillPathToUse = fPath ?: Path().apply {
+                     moveTo(strokePoints[0].x, strokePoints[0].y)
+                     for (i in 1 until strokePoints.size) {
+                         lineTo(strokePoints[i].x, strokePoints[i].y)
+                     }
+                     close()
+                 }
+                 fill = FillData(fillPathToUse, activeFillColor)
+            }
+
+            onStrokeCompleted(stroke, fill)
+            reset()
+        }
     }
 
     fun forceFinishGeometric() {
@@ -700,6 +772,30 @@ class StrokePipeline(
              // 2. Compute fill path
              null // Return null for now until implemented
         }
+    }
+
+    private fun flattenOuterStroke(outlinePath: Path, originalPoints: List<StrokePoint>): Pair<Path, List<StrokePoint>> {
+        // Union to collapse self-intersections into clean filled blob
+        val cleanPath = Path()
+        cleanPath.op(outlinePath, outlinePath, Path.Op.UNION)
+        
+        // Resample perimeter into StrokePoints via PathMeasure
+        val pm = android.graphics.PathMeasure(cleanPath, false)
+        val totalLength = pm.length
+        if (totalLength < 1f) return outlinePath to originalPoints
+        
+        val avgPressure = originalPoints.map { it.pressure }.average().toFloat()
+        val baseTime = originalPoints.firstOrNull()?.timestamp ?: 0L
+        val sampleCount = (totalLength / (activeSize * 0.5f)).toInt().coerceIn(8, 512)
+        val newPoints = mutableListOf<StrokePoint>()
+        val pos = FloatArray(2)
+        val tan = FloatArray(2)
+        for (i in 0..sampleCount) {
+            val dist = (i.toFloat() / sampleCount) * totalLength
+            pm.getPosTan(dist, pos, tan)
+            newPoints.add(StrokePoint(pos[0], pos[1], avgPressure, baseTime + i))
+        }
+        return cleanPath to newPoints
     }
 
     // Callbacks

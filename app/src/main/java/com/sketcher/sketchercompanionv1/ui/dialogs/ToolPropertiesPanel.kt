@@ -106,7 +106,9 @@ fun ToolPropertiesPanel(
                             // REUSE LEGACY COMPONENT (Mirror functionality)
                             FreehandSettingsContent(
                                 currentSettings = viewModel.currentFreehandSettings,
-                                onSettingsChanged = { viewModel.updateFreehandSettings(it) }
+                                onSettingsChanged = { viewModel.updateFreehandSettings(it) },
+                                isFlattenedOuterStrokeEnabled = viewModel.toolManager.isFlattenedOuterStrokeEnabled,
+                                onToggleFlattenedOuterStroke = { viewModel.toolManager.toggleFlattenedOuterStroke() }
                             )
                         }
                         ToolType.ERASER -> {

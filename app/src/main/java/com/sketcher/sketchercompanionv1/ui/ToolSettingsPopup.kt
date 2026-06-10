@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1.ui
+package com.sketcher.sketchercompanionv1.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -26,6 +26,8 @@ fun ToolSettingsPopup(
     // Freehand Specs
     freehandSettings: FreehandSettings,
     onFreehandSettingsChanged: (FreehandSettings) -> Unit,
+    isFlattenedOuterStrokeEnabled: Boolean = false,
+    onToggleFlattenedOuterStroke: () -> Unit = {},
     // Eraser Specs
     selectionScope: SketcherViewModel.SelectionScope = SketcherViewModel.SelectionScope.CURRENT_LAYER,
     onToggleSelectionScope: () -> Unit = {},
@@ -54,7 +56,12 @@ fun ToolSettingsPopup(
 
                 when (toolType) {
                     ToolType.FREEHAND -> {
-                        FreehandSettingsContent(freehandSettings, onFreehandSettingsChanged)
+                        FreehandSettingsContent(
+                            freehandSettings,
+                            onFreehandSettingsChanged,
+                            isFlattenedOuterStrokeEnabled,
+                            onToggleFlattenedOuterStroke
+                        )
                     }
                     ToolType.ERASER -> {
                         EraserSettingsContent(selectionScope, onToggleSelectionScope)
@@ -80,7 +87,9 @@ fun ToolSettingsPopup(
 @Composable
 fun FreehandSettingsContent(
     currentSettings: FreehandSettings,
-    onSettingsChanged: (FreehandSettings) -> Unit
+    onSettingsChanged: (FreehandSettings) -> Unit,
+    isFlattenedOuterStrokeEnabled: Boolean,
+    onToggleFlattenedOuterStroke: () -> Unit
 ) {
     Text("Ajustes de Pincel (Perfect Freehand)", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
 
@@ -266,6 +275,29 @@ fun FreehandSettingsContent(
         Text("Alta compresiÃ³n (Formas geomÃ©tricas)", color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.bodySmall)
     } else {
         Text("Equilibrado - Recomendado", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+    }
+
+    HorizontalDivider()
+    
+    Text("Experimento: Modo Trazo Plano", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+    
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Trazo Optimizado (Plano)")
+            Text(
+                text = "Procesa los puntos exteriores vectorialmente al levantar el lápiz para una mancha limpia y sin trazos internos.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
+        }
+        Switch(
+            checked = isFlattenedOuterStrokeEnabled,
+            onCheckedChange = { onToggleFlattenedOuterStroke() }
+        )
     }
 }
 

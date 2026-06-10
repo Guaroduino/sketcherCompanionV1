@@ -491,6 +491,8 @@ class SketcherCanvasView(context: Context) : View(context) {
         set(value) { field = value; strokePipeline.activeSize = value }
     var activeFreehandSettings: FreehandSettings = FreehandSettings()
         set(value) { field = value; strokePipeline.activeFreehandSettings = value }
+    var isFlattenedOuterStrokeEnabled: Boolean = false
+        set(value) { field = value; strokePipeline.isFlattenedOuterStrokeEnabled = value }
     var isFillModeEnabled: Boolean = false
         set(value) { field = value; isFillActive = value }
     var fillModeColor: Int = android.graphics.Color.TRANSPARENT
@@ -535,37 +537,6 @@ class SketcherCanvasView(context: Context) : View(context) {
         invalidate()
     }
 
-    fun eraseContentAt(worldX: Float, worldY: Float): Any? {
-        for (layer in layers.reversed()) {
-            if (!layer.isVisible) continue 
-            val iterator = layer.elements.listIterator(layer.elements.size)
-            while (iterator.hasPrevious()) {
-                val element = iterator.previous()
-                val removed = when(element) {
-                    is FillData -> {
-                        val bounds = android.graphics.RectF()
-                        element.path.computeBounds(bounds, true)
-                        bounds.contains(worldX, worldY) // Simplistic check, RenderEngine could do better region checks
-                    }
-                    is VectorStroke -> {
-                        val bounds = android.graphics.RectF()
-                        element.path.computeBounds(bounds, true)
-                        bounds.contains(worldX, worldY)
-                    }
-                    is ImageElement -> element.getBoundingBox(componentLibrary).contains(worldX, worldY)
-                    is SvgElement -> element.getBoundingBox(componentLibrary).contains(worldX, worldY)
-                    is ComponentInstance -> element.getBoundingBox(componentLibrary).contains(worldX, worldY)
-                    else -> false
-                }
-                if (removed) {
-                    iterator.remove()
-                    redrawAllCache()
-                    return element
-                }
-            }
-        }
-        return null
-    }
 
     fun setCameraMatrix(matrix: Matrix, isIntermediate: Boolean = false) {
         viewMatrix.set(matrix)
@@ -818,19 +789,33 @@ class SketcherCanvasView(context: Context) : View(context) {
     var onGeometricProgressChanged: ((Boolean) -> Unit)? = null
     var onHybridStrokeCompleted: ((VectorStroke, FillData?) -> Unit)? = null
 
+    /**
+     * Callback delegado al ViewModel (o a quien lo conecte) para ejecutar el borrado
+     * de forma segura mediante el sistema de comandos.
+     *
+     * Parámetros: (worldX: Float, worldY: Float, diameterPx: Float) -> Boolean
+     * Retorna true si se borró al menos un elemento.
+     */
+    var onRequestErase: ((Float, Float, Float) -> Boolean)? = null
+
     private fun handleEraserInput(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
-                // Map screen coordinates to world coordinates
+                // Mapear coordenadas de pantalla → espacio del mundo
                 tempTouchPoint[0] = event.x
                 tempTouchPoint[1] = event.y
                 inverseMatrix.mapPoints(tempTouchPoint)
-                
+
                 val worldX = tempTouchPoint[0]
                 val worldY = tempTouchPoint[1]
-                
-                // Erase (Object Eraser)
-                eraseContentAt(worldX, worldY)
+
+                // Calcular diámetro del borrador en unidades de pantalla (px)
+                // activeSize es el radio de la brocha, por lo tanto el diámetro = activeSize * 2
+                val diameterPx = activeSize * 2f
+
+                // Delegar al callback seguro (conectado al ViewModel.erase)
+                // Si no hay callback registrado, se ignora el evento sin crashear
+                onRequestErase?.invoke(worldX, worldY, diameterPx)
             }
         }
         return true

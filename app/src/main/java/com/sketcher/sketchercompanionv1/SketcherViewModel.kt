@@ -1806,13 +1806,31 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         ) / 2f
         
         // 1. Identify hits (Read Phase)
-        val currentLayers = layers
-        val layersToCheck = if (selectionScope == SelectionScope.ALL_LAYERS) currentLayers else 
-            (if (activeLayerIndex in currentLayers.indices) listOf(currentLayers[activeLayerIndex]) else emptyList())
+        // Encapsular la lectura dentro de bloques synchronized y crear copias de las listas
+        // para evitar ConcurrentModificationException durante la iteración en hilos de fondo.
+        val layersSnapshot = synchronized(layers) {
+            layers.toList().map { layer ->
+                val elementsSnapshot = synchronized(layer.elements) {
+                    layer.elements.toList()
+                }
+                layer to elementsSnapshot
+            }
+        }
 
-        for (layer in layersToCheck) {
+        val layersToCheck = if (selectionScope == SelectionScope.ALL_LAYERS) {
+            layersSnapshot
+        } else {
+            val activeIndex = activeLayerIndex
+            if (activeIndex in layersSnapshot.indices) {
+                listOf(layersSnapshot[activeIndex])
+            } else {
+                emptyList()
+            }
+        }
+
+        for ((layer, elements) in layersToCheck) {
             // Check for intersection
-            for (element in layer.elements) {
+            for (element in elements) {
                 val bounds = element.getBoundingBox(componentLibrary)
                  // Simple rect intersection for eraser
                 if (RectF.intersects(bounds, RectF(x - radiusWorld, y - radiusWorld, x + radiusWorld, y + radiusWorld))) {

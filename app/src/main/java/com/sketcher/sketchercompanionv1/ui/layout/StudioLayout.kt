@@ -309,10 +309,17 @@ fun StudioLayout(
                     )
                     onStrokeCompleted = { stroke -> viewModel.addVectorStroke(stroke) }
                     onHybridStrokeCompleted = { s, f -> viewModel.addHybridStroke(s, f) }
+                    // Delegar el borrado al sistema de comandos del ViewModel para evitar
+                    // ConcurrentModificationException: el ViewModel muta la lista de forma
+                    // segura a través de EraseCommand, sin usar iteradores en el hilo de UI.
+                    onRequestErase = { worldX, worldY, diameterPx ->
+                        viewModel.erase(worldX, worldY, diameterPx)
+                    }
                     onCameraMatrixChanged = { matrix: android.graphics.Matrix -> viewModel.saveCameraState(matrix) }
                     canvasBackgroundColor = viewModel.backgroundColor
                     canvasViewRef.value = this
                 }
+
             },
             update = { view: SketcherCanvasView ->
                 if (canvasViewRef.value != view) {
@@ -329,6 +336,7 @@ fun StudioLayout(
                 view.activeSize = viewModel.currentSize
                 view.activeStrokeType = viewModel.currentStrokeType
                 view.activeFreehandSettings = viewModel.currentFreehandSettings
+                view.isFlattenedOuterStrokeEnabled = viewModel.toolManager.isFlattenedOuterStrokeEnabled
                 view.isFingerMode = viewModel.fingerModeActive
                 view.fingerOffsetX = viewModel.fingerOffsetXValue
                 view.fingerOffsetY = viewModel.fingerOffsetYValue
