@@ -39,6 +39,8 @@ class SketcherCanvasView(context: Context) : View(context) {
     init {
         isClickable = true
         isFocusable = true
+        // Ensure all drawing is hardware accelerated for minimum latency
+        setLayerType(LAYER_TYPE_HARDWARE, null)
     }
 
     // --- COROUTINES ---
@@ -48,6 +50,11 @@ class SketcherCanvasView(context: Context) : View(context) {
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         viewScope.cancel()
+        bitmapBuffer1?.recycle()
+        bitmapBuffer2?.recycle()
+        bitmapBuffer1 = null
+        bitmapBuffer2 = null
+        backingBitmap = null
     }
 
     // --- TRANSFORMS & STATE ---
@@ -57,6 +64,13 @@ class SketcherCanvasView(context: Context) : View(context) {
     private val drawTransformMatrix = Matrix() // Persistent matrix for onDraw scaling
     private val matrixValuesBuffer = FloatArray(9) // Reuse for equality check
     private var isDrawing: Boolean = false
+
+    // Performance Stats Timing & States
+    private var lastFrameTimeNs: Long = 0L
+    private val frameTimesNs = LongArray(10)
+    private var frameTimeIndex = 0
+    val fpsState = androidx.compose.runtime.mutableStateOf(0)
+    val lastRedrawTimeMs = androidx.compose.runtime.mutableStateOf(0L)
 
     private val redrawHandler = Handler(Looper.getMainLooper())
     private val delayedRedrawRunnable = Runnable { redrawAllCache() }
@@ -81,6 +95,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     fun getLiveStrokePoints(): List<StrokePoint>? = currentVectorPreviewPoints?.toList()
     fun getLiveStrokePath(): android.graphics.Path? = currentVectorPreviewPath
+    fun getLiveCommittedPath(): android.graphics.Path? = currentCommittedPreviewPath?.let { android.graphics.Path(it) }
     fun getLiveFillPath(): android.graphics.Path? = currentFillPath
     fun getLiveGeneratedRadius(): Float = currentLiveGeneratedRadius
     
@@ -172,7 +187,37 @@ class SketcherCanvasView(context: Context) : View(context) {
         }
     
     // CACHING
-    private var backingPicture: android.graphics.Picture? = null
+    private var bitmapBuffer1: android.graphics.Bitmap? = null
+    private var bitmapBuffer2: android.graphics.Bitmap? = null
+    private var backingBitmap: android.graphics.Bitmap? = null
+
+    private fun obtainBitmapBuffer(w: Int, h: Int, currentBacking: android.graphics.Bitmap?): android.graphics.Bitmap {
+        val b1 = bitmapBuffer1
+        if (b1 != null && b1.width == w && b1.height == h && b1 !== currentBacking) {
+            b1.eraseColor(android.graphics.Color.TRANSPARENT)
+            return b1
+        }
+        val b2 = bitmapBuffer2
+        if (b2 != null && b2.width == w && b2.height == h && b2 !== currentBacking) {
+            b2.eraseColor(android.graphics.Color.TRANSPARENT)
+            return b2
+        }
+
+        val newBitmap = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+        if (currentBacking === bitmapBuffer1) {
+            bitmapBuffer2?.recycle()
+            bitmapBuffer2 = newBitmap
+        } else {
+            bitmapBuffer1?.recycle()
+            bitmapBuffer1 = newBitmap
+        }
+        return newBitmap
+    }
+    private val bitmapPaint = Paint().apply {
+        isFilterBitmap = true
+        isAntiAlias = true
+        isDither = true
+    }
 
     var onSizeChangedCallback: ((Int, Int) -> Unit)? = null
 
@@ -194,6 +239,7 @@ class SketcherCanvasView(context: Context) : View(context) {
             currentVectorPreviewOutlinePoints = update.outlinePoints
             currentLiveGeneratedRadius = update.lastRadius
             currentVectorPreviewColor = activeStrokeColor // Sync Stroke Color
+            currentCommittedPreviewPath = update.committedPreviewPath
             
             // Sync Fill State
             currentFillPath = update.fillPath
@@ -203,13 +249,14 @@ class SketcherCanvasView(context: Context) : View(context) {
             invalidate()
         },
         onStrokeCompleted = { stroke, fill ->
+            currentCommittedPreviewPath = null
+            // Perform incremental bake immediately
+            bakeStrokeDirectly(stroke, fill)
+            
             onHybridStrokeCompleted?.invoke(stroke, fill) ?: run {
                  onStrokeCompleted?.invoke(stroke)
                  fill?.let { onFillCompleted?.invoke(it) }
             }
-            transientStrokes.add(stroke)
-            if (fill != null) transientFills.add(fill)
-            redrawAllCache()
             isDrawing = false
         }
     )
@@ -231,11 +278,13 @@ class SketcherCanvasView(context: Context) : View(context) {
         val strokesBaking = transientStrokes.toList()
         val fillsBaking = transientFills.toList()
         
-        // Use Coroutines to draw offscreen and swap
+        val startTime = System.currentTimeMillis()
+        val backBuffer = obtainBitmapBuffer(currentWidth, currentHeight, backingBitmap)
+        
         redrawJob = viewScope.launch {
-            val offscreenPicture = withContext(Dispatchers.Default) {
-                val picture = android.graphics.Picture()
-                val canvas = picture.beginRecording(currentWidth, currentHeight)
+            val job = coroutineContext[Job]
+            val offscreenBitmap = withContext(Dispatchers.Default) {
+                val canvas = android.graphics.Canvas(backBuffer)
                 
                 renderEngine.drawLayers(
                     canvas, 
@@ -243,20 +292,46 @@ class SketcherCanvasView(context: Context) : View(context) {
                     currentMatrix, 
                     librarySnapshot, 
                     currentSelectionManager, 
-                    isTransformModeActive
+                    isTransformModeActive,
+                    isCancelled = { job?.isCancelled == true }
                 )
-                
-                picture.endRecording()
-                picture
+                backBuffer
             }
             
-            // Swap to new picture on Main Thread
-            backingPicture = offscreenPicture
+            lastRedrawTimeMs.value = System.currentTimeMillis() - startTime
+            // Swap to new bitmap on Main Thread
+            backingBitmap = offscreenBitmap
             cachedBitmapMatrix.set(currentMatrix)
             transientStrokes.removeAll(strokesBaking)
             transientFills.removeAll(fillsBaking)
             invalidate()
         }
+    }
+
+    fun bakeStrokeDirectly(stroke: VectorStroke, fill: FillData?) {
+        if (width <= 0 || height <= 0) return
+        
+        val bitmap = backingBitmap
+        if (viewMatrix != cachedBitmapMatrix || bitmap == null) {
+            redrawAllCache()
+            return
+        }
+        
+        redrawJob?.cancel()
+        
+        val librarySnapshot = componentLibrary
+        
+        val canvas = android.graphics.Canvas(bitmap)
+        
+        canvas.save()
+        canvas.concat(viewMatrix)
+        if (fill != null) {
+            renderEngine.drawElementRecursive(canvas, fill, librarySnapshot)
+        }
+        renderEngine.drawElementRecursive(canvas, stroke, librarySnapshot)
+        canvas.restore()
+        
+        invalidate()
     }
 
     fun bakeStroke(stroke: VectorStroke) { redrawAllCache() }
@@ -338,13 +413,35 @@ class SketcherCanvasView(context: Context) : View(context) {
     private var editingContext: List<LayerElement>? = null
     private var activeLayerIndex: Int = 0
 
-    fun setLayers(newLayers: List<Layer>, library: Map<String, ComponentDefinition>, editingCtx: List<LayerElement>?, activeIndex: Int = 0) {
-        // Optimization: Skip if no changes to content
-        if (layers.size == newLayers.size && 
+    private var lastUpdateTrigger: Int = -1
+
+    fun setLayers(
+        newLayers: List<Layer>, 
+        library: Map<String, ComponentDefinition>, 
+        editingCtx: List<LayerElement>?, 
+        updateTrigger: Int,
+        activeIndex: Int = 0
+    ) {
+        val triggerChanged = lastUpdateTrigger != updateTrigger
+        lastUpdateTrigger = updateTrigger
+
+        // Optimization: Skip if no changes to content and no trigger change
+        if (!triggerChanged &&
+            layers.size == newLayers.size && 
             layers == newLayers && 
             componentLibrary === library && 
             editingContext === editingCtx && 
             activeLayerIndex == activeIndex) {
+            return
+        }
+
+        // Fast path for single stroke completion (incremental bake)
+        if (isSingleElementAppend(newLayers)) {
+            layers.clear()
+            layers.addAll(newLayers)
+            componentLibrary = library
+            editingContext = editingCtx
+            activeLayerIndex = activeIndex
             return
         }
 
@@ -354,6 +451,26 @@ class SketcherCanvasView(context: Context) : View(context) {
         editingContext = editingCtx
         activeLayerIndex = activeIndex
         redrawAllCache()
+    }
+
+    private fun isSingleElementAppend(newLayers: List<Layer>): Boolean {
+        if (layers.size != newLayers.size) return false
+        var appendCount = 0
+        for (i in layers.indices) {
+            val oldLayer = layers[i]
+            val newLayer = newLayers[i]
+            if (oldLayer.id != newLayer.id || oldLayer.isVisible != newLayer.isVisible || oldLayer.opacity != newLayer.opacity || oldLayer.isLocked != newLayer.isLocked) {
+                return false
+            }
+            if (oldLayer.elements.size != newLayer.elements.size) {
+                if (i == activeLayerIndex && newLayer.elements.size == oldLayer.elements.size + 1 && newLayer.elements.subList(0, oldLayer.elements.size) == oldLayer.elements) {
+                    appendCount++
+                } else {
+                    return false
+                }
+            }
+        }
+        return appendCount == 1
     }
     
     // --- TOOL SYNC ---
@@ -404,7 +521,8 @@ class SketcherCanvasView(context: Context) : View(context) {
     private var currentLiveGeneratedRadius: Float = 0f
     private var currentLiveTipWidth: Float = 0f 
         get() = currentLiveGeneratedRadius * 2
- // New: Accurate radius from generator
+    // Committed head of the live stroke (drawn separately, under the live tail)
+    private var currentCommittedPreviewPath: android.graphics.Path? = null
     
 
 
@@ -459,7 +577,7 @@ class SketcherCanvasView(context: Context) : View(context) {
             
             // Defer expensive redraw to avoid UI lag during rapid updates (zoom/pan)
             redrawHandler.removeCallbacks(delayedRedrawRunnable)
-            redrawHandler.postDelayed(delayedRedrawRunnable, 100)
+            redrawHandler.postDelayed(delayedRedrawRunnable, 60)
         } else {
             // Final update should be crisp immediately
             redrawHandler.removeCallbacks(delayedRedrawRunnable)
@@ -476,22 +594,44 @@ class SketcherCanvasView(context: Context) : View(context) {
     // --- DRAWING ---
 
     override fun onDraw(canvas: Canvas) {
+        // FPS Calculation
+        val now = System.nanoTime()
+        if (lastFrameTimeNs > 0L) {
+            val frameTime = now - lastFrameTimeNs
+            frameTimesNs[frameTimeIndex] = frameTime
+            frameTimeIndex = (frameTimeIndex + 1) % frameTimesNs.size
+            
+            var sum = 0L
+            var count = 0
+            for (t in frameTimesNs) {
+                if (t > 0L) {
+                    sum += t
+                    count++
+                }
+            }
+            if (count > 0) {
+                val avgFrameTimeNs = sum / count
+                fpsState.value = (1_000_000_000L / avgFrameTimeNs).toInt()
+            }
+        }
+        lastFrameTimeNs = now
+
         super.onDraw(canvas)
         
-        // 1. Draw Cached Picture (Background & Layers)
-        backingPicture?.let { picture ->
+        // 1. Draw Cached Bitmap (Background & Layers)
+        backingBitmap?.let { bitmap ->
             if (viewMatrix == cachedBitmapMatrix) {
-                canvas.drawPicture(picture)
+                canvas.drawBitmap(bitmap, 0f, 0f, bitmapPaint)
             } else {
-                // High-performance scaling for intermediate frames
+                // High-performance scaling for intermediate frames (zoom/pan)
                 if (cachedBitmapMatrix.invert(drawTransformMatrix)) {
                      drawTransformMatrix.postConcat(viewMatrix)
                      canvas.save()
                      canvas.concat(drawTransformMatrix)
-                     canvas.drawPicture(picture)
+                     canvas.drawBitmap(bitmap, 0f, 0f, bitmapPaint)
                      canvas.restore()
                 } else {
-                     canvas.drawPicture(picture)
+                     canvas.drawBitmap(bitmap, 0f, 0f, bitmapPaint)
                 }
             }
         } ?: run {
@@ -510,6 +650,17 @@ class SketcherCanvasView(context: Context) : View(context) {
         canvas.restore()
 
         // 2. Draw Live Content (Stroke & Fill)
+        // 2a. Draw committed head of the stroke (baked, static portion) -- UNDERNEATH the live tail
+        currentCommittedPreviewPath?.let { committed ->
+            if (isDrawing && isStrokeActive) {
+                canvas.save()
+                canvas.concat(viewMatrix)
+                renderEngine.drawCommittedPreview(canvas, committed, activeStrokeColor)
+                canvas.restore()
+            }
+        }
+
+        // 2b. Draw live tail (overlaps the end of the committed head to hide the seam)
         renderEngine.drawLiveStroke(
             canvas, 
             currentVectorPreviewPoints, 

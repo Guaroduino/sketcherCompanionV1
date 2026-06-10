@@ -48,6 +48,26 @@ class StrokePipeline(
     private var liveSettingsCache = FreehandSettings()
     private var lastBaseSettings: FreehandSettings? = null
 
+    // --- Incremental Live Preview ---
+    // Instead of re-running PerfectFreehandGenerator on all N points every frame,
+    // we keep a cached "committed" path for all points up to commitHead, and only
+    // regenerate the last INCREMENTAL_TAIL_SIZE points as the live tip.
+    private companion object {
+        // How many new points before we re-bake the committed head.
+        // Smaller = more frequent baking (slightly more work) but shorter constant-width tail.
+        const val INCREMENTAL_TAIL_SIZE = 16
+        // How many points back from commitHeadCount the tail starts.
+        // Must be enough to cover the end cap of the committed polygon (a few px of overlap).
+        // Larger values increase the "constant-width" overlap zone and make the seam more visible.
+        const val COMMIT_OVERLAP = 5
+        // Minimum stroke points before we activate incremental mode
+        const val INCREMENTAL_MIN_POINTS = INCREMENTAL_TAIL_SIZE * 3
+    }
+    private val committedPath = Path()       // Baked head of the stroke
+    private var commitHeadCount = 0          // How many points are baked into committedPath
+    private var committedLastRadius = 0f     // Radius at the end of the last committed bake
+    private val combinedPreviewPath = Path() // (unused after seam fix, kept for safety)
+
 
     // --- State ---
     private val currentStrokePoints = mutableListOf<StrokePoint>()
@@ -74,7 +94,9 @@ class StrokePipeline(
         val outlinePoints: List<PointF>?,
         val lastRadius: Float,
         val fillPath: Path?,
-        val fillColor: Int
+        val fillColor: Int,
+        // Separate committed head path (drawn under previewPath to avoid seam artifacts)
+        val committedPreviewPath: Path? = null
     )
 
     fun onTouchEvent(event: MotionEvent): Boolean {
@@ -88,6 +110,10 @@ class StrokePipeline(
         if (action == MotionEvent.ACTION_DOWN) {
            isDrawing = true
            currentStrokePoints.clear()
+           committedPath.rewind()
+           commitHeadCount = 0
+           committedLastRadius = 0f
+           combinedPreviewPath.rewind()
            lastPointTimestamp = 0L
 
            if (rawEventPoints.isNotEmpty()) {
@@ -247,15 +273,74 @@ class StrokePipeline(
         if (activeFreehandSettings !== lastBaseSettings) {
             liveSettingsCache = activeFreehandSettings
             lastBaseSettings = activeFreehandSettings
+            // Settings changed: invalidate committed cache
+            committedPath.rewind()
+            commitHeadCount = 0
         }
 
-        // 2. Generate Unified Path using reusable path
-        val result = PerfectFreehandGenerator.generate(
-            livePoints, 
-            liveSettingsCache.copy(size = activeSize, isComplete = false), 
-            currentZoom,
-            reusablePreviewPath
-        )
+        val settings = liveSettingsCache.copy(size = activeSize, isComplete = false)
+
+        // 2. Incremental preview for FREEHAND only when stroke is long enough
+        val result: PerfectFreehandGenerator.FreehandResult
+        var committedPathToSend: Path? = null
+
+        if (activeStrokeType == StrokeType.FREEHAND &&
+            livePoints.size >= INCREMENTAL_MIN_POINTS) {
+
+            // -- Bake head if we have enough new points since last commit --
+            val uncommitted = livePoints.size - commitHeadCount
+            if (uncommitted >= INCREMENTAL_TAIL_SIZE) {
+                // New commit boundary: bake everything except the last INCREMENTAL_TAIL_SIZE points
+                val newHeadEnd = livePoints.size - INCREMENTAL_TAIL_SIZE
+                val headPoints = livePoints.subList(0, newHeadEnd)
+                val headResult = PerfectFreehandGenerator.generate(
+                    headPoints,
+                    settings.copy(isComplete = false),
+                    currentZoom,
+                    committedPath // rewind+fill in-place
+                )
+                commitHeadCount = newHeadEnd
+                // Capture the radius the committed head ended at — the tail must start at this width
+                committedLastRadius = headResult.lastRadius
+            }
+
+            // -- Generate live tail with minimal overlap into the committed region --
+            // COMMIT_OVERLAP: just enough points back to cover the committed end cap visually.
+            // Keeping overlap small minimizes the zone where constant-width tail is visible
+            // over the varying-width committed head, eliminating the residual artifact.
+            // capStart = false → no start cap (avoids double-cap with committed end cap)
+            // taperStart = 0f → no taper at tail start (avoids width mismatch)
+            // thinning/velocityThinning = 0 → constant width = committedLastRadius
+            val tailStart = (commitHeadCount - COMMIT_OVERLAP).coerceAtLeast(0)
+            val tailPoints = livePoints.subList(tailStart, livePoints.size)
+            val tailRadius = if (committedLastRadius > 0f) committedLastRadius else settings.size / 2f
+            val tailSettings = settings.copy(
+                capStart = false,
+                taperStart = 0f,
+                thinning = 0f,
+                velocityThinning = 0f,
+                simulatePressure = false,
+                size = tailRadius * 2f
+            )
+            result = PerfectFreehandGenerator.generate(
+                tailPoints,
+                tailSettings,
+                currentZoom,
+                reusablePreviewPath
+            )
+
+            // Pass the committed path separately so the canvas draws it FIRST (underneath)
+            committedPathToSend = committedPath
+
+        } else {
+            // Full regeneration for short strokes or geometric types
+            result = PerfectFreehandGenerator.generate(
+                livePoints,
+                settings,
+                currentZoom,
+                reusablePreviewPath
+            )
+        }
 
         // 3. Fill Preview
         var fillPath: Path? = null
@@ -275,7 +360,8 @@ class StrokePipeline(
             outlinePoints = result.left + result.right,
             lastRadius = result.lastRadius,
             fillPath = fillPath,
-            fillColor = if (isFillActive) activeFillColor else 0
+            fillColor = if (isFillActive) activeFillColor else 0,
+            committedPreviewPath = committedPathToSend
         ))
     }
 
@@ -303,7 +389,7 @@ class StrokePipeline(
         }
 
         // Simplify
-        val tolerance = activeFreehandSettings.simplificationTolerance.coerceAtLeast(0.5f)
+        val tolerance = activeFreehandSettings.simplificationTolerance.coerceAtLeast(0.01f)
         val isSimplified = activeFreehandSettings.isSimplificationEnabled
 
         val finalPoints = if (isSimplified && finalPointsRaw.size > 2) {
@@ -314,18 +400,18 @@ class StrokePipeline(
 
         // Generate High Fidelity Path
         val genResult = PerfectFreehandGenerator.generate(
-            finalPointsRaw, 
+            finalPoints, 
             activeFreehandSettings.copy(size = activeSize, isComplete = true), 
             currentZoom
         )
         val path = Path(genResult.path)
         
         var fPath: Path? = null
-        if (isFillActive && finalPointsRaw.size >= 3) {
+        if (isFillActive && finalPoints.size >= 3) {
              fPath = Path()
-             fPath.moveTo(finalPointsRaw[0].x, finalPointsRaw[0].y)
-             for (i in 1 until finalPointsRaw.size) {
-                 fPath.lineTo(finalPointsRaw[i].x, finalPointsRaw[i].y)
+             fPath.moveTo(finalPoints[0].x, finalPoints[0].y)
+             for (i in 1 until finalPoints.size) {
+                 fPath.lineTo(finalPoints[i].x, finalPoints[i].y)
              }
              fPath.close()
         }
@@ -346,14 +432,15 @@ class StrokePipeline(
         )
 
         var fill: FillData? = null
-        if (isFillActive && finalPointsRaw.size >= 3) {
-             val fPath = Path()
-             fPath.moveTo(finalPointsRaw[0].x, finalPointsRaw[0].y)
-             for (i in 1 until finalPointsRaw.size) {
-                 fPath.lineTo(finalPointsRaw[i].x, finalPointsRaw[i].y)
+        if (isFillActive && finalPoints.size >= 3) {
+             val fillPathToUse = fPath ?: Path().apply {
+                 moveTo(finalPoints[0].x, finalPoints[0].y)
+                 for (i in 1 until finalPoints.size) {
+                     lineTo(finalPoints[i].x, finalPoints[i].y)
+                 }
+                 close()
              }
-             fPath.close()
-             fill = FillData(fPath, activeFillColor)
+             fill = FillData(fillPathToUse, activeFillColor)
         }
 
         onStrokeCompleted(stroke, fill)
@@ -370,26 +457,36 @@ class StrokePipeline(
             return
         }
         
+        // Simplify if enabled
+        val tolerance = activeFreehandSettings.simplificationTolerance.coerceAtLeast(0.01f)
+        val isSimplified = activeFreehandSettings.isSimplificationEnabled
+
+        val finalPoints = if (isSimplified && finalPointsRaw.size > 2) {
+             StrokeSimplifier.simplify(finalPointsRaw, tolerance, activeSize * 2.0f)
+        } else {
+             finalPointsRaw
+        }
+
         // Duplicate Logic (Should extract common finalizer)
-         val genResult = PerfectFreehandGenerator.generate(
-             finalPointsRaw, 
+        val genResult = PerfectFreehandGenerator.generate(
+             finalPoints, 
              activeFreehandSettings.copy(size = activeSize, isComplete = true), 
              currentZoom
-         )
-         val path = Path(genResult.path)
+        )
+        val path = Path(genResult.path)
          
-         var fPath: Path? = null
-         if (isFillActive && finalPointsRaw.size >= 3) {
-              fPath = Path()
-              fPath.moveTo(finalPointsRaw[0].x, finalPointsRaw[0].y)
-              for (i in 1 until finalPointsRaw.size) {
-                  fPath.lineTo(finalPointsRaw[i].x, finalPointsRaw[i].y)
-              }
-              fPath.close()
-         }
+        var fPath: Path? = null
+        if (isFillActive && finalPoints.size >= 3) {
+             fPath = Path()
+             fPath.moveTo(finalPoints[0].x, finalPoints[0].y)
+             for (i in 1 until finalPoints.size) {
+                 fPath.lineTo(finalPoints[i].x, finalPoints[i].y)
+             }
+             fPath.close()
+        }
 
-         val stroke = VectorStroke(
-             points = finalPointsRaw,
+        val stroke = VectorStroke(
+             points = finalPoints,
              strokeColor = activeStrokeColor,
              fillColor = activeFillColor,
              isStrokeEnabled = isStrokeActive,
@@ -401,19 +498,30 @@ class StrokePipeline(
              strokeType = activeStrokeType,
              leftPoints = genResult.left,
              rightPoints = genResult.right
-         )
+        )
 
-         var fill: FillData? = null
-         if (isFillActive && finalPointsRaw.size >= 3) {
-              fill = FillData(fPath!!, activeFillColor)
-         }
+        var fill: FillData? = null
+        if (isFillActive && finalPoints.size >= 3) {
+             val fillPathToUse = fPath ?: Path().apply {
+                 moveTo(finalPoints[0].x, finalPoints[0].y)
+                 for (i in 1 until finalPoints.size) {
+                     lineTo(finalPoints[i].x, finalPoints[i].y)
+                 }
+                 close()
+             }
+             fill = FillData(fillPathToUse, activeFillColor)
+        }
 
-         onStrokeCompleted(stroke, fill)
-         reset()
+        onStrokeCompleted(stroke, fill)
+        reset()
     }
 
     private fun reset() {
         currentStrokePoints.clear()
+        committedPath.rewind()
+        commitHeadCount = 0
+        committedLastRadius = 0f
+        combinedPreviewPath.rewind()
         isDrawing = false
         isMultiStepInProgress = false
         onUpdate(PipelineUpdate(null, null, null, null, 0f, null, 0))

@@ -150,7 +150,7 @@ data class FreehandSettings(
     
     // Custom App Params
     val predictionLatency: Long = 35L,
-    val simplificationTolerance: Float = 1.0f,
+    val simplificationTolerance: Float = 0.3f,
 
     // Internal / Extras
     val velocityThinning: Float = 0.0f,

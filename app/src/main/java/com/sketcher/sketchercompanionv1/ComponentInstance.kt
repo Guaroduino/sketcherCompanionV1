@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1
+package com.sketcher.sketchercompanionv1
 
 import android.graphics.Matrix
 import android.graphics.RectF
@@ -9,11 +9,16 @@ data class ComponentInstance(
     val matrix: Matrix = Matrix()
 ) : LayerElement, Transformable {
 
+    @Transient
+    private var cachedBounds: RectF? = null
+
     override fun transform(tMatrix: Matrix) {
         matrix.postConcat(tMatrix)
+        cachedBounds = null
     }
 
     override fun getBoundingBox(library: Map<String, ComponentDefinition>): RectF {
+        cachedBounds?.let { return it }
         val definition = library[definitionId] ?: return RectF()
         val rect = RectF()
         for (element in definition.elements) {
@@ -22,6 +27,7 @@ data class ComponentInstance(
             else rect.union(childBounds)
         }
         matrix.mapRect(rect)
+        cachedBounds = rect
         return rect
     }
 

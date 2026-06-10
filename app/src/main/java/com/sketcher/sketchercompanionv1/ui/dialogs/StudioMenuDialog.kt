@@ -192,6 +192,16 @@ fun StudioMenuDialog(
                     item { Spacer(modifier = Modifier.height(8.dp)) }
                     item { MenuSectionHeader("APP", theme.iconColor) }
                     item {
+                        val showStats = viewModel.showPerformanceStats
+                        MenuItem(
+                            icon = Icons.Default.Speed,
+                            label = if (showStats) "Ocultar Rendimiento" else "Mostrar Rendimiento",
+                            tint = theme.iconColor
+                        ) {
+                            viewModel.togglePerformanceStats()
+                        }
+                    }
+                    item {
                         MenuItem(Icons.Default.Settings, "Settings", theme.iconColor) { 
                             actions.onSettings()
                             onDismiss()

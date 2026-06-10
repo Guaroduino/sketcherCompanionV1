@@ -72,6 +72,21 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     var lastViewportWidth by mutableFloatStateOf(0f)
     var lastViewportHeight by mutableFloatStateOf(0f)
     
+    var showPerformanceStats by mutableStateOf(prefs.getBoolean("show_performance_stats", false))
+        private set
+
+    fun togglePerformanceStats() {
+        showPerformanceStats = !showPerformanceStats
+        prefs.edit().putBoolean("show_performance_stats", showPerformanceStats).apply()
+    }
+
+    val strokeCount: Int
+        get() = layers.sumOf { layer -> layer.elements.count { it is VectorStroke } }
+
+    val pointCount: Int
+        get() = layers.sumOf { layer -> layer.elements.sumOf { el -> if (el is VectorStroke) el.points.size else 0 } }
+
+    
 
 
     var canUndo by mutableStateOf(false)
@@ -1050,13 +1065,18 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun createLayersSnapshot(): List<Layer> {
-        return layers.map { layer -> layer.copy(elements = layer.elements.map { it.copyElement() }.toMutableStateList()) }
+        val selected = selectionManager.selectedElements
+        return layers.map { layer ->
+            layer.copy(elements = layer.elements.map { element ->
+                if (selected.contains(element)) element.copyElement() else element
+            }.toMutableStateList())
+        }
     }
     
     private fun restoreSnapshot(state: List<Layer>, restoredActiveIndex: Int) {
         layerManager.internalUpdateLayers(
             newList = state.map { savedLayer ->
-                savedLayer.copy(elements = savedLayer.elements.map { it.copyElement() }.toMutableStateList())
+                savedLayer.copy(elements = savedLayer.elements.toMutableStateList())
             },
             activeIndex = restoredActiveIndex
         )
@@ -2117,6 +2137,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun renderAndSendSyncFrame(
         livePoints: List<StrokePoint>?,
         livePath: android.graphics.Path?,
+        committedPath: android.graphics.Path?,
         liveFillPath: android.graphics.Path?,
         liveRadius: Float
     ) {
@@ -2191,6 +2212,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     )
 
                     // Render active live stroke if it's currently in progress
+                    // Draw committed head first (underneath), then live tail on top — same order as main canvas
+                    if (committedPath != null && isStrokeActiveVal) {
+                        canvas.save()
+                        canvas.concat(fitMatrix)
+                        renderEngine.drawCommittedPreview(canvas, committedPath, strokeColorVal)
+                        canvas.restore()
+                    }
                     if (livePath != null || livePoints != null) {
                         renderEngine.drawLiveStroke(
                             canvas = canvas,
@@ -2228,6 +2256,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun renderAndSendFixedSnapshot(
         livePoints: List<StrokePoint>?,
         livePath: android.graphics.Path?,
+        committedPath: android.graphics.Path?,
         liveFillPath: android.graphics.Path?,
         liveRadius: Float
     ) {
@@ -2313,6 +2342,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 )
 
                 // Render active live stroke if it's currently in progress
+                // Draw committed head first (underneath), then live tail on top
+                if (committedPath != null && isStrokeActiveVal) {
+                    canvas.save()
+                    canvas.concat(fitMatrix)
+                    renderEngine.drawCommittedPreview(canvas, committedPath, strokeColorVal)
+                    canvas.restore()
+                }
                 if (livePath != null || livePoints != null) {
                     renderEngine.drawLiveStroke(
                         canvas = canvas,

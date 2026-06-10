@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1
+package com.sketcher.sketchercompanionv1
 
 import android.graphics.Matrix
 import android.graphics.RectF
@@ -9,12 +9,17 @@ data class GroupElement(
     val matrix: Matrix = Matrix()     // Local transformation
 ) : LayerElement, Transformable {
 
+    @Transient
+    private var cachedBounds: RectF? = null
+
     override fun transform(tMatrix: Matrix) {
         // Groups transform by updating their own matrix, not the children directly
         matrix.postConcat(tMatrix)
+        cachedBounds = null
     }
 
     override fun getBoundingBox(library: Map<String, ComponentDefinition>): RectF {
+        cachedBounds?.let { return it }
         val unionRect = RectF()
         if (elements.isEmpty()) return unionRect
         
@@ -27,6 +32,7 @@ data class GroupElement(
         
         // 2. Map the union rect by the group's matrix
         matrix.mapRect(unionRect)
+        cachedBounds = unionRect
         return unionRect
     }
 

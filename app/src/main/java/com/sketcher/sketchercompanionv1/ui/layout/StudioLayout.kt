@@ -44,6 +44,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.window.Dialog
@@ -143,11 +144,12 @@ fun StudioLayout(
                 canvasViewRef.value?.let { view ->
                     val livePoints = view.getLiveStrokePoints()
                     val livePath = view.getLiveStrokePath()?.let { android.graphics.Path(it) }
+                    val committedPath = view.getLiveCommittedPath()
                     val liveFillPath = view.getLiveFillPath()?.let { android.graphics.Path(it) }
                     val liveRadius = view.getLiveGeneratedRadius()
-                    viewModel.renderAndSendSyncFrame(livePoints, livePath, liveFillPath, liveRadius)
+                    viewModel.renderAndSendSyncFrame(livePoints, livePath, committedPath, liveFillPath, liveRadius)
                 } ?: run {
-                    viewModel.renderAndSendSyncFrame(null, null, null, 0f)
+                    viewModel.renderAndSendSyncFrame(null, null, null, null, 0f)
                 }
             }
             frameCount++
@@ -156,11 +158,12 @@ fun StudioLayout(
                     canvasViewRef.value?.let { view ->
                         val livePoints = view.getLiveStrokePoints()
                         val livePath = view.getLiveStrokePath()?.let { android.graphics.Path(it) }
+                        val committedPath = view.getLiveCommittedPath()
                         val liveFillPath = view.getLiveFillPath()?.let { android.graphics.Path(it) }
                         val liveRadius = view.getLiveGeneratedRadius()
-                        viewModel.renderAndSendFixedSnapshot(livePoints, livePath, liveFillPath, liveRadius)
+                        viewModel.renderAndSendFixedSnapshot(livePoints, livePath, committedPath, liveFillPath, liveRadius)
                     } ?: run {
-                        viewModel.renderAndSendFixedSnapshot(null, null, null, 0f)
+                        viewModel.renderAndSendFixedSnapshot(null, null, null, null, 0f)
                     }
                 }
             }
@@ -353,7 +356,13 @@ fun StudioLayout(
                 val updateTrigger = viewModel.layerUpdateTrigger
                 
                 if (currentLayers.isNotEmpty()) {
-                    view.setLayers(currentLayers, viewModel.componentLibrary, viewModel.editingContext)
+                    view.setLayers(
+                        newLayers = currentLayers,
+                        library = viewModel.componentLibrary,
+                        editingCtx = viewModel.editingContext,
+                        updateTrigger = updateTrigger,
+                        activeIndex = viewModel.activeLayerIndex
+                    )
                 }
                 view.invalidate()
             }
@@ -1559,6 +1568,17 @@ fun StudioLayout(
                 onDisable = { viewModel.toggleFill(false); viewModel.setShowFillColorPicker(false) }
             )
         }
+
+        if (viewModel.showPerformanceStats) {
+            val topBarOffset = if (swapVertical) animBottomOffset else animTopOffset
+            PerformanceStatsOverlay(
+                viewModel = viewModel,
+                canvasView = canvasViewRef.value,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = topBarOffset + scaler.baseBarHeight + 8.dp)
+            )
+        }
     }
 
     if (showPersonalizationDialog) {
@@ -1836,4 +1856,94 @@ fun Modifier.glassmorphicBackground(
     theme: UiThemeConfig,
     shape: androidx.compose.ui.graphics.Shape
 ): Modifier = this.background(theme.barBackgroundColor, shape)
+
+@Composable
+fun PerformanceStatsOverlay(
+    viewModel: SketcherViewModel,
+    canvasView: SketcherCanvasView?,
+    modifier: Modifier = Modifier
+) {
+    val theme by viewModel.themeConfig.collectAsState()
+    val fps = canvasView?.fpsState?.value ?: 0
+    val lastRedraw = canvasView?.lastRedrawTimeMs?.value ?: 0L
+    val strokeCount = viewModel.strokeCount
+    val pointCount = viewModel.pointCount
+    val livePoints = canvasView?.getLiveStrokePoints()?.size ?: 0
+
+    Card(
+        modifier = modifier
+            .width(180.dp)
+            .shadow(6.dp, RoundedCornerShape(8.dp)),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color.Black.copy(alpha = 0.8f),
+            contentColor = Color.White
+        ),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
+    ) {
+        Column(
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Rendimiento",
+                    fontSize = 11.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    color = theme.highlightColor
+                )
+                Text(
+                    text = "$fps FPS",
+                    fontSize = 11.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    color = when {
+                        fps >= 55 -> Color.Green
+                        fps >= 30 -> Color.Yellow
+                        else -> Color.Red
+                    }
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(Color.White.copy(alpha = 0.15f))
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(text = "Trazos:", fontSize = 9.sp, color = Color.LightGray)
+                Text(text = "$strokeCount", fontSize = 9.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(text = "Puntos Totales:", fontSize = 9.sp, color = Color.LightGray)
+                Text(text = "$pointCount", fontSize = 9.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+            }
+            if (livePoints > 0) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = "Puntos Activos:", fontSize = 9.sp, color = theme.highlightColor)
+                    Text(text = "$livePoints", fontSize = 9.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = theme.highlightColor)
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(text = "Cache Bake:", fontSize = 9.sp, color = Color.LightGray)
+                Text(text = "${lastRedraw}ms", fontSize = 9.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+            }
+        }
+    }
+}
 

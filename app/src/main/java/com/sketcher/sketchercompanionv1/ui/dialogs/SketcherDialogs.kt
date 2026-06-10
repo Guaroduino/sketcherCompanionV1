@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1
+package com.sketcher.sketchercompanionv1
 
 import android.annotation.SuppressLint
 import android.app.Activity
@@ -177,6 +177,8 @@ fun SettingsDialog(
     onInterfaceScaleChanged: (Float) -> Unit,
     isDebugWireframe: Boolean,
     onToggleDebugWireframe: () -> Unit,
+    showPerformanceStats: Boolean,
+    onTogglePerformanceStats: () -> Unit,
     currentScaleConfig: ScaleConfig,
     onUpdateProjectConfig: (String, Float) -> Unit,
     toolbarBackgroundColor: Int,
@@ -357,6 +359,15 @@ fun SettingsDialog(
             ) {
                 Text(stringResource(R.string.settings_debug_wireframe))
                 Switch(checked = isDebugWireframe, onCheckedChange = { onToggleDebugWireframe() })
+            }
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Estadísticas de Rendimiento")
+                Switch(checked = showPerformanceStats, onCheckedChange = { onTogglePerformanceStats() })
             }
             
             

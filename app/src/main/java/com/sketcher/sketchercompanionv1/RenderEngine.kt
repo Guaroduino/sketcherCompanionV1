@@ -109,7 +109,8 @@ class RenderEngine {
         selectionManager: SelectionManager?,
         isTransformActive: Boolean,
         drawGrid: Boolean = true,
-        clientMode: Boolean = false
+        clientMode: Boolean = false,
+        isCancelled: () -> Boolean = { false }
     ) {
         // Draw Background
         val sizeConfig = canvasSizeConfig
@@ -197,6 +198,7 @@ class RenderEngine {
         }
 
         for (layer in layers) {
+             if (isCancelled()) return
              val visible = if (clientMode) {
                  layer.isVisible && layer.isVisibleOnClient
              } else {
@@ -215,6 +217,10 @@ class RenderEngine {
              canvas.concat(viewMatrix)
              
              for (element in layer.elements) {
+                  if (isCancelled()) {
+                      canvas.restoreToCount(saveCount)
+                      return
+                  }
                   val isSelected = selectionManager?.selectedElements?.contains(element) == true
                   if (isSelected && isTransformActive) continue 
 
@@ -289,6 +295,17 @@ class RenderEngine {
     fun drawFill(canvas: Canvas, fill: FillData) {
         fillPaint.color = fill.color
         canvas.drawPath(fill.path, fillPaint)
+    }
+
+    /**
+     * Draws the committed (baked) head of a live stroke.
+     * Called before drawLiveStroke so the live tail is rendered on top,
+     * covering the end cap of the committed polygon and hiding any seam.
+     */
+    fun drawCommittedPreview(canvas: Canvas, committedPath: Path, color: Int) {
+        vectorPaint.color = color
+        vectorPaint.style = Paint.Style.FILL
+        canvas.drawPath(committedPath, vectorPaint)
     }
 
     fun drawLiveStroke(

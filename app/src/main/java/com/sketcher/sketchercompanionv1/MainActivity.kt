@@ -162,6 +162,8 @@ class MainActivity : ComponentActivity() {
                                 onInterfaceScaleChanged = { scale -> sketchViewModel.updateInterfaceScale(scale) },
                                 isDebugWireframe = sketchViewModel.isDebugWireframe,
                                 onToggleDebugWireframe = { sketchViewModel.isDebugWireframe = !sketchViewModel.isDebugWireframe },
+                                showPerformanceStats = sketchViewModel.showPerformanceStats,
+                                onTogglePerformanceStats = { sketchViewModel.togglePerformanceStats() },
                                 currentScaleConfig = sketchViewModel.scaleConfig,
                                 onUpdateProjectConfig = { unit, resolution -> 
                                     sketchViewModel.updateScaleConfig(unit, resolution)
