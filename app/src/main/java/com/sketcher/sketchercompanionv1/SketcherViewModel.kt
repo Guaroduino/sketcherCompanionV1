@@ -1589,21 +1589,19 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     
     // --- IO & ZIP ---
     fun saveProjectToZip(context: Context, uri: android.net.Uri) {
+        val currentLayersSnapshot = layers.map { it.copy(elements = it.elements.toMutableStateList()) } // Shallow-ish copy
+        val currentComponentLibrary = componentLibrary.toMap()
+        val savedProjectId = projectId
+        val savedBgColor = backgroundColor
+        val savedGridConfig = gridConfig
+        val savedScaleConfig = scaleConfig
+        val savedUnit = currentUnit
+        val savedViewportW = lastViewportWidth
+        val savedViewportH = lastViewportHeight
+        val savedCameraMatrix = cameraMatrixValues.toList()
+
         launchIO {
             try {
-                // Snapshot state on Main thread or copy it?
-                // StateFlow access is thread-safe for reading value, but content might change.
-                // ideally we capture state on Main, then save on IO.
-                val currentLayersSnapshot = layers.map { it.copy(elements = it.elements.toMutableStateList()) } // Shallow-ish copy
-                val currentComponentLibrary = componentLibrary.toMap()
-                val savedProjectId = projectId
-                val savedBgColor = backgroundColor
-                val savedGridConfig = gridConfig
-                val savedScaleConfig = scaleConfig
-                val savedUnit = currentUnit
-                val savedViewportW = lastViewportWidth
-                val savedViewportH = lastViewportHeight
-                val savedCameraMatrix = cameraMatrixValues.toList()
 
                 val projectData = ProjectData(
                     id = savedProjectId,
@@ -1759,13 +1757,22 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun exportPdf(context: Context, uri: android.net.Uri) {
+        val currentLayersSnapshot = layers.map { it.copy(elements = it.elements.toMutableStateList()) }
+        val currentComponentLibrary = componentLibrary.toMap()
+        val savedCanvasSizeConfig = canvasSizeConfig
+        val savedPdfExportBoundsMode = pdfExportBoundsMode
+        val savedProjectId = projectId
+        val savedBgColor = backgroundColor
+        val savedGridConfig = gridConfig
+        val savedScaleConfig = scaleConfig
+
         launchIO {
             try {
                 // Determine bounds mode based on canvas size configuration
-                val boundsMode = if (canvasSizeConfig != null) {
+                val boundsMode = if (savedCanvasSizeConfig != null) {
                     com.sketcher.sketchercompanionv1.utils.PdfExporter.BoundsMode.CANVAS_SIZE
                 } else {
-                    pdfExportBoundsMode
+                    savedPdfExportBoundsMode
                 }
 
                 val config = com.sketcher.sketchercompanionv1.utils.PdfExporter.PdfExportConfig(
@@ -1775,24 +1782,20 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 )
 
                 // Use canvas size config dimensions if available, otherwise use reasonable defaults
-                val width = canvasSizeConfig?.widthInPixels ?: 2480f // A4 at 300 DPI
-                val height = canvasSizeConfig?.heightInPixels ?: 3508f // A4 at 300 DPI
-
-                // Snapshot for thread safety
-                val currentLayersSnapshot = layers.toList()
-                val currentComponentLibrary = componentLibrary.toMap()
+                val width = savedCanvasSizeConfig?.widthInPixels ?: 2480f // A4 at 300 DPI
+                val height = savedCanvasSizeConfig?.heightInPixels ?: 3508f // A4 at 300 DPI
                 
                 val projectData = ProjectData(
-                    id = projectId,
+                    id = savedProjectId,
                     layers = currentLayersSnapshot.map { it.toLayerJson() },
-                    backgroundConfig = BackgroundConfig(color = backgroundColor, gridConfig = gridConfig),
+                    backgroundConfig = BackgroundConfig(color = savedBgColor, gridConfig = savedGridConfig),
                     paletteColors = emptyList(),
                     toolConfigs = emptyMap(),
                     canvasMetadata = CanvasMetadata(
                         width = width,
                         height = height,
                         cameraMatrix = emptyList(), // Camera matrix handled by PdfExporter
-                        scaleConfig = scaleConfig
+                        scaleConfig = savedScaleConfig
                     ),
                     componentLibrary = currentComponentLibrary.mapValues { it.value.toComponentDefinitionJson() }
                 )
@@ -1804,7 +1807,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     projectData = projectData,
                     config = config,
                     componentLibrary = currentComponentLibrary,
-                    canvasSizeConfig = canvasSizeConfig
+                    canvasSizeConfig = savedCanvasSizeConfig
                 )
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -1893,27 +1896,34 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun saveTemplate(context: Context, name: String) {
+         val currentLayersSnapshot = layers.map { it.copy(elements = it.elements.toMutableStateList()) }
+         val currentComponentLibrary = componentLibrary.values.toList()
+         val savedProjectId = projectId
+         val savedBgColor = backgroundColor
+         val savedGridConfig = gridConfig
+         val savedScaleConfig = scaleConfig
+
          launchIO {
              // Construct ProjectData from current state for saving
              val projectData = com.sketcher.sketchercompanionv1.dto.ProjectData(
-                 id = projectId,
-                 layers = layers.map { it.toLayerJson() },
-                 backgroundConfig = com.sketcher.sketchercompanionv1.dto.BackgroundConfig(backgroundColor, gridConfig),
+                 id = savedProjectId,
+                 layers = currentLayersSnapshot.map { it.toLayerJson() },
+                 backgroundConfig = com.sketcher.sketchercompanionv1.dto.BackgroundConfig(savedBgColor, savedGridConfig),
                  paletteColors = emptyList(),
                  toolConfigs = emptyMap(), // Simplify for now or map toolConfigs
                  canvasMetadata = com.sketcher.sketchercompanionv1.dto.CanvasMetadata(
                      width = 2000f, // Use actualviewport if possible
                      height = 2000f,
                      cameraMatrix = emptyList(), // Simplify
-                     scaleConfig = scaleConfig
+                     scaleConfig = savedScaleConfig
                  )
              )
              
              com.sketcher.sketchercompanionv1.utils.TemplateManager.saveAsTemplate(
                  context = context, 
                  projectData = projectData,
-                 layers = layers,
-                 components = componentLibrary.values,
+                 layers = currentLayersSnapshot,
+                 components = currentComponentLibrary,
                  templateName = name
              )
          }
@@ -2056,13 +2066,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
     
     fun exportDxf(context: Context, uri: android.net.Uri) {
+         val currentLayersSnapshot = layers.map { it.copy(elements = it.elements.toMutableStateList()) }
          // Run export in IO
          viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
              try {
                  context.contentResolver.openOutputStream(uri)?.use { outputStream ->
                      // Support exporting all layers with structure
                      // If selection only is needed later, we would need to filter layers
-                     com.sketcher.sketchercompanionv1.exporters.DxfExporter.export(layers, outputStream)
+                     com.sketcher.sketchercompanionv1.exporters.DxfExporter.export(currentLayersSnapshot, outputStream)
                  }
              } catch (e: Exception) {
                  e.printStackTrace()
@@ -2248,7 +2259,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                         layers = layersSnapshot,
                         viewMatrix = fitMatrix,
                         componentLibrary = compLibSnapshot,
-                        selectionManager = null,
+                        selectedElements = null,
                         isTransformActive = false,
                         drawGrid = false,
                         clientMode = true
@@ -2378,7 +2389,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     layers = layersSnapshot,
                     viewMatrix = fitMatrix,
                     componentLibrary = compLibSnapshot,
-                    selectionManager = null,
+                    selectedElements = null,
                     isTransformActive = false,
                     drawGrid = false,
                     clientMode = true

@@ -106,7 +106,7 @@ class RenderEngine {
         layers: List<Layer>, 
         viewMatrix: Matrix,
         componentLibrary: Map<String, ComponentDefinition>,
-        selectionManager: SelectionManager?,
+        selectedElements: Set<LayerElement>?,
         isTransformActive: Boolean,
         drawGrid: Boolean = true,
         clientMode: Boolean = false,
@@ -221,7 +221,7 @@ class RenderEngine {
                       canvas.restoreToCount(saveCount)
                       return
                   }
-                  val isSelected = selectionManager?.selectedElements?.contains(element) == true
+                  val isSelected = selectedElements?.contains(element) == true
                   if (isSelected && isTransformActive) continue 
 
                   // Frustum culling filter

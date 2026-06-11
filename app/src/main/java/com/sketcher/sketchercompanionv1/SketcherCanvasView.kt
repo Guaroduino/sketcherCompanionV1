@@ -269,10 +269,14 @@ class SketcherCanvasView(context: Context) : View(context) {
         
         // Snapshot state for background rendering
         val currentMatrix = Matrix(viewMatrix)
-        val layersSnapshot = layers.toList()
+        val layersSnapshot = layers.map { layer ->
+            val list = androidx.compose.runtime.snapshots.SnapshotStateList<LayerElement>()
+            list.addAll(layer.elements)
+            layer.copy(elements = list)
+        }
         val currentWidth = width
         val currentHeight = height
-        val currentSelectionManager = selectionManager
+        val selectedElementsSnapshot = selectionManager?.selectedElements?.toSet() ?: emptySet()
         val isTransformModeActive = currentTool == ToolType.SELECTION && currentSelectionMode == SketcherViewModel.SelectionMode.TRANSFORM_BOX
         val librarySnapshot = componentLibrary
         val strokesBaking = transientStrokes.toList()
@@ -291,7 +295,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                     layersSnapshot, 
                     currentMatrix, 
                     librarySnapshot, 
-                    currentSelectionManager, 
+                    selectedElementsSnapshot, 
                     isTransformModeActive,
                     isCancelled = { job?.isCancelled == true }
                 )
