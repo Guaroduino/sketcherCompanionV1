@@ -4,6 +4,7 @@ import android.view.MotionEvent
 import android.graphics.Path
 import android.graphics.Color
 import android.graphics.PointF
+import android.graphics.RectF
 import com.sketcher.sketchercompanionv1.dto.*
 import com.sketcher.sketchercompanionv1.utils.StrokeSimplifier
 import kotlinx.coroutines.CoroutineScope
@@ -85,6 +86,14 @@ class StrokePipeline(
     private var isDrawing: Boolean = false
     private var currentStrokeId: Int = 0
 
+    // Incremental Cumulative Opacity Cache
+    private val committedChunks = mutableListOf<Path>()
+    private val committedChunkBounds = mutableListOf<RectF>()
+    private val committedIntersections = mutableListOf<Path>()
+    private val committedPathBounds = RectF()
+    private val tempBounds1 = RectF()
+    private val tempBounds2 = RectF()
+
     // Stabilizer State
     private var stabilizerX: Float = 0f
     private var stabilizerY: Float = 0f
@@ -109,7 +118,8 @@ class StrokePipeline(
         val fillColor: Int,
         // Separate committed head path (drawn under previewPath to avoid seam artifacts)
         val committedPreviewPath: Path? = null,
-        val intersections: List<Path> = emptyList()
+        val intersections: List<Path> = emptyList(),
+        val bounds: RectF? = null
     )
 
     fun onTouchEvent(event: MotionEvent): Boolean {
@@ -125,6 +135,7 @@ class StrokePipeline(
            isDrawing = true
            currentStrokePoints.clear()
            committedPath.rewind()
+           committedPathBounds.setEmpty()
            commitHeadCount = 0
            committedLastRadius = 0f
            combinedPreviewPath.rewind()
@@ -289,7 +300,11 @@ class StrokePipeline(
             lastBaseSettings = activeFreehandSettings
             // Settings changed: invalidate committed cache
             committedPath.rewind()
+            committedPathBounds.setEmpty()
             commitHeadCount = 0
+            committedChunks.clear()
+            committedChunkBounds.clear()
+            committedIntersections.clear()
         }
 
         val settings = liveSettingsCache.copy(size = activeSize, isComplete = false)
@@ -306,6 +321,39 @@ class StrokePipeline(
             if (uncommitted >= INCREMENTAL_TAIL_SIZE) {
                 // New commit boundary: bake everything except the last INCREMENTAL_TAIL_SIZE points
                 val newHeadEnd = livePoints.size - INCREMENTAL_TAIL_SIZE
+                
+                // Segment points: from commitHeadCount to newHeadEnd
+                val segmentPoints = livePoints.subList(commitHeadCount, newHeadEnd + 1)
+                val segmentPath = Path()
+                PerfectFreehandGenerator.generate(
+                    segmentPoints,
+                    settings.copy(isComplete = false),
+                    currentZoom,
+                    segmentPath
+                )
+                
+                val segmentBounds = RectF()
+                segmentPath.computeBounds(segmentBounds, true)
+                
+                if (activeFreehandSettings.isCumulativeOpacity && activeStrokeType == StrokeType.FREEHAND) {
+                    val numPrev = committedChunks.size
+                    for (i in 0 until numPrev - 1) { // ignore the immediately adjacent chunk
+                        val prev = committedChunks[i]
+                        val prevBounds = committedChunkBounds[i]
+                        if (RectF.intersects(segmentBounds, prevBounds)) {
+                            val intersect = Path()
+                            if (intersect.op(segmentPath, prev, Path.Op.INTERSECT)) {
+                                if (!intersect.isEmpty) {
+                                    committedIntersections.add(intersect)
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                committedChunks.add(segmentPath)
+                committedChunkBounds.add(segmentBounds)
+                
                 val headPoints = livePoints.subList(0, newHeadEnd)
                 val headResult = PerfectFreehandGenerator.generate(
                     headPoints,
@@ -313,6 +361,7 @@ class StrokePipeline(
                     currentZoom,
                     committedPath // rewind+fill in-place
                 )
+                committedPath.computeBounds(committedPathBounds, true)
                 commitHeadCount = newHeadEnd
                 // Capture the radius the committed head ended at — the tail must start at this width
                 committedLastRadius = headResult.lastRadius
@@ -367,10 +416,51 @@ class StrokePipeline(
             fillPath.close()
         }
 
-        val liveIntersections = if (activeFreehandSettings.isCumulativeOpacity && activeStrokeType == StrokeType.FREEHAND) {
-            PerfectFreehandGenerator.generateCumulativeChunks(livePoints, settings, currentZoom)
+        val liveIntersections = mutableListOf<Path>()
+        if (activeFreehandSettings.isCumulativeOpacity && activeStrokeType == StrokeType.FREEHAND) {
+            if (livePoints.size < INCREMENTAL_MIN_POINTS) {
+                // Short stroke: run the full check (fast because points list is short)
+                liveIntersections.addAll(PerfectFreehandGenerator.generateCumulativeChunks(livePoints, settings, currentZoom))
+            } else {
+                // Long stroke: use cached committed intersections
+                liveIntersections.addAll(committedIntersections)
+                
+                // Intersect tail path with committed chunks
+                val tailPath = result.path
+                tailPath.computeBounds(tempBounds1, true)
+                val numPrev = committedChunks.size
+                for (i in 0 until numPrev - 1) { // ignore the last committed chunk (adjacent)
+                    val prev = committedChunks[i]
+                    val prevBounds = committedChunkBounds[i]
+                    if (RectF.intersects(tempBounds1, prevBounds)) {
+                        val intersect = Path()
+                        if (intersect.op(tailPath, prev, Path.Op.INTERSECT)) {
+                            if (!intersect.isEmpty) {
+                                liveIntersections.add(intersect)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        val totalBounds = RectF()
+        var hasBounds = false
+        if (committedPathToSend != null && !committedPathBounds.isEmpty) {
+            totalBounds.set(committedPathBounds)
+            hasBounds = true
+        }
+        val tailPath = result.path
+        tailPath.computeBounds(tempBounds1, true)
+        if (hasBounds) {
+            totalBounds.union(tempBounds1)
         } else {
-            emptyList()
+            totalBounds.set(tempBounds1)
+            hasBounds = true
+        }
+        if (hasBounds) {
+            val pad = (activeSize * 2f).coerceAtLeast(10f)
+            totalBounds.inset(-pad, -pad)
         }
 
         onUpdate(PipelineUpdate(
@@ -382,7 +472,8 @@ class StrokePipeline(
             fillPath = fillPath,
             fillColor = if (isFillActive) activeFillColor else 0,
             committedPreviewPath = committedPathToSend,
-            intersections = liveIntersections
+            intersections = liveIntersections,
+            bounds = if (hasBounds) totalBounds else null
         ))
     }
 
@@ -458,6 +549,11 @@ class StrokePipeline(
                 }
             }
 
+            val finalBounds = RectF()
+            rawPath.computeBounds(finalBounds, true)
+            val pad = (activeSizeSnap * 2f).coerceAtLeast(10f)
+            finalBounds.inset(-pad, -pad)
+
             // Immediately show the finalized stroke preview (with correct final path/fill)
             // to avoid any blinking or blank frames while processing
             onUpdate(PipelineUpdate(
@@ -468,7 +564,8 @@ class StrokePipeline(
                 lastRadius = genResult.lastRadius,
                 fillPath = fillPath,
                 fillColor = if (isFillActiveSnap) activeFillColorSnap else 0,
-                committedPreviewPath = null
+                committedPreviewPath = null,
+                bounds = finalBounds
             ))
 
             pipelineScope.launch {
@@ -667,9 +764,13 @@ class StrokePipeline(
     private fun reset() {
         currentStrokePoints.clear()
         committedPath.rewind()
+        committedPathBounds.setEmpty()
         commitHeadCount = 0
         committedLastRadius = 0f
         combinedPreviewPath.rewind()
+        committedChunks.clear()
+        committedChunkBounds.clear()
+        committedIntersections.clear()
         isDrawing = false
         isMultiStepInProgress = false
         onUpdate(PipelineUpdate(null, null, null, null, 0f, null, 0))

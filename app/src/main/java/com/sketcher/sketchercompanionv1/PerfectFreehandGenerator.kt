@@ -2,6 +2,7 @@ package com.sketcher.sketchercompanionv1
 
 import android.graphics.Path
 import android.graphics.PointF
+import android.graphics.RectF
 import com.sketcher.sketchercompanionv1.dto.FreehandSettings
 import com.sketcher.sketchercompanionv1.StrokePoint
 
@@ -554,15 +555,23 @@ object PerfectFreehandGenerator {
         }
 
         val numChunks = paths.size
+        val bounds = Array(numChunks) { RectF() }
+        for (i in 0 until numChunks) {
+            paths[i].computeBounds(bounds[i], true)
+        }
+
         for (i in 0 until numChunks - 2) {
+            val boundsI = bounds[i]
             for (j in i + 2 until numChunks) {
-                val pathI = paths[i]
-                val pathJ = paths[j]
-                
-                val intersect = Path()
-                if (intersect.op(pathI, pathJ, Path.Op.INTERSECT)) {
-                    if (!intersect.isEmpty) {
-                        intersections.add(intersect)
+                if (RectF.intersects(boundsI, bounds[j])) {
+                    val pathI = paths[i]
+                    val pathJ = paths[j]
+                    
+                    val intersect = Path()
+                    if (intersect.op(pathI, pathJ, Path.Op.INTERSECT)) {
+                        if (!intersect.isEmpty) {
+                            intersections.add(intersect)
+                        }
                     }
                 }
             }

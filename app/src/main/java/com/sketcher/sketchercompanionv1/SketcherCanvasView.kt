@@ -272,6 +272,7 @@ class SketcherCanvasView(context: Context) : View(context) {
             currentVectorPreviewColor = activeStrokeColor // Sync Stroke Color
             currentCommittedPreviewPath = update.committedPreviewPath
             currentLiveIntersections = update.intersections
+            currentStrokeBounds = update.bounds
             
             // Sync Fill State
             currentFillPath = update.fillPath
@@ -283,6 +284,7 @@ class SketcherCanvasView(context: Context) : View(context) {
         onStrokeCompleted = { stroke, fill ->
             currentCommittedPreviewPath = null
             currentLiveIntersections = emptyList()
+            currentStrokeBounds = null
             // Perform incremental bake immediately
             bakeStrokeDirectly(stroke, fill)
             
@@ -565,6 +567,16 @@ class SketcherCanvasView(context: Context) : View(context) {
     // Committed head of the live stroke (drawn separately, under the live tail)
     private var currentCommittedPreviewPath: android.graphics.Path? = null
     private var currentLiveIntersections: List<android.graphics.Path> = emptyList()
+    private var currentStrokeBounds: android.graphics.RectF? = null
+
+    // Pre-allocated drawing objects to avoid GC churn in onDraw
+    private val saveLayerPaint = Paint()
+    private val liveIntersectionPaint = Paint().apply {
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val tempStrokeBounds = RectF()
+    private val tempScreenBounds = RectF()
     
 
 
@@ -671,7 +683,18 @@ class SketcherCanvasView(context: Context) : View(context) {
                 
                 if (opacity < 1f) {
                     // Non-cumulative and cumulative semi-transparent strokes are both drawn in saveLayer to avoid the connection seam!
-                    val saveCount = canvas.saveLayer(null, Paint().apply { alpha = (opacity * 255).toInt() })
+                    saveLayerPaint.alpha = (opacity * 255).toInt()
+                    val bounds = currentStrokeBounds
+                    val saveCount = if (bounds != null && !bounds.isEmpty) {
+                        tempStrokeBounds.set(bounds)
+                        viewMatrix.mapRect(tempScreenBounds, tempStrokeBounds)
+                        // Pad slightly to account for anti-aliasing
+                        tempScreenBounds.inset(-4f, -4f)
+                        canvas.saveLayer(tempScreenBounds, saveLayerPaint)
+                    } else {
+                        canvas.saveLayer(null, saveLayerPaint)
+                    }
+                    
                     val opaqueColor = activeStrokeColor or (0xFF shl 24)
                     
                     currentCommittedPreviewPath?.let { committed ->
@@ -699,13 +722,9 @@ class SketcherCanvasView(context: Context) : View(context) {
                     if (isCumulative && currentLiveIntersections.isNotEmpty()) {
                         canvas.save()
                         canvas.concat(viewMatrix)
-                        val paint = Paint().apply {
-                            style = Paint.Style.FILL
-                            color = activeStrokeColor
-                            isAntiAlias = true
-                        }
+                        liveIntersectionPaint.color = activeStrokeColor
                         for (p in currentLiveIntersections) {
-                            canvas.drawPath(p, paint)
+                            canvas.drawPath(p, liveIntersectionPaint)
                         }
                         canvas.restore()
                     }
