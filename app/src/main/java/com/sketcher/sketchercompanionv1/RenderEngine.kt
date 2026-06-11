@@ -286,7 +286,13 @@ class RenderEngine {
         if (stroke.strokeType == StrokeType.FREEHAND) {
             vectorPaint.style = Paint.Style.FILL
             vectorPaint.color = stroke.strokeColor
-            canvas.drawPath(stroke.path, vectorPaint)
+            if (stroke.paths.isNotEmpty()) {
+                for (p in stroke.paths) {
+                    canvas.drawPath(p, vectorPaint)
+                }
+            } else {
+                canvas.drawPath(stroke.path, vectorPaint)
+            }
         } else {
             // For others, it's a line
             vectorPaint.style = Paint.Style.STROKE

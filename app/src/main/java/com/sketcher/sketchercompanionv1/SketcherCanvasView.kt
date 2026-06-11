@@ -658,30 +658,63 @@ class SketcherCanvasView(context: Context) : View(context) {
         canvas.restore()
 
         // 2. Draw Live Content (Stroke & Fill)
-        // 2a. Draw committed head of the stroke (baked, static portion) -- UNDERNEATH the live tail
-        currentCommittedPreviewPath?.let { committed ->
-            if (isDrawing && isStrokeActive) {
-                canvas.save()
-                canvas.concat(viewMatrix)
-                renderEngine.drawCommittedPreview(canvas, committed, activeStrokeColor)
-                canvas.restore()
+        if (isDrawing && isStrokeActive) {
+            val hasCommitted = currentCommittedPreviewPath != null
+            val hasLive = currentVectorPreviewPath != null
+            
+            if (hasCommitted || hasLive) {
+                val opacity = (android.graphics.Color.alpha(activeStrokeColor) / 255f)
+                val isCumulative = activeFreehandSettings.isCumulativeOpacity
+                
+                if (!isCumulative && opacity < 1f) {
+                    // Non-cumulative and semi-transparent: draw preview in offscreen layer to prevent overlap seams
+                    val saveCount = canvas.saveLayer(null, Paint().apply { alpha = (opacity * 255).toInt() })
+                    val opaqueColor = activeStrokeColor or (0xFF shl 24)
+                    
+                    currentCommittedPreviewPath?.let { committed ->
+                        canvas.save()
+                        canvas.concat(viewMatrix)
+                        renderEngine.drawCommittedPreview(canvas, committed, opaqueColor)
+                        canvas.restore()
+                    }
+                    renderEngine.drawLiveStroke(
+                        canvas, 
+                        currentVectorPreviewPoints, 
+                        currentVectorPreviewPath,
+                        opaqueColor,
+                        fillPath = currentFillPath,
+                        fillColor = activeFillColor,
+                        isFillActive = isFillActive,
+                        isStrokeActive = isStrokeActive,
+                        currentLiveGeneratedRadius = currentLiveGeneratedRadius,
+                        viewMatrix = viewMatrix,
+                        isDrawing = isDrawing
+                    )
+                    canvas.restoreToCount(saveCount)
+                } else {
+                    // Cumulative or fully opaque: draw directly onto the canvas
+                    currentCommittedPreviewPath?.let { committed ->
+                        canvas.save()
+                        canvas.concat(viewMatrix)
+                        renderEngine.drawCommittedPreview(canvas, committed, activeStrokeColor)
+                        canvas.restore()
+                    }
+                    renderEngine.drawLiveStroke(
+                        canvas, 
+                        currentVectorPreviewPoints, 
+                        currentVectorPreviewPath,
+                        activeStrokeColor,
+                        fillPath = currentFillPath,
+                        fillColor = activeFillColor,
+                        isFillActive = isFillActive,
+                        isStrokeActive = isStrokeActive,
+                        currentLiveGeneratedRadius = currentLiveGeneratedRadius,
+                        viewMatrix = viewMatrix,
+                        isDrawing = isDrawing
+                    )
+                }
             }
         }
-
-        // 2b. Draw live tail (overlaps the end of the committed head to hide the seam)
-        renderEngine.drawLiveStroke(
-            canvas, 
-            currentVectorPreviewPoints, 
-            currentVectorPreviewPath,
-            activeStrokeColor,
-            fillPath = currentFillPath,
-            fillColor = activeFillColor,
-            isFillActive = isFillActive,
-            isStrokeActive = isStrokeActive,
-            currentLiveGeneratedRadius = currentLiveGeneratedRadius,
-            viewMatrix = viewMatrix,
-            isDrawing = isDrawing
-        )
 
         // Selection path preview drawing
         if (currentTool == ToolType.SELECTION && (currentSelectionMode == SketcherViewModel.SelectionMode.FREEHAND || currentSelectionMode == SketcherViewModel.SelectionMode.RECTANGLE || currentSelectionMode == SketcherViewModel.SelectionMode.POLYGON)) {

@@ -21,7 +21,8 @@ data class VectorStroke(
     val brushType: String = "FREEHAND",
     val strokeType: StrokeType = StrokeType.FREEHAND,
     val leftPoints: List<android.graphics.PointF> = emptyList(),
-    val rightPoints: List<android.graphics.PointF> = emptyList()
+    val rightPoints: List<android.graphics.PointF> = emptyList(),
+    val paths: List<Path> = emptyList()
 ) : LayerElement {
     private val cachedBounds = RectF().apply { path.computeBounds(this, true) }
 
@@ -56,7 +57,8 @@ data class VectorStroke(
             brushType = brushType,
             strokeType = strokeType,
             leftPoints = leftPoints.map { android.graphics.PointF(it.x, it.y) },
-            rightPoints = rightPoints.map { android.graphics.PointF(it.x, it.y) }
+            rightPoints = rightPoints.map { android.graphics.PointF(it.x, it.y) },
+            paths = paths.map { Path(it) }
         )
     }
 }

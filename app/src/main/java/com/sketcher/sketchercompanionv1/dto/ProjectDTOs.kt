@@ -96,7 +96,8 @@ data class VectorStrokeJson(
     val strokeColor: Int? = null,
     val fillColor: Int? = null,
     val isStrokeEnabled: Boolean? = null,
-    val isFillEnabled: Boolean? = null
+    val isFillEnabled: Boolean? = null,
+    val isCumulative: Boolean = false
 )
 
 data class StrokePointJson(
@@ -163,7 +164,8 @@ data class FreehandSettings(
     val wideningEndRatio: Float = 2.0f,
     val minWidthRatio: Float = 0.1f,
     val useSplines: Boolean = true,
-    val isMonoline: Boolean = false
+    val isMonoline: Boolean = false,
+    val isCumulativeOpacity: Boolean = false
 )
 
 enum class ToolType { FREEHAND, FILL, ERASER, SELECTION, ANDROID_INK }

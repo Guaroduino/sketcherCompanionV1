@@ -173,7 +173,8 @@ fun VectorStroke.toVectorStrokeJson(): VectorStrokeJson {
         strokeColor = this.strokeColor,
         fillColor = this.fillColor,
         isStrokeEnabled = this.isStrokeEnabled,
-        isFillEnabled = this.isFillEnabled
+        isFillEnabled = this.isFillEnabled,
+        isCumulative = this.paths.isNotEmpty()
     )
 }
 
@@ -198,12 +199,19 @@ fun LayerJson.toLayer(
 
 fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     val pts = this.points.map { StrokePoint(it.x, it.y, it.pressure, it.timestamp) }
-    // We use PerfectFreehandGenerator for all vector strokes now.
-    // Legacy strokes will be reconstructed using the new engine.
+    val isCumul = this.isCumulative
+    val settings = FreehandSettings(size = this.maxWidth, isComplete = true, simulatePressure = false)
+    
     val result = PerfectFreehandGenerator.generate(
         rawPoints = pts, 
-        settings = FreehandSettings(size = this.maxWidth, isComplete = true, simulatePressure = false)
+        settings = settings
     )
+    
+    val chunkPaths = if (isCumul && this.strokeType == StrokeType.FREEHAND) {
+        PerfectFreehandGenerator.generateCumulativeChunks(pts, settings, 1.0f)
+    } else {
+        emptyList()
+    }
     
     val sColor = this.strokeColor ?: this.color
     val fColor = this.fillColor ?: android.graphics.Color.TRANSPARENT
@@ -232,7 +240,8 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         brushType = this.brushType,
         strokeType = this.strokeType,
         leftPoints = result.left,
-        rightPoints = result.right
+        rightPoints = result.right,
+        paths = chunkPaths
     )
 }
 

@@ -129,6 +129,33 @@ fun SizeOpacityPopup(
                             valueRange = 0f..1f
                         )
                     }
+
+                    // Cumulative Opacity Toggle
+                    val freehandSettings = viewModel.currentFreehandSettings
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text("Cumulative Opacity", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "Darkens overlaps on self-crossings",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = theme.iconColor.copy(alpha = 0.6f)
+                            )
+                        }
+                        Switch(
+                            checked = freehandSettings.isCumulativeOpacity,
+                            onCheckedChange = { isChecked ->
+                                viewModel.updateFreehandSettings(freehandSettings.copy(isCumulativeOpacity = isChecked))
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = theme.highlightColor,
+                                checkedTrackColor = theme.highlightColor.copy(alpha = 0.5f)
+                            )
+                        )
+                    }
                 }
             }
         }

@@ -426,7 +426,7 @@ class StrokePipeline(
         )
         val rawPath = Path(genResult.path)
 
-        if (isFlattenedOuterStrokeEnabled && activeStrokeType == StrokeType.FREEHAND) {
+        if (isFlattenedOuterStrokeEnabled && activeStrokeType == StrokeType.FREEHAND && !activeFreehandSettings.isCumulativeOpacity) {
             val activeStrokeTypeSnap = activeStrokeType
             val activeStrokeColorSnap = activeStrokeColor
             val activeFillColorSnap = activeFillColor
@@ -526,6 +526,16 @@ class StrokePipeline(
                  fPath.close()
             }
 
+            val chunkPaths = if (activeFreehandSettings.isCumulativeOpacity && activeStrokeType == StrokeType.FREEHAND) {
+                PerfectFreehandGenerator.generateCumulativeChunks(
+                    finalPoints,
+                    activeFreehandSettings.copy(size = activeSize, isComplete = true, simulatePressure = false),
+                    currentZoom
+                )
+            } else {
+                emptyList()
+            }
+
             val stroke = VectorStroke(
                 points = strokePoints,
                 strokeColor = activeStrokeColor,
@@ -538,7 +548,8 @@ class StrokePipeline(
                 brushType = "FREEHAND",
                 strokeType = activeStrokeType,
                 leftPoints = genResult.left,
-                rightPoints = genResult.right
+                rightPoints = genResult.right,
+                paths = chunkPaths
             )
 
             var fill: FillData? = null
@@ -603,6 +614,16 @@ class StrokePipeline(
              fPath.close()
         }
 
+        val chunkPaths = if (activeFreehandSettings.isCumulativeOpacity && activeStrokeType == StrokeType.FREEHAND) {
+            PerfectFreehandGenerator.generateCumulativeChunks(
+                finalPoints,
+                activeFreehandSettings.copy(size = activeSize, isComplete = true, simulatePressure = false),
+                currentZoom
+            )
+        } else {
+            emptyList()
+        }
+
         val stroke = VectorStroke(
              points = finalPoints,
              strokeColor = activeStrokeColor,
@@ -615,7 +636,8 @@ class StrokePipeline(
              brushType = "FREEHAND",
              strokeType = activeStrokeType,
              leftPoints = genResult.left,
-             rightPoints = genResult.right
+             rightPoints = genResult.right,
+             paths = chunkPaths
         )
 
         var fill: FillData? = null

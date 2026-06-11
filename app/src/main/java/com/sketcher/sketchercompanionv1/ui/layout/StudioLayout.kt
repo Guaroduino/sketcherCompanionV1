@@ -179,6 +179,7 @@ fun StudioLayout(
     val showFillColorPicker by viewModel.showFillColorPicker.collectAsState()
 
     val strokeColorVal by viewModel.strokeColor.collectAsState()
+    val brushOpacity by viewModel.brushOpacity.collectAsState()
     val fillColorVal by viewModel.fillColor.collectAsState()
     val isStrokeActiveVal by viewModel.isStrokeActive.collectAsState()
     val isFillActiveVal by viewModel.isFillActive.collectAsState()
@@ -328,7 +329,9 @@ fun StudioLayout(
                 view.projectionViewports = viewModel.projectionViewports
                 view.currentTool = viewModel.currentTool
                 
-                view.activeStrokeColor = strokeColorVal
+                val alpha = (brushOpacity * 255f).coerceIn(0f, 255f).toInt()
+                val strokeColorWithAlpha = (strokeColorVal and 0x00FFFFFF) or (alpha shl 24)
+                view.activeStrokeColor = strokeColorWithAlpha
                 view.activeFillColor = fillColorVal
                 view.isStrokeActive = isStrokeActiveVal
                 view.isFillActive = isFillActiveVal

@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1
+package com.sketcher.sketchercompanionv1
 
 import android.graphics.Path
 import android.graphics.PointF
@@ -518,6 +518,49 @@ object PerfectFreehandGenerator {
             ))
         }
         return cap
+    }
+
+    fun generateCumulativeChunks(
+        points: List<StrokePoint>,
+        settings: FreehandSettings,
+        zoom: Float
+    ): List<Path> {
+        if (points.isEmpty()) return emptyList()
+        val paths = mutableListOf<Path>()
+        val chunkSize = 24
+        val overlap = 1
+        var start = 0
+        while (start < points.size) {
+            val end = (start + chunkSize).coerceAtMost(points.size)
+            if (end - start < 2) {
+                break
+            }
+            val chunkPoints = points.subList(start, end)
+            
+            val capStart = (start == 0) && settings.capStart
+            val capEnd = (end == points.size) && settings.capEnd
+            
+            val chunkSettings = settings.copy(
+                capStart = capStart,
+                capEnd = capEnd,
+                isComplete = (end == points.size)
+            )
+            
+            val chunkPath = Path()
+            generate(
+                chunkPoints,
+                chunkSettings,
+                zoom,
+                chunkPath
+            )
+            paths.add(chunkPath)
+            
+            if (end == points.size) {
+                break
+            }
+            start = end - overlap
+        }
+        return paths
     }
 }
 
