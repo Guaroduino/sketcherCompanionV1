@@ -271,6 +271,7 @@ class SketcherCanvasView(context: Context) : View(context) {
             currentLiveGeneratedRadius = update.lastRadius
             currentVectorPreviewColor = activeStrokeColor // Sync Stroke Color
             currentCommittedPreviewPath = update.committedPreviewPath
+            currentLiveIntersections = update.intersections
             
             // Sync Fill State
             currentFillPath = update.fillPath
@@ -281,6 +282,7 @@ class SketcherCanvasView(context: Context) : View(context) {
         },
         onStrokeCompleted = { stroke, fill ->
             currentCommittedPreviewPath = null
+            currentLiveIntersections = emptyList()
             // Perform incremental bake immediately
             bakeStrokeDirectly(stroke, fill)
             
@@ -562,6 +564,7 @@ class SketcherCanvasView(context: Context) : View(context) {
         get() = currentLiveGeneratedRadius * 2
     // Committed head of the live stroke (drawn separately, under the live tail)
     private var currentCommittedPreviewPath: android.graphics.Path? = null
+    private var currentLiveIntersections: List<android.graphics.Path> = emptyList()
     
 
 
@@ -666,8 +669,8 @@ class SketcherCanvasView(context: Context) : View(context) {
                 val opacity = (android.graphics.Color.alpha(activeStrokeColor) / 255f)
                 val isCumulative = activeFreehandSettings.isCumulativeOpacity
                 
-                if (!isCumulative && opacity < 1f) {
-                    // Non-cumulative and semi-transparent: draw preview in offscreen layer to prevent overlap seams
+                if (opacity < 1f) {
+                    // Non-cumulative and cumulative semi-transparent strokes are both drawn in saveLayer to avoid the connection seam!
                     val saveCount = canvas.saveLayer(null, Paint().apply { alpha = (opacity * 255).toInt() })
                     val opaqueColor = activeStrokeColor or (0xFF shl 24)
                     
@@ -691,6 +694,21 @@ class SketcherCanvasView(context: Context) : View(context) {
                         isDrawing = isDrawing
                     )
                     canvas.restoreToCount(saveCount)
+                    
+                    // Draw live cumulative intersections on top with transparent paint
+                    if (isCumulative && currentLiveIntersections.isNotEmpty()) {
+                        canvas.save()
+                        canvas.concat(viewMatrix)
+                        val paint = Paint().apply {
+                            style = Paint.Style.FILL
+                            color = activeStrokeColor
+                            isAntiAlias = true
+                        }
+                        for (p in currentLiveIntersections) {
+                            canvas.drawPath(p, paint)
+                        }
+                        canvas.restore()
+                    }
                 } else {
                     // Cumulative or fully opaque: draw directly onto the canvas
                     currentCommittedPreviewPath?.let { committed ->

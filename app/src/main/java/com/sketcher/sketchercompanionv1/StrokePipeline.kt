@@ -108,7 +108,8 @@ class StrokePipeline(
         val fillPath: Path?,
         val fillColor: Int,
         // Separate committed head path (drawn under previewPath to avoid seam artifacts)
-        val committedPreviewPath: Path? = null
+        val committedPreviewPath: Path? = null,
+        val intersections: List<Path> = emptyList()
     )
 
     fun onTouchEvent(event: MotionEvent): Boolean {
@@ -366,6 +367,12 @@ class StrokePipeline(
             fillPath.close()
         }
 
+        val liveIntersections = if (activeFreehandSettings.isCumulativeOpacity && activeStrokeType == StrokeType.FREEHAND) {
+            PerfectFreehandGenerator.generateCumulativeChunks(livePoints, settings, currentZoom)
+        } else {
+            emptyList()
+        }
+
         onUpdate(PipelineUpdate(
             previewPath = result.path,
             previewPoints = livePoints,
@@ -374,7 +381,8 @@ class StrokePipeline(
             lastRadius = result.lastRadius,
             fillPath = fillPath,
             fillColor = if (isFillActive) activeFillColor else 0,
-            committedPreviewPath = committedPathToSend
+            committedPreviewPath = committedPathToSend,
+            intersections = liveIntersections
         ))
     }
 

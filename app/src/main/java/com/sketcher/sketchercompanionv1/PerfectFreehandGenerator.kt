@@ -525,42 +525,49 @@ object PerfectFreehandGenerator {
         settings: FreehandSettings,
         zoom: Float
     ): List<Path> {
-        if (points.isEmpty()) return emptyList()
+        val intersections = mutableListOf<Path>()
+        val n = points.size
+        if (n < 40) return intersections // Too short to self-intersect non-adjacently
+
+        val chunkSize = 20
         val paths = mutableListOf<Path>()
-        val chunkSize = 24
-        val overlap = 1
+        
         var start = 0
-        while (start < points.size) {
-            val end = (start + chunkSize).coerceAtMost(points.size)
+        while (start < n) {
+            val end = (start + chunkSize).coerceAtMost(n)
             if (end - start < 2) {
                 break
             }
             val chunkPoints = points.subList(start, end)
-            
-            val capStart = (start == 0) && settings.capStart
-            val capEnd = (end == points.size) && settings.capEnd
-            
-            val chunkSettings = settings.copy(
-                capStart = capStart,
-                capEnd = capEnd,
-                isComplete = (end == points.size)
-            )
-            
             val chunkPath = Path()
             generate(
                 chunkPoints,
-                chunkSettings,
+                settings.copy(isComplete = (end == n)),
                 zoom,
                 chunkPath
             )
             paths.add(chunkPath)
-            
-            if (end == points.size) {
+            if (end == n) {
                 break
             }
-            start = end - overlap
+            start = end - 1 // 1 point overlap to connect adjacent chunks
         }
-        return paths
+
+        val numChunks = paths.size
+        for (i in 0 until numChunks - 2) {
+            for (j in i + 2 until numChunks) {
+                val pathI = paths[i]
+                val pathJ = paths[j]
+                
+                val intersect = Path()
+                if (intersect.op(pathI, pathJ, Path.Op.INTERSECT)) {
+                    if (!intersect.isEmpty) {
+                        intersections.add(intersect)
+                    }
+                }
+            }
+        }
+        return intersections
     }
 }
 
