@@ -37,7 +37,7 @@ class StrokePipeline(
     var activeFillColor: Int = Color.TRANSPARENT
     var isStrokeActive: Boolean = true
     var isFillActive: Boolean = false
-    var isFlattenedOuterStrokeEnabled: Boolean = false
+    var isFlattenedOuterStrokeEnabled: Boolean = true
 
     var globalStabilizationLevel: Float = 0f
 

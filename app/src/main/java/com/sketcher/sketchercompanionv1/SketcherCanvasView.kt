@@ -140,7 +140,14 @@ class SketcherCanvasView(context: Context) : View(context) {
             val currentScale = getMatrixScale(viewMatrix)
             val projectedZoom = currentScale * detector.scaleFactor
             // CLAMP ZOOM: 0.2f to 12.0f (Matched Legacy)
-            val clampedZoom = projectedZoom.coerceIn(0.2f, 12.0f)
+            var clampedZoom = projectedZoom.coerceIn(0.2f, 12.0f)
+            
+            // Snap to 100% (1.0f) if within threshold of 8%
+            val snapThreshold = 0.08f
+            if (kotlin.math.abs(clampedZoom - 1.0f) < snapThreshold) {
+                clampedZoom = 1.0f
+            }
+            
             val effectiveFactor = clampedZoom / currentScale
             
             viewMatrix.postScale(effectiveFactor, effectiveFactor, detector.focusX, detector.focusY)
@@ -356,9 +363,9 @@ class SketcherCanvasView(context: Context) : View(context) {
         canvas.save()
         canvas.concat(viewMatrix)
         if (fill != null) {
-            renderEngine.drawElementRecursive(canvas, fill, librarySnapshot)
+            renderEngine.drawElementRecursive(canvas, fill, librarySnapshot, viewMatrix)
         }
-        renderEngine.drawElementRecursive(canvas, stroke, librarySnapshot)
+        renderEngine.drawElementRecursive(canvas, stroke, librarySnapshot, viewMatrix)
         canvas.restore()
         
         invalidate()
@@ -521,7 +528,7 @@ class SketcherCanvasView(context: Context) : View(context) {
         set(value) { field = value; strokePipeline.activeSize = value }
     var activeFreehandSettings: FreehandSettings = FreehandSettings()
         set(value) { field = value; strokePipeline.activeFreehandSettings = value }
-    var isFlattenedOuterStrokeEnabled: Boolean = false
+    var isFlattenedOuterStrokeEnabled: Boolean = true
         set(value) { field = value; strokePipeline.isFlattenedOuterStrokeEnabled = value }
     var isFillModeEnabled: Boolean = false
         set(value) { field = value; isFillActive = value }
@@ -643,10 +650,10 @@ class SketcherCanvasView(context: Context) : View(context) {
         canvas.save()
         canvas.concat(viewMatrix)
         for (fill in transientFills) {
-            renderEngine.drawElementRecursive(canvas, fill, componentLibrary)
+            renderEngine.drawElementRecursive(canvas, fill, componentLibrary, viewMatrix)
         }
         for (stroke in transientStrokes) {
-            renderEngine.drawElementRecursive(canvas, stroke, componentLibrary)
+            renderEngine.drawElementRecursive(canvas, stroke, componentLibrary, viewMatrix)
         }
         canvas.restore()
 
@@ -697,8 +704,10 @@ class SketcherCanvasView(context: Context) : View(context) {
                   canvas.save()
                   canvas.concat(viewMatrix)
                   canvas.concat(manager.selectionMatrix)
+                  val combinedMatrix = Matrix(viewMatrix)
+                  combinedMatrix.postConcat(manager.selectionMatrix)
                   for (element in manager.selectedElements) {
-                      renderEngine.drawElementRecursive(canvas, element, componentLibrary)
+                      renderEngine.drawElementRecursive(canvas, element, componentLibrary, combinedMatrix)
                   }
                   canvas.restore()
              }

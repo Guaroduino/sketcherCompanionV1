@@ -233,7 +233,7 @@ class RenderEngine {
                       }
                   }
 
-                  drawElementRecursive(canvas, element, componentLibrary)
+                  drawElementRecursive(canvas, element, componentLibrary, viewMatrix)
              }
              
              canvas.restoreToCount(saveCount)
@@ -241,14 +241,16 @@ class RenderEngine {
     }
     
     // Recursive drawing for groups/components
-    fun drawElementRecursive(canvas: Canvas, element: LayerElement, library: Map<String, ComponentDefinition>) {
+    fun drawElementRecursive(canvas: Canvas, element: LayerElement, library: Map<String, ComponentDefinition>, viewMatrix: Matrix) {
          when (element) {
-             is VectorStroke -> drawVectorStroke(canvas, element)
+             is VectorStroke -> drawVectorStroke(canvas, element, viewMatrix)
              is FillData -> drawFill(canvas, element)
              is GroupElement -> {
                  canvas.save()
                  canvas.concat(element.matrix)
-                 element.elements.forEach { drawElementRecursive(canvas, it, library) }
+                 val nextMatrix = Matrix(viewMatrix)
+                 nextMatrix.postConcat(element.matrix)
+                 element.elements.forEach { drawElementRecursive(canvas, it, library, nextMatrix) }
                  canvas.restore()
              }
              is ComponentInstance -> {
@@ -256,7 +258,9 @@ class RenderEngine {
                  if (def != null) {
                      canvas.save()
                      canvas.concat(element.matrix)
-                     def.elements.forEach { drawElementRecursive(canvas, it, library) }
+                     val nextMatrix = Matrix(viewMatrix)
+                     nextMatrix.postConcat(element.matrix)
+                     def.elements.forEach { drawElementRecursive(canvas, it, library, nextMatrix) }
                      canvas.restore()
                  }
              }
@@ -268,7 +272,7 @@ class RenderEngine {
          }
     }
 
-    private fun drawVectorStroke(canvas: Canvas, stroke: VectorStroke) {
+    private fun drawVectorStroke(canvas: Canvas, stroke: VectorStroke, viewMatrix: Matrix) {
     // Pass 1: FILL (if enabled)
     if (stroke.isFillEnabled && stroke.fillPath != null) {
         vectorPaint.style = Paint.Style.FILL
@@ -290,6 +294,11 @@ class RenderEngine {
             vectorPaint.strokeWidth = if (stroke.maxWidth > 0) stroke.maxWidth else 0f
             canvas.drawPath(stroke.path, vectorPaint)
         }
+    }
+
+    // Pass 3: DEBUG WIREFRAME (if enabled and stroke has points)
+    if (isDebugWireframe && stroke.points.isNotEmpty()) {
+        drawDebugWireframe(canvas, stroke.points, viewMatrix)
     }
 }
     

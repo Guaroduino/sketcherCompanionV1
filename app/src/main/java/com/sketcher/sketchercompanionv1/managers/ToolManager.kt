@@ -77,7 +77,7 @@ class ToolManager(context: Context) {
         private set
 
     // --- EXPERIMENTAL: Flattened Outer Stroke ---
-    var isFlattenedOuterStrokeEnabled by mutableStateOf(false)
+    var isFlattenedOuterStrokeEnabled by mutableStateOf(true)
         private set
 
     fun toggleFlattenedOuterStroke() {

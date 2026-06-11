@@ -1137,17 +1137,35 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         _cameraMatrix.value = Matrix(matrix)
     }
     fun saveDimensions(w: Float, h: Float) { lastViewportWidth = w; lastViewportHeight = h }
+    private fun getMatrixScale(matrix: Matrix): Float {
+        val values = FloatArray(9)
+        matrix.getValues(values)
+        val sX = values[Matrix.MSCALE_X]
+        val skX = values[Matrix.MSKEW_X]
+        return kotlin.math.sqrt(sX * sX + skX * skX)
+    }
+
     fun zoomIn() {
         if (lastViewportWidth <= 0.0f || lastViewportHeight <= 0.0f) return
         val m = Matrix(_cameraMatrix.value)
-        m.postScale(1.2f, 1.2f, lastViewportWidth / 2.0f, lastViewportHeight / 2.0f)
+        val currentScale = getMatrixScale(m)
+        val targetScale = (currentScale * 1.2f).coerceIn(0.2f, 12.0f)
+        val snapThreshold = 0.08f
+        val finalScale = if (kotlin.math.abs(targetScale - 1.0f) < snapThreshold) 1.0f else targetScale
+        val factor = finalScale / currentScale
+        m.postScale(factor, factor, lastViewportWidth / 2.0f, lastViewportHeight / 2.0f)
         saveCameraState(m)
     }
 
     fun zoomOut() {
         if (lastViewportWidth <= 0.0f || lastViewportHeight <= 0.0f) return
         val m = Matrix(_cameraMatrix.value)
-        m.postScale(0.8f, 0.8f, lastViewportWidth / 2.0f, lastViewportHeight / 2.0f)
+        val currentScale = getMatrixScale(m)
+        val targetScale = (currentScale * 0.8f).coerceIn(0.2f, 12.0f)
+        val snapThreshold = 0.08f
+        val finalScale = if (kotlin.math.abs(targetScale - 1.0f) < snapThreshold) 1.0f else targetScale
+        val factor = finalScale / currentScale
+        m.postScale(factor, factor, lastViewportWidth / 2.0f, lastViewportHeight / 2.0f)
         saveCameraState(m)
     }
 
