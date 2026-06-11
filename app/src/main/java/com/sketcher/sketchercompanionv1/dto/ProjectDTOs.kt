@@ -97,7 +97,8 @@ data class VectorStrokeJson(
     val fillColor: Int? = null,
     val isStrokeEnabled: Boolean? = null,
     val isFillEnabled: Boolean? = null,
-    val isCumulative: Boolean = false
+    val isCumulative: Boolean = false,
+    val isFlattened: Boolean = false
 )
 
 data class StrokePointJson(

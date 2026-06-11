@@ -51,6 +51,35 @@ class MainActivity : ComponentActivity() {
                 androidx.compose.runtime.derivedStateOf { sketchViewModel.interfaceScale } 
             }
             
+            // Check autosave on launch
+            var showAutosaveRestoreDialog by remember { mutableStateOf(false) }
+            val autosaveFile = java.io.File(context.cacheDir, "autosave.skc")
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                if (autosaveFile.exists() && sketchViewModel.currentFileUri == null) {
+                    showAutosaveRestoreDialog = true
+                }
+            }
+            
+            if (showAutosaveRestoreDialog) {
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { showAutosaveRestoreDialog = false },
+                    title = { androidx.compose.material3.Text("Restaurar Autoguardado") },
+                    text = { androidx.compose.material3.Text("Se encontró un archivo de autoguardado. ¿Deseas restaurarlo?") },
+                    confirmButton = {
+                        androidx.compose.material3.TextButton(onClick = { 
+                            sketchViewModel.loadProjectFromZip(context, android.net.Uri.fromFile(autosaveFile))
+                            showAutosaveRestoreDialog = false
+                        }) { androidx.compose.material3.Text("Restaurar") }
+                    },
+                    dismissButton = {
+                        androidx.compose.material3.TextButton(onClick = { 
+                            autosaveFile.delete()
+                            showAutosaveRestoreDialog = false
+                        }) { androidx.compose.material3.Text("Descartar") }
+                    }
+                )
+            }
+            
             // HOISTED STATE
             var uiCollapsed by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(true) }
             
@@ -103,7 +132,8 @@ class MainActivity : ComponentActivity() {
             val projectActions = remember {
                 com.sketcher.sketchercompanionv1.ui.model.ProjectActions(
                     onNew = { sketchViewModel.clear() },
-                    onSave = { saveLauncher.launch("drawing.skc") },
+                    onSave = { sketchViewModel.saveProject(context, saveLauncher) },
+                    onSaveAs = { saveLauncher.launch("drawing.skc") },
                     onLoad = { loadLauncher.launch(arrayOf("*/*")) },
                     onImportImage = { importImageLauncher.launch("image/*") },
                     onImportSvg = { importSvgLauncher.launch("*/*") },
@@ -238,8 +268,8 @@ class MainActivity : ComponentActivity() {
                             com.sketcher.sketchercompanionv1.ui.dialogs.DxfImportDialog(
                                 uri = dxfImportUri!!,
                                 onDismiss = { showDxfImportDialog = false },
-                                onImport = { data, scaleToFit, defaultStrokeWidth, fillClosedShapes ->
-                                    sketchViewModel.addImportedDxfData(data, scaleToFit, defaultStrokeWidth, fillClosedShapes)
+                                onImport = { data, scaleToFit, defaultStrokeWidth, fillClosedShapes, selectedUnit ->
+                                    sketchViewModel.addImportedDxfData(data, scaleToFit, defaultStrokeWidth, fillClosedShapes, selectedUnit)
                                     showDxfImportDialog = false
                                 }
                             )

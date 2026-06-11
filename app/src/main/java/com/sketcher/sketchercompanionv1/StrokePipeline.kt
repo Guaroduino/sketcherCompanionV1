@@ -72,8 +72,10 @@ class StrokePipeline(
         // Must be enough to cover the end cap of the committed polygon (a few px of overlap).
         // Larger values increase the "constant-width" overlap zone and make the seam more visible.
         const val COMMIT_OVERLAP = 5
+        // How many points to bake in one chunk for the committed path
+        const val BAKE_CHUNK_SIZE = 20
         // Minimum stroke points before we activate incremental mode
-        const val INCREMENTAL_MIN_POINTS = INCREMENTAL_TAIL_SIZE * 3
+        const val INCREMENTAL_MIN_POINTS = BAKE_CHUNK_SIZE + INCREMENTAL_TAIL_SIZE + 10
     }
     private val committedPath = Path()       // Baked head of the stroke
     private var commitHeadCount = 0          // How many points are baked into committedPath
@@ -318,9 +320,9 @@ class StrokePipeline(
 
             // -- Bake head if we have enough new points since last commit --
             val uncommitted = livePoints.size - commitHeadCount
-            if (uncommitted >= INCREMENTAL_TAIL_SIZE) {
-                // New commit boundary: bake everything except the last INCREMENTAL_TAIL_SIZE points
-                val newHeadEnd = livePoints.size - INCREMENTAL_TAIL_SIZE
+            if (uncommitted >= BAKE_CHUNK_SIZE + INCREMENTAL_TAIL_SIZE) {
+                // New commit boundary: bake exactly BAKE_CHUNK_SIZE points
+                val newHeadEnd = commitHeadCount + BAKE_CHUNK_SIZE
                 
                 // Segment points: from commitHeadCount to newHeadEnd
                 val segmentPoints = livePoints.subList(commitHeadCount, newHeadEnd + 1)
@@ -337,7 +339,7 @@ class StrokePipeline(
                 
                 if (activeFreehandSettings.isCumulativeOpacity && activeStrokeType == StrokeType.FREEHAND) {
                     val numPrev = committedChunks.size
-                    for (i in 0 until numPrev - 1) { // ignore the immediately adjacent chunk
+                    for (i in 0 until numPrev - 2) { // ignore the last two chunks (adjacent + near)
                         val prev = committedChunks[i]
                         val prevBounds = committedChunkBounds[i]
                         if (RectF.intersects(segmentBounds, prevBounds)) {
@@ -429,7 +431,7 @@ class StrokePipeline(
                 val tailPath = result.path
                 tailPath.computeBounds(tempBounds1, true)
                 val numPrev = committedChunks.size
-                for (i in 0 until numPrev - 1) { // ignore the last committed chunk (adjacent)
+                for (i in 0 until numPrev - 2) { // ignore the last two committed chunks (adjacent + near)
                     val prev = committedChunks[i]
                     val prevBounds = committedChunkBounds[i]
                     if (RectF.intersects(tempBounds1, prevBounds)) {
@@ -595,7 +597,8 @@ class StrokePipeline(
                         brushType = "FREEHAND",
                         strokeType = activeStrokeTypeSnap,
                         leftPoints = genResultLeftSnap,
-                        rightPoints = genResultRightSnap
+                        rightPoints = genResultRightSnap,
+                        isFlattened = true
                     )
 
                     var fill: FillData? = null

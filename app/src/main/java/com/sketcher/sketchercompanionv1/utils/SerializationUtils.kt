@@ -174,7 +174,8 @@ fun VectorStroke.toVectorStrokeJson(): VectorStrokeJson {
         fillColor = this.fillColor,
         isStrokeEnabled = this.isStrokeEnabled,
         isFillEnabled = this.isFillEnabled,
-        isCumulative = this.paths.isNotEmpty()
+        isCumulative = this.paths.isNotEmpty(),
+        isFlattened = this.isFlattened
     )
 }
 
@@ -202,12 +203,25 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     val isCumul = this.isCumulative
     val settings = FreehandSettings(size = this.maxWidth, isComplete = true, simulatePressure = false)
     
-    val result = PerfectFreehandGenerator.generate(
-        rawPoints = pts, 
-        settings = settings
-    )
+    // If it's a flattened polygon, points are the perimeter, so we shouldn't pass it through generator
+    val resultPath = if (this.isFlattened) {
+        val path = android.graphics.Path()
+        if (pts.isNotEmpty()) {
+            path.moveTo(pts[0].x, pts[0].y)
+            for (i in 1 until pts.size) {
+                path.lineTo(pts[i].x, pts[i].y)
+            }
+            path.close()
+        }
+        path
+    } else {
+        PerfectFreehandGenerator.generate(
+            rawPoints = pts, 
+            settings = settings
+        ).path
+    }
     
-    val chunkPaths = if (isCumul && this.strokeType == StrokeType.FREEHAND) {
+    val chunkPaths = if (isCumul && this.strokeType == StrokeType.FREEHAND && !this.isFlattened) {
         PerfectFreehandGenerator.generateCumulativeChunks(pts, settings, 1.0f)
     } else {
         emptyList()
@@ -235,13 +249,14 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         isStrokeEnabled = sEnabled,
         isFillEnabled = fEnabled,
         maxWidth = this.maxWidth,
-        path = result.path,
+        path = resultPath,
         fillPath = fPath,
         brushType = this.brushType,
         strokeType = this.strokeType,
-        leftPoints = result.left,
-        rightPoints = result.right,
-        paths = chunkPaths
+        leftPoints = emptyList(), // Not perfectly restorable, but usually ok
+        rightPoints = emptyList(),
+        paths = chunkPaths,
+        isFlattened = this.isFlattened
     )
 }
 

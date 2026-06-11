@@ -560,9 +560,9 @@ object PerfectFreehandGenerator {
             paths[i].computeBounds(bounds[i], true)
         }
 
-        for (i in 0 until numChunks - 2) {
+        for (i in 0 until numChunks - 3) {
             val boundsI = bounds[i]
-            for (j in i + 2 until numChunks) {
+            for (j in i + 3 until numChunks) {
                 if (RectF.intersects(boundsI, bounds[j])) {
                     val pathI = paths[i]
                     val pathJ = paths[j]

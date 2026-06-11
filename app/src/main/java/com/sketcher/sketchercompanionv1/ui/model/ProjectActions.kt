@@ -5,6 +5,7 @@ import java.io.File
 data class ProjectActions(
     val onNew: () -> Unit,
     val onSave: () -> Unit,
+    val onSaveAs: () -> Unit,
     val onLoad: () -> Unit,
     val onImportImage: () -> Unit,
     val onImportSvg: () -> Unit,

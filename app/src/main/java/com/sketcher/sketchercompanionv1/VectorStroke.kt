@@ -22,7 +22,8 @@ data class VectorStroke(
     val strokeType: StrokeType = StrokeType.FREEHAND,
     val leftPoints: List<android.graphics.PointF> = emptyList(),
     val rightPoints: List<android.graphics.PointF> = emptyList(),
-    val paths: List<Path> = emptyList()
+    val paths: List<Path> = emptyList(),
+    val isFlattened: Boolean = false
 ) : LayerElement {
     private val cachedBounds = RectF().apply { path.computeBounds(this, true) }
 
@@ -58,7 +59,8 @@ data class VectorStroke(
             strokeType = strokeType,
             leftPoints = leftPoints.map { android.graphics.PointF(it.x, it.y) },
             rightPoints = rightPoints.map { android.graphics.PointF(it.x, it.y) },
-            paths = paths.map { Path(it) }
+            paths = paths.map { Path(it) },
+            isFlattened = isFlattened
         )
     }
 }

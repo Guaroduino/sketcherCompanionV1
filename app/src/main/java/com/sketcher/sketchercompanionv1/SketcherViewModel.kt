@@ -494,8 +494,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             ToolLocation.TopRightCorner to listOfNotNull(
                 com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("settings")
             ),
-            ToolLocation.BottomLeftCorner to listOf(),
-            ToolLocation.BottomRightCorner to listOf()
+            ToolLocation.BottomLeftCorner to listOfNotNull(
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("undo")
+            ),
+            ToolLocation.BottomRightCorner to listOfNotNull(
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("redo")
+            )
         ).mapValues { (loc, list) ->
             list.map { tool ->
                 val toolId = tool.id
@@ -689,6 +693,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     // PROJECT METADATA
     var projectId by mutableStateOf(UUID.randomUUID().toString())
     var currentFileUri: android.net.Uri? by mutableStateOf(null)
+    var hasUnsavedChanges: Boolean = false
 
     // --- THEME ENGINE ---
     private val _themeConfig = MutableStateFlow(themeRepository.getTheme())
@@ -1261,6 +1266,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         action()
         val after = createLayersSnapshot()
         performAction(SnapshotCommand(label, before, after, activeIndexBefore))
+        hasUnsavedChanges = true
     }
 
     @MainThread
@@ -1448,7 +1454,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         cameraUpdateTrigger++
     }
 
-    fun addImportedDxfData(data: DxfImportData, scaleToFit: Boolean, defaultStrokeWidth: Float, fillClosedShapes: Boolean = false) {
+    fun addImportedDxfData(data: DxfImportData, scaleToFit: Boolean, defaultStrokeWidth: Float, fillClosedShapes: Boolean = false, sourceUnit: DistanceUnit = DistanceUnit.MM) {
         performSnapshotAction("Importar DXF") {
             // 1. Determine Scale/Offset
             var matrix = Matrix()
@@ -1469,7 +1475,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                      matrix.postScale(scale, scale)
                      matrix.postTranslate(canvasW/2f, canvasH/2f)
                 }
-            } 
+            } else {
+                val pixelScale = sourceUnit.toMillimeters * scaleConfig.basePixelsPerMillimeter
+                matrix.postScale(pixelScale, pixelScale)
+            }
 
             // 2. Group by Layer
             val pathsByLayer = data.paths.groupBy { it.layerName }
@@ -1808,7 +1817,20 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
     
     // --- IO & ZIP ---
-    fun saveProjectToZip(context: Context, uri: android.net.Uri) {
+    fun saveProject(context: Context, saveLauncher: androidx.activity.result.ActivityResultLauncher<String>) {
+        if (currentFileUri != null) {
+            saveProjectToZip(context, currentFileUri!!)
+        } else {
+            saveLauncher.launch("drawing.skc")
+        }
+    }
+
+    private fun autoSaveProject(context: Context) {
+        val autosaveFile = java.io.File(context.cacheDir, "autosave.skc")
+        saveProjectToZip(context, android.net.Uri.fromFile(autosaveFile), isAutosave = true)
+    }
+
+    fun saveProjectToZip(context: Context, uri: android.net.Uri, isAutosave: Boolean = false) {
         val currentLayersSnapshot = layers.map { it.copy(elements = it.elements.toMutableStateList()) } // Shallow-ish copy
         val currentComponentLibrary = componentLibrary.toMap()
         val savedProjectId = projectId
@@ -1844,8 +1866,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     components = currentComponentLibrary.values
                 )
                 withContext(Dispatchers.Main) {
-                    currentFileUri = uri
-                    android.widget.Toast.makeText(context, "Proyecto guardado correctamente", android.widget.Toast.LENGTH_SHORT).show()
+                    if (!isAutosave) {
+                        currentFileUri = uri
+                        hasUnsavedChanges = false
+                        android.widget.Toast.makeText(context, "Proyecto guardado correctamente", android.widget.Toast.LENGTH_SHORT).show()
+                    } else {
+                        hasUnsavedChanges = false // Autosave cleared the unsaved changes state until next change
+                    }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -1876,6 +1903,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     
     private fun restoreProjectState(data: ProjectData, bitmaps: Map<String, android.graphics.Bitmap>, svgs: Map<String, String>) {
         val newLayers = mutableListOf<Layer>()
+        
+        val activeLayer = layers[activeLayerIndex]
+        activeLayer.elements.clear()
+        layers[activeLayerIndex] = activeLayer.copy()
+        
         undoStack.clear()
         redoStack.clear()
         updateUndoRedoSupport()

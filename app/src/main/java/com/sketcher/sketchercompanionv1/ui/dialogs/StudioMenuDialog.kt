@@ -85,6 +85,12 @@ fun StudioMenuDialog(
                         }
                     }
                     item {
+                        MenuItem(Icons.Default.SaveAs, "Save Project As...", theme.iconColor) { 
+                            actions.onSaveAs()
+                            onDismiss()
+                        }
+                    }
+                    item {
                         MenuItem(Icons.Default.FolderOpen, "Load Project", theme.iconColor) { 
                             actions.onLoad()
                             onDismiss()

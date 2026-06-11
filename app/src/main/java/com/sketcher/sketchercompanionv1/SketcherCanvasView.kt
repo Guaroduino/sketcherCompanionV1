@@ -151,6 +151,7 @@ class SketcherCanvasView(context: Context) : View(context) {
             val effectiveFactor = clampedZoom / currentScale
             
             viewMatrix.postScale(effectiveFactor, effectiveFactor, detector.focusX, detector.focusY)
+            clampMatrixToBounds(viewMatrix)
             setCameraMatrix(viewMatrix, isIntermediate = true)
             onCameraMatrixChanged?.invoke(viewMatrix)
             return true
@@ -173,6 +174,7 @@ class SketcherCanvasView(context: Context) : View(context) {
             // Only pan if 2+ fingers are down (Legacy behavior)
             if (e2.pointerCount >= 2) {
                 viewMatrix.postTranslate(-dX, -dY)
+                clampMatrixToBounds(viewMatrix)
                 setCameraMatrix(viewMatrix, isIntermediate = true)
                 onCameraMatrixChanged?.invoke(viewMatrix)
                 return true
@@ -192,6 +194,46 @@ class SketcherCanvasView(context: Context) : View(context) {
         val sX = matrixValuesBuffer[Matrix.MSCALE_X]
         val skX = matrixValuesBuffer[Matrix.MSKEW_X]
         return kotlin.math.sqrt(sX * sX + skX * skX)
+    }
+
+    private fun clampMatrixToBounds(matrix: Matrix) {
+        val config = canvasSizeConfig ?: return
+        matrix.getValues(matrixValuesBuffer)
+        val scale = getMatrixScale(matrix)
+        val currentTx = matrixValuesBuffer[Matrix.MTRANS_X]
+        val currentTy = matrixValuesBuffer[Matrix.MTRANS_Y]
+
+        val halfW = config.widthInPixels / 2f
+        val halfH = config.heightInPixels / 2f
+
+        val left = if (config.origin == com.sketcher.sketchercompanionv1.dto.CoordinateOrigin.CENTER) -halfW else 0f
+        val top = if (config.origin == com.sketcher.sketchercompanionv1.dto.CoordinateOrigin.CENTER) -halfH else 0f
+        val right = left + config.widthInPixels
+        val bottom = top + config.heightInPixels
+
+        // We want to limit panning so the canvas doesn't completely leave the screen.
+        // Let's say the view dimensions are width and height.
+        // The bounds of the paper in screen coordinates are:
+        val screenLeft = left * scale + currentTx
+        val screenRight = right * scale + currentTx
+        val screenTop = top * scale + currentTy
+        val screenBottom = bottom * scale + currentTy
+
+        val paddingX = width / 2f
+        val paddingY = height / 2f
+
+        var dx = 0f
+        var dy = 0f
+
+        if (screenRight < paddingX) dx = paddingX - screenRight
+        else if (screenLeft > width - paddingX) dx = (width - paddingX) - screenLeft
+
+        if (screenBottom < paddingY) dy = paddingY - screenBottom
+        else if (screenTop > height - paddingY) dy = (height - paddingY) - screenTop
+
+        if (dx != 0f || dy != 0f) {
+            matrix.postTranslate(dx, dy)
+        }
     }
 
     /**

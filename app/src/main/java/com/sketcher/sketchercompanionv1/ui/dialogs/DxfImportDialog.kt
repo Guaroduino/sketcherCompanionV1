@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1.ui.dialogs
+package com.sketcher.sketchercompanionv1.ui.dialogs
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -54,7 +54,7 @@ import kotlin.math.min
 fun DxfImportDialog(
     uri: android.net.Uri,
     onDismiss: () -> Unit,
-    onImport: (DxfImportData, Boolean, Float, Boolean) -> Unit // Data, scaleToFit, strokeWidth, fillClosedShapes
+    onImport: (DxfImportData, Boolean, Float, Boolean, com.sketcher.sketchercompanionv1.dto.DistanceUnit) -> Unit // Data, scaleToFit, strokeWidth, fillClosedShapes, unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var importData by remember { mutableStateOf<DxfImportData?>(null) }
@@ -62,6 +62,8 @@ fun DxfImportDialog(
     var scaleToFit by remember { mutableStateOf(true) }
     var strokeWidth by remember { mutableStateOf(5f) }
     var fillClosedShapes by remember { mutableStateOf(false) }
+    var selectedUnit by remember { mutableStateOf(com.sketcher.sketchercompanionv1.dto.DistanceUnit.MM) }
+    var expandedUnitDropdown by remember { mutableStateOf(false) }
 
     LaunchedEffect(uri) {
         withContext(Dispatchers.IO) {
@@ -175,7 +177,29 @@ fun DxfImportDialog(
                                 onCheckedChange = { fillClosedShapes = it }
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Rellanar formas cerradas (Fill closed shapes)")
+                            Text("Rellenar formas cerradas (Fill closed shapes)")
+                        }
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Unidad del DXF original:")
+                        Box {
+                            TextButton(onClick = { expandedUnitDropdown = true }) {
+                                Text(selectedUnit.name)
+                            }
+                            androidx.compose.material3.DropdownMenu(
+                                expanded = expandedUnitDropdown,
+                                onDismissRequest = { expandedUnitDropdown = false }
+                            ) {
+                                com.sketcher.sketchercompanionv1.dto.DistanceUnit.entries.forEach { unit ->
+                                    androidx.compose.material3.DropdownMenuItem(
+                                        text = { Text(unit.name) },
+                                        onClick = {
+                                            selectedUnit = unit
+                                            expandedUnitDropdown = false
+                                        }
+                                    )
+                                }
+                            }
                         }
                         
                         Spacer(modifier = Modifier.height(8.dp))
@@ -196,7 +220,7 @@ fun DxfImportDialog(
             Button(
                 onClick = { 
                      importData?.let { data ->
-                         onImport(data, scaleToFit, strokeWidth, fillClosedShapes)
+                         onImport(data, scaleToFit, strokeWidth, fillClosedShapes, selectedUnit)
                      }
                  },
                  enabled = !isLoading && importData != null
