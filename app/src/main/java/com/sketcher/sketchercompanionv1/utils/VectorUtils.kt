@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1.utils
+package com.sketcher.sketchercompanionv1.utils
 
 import android.graphics.PointF
 import com.sketcher.sketchercompanionv1.StrokePoint
@@ -268,57 +268,6 @@ object VectorUtils {
         
         // Sort indices and map back to points (ensures order)
         return resultIndices.distinct().sorted().map { points[it] }
-    }
-
-
-
-    /**
-     * Checks if a point with a given tolerance (radius) hits a FillData element.
-     */
-    fun isFillHit(fill: com.sketcher.sketchercompanionv1.FillData, x: Float, y: Float, tolerance: Float): Boolean {
-        val rect = android.graphics.RectF()
-        fill.path.computeBounds(rect, true)
-        
-        // Expand bounds by tolerance for preliminary check
-        val expandedRect = android.graphics.RectF(rect)
-        expandedRect.inset(-tolerance, -tolerance)
-        
-        if (!expandedRect.contains(x, y)) return false
-        
-        // Precise intersection: Check if eraser circle (approximated by expanded rect or sampling) 
-        // intersects the path. 
-        // For simplicity and performance, we'll check if the center is in path 
-        // OR if the center is very close to the bounding box (already checked by expandedRect).
-        // A better way is to check if a small region around the eraser center intersects the path.
-        return isAreaInPath(fill.path, x, y, tolerance)
-    }
-
-    // Helper for area-in-path using Region
-    private fun isAreaInPath(path: android.graphics.Path, x: Float, y: Float, radius: Float): Boolean {
-         val rectF = android.graphics.RectF()
-         path.computeBounds(rectF, true)
-         
-         // Use a clipping region that covers the path + the eraser
-         val clipRegion = android.graphics.Region(
-             (kotlin.math.min(rectF.left, x - radius)).toInt() - 1,
-             (kotlin.math.min(rectF.top, y - radius)).toInt() - 1,
-             (kotlin.math.max(rectF.right, x + radius)).toInt() + 1,
-             (kotlin.math.max(rectF.bottom, y + radius)).toInt() + 1
-         )
-         
-         val pathRegion = android.graphics.Region()
-         pathRegion.setPath(path, clipRegion)
-         
-         // Check if eraser box intersects the path region
-         val eraserBox = android.graphics.Region(
-             (x - radius).toInt(),
-             (y - radius).toInt(),
-             (x + radius).toInt(),
-             (y + radius).toInt()
-         )
-         
-         // op returns true if the resulting region is non-empty
-         return pathRegion.op(eraserBox, android.graphics.Region.Op.INTERSECT)
     }
 }
 

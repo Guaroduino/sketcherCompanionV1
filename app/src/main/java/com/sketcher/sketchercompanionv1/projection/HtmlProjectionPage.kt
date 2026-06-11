@@ -157,18 +157,24 @@ object HtmlProjectionPage {
         const blob = new Blob([jpeg], { type: 'image/jpeg' });
 
         const newUrl = URL.createObjectURL(blob);
-        img.src = newUrl;
-        
+        const oldUrl = currentUrl;
+        currentUrl = newUrl;
+
         img.onload = () => {
           errorLog.style.display = 'none';
+          if (oldUrl) {
+            try { URL.revokeObjectURL(oldUrl); } catch (e) {}
+          }
         };
         img.onerror = () => {
           console.error("Browser failed to decode image. Size: " + jpeg.byteLength + " bytes.");
           showError("Error: Browser failed to decode image.");
+          if (oldUrl) {
+            try { URL.revokeObjectURL(oldUrl); } catch (e) {}
+          }
         };
 
-        if (currentUrl) URL.revokeObjectURL(currentUrl);
-        currentUrl = newUrl;
+        img.src = newUrl;
       } catch (err) {
         console.error("JS exception in onmessage: " + err.message + "\n" + err.stack);
         showError("JS Exception: " + err.message);

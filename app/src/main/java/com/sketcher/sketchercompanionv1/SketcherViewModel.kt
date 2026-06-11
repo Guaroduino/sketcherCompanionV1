@@ -48,6 +48,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.RectF
 import android.net.Uri
+import androidx.annotation.MainThread
 import com.sketcher.sketchercompanionv1.command.*
 import com.sketcher.sketchercompanionv1.data.ThemeRepository
 import com.sketcher.sketchercompanionv1.data.ToolbarRepository
@@ -993,6 +994,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     private val undoStack = ArrayDeque<UndoCommand>()
     private val redoStack = ArrayDeque<UndoCommand>()
     
+    /**
+     * Executes a command and adds it to the undo stack. Must be called from the Main thread.
+     */
+    @MainThread
     fun performAction(command: UndoCommand) {
         command.execute()
         undoStack.push(command)
@@ -1010,6 +1015,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         canRedo = redoStack.isNotEmpty()
     }
     
+    /**
+     * Performs an Undo operation. Must be called from the Main thread.
+     */
+    @MainThread
     fun undo() {
         val now = System.currentTimeMillis()
         if (now - lastUndoTime < 300L) return
@@ -1023,6 +1032,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         notifyLayersChanged()
     }
 
+    /**
+     * Performs a Redo operation. Must be called from the Main thread.
+     */
+    @MainThread
     fun redo() {
         val now = System.currentTimeMillis()
         if (now - lastRedoTime < 300L) return
@@ -1056,6 +1069,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         override fun getLabel(): String = label
     }
 
+    @MainThread
     private fun performSnapshotAction(label: String, action: () -> Unit) {
         val before = createLayersSnapshot()
         val activeIndexBefore = activeLayerIndex
@@ -1064,6 +1078,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         performAction(SnapshotCommand(label, before, after, activeIndexBefore))
     }
 
+    @MainThread
     private fun createLayersSnapshot(): List<Layer> {
         val selected = selectionManager.selectedElements
         return layers.map { layer ->
@@ -1073,6 +1088,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         }
     }
     
+    @MainThread
     private fun restoreSnapshot(state: List<Layer>, restoredActiveIndex: Int) {
         layerManager.internalUpdateLayers(
             newList = state.map { savedLayer ->
@@ -1535,6 +1551,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
          }
     }
     
+    @MainThread
     fun insertImageWithBitmap(bitmap: android.graphics.Bitmap, filename: String) {
         if (activeLayerIndex !in layers.indices) return
         performSnapshotAction("Insertar Imagen") {
@@ -2505,37 +2522,5 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         stopProjection()
         super.onCleared()
     }
-}
-
-/**
- * Command to erase a [LayerElement] from a [Layer].
- * Supports Undo by restoring it to its original position.
- */
-class EraseCommand(
-    private val targetLayer: Layer,
-    private val elementToRemove: LayerElement
-) : UndoCommand {
-
-    private var originalIndex: Int = -1
-
-    override fun execute() {
-        val index = targetLayer.elements.indexOf(elementToRemove)
-        if (index != -1) {
-            originalIndex = index
-            targetLayer.elements.removeAt(index)
-        }
-    }
-
-    override fun undo() {
-        if (originalIndex != -1) {
-            if (originalIndex <= targetLayer.elements.size) {
-                targetLayer.elements.add(originalIndex, elementToRemove)
-            } else {
-                targetLayer.elements.add(elementToRemove)
-            }
-        }
-    }
-
-    override fun getLabel(): String = "Borrador"
 }
 
