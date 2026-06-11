@@ -202,7 +202,7 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     // Legacy strokes will be reconstructed using the new engine.
     val result = PerfectFreehandGenerator.generate(
         rawPoints = pts, 
-        settings = FreehandSettings(size = this.maxWidth, isComplete = true)
+        settings = FreehandSettings(size = this.maxWidth, isComplete = true, simulatePressure = false)
     )
     
     val sColor = this.strokeColor ?: this.color

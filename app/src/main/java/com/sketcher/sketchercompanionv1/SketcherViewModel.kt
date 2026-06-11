@@ -131,7 +131,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         prefs.edit().putBoolean("swap_horizontal", swapHorizontal).apply()
     }
     
-    var interfaceScale by mutableStateOf(prefs.getFloat("interface_scale", 1.0f))
+    var interfaceScale by mutableStateOf(prefs.getFloat("interface_scale", 0.8f))
         private set
         
     fun updateInterfaceScale(scale: Float) {
@@ -413,6 +413,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         "home_view" -> ({ resetCamera() })
         "stroke_color" -> ({ _showStrokeColorPicker.value = true })
         "fill_color" -> ({ _showFillColorPicker.value = true })
+        "pencil" -> ({ selectTool(ToolType.FREEHAND) })
+        "eraser" -> ({ selectTool(ToolType.ERASER) })
         "tool_selection" -> ({
              if (currentSelectionMode == SelectionMode.TRANSFORM_BOX) confirmTransform()
              selectTool(ToolType.SELECTION)
@@ -449,30 +451,64 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun initToolbarState() {
-        _toolbarState.value = mapOf(
-            ToolLocation.LeftBar to listOf(
-                StudioTool("brush", Icons.Default.Brush, "Brush", isPlaceholder = false),
-                StudioTool("undo", Icons.Default.Undo, "Undo", isPlaceholder = true) { undo() },
-                StudioTool("redo", Icons.Default.Redo, "Redo", isPlaceholder = true) { redo() }
-            ),
-            ToolLocation.RightBar to listOf(
-                StudioTool(StudioTool.PROPERTIES_TOOL_ID, Icons.Default.Tune, "Properties", isPlaceholder = false)
-            ),
-            ToolLocation.TopBar to listOf(),
-            ToolLocation.BottomBar to listOf(),
-            ToolLocation.TopLeftCorner to listOf(
-                StudioTool("menu", Icons.Default.Menu, "Menu", isPlaceholder = false)
-            ),
-            ToolLocation.TopRightCorner to listOf(
-                StudioTool("settings", Icons.Default.Settings, "Settings", isPlaceholder = false)
-            ),
-            ToolLocation.BottomLeftCorner to listOf(
-                StudioTool("undo", Icons.Default.Undo, "Undo", isPlaceholder = false) { undo() }
-            ),
-            ToolLocation.BottomRightCorner to listOf(
-                StudioTool("redo", Icons.Default.Redo, "Redo", isPlaceholder = false) { redo() }
+        if (_assignedTools.value.isEmpty()) {
+            _assignedTools.value = mapOf(
+                "pencil" to ToolPayload.PENCIL,
+                "eraser" to ToolPayload.ERASER,
+                "stroke_color" to ToolPayload.STROKE_COLOR,
+                "fill_color" to ToolPayload.FILL_COLOR
             )
-        )
+        }
+        if (_assignedToolColors.value.isEmpty()) {
+            _assignedToolColors.value = mapOf(
+                "stroke_color" to strokeColor.value,
+                "fill_color" to fillColor.value
+            )
+        }
+        
+        _toolbarState.value = mapOf(
+            ToolLocation.LeftBar to listOf(),
+            ToolLocation.RightBar to listOfNotNull(
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById(StudioTool.PROPERTIES_TOOL_ID),
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById(StudioTool.STABILIZATION_TOOL_ID),
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById(StudioTool.SIZE_OPACITY_TOOL_ID),
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("pencil"),
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("divider"),
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("stroke_color"),
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("fill_color"),
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("divider"),
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("eraser")
+            ),
+            ToolLocation.TopBar to listOfNotNull(
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("zoom_fit"),
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("zoom_in"),
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("zoom_out"),
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("home_view")
+            ),
+            ToolLocation.BottomBar to listOfNotNull(
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("tool_selection")
+            ),
+            ToolLocation.TopLeftCorner to listOfNotNull(
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("menu")
+            ),
+            ToolLocation.TopRightCorner to listOfNotNull(
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("settings")
+            ),
+            ToolLocation.BottomLeftCorner to listOf(),
+            ToolLocation.BottomRightCorner to listOf()
+        ).mapValues { (loc, list) ->
+            list.map { tool ->
+                val toolId = tool.id
+                tool.copy(onClick = {
+                    val payload = _assignedTools.value[toolId]
+                    if (payload != null) {
+                        activateTool(payload, toolId)
+                    } else {
+                        getActionForTool(tool.registryId).invoke()
+                    }
+                })
+            }
+        }
     }
 
     var toolbarAlpha by mutableStateOf(prefs.getFloat("toolbar_alpha", 0.9f))
@@ -490,6 +526,151 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun toggleRotationLock() { isRotationLocked = !isRotationLocked; prefs.edit().putBoolean("rotation_lock", isRotationLocked).apply() }
     fun togglePalmRejection() { isPalmRejectionEnabled = !isPalmRejectionEnabled; prefs.edit().putBoolean("palm_rejection", isPalmRejectionEnabled).apply() }
     fun toggleTooltips() { showTooltips = !showTooltips; prefs.edit().putBoolean("show_tooltips", showTooltips).apply() }
+
+    fun reloadToolbarLayout() {
+        val loaded = toolbarRepository.loadLayout()
+        if (loaded != null) {
+            _assignedTools.value = loaded.assignedMap
+            _assignedToolColors.value = loaded.toolColors
+            
+            // Re-bind actions (since they aren't serialized)
+            val toolsWithActions = loaded.tools.mapValues { (_, list) ->
+                list.map { tool ->
+                    tool.copy(onClick = {
+                        val payload = _assignedTools.value[tool.id]
+                        if (payload != null) {
+                            activateTool(payload, tool.id)
+                        } else {
+                            // Use registryId to lookup action
+                            getActionForTool(tool.registryId).invoke()
+                        }
+                    })
+                }
+            }
+            _toolbarState.value = toolsWithActions
+            
+            val contextualWithActions = loaded.contextualTools.map { tool ->
+                tool.copy(onClick = {
+                    getActionForTool(tool.registryId).invoke()
+                })
+            }
+            _contextualToolbar.value = contextualWithActions
+        } else {
+            // Reset to defaults if no layout exists
+            _assignedTools.value = mapOf(
+                "pencil" to ToolPayload.PENCIL,
+                "eraser" to ToolPayload.ERASER,
+                "stroke_color" to ToolPayload.STROKE_COLOR,
+                "fill_color" to ToolPayload.FILL_COLOR
+            )
+            _assignedToolColors.value = mapOf(
+                "stroke_color" to strokeColor.value,
+                "fill_color" to fillColor.value
+            )
+            initToolbarState()
+            
+            val defaultContextual = listOfNotNull(
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("context_deselect"),
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("context_transform"),
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("context_copy"),
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("context_delete")
+            ).map { tool ->
+                tool.copy(onClick = {
+                    getActionForTool(tool.registryId).invoke()
+                })
+            }
+            _contextualToolbar.value = defaultContextual
+        }
+    }
+
+    fun reloadPreferences() {
+        showPerformanceStats = prefs.getBoolean("show_performance_stats", false)
+        isRotationLocked = prefs.getBoolean("rotation_lock", false)
+        isPalmRejectionEnabled = prefs.getBoolean("palm_rejection", false)
+        showTooltips = prefs.getBoolean("show_tooltips", true)
+        swapVertical = prefs.getBoolean("swap_vertical", false)
+        swapHorizontal = prefs.getBoolean("swap_horizontal", false)
+        interfaceScale = prefs.getFloat("interface_scale", 0.8f)
+        toolbarBackgroundColor = prefs.getInt("toolbar_background_color", AndroidColor.WHITE)
+        toolbarAlpha = prefs.getFloat("toolbar_alpha", 0.9f)
+        isToolbarBlurEnabled = prefs.getBoolean("toolbar_blur_enabled", false)
+
+        // Reload Theme Config
+        _themeConfig.value = themeRepository.getTheme()
+
+        // Reload Toolbar Layout
+        reloadToolbarLayout()
+
+        // Reload Tool configs
+        toolManager.reloadConfigs()
+    }
+
+    fun backupPreferences() {
+        val context = getApplication<Application>()
+        val prefsActive = context.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE)
+        val themeActive = context.getSharedPreferences("app_theme", Context.MODE_PRIVATE)
+        val toolbarActive = context.getSharedPreferences("toolbar_prefs", Context.MODE_PRIVATE)
+
+        val prefsBackup = context.getSharedPreferences("sketcher_prefs_backup", Context.MODE_PRIVATE)
+        val themeBackup = context.getSharedPreferences("app_theme_backup", Context.MODE_PRIVATE)
+        val toolbarBackup = context.getSharedPreferences("toolbar_prefs_backup", Context.MODE_PRIVATE)
+
+        copySharedPreferences(prefsActive, prefsBackup)
+        copySharedPreferences(themeActive, themeBackup)
+        copySharedPreferences(toolbarActive, toolbarBackup)
+
+        hasPreferencesBackup = true
+        android.widget.Toast.makeText(context, "Preferencias guardadas", android.widget.Toast.LENGTH_SHORT).show()
+    }
+
+    fun restorePreferences() {
+        val context = getApplication<Application>()
+        val prefsActive = context.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE)
+        val themeActive = context.getSharedPreferences("app_theme", Context.MODE_PRIVATE)
+        val toolbarActive = context.getSharedPreferences("toolbar_prefs", Context.MODE_PRIVATE)
+
+        val prefsBackup = context.getSharedPreferences("sketcher_prefs_backup", Context.MODE_PRIVATE)
+        val themeBackup = context.getSharedPreferences("app_theme_backup", Context.MODE_PRIVATE)
+        val toolbarBackup = context.getSharedPreferences("toolbar_prefs_backup", Context.MODE_PRIVATE)
+
+        if (prefsBackup.all.isNotEmpty()) {
+            copySharedPreferences(prefsBackup, prefsActive)
+            copySharedPreferences(themeBackup, themeActive)
+            copySharedPreferences(toolbarBackup, toolbarActive)
+
+            reloadPreferences()
+            android.widget.Toast.makeText(context, "Preferencias restauradas", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun resetPreferencesToDefault() {
+        val context = getApplication<Application>()
+        context.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        context.getSharedPreferences("app_theme", Context.MODE_PRIVATE).edit().clear().commit()
+        context.getSharedPreferences("toolbar_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+
+        reloadPreferences()
+        android.widget.Toast.makeText(context, "Preferencias restablecidas a valores por defecto", android.widget.Toast.LENGTH_SHORT).show()
+    }
+
+    private fun copySharedPreferences(source: android.content.SharedPreferences, dest: android.content.SharedPreferences) {
+        val editor = dest.edit()
+        editor.clear()
+        for ((key, value) in source.all) {
+            when (value) {
+                is Boolean -> editor.putBoolean(key, value)
+                is Float -> editor.putFloat(key, value)
+                is Int -> editor.putInt(key, value)
+                is Long -> editor.putLong(key, value)
+                is String -> editor.putString(key, value)
+                is Set<*> -> {
+                    @Suppress("UNCHECKED_CAST")
+                    editor.putStringSet(key, value as Set<String>)
+                }
+            }
+        }
+        editor.commit()
+    }
     
     fun updateScaleConfig(u: String, b: Float) { scaleConfig = ScaleConfig(u, b); currentUnit = DistanceUnit.fromSymbol(u) }
     fun updateGridConfig(v: Boolean, s: Float, c: Int, c2: Int, c3: Int) { gridConfig = GridConfig(v, s, c, c2, c3) }
@@ -586,7 +767,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     var fingerOffsetYValue by mutableFloatStateOf(50f)
         private set
 
+    var hasPreferencesBackup by mutableStateOf(false)
+        private set
+
     init {
+        hasPreferencesBackup = application.getSharedPreferences("sketcher_prefs_backup", Context.MODE_PRIVATE).all.isNotEmpty()
         selectTool(currentTool)
         
         // Try to load saved layout

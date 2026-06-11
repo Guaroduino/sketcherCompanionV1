@@ -246,4 +246,44 @@ class ToolManager(context: Context) {
             .putFloat("tool_alpha_${type.name}", config.opacity)
             .apply()
     }
+
+    fun reloadConfigs() {
+        currentTool = try { 
+            val savedName = prefs.getString("current_tool", ToolType.FREEHAND.name) ?: ToolType.FREEHAND.name
+            val saved = if (ToolType.entries.any { it.name == savedName }) {
+                ToolType.valueOf(savedName)
+            } else {
+                ToolType.FREEHAND
+            }
+            if (saved == ToolType.SELECTION || saved == ToolType.ERASER) ToolType.FREEHAND else saved
+        } catch(e: Exception) { ToolType.FREEHAND }
+
+        currentStrokeType = try {
+            val savedType = prefs.getString("current_stroke_type", StrokeType.FREEHAND.name) ?: StrokeType.FREEHAND.name
+            StrokeType.valueOf(savedType)
+        } catch (e: Exception) { StrokeType.FREEHAND }
+
+        globalStabilizationLevel = prefs.getFloat("global_stabilization", 0f)
+        _smoothing.value = globalStabilizationLevel
+
+        val savedFreehand = loadFreehandSettings()
+        
+        fun loadConfig(type: ToolType, defSize: Float, defOpacity: Float): ToolConfig {
+            val s = prefs.getFloat("tool_size_${type.name}", defSize)
+            val o = prefs.getFloat("tool_alpha_${type.name}", defOpacity)
+            return ToolConfig(size = s, opacity = o, freehandSettings = if (type == ToolType.FREEHAND) savedFreehand else FreehandSettings())
+        }
+
+        toolConfigs[ToolType.FREEHAND] = loadConfig(ToolType.FREEHAND, 2f, 1f)
+        toolConfigs[ToolType.FILL] = loadConfig(ToolType.FILL, 1f, 1.0f)
+        toolConfigs[ToolType.ERASER] = loadConfig(ToolType.ERASER, 10f, 1f)
+        toolConfigs[ToolType.SELECTION] = loadConfig(ToolType.SELECTION, 1f, 1f)
+
+        val freehandConfig = toolConfigs[ToolType.FREEHAND]!!
+        fingerModeActive = freehandConfig.isFingerMode
+        fingerOffsetXValue = freehandConfig.fingerOffsetX
+        fingerOffsetYValue = freehandConfig.fingerOffsetY
+        
+        selectTool(currentTool)
+    }
 }

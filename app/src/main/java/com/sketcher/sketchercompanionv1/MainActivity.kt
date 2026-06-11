@@ -175,7 +175,11 @@ class MainActivity : ComponentActivity() {
                                 isToolbarBlurEnabled = sketchViewModel.isToolbarBlurEnabled,
                                 onToggleToolbarBlur = { sketchViewModel.toggleToolbarBlur() },
                                 showTooltips = sketchViewModel.showTooltips,
-                                onToggleTooltips = { sketchViewModel.toggleTooltips() }
+                                onToggleTooltips = { sketchViewModel.toggleTooltips() },
+                                onBackupPreferences = { sketchViewModel.backupPreferences() },
+                                onRestorePreferences = { sketchViewModel.restorePreferences() },
+                                onResetPreferences = { sketchViewModel.resetPreferencesToDefault() },
+                                hasBackup = sketchViewModel.hasPreferencesBackup
                             )
                         }
 

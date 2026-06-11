@@ -7,17 +7,17 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
 
 data class UiThemeConfig(
-    val barBackgroundColor: Color = Color.Black.copy(alpha = 0.7f),
-    val buttonColor: Color = Color.DarkGray.copy(alpha = 0.5f),
-    val iconColor: Color = Color.White,
-    val highlightColor: Color = Color.Cyan,
+    val barBackgroundColor: Color = Color.White,
+    val buttonColor: Color = Color.White,
+    val iconColor: Color = Color(0xFF424242),
+    val highlightColor: Color = Color(0xFFE0E0E0),
     val barElevation: androidx.compose.ui.unit.Dp = 8.dp,
     val isRound: Boolean = false,
-    val shadowAngle: Float = 45f,
+    val shadowAngle: Float = 24f,
     val recentColors: List<Color> = listOf(Color.Red, Color.Green, Color.Blue, Color.Cyan, Color.Magenta, Color.Yellow),
     val isShadowEnabled: Boolean = true,
-    val shadowOpacity: Float = 0.5f,
-    val shadowBlur: androidx.compose.ui.unit.Dp = 8.dp
+    val shadowOpacity: Float = 0.27f,
+    val shadowBlur: androidx.compose.ui.unit.Dp = 2.dp
 ) {
     fun floatingShape(): Shape {
         return if (isRound) CircleShape else RoundedCornerShape(8.dp)

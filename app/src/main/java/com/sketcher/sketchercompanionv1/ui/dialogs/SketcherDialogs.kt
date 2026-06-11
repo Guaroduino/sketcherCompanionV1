@@ -188,10 +188,19 @@ fun SettingsDialog(
     isToolbarBlurEnabled: Boolean,
     onToggleToolbarBlur: () -> Unit,
     showTooltips: Boolean,
-    onToggleTooltips: () -> Unit
+    onToggleTooltips: () -> Unit,
+    onBackupPreferences: () -> Unit,
+    onRestorePreferences: () -> Unit,
+    onResetPreferences: () -> Unit,
+    hasBackup: Boolean
 ) {
     var resolutionText by remember { mutableStateOf(currentScaleConfig.basePixelsPerMillimeter.toString()) }
     var selectedUnit by remember { mutableStateOf(DistanceUnit.fromSymbol(currentScaleConfig.unitName)) }
+
+    LaunchedEffect(currentScaleConfig) {
+        resolutionText = currentScaleConfig.basePixelsPerMillimeter.toString()
+        selectedUnit = DistanceUnit.fromSymbol(currentScaleConfig.unitName)
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -370,6 +379,57 @@ fun SettingsDialog(
                 Switch(checked = showPerformanceStats, onCheckedChange = { onTogglePerformanceStats() })
             }
             
+            HorizontalDivider()
+
+            // --- BACKUP & RESET ---
+            Text("Preferencias de la Aplicación", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = onBackupPreferences,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                ) {
+                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Guardar Copia", fontSize = 12.sp)
+                }
+
+                Button(
+                    onClick = onRestorePreferences,
+                    enabled = hasBackup,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                ) {
+                    Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Restaurar Copia", fontSize = 12.sp)
+                }
+            }
+
+            Button(
+                onClick = onResetPreferences,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                )
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Restablecer Valores por Defecto", fontSize = 12.sp)
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
             
             Row(
                 modifier = Modifier.fillMaxWidth(),

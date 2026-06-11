@@ -401,20 +401,27 @@ class StrokePipeline(
              return
         }
 
+        // Pre-simulate pressure on finalPointsRaw if simulatePressure is true
+        val finalPointsWithPressure = if (activeFreehandSettings.simulatePressure && activeFreehandSettings.thinning > 0f) {
+            simulatePressureOnPoints(finalPointsRaw, activeSize)
+        } else {
+            finalPointsRaw
+        }
+
         // Simplify
         val tolerance = activeFreehandSettings.simplificationTolerance.coerceAtLeast(0.01f)
         val isSimplified = activeFreehandSettings.isSimplificationEnabled
 
-        val finalPoints = if (isSimplified && finalPointsRaw.size > 2) {
-             StrokeSimplifier.simplify(finalPointsRaw, tolerance, activeSize * 2.0f)
+        val finalPoints = if (isSimplified && finalPointsWithPressure.size > 2) {
+             StrokeSimplifier.simplify(finalPointsWithPressure, tolerance, activeSize * 2.0f)
         } else {
-             finalPointsRaw
+             finalPointsWithPressure
         }
 
-        // Generate High Fidelity Path
+        // Generate High Fidelity Path (pass simulatePressure = false since we pre-simulated it!)
         val genResult = PerfectFreehandGenerator.generate(
             finalPoints, 
-            activeFreehandSettings.copy(size = activeSize, isComplete = true), 
+            activeFreehandSettings.copy(size = activeSize, isComplete = true, simulatePressure = false), 
             currentZoom
         )
         val rawPath = Path(genResult.path)
@@ -431,7 +438,7 @@ class StrokePipeline(
             val finalPointsSnap = finalPoints.toList()
             val strokeIdSnap = currentStrokeId
 
-            // Generate temporary fill path for preview during async processing
+            // Generate temporary fill path for preview during async processing (connect center points)
             var fillPath: Path? = null
             if (isFillActiveSnap && finalPointsSnap.size >= 3) {
                 fillPath = Path().apply {
@@ -460,12 +467,13 @@ class StrokePipeline(
                 consolidationMutex.withLock {
                     val (path, strokePoints) = flattenOuterStroke(rawPath, finalPointsSnap)
                     
+                    // Committed fill path should connect center points (finalPointsSnap) instead of perimeter (strokePoints)
                     var fPath: Path? = null
-                    if (isFillActiveSnap && strokePoints.size >= 3) {
+                    if (isFillActiveSnap && finalPointsSnap.size >= 3) {
                          fPath = Path()
-                         fPath.moveTo(strokePoints[0].x, strokePoints[0].y)
-                         for (i in 1 until strokePoints.size) {
-                             fPath.lineTo(strokePoints[i].x, strokePoints[i].y)
+                         fPath.moveTo(finalPointsSnap[0].x, finalPointsSnap[0].y)
+                         for (i in 1 until finalPointsSnap.size) {
+                             fPath.lineTo(finalPointsSnap[i].x, finalPointsSnap[i].y)
                          }
                          fPath.close()
                     }
@@ -486,11 +494,11 @@ class StrokePipeline(
                     )
 
                     var fill: FillData? = null
-                    if (isFillActiveSnap && strokePoints.size >= 3) {
+                    if (isFillActiveSnap && finalPointsSnap.size >= 3) {
                          val fillPathToUse = fPath ?: Path().apply {
-                             moveTo(strokePoints[0].x, strokePoints[0].y)
-                             for (i in 1 until strokePoints.size) {
-                                 lineTo(strokePoints[i].x, strokePoints[i].y)
+                             moveTo(finalPointsSnap[0].x, finalPointsSnap[0].y)
+                             for (i in 1 until finalPointsSnap.size) {
+                                 lineTo(finalPointsSnap[i].x, finalPointsSnap[i].y)
                              }
                              close()
                          }
@@ -560,20 +568,27 @@ class StrokePipeline(
             return
         }
         
+        // Pre-simulate pressure on finalPointsRaw if simulatePressure is true
+        val finalPointsWithPressure = if (activeFreehandSettings.simulatePressure && activeFreehandSettings.thinning > 0f) {
+            simulatePressureOnPoints(finalPointsRaw, activeSize)
+        } else {
+            finalPointsRaw
+        }
+
         // Simplify if enabled
         val tolerance = activeFreehandSettings.simplificationTolerance.coerceAtLeast(0.01f)
         val isSimplified = activeFreehandSettings.isSimplificationEnabled
 
-        val finalPoints = if (isSimplified && finalPointsRaw.size > 2) {
-             StrokeSimplifier.simplify(finalPointsRaw, tolerance, activeSize * 2.0f)
+        val finalPoints = if (isSimplified && finalPointsWithPressure.size > 2) {
+             StrokeSimplifier.simplify(finalPointsWithPressure, tolerance, activeSize * 2.0f)
         } else {
-             finalPointsRaw
+             finalPointsWithPressure
         }
 
-        // Duplicate Logic (Should extract common finalizer)
+        // Duplicate Logic (pass simulatePressure = false since we pre-simulated it!)
         val genResult = PerfectFreehandGenerator.generate(
              finalPoints, 
-             activeFreehandSettings.copy(size = activeSize, isComplete = true), 
+             activeFreehandSettings.copy(size = activeSize, isComplete = true, simulatePressure = false), 
              currentZoom
         )
         val path = Path(genResult.path)
@@ -827,6 +842,47 @@ class StrokePipeline(
             newPoints.add(StrokePoint(pos[0], pos[1], avgPressure, baseTime + i))
         }
         return cleanPath to newPoints
+    }
+
+    private fun simulatePressureOnPoints(points: List<StrokePoint>, size: Float): List<StrokePoint> {
+        if (points.isEmpty()) return points
+        val result = ArrayList<StrokePoint>(points.size)
+        
+        // Simulating the exact logic from PerfectFreehandGenerator / PerfectFreehandUtils
+        var prevPressure = if (points[0].pressure >= 0) points[0].pressure else 0.5f
+        
+        // Pre-run first 10 points for initial pressure average to match computeInitialPressure
+        val count = kotlin.math.min(10, points.size)
+        var initialAcc = prevPressure
+        for (i in 0 until count) {
+            val curr = points[i]
+            val d = if (i == 0) 0f else {
+                val dx = curr.x - points[i-1].x
+                val dy = curr.y - points[i-1].y
+                kotlin.math.hypot(dx, dy)
+            }
+            val sp = kotlin.math.min(1f, d / size)
+            val rp = kotlin.math.min(1f, 1f - sp)
+            val simulated = kotlin.math.min(1f, initialAcc + (rp - initialAcc) * (sp * PerfectFreehandUtils.RATE_OF_PRESSURE_CHANGE))
+            initialAcc = (initialAcc + simulated) / 2f
+        }
+        
+        var currentPrevPressure = initialAcc
+        for (i in points.indices) {
+            val curr = points[i]
+            val d = if (i == 0) 0f else {
+                val dx = curr.x - points[i-1].x
+                val dy = curr.y - points[i-1].y
+                kotlin.math.hypot(dx, dy)
+            }
+            val sp = kotlin.math.min(1f, d / size)
+            val rp = kotlin.math.min(1f, 1f - sp)
+            val pressure = kotlin.math.min(1f, currentPrevPressure + (rp - currentPrevPressure) * (sp * PerfectFreehandUtils.RATE_OF_PRESSURE_CHANGE))
+            result.add(curr.copy(pressure = pressure))
+            currentPrevPressure = pressure
+        }
+        
+        return result
     }
 
     // Callbacks
