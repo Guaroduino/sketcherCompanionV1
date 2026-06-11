@@ -64,6 +64,30 @@ class SketcherCanvasView(context: Context) : View(context) {
     private val drawTransformMatrix = Matrix() // Persistent matrix for onDraw scaling
     private val matrixValuesBuffer = FloatArray(9) // Reuse for equality check
     private var isDrawing: Boolean = false
+    
+    // Pre-allocated objects for onDraw to avoid GC churn
+    private val dashPathEffect = DashPathEffect(floatArrayOf(10f, 10f), 0f)
+    private val projectionViewportPaint = Paint().apply {
+        style = Paint.Style.STROKE
+        pathEffect = dashPathEffect
+        isAntiAlias = true
+    }
+    private val projectionTextPaint = Paint().apply {
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        isAntiAlias = true
+    }
+    private val projectionTextBgPaint = Paint().apply {
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val selectionLassoPaint = Paint().apply {
+        style = Paint.Style.STROKE
+        color = Color.parseColor("#FF007AFF")
+        pathEffect = dashPathEffect
+        isAntiAlias = true
+    }
+    private val tempViewportRect = RectF()
+    private val tempLabelRect = RectF()
 
     // Performance Stats Timing & States
     private var lastFrameTimeNs: Long = 0L
@@ -657,16 +681,10 @@ class SketcherCanvasView(context: Context) : View(context) {
             selectionManager?.let { manager ->
                 val path = manager.lassoPath
                 if (!path.isEmpty) {
-                    val paint = Paint().apply {
-                        style = Paint.Style.STROKE
-                        strokeWidth = 2f * resources.displayMetrics.density
-                        color = Color.parseColor("#FF007AFF")
-                        pathEffect = DashPathEffect(floatArrayOf(10f, 10f), 0f)
-                        isAntiAlias = true
-                    }
+                    selectionLassoPaint.strokeWidth = 2f * resources.displayMetrics.density
                     canvas.save()
                     canvas.concat(viewMatrix)
-                    canvas.drawPath(path, paint)
+                    canvas.drawPath(path, selectionLassoPaint)
                     canvas.restore()
                 }
             }
@@ -695,49 +713,36 @@ class SketcherCanvasView(context: Context) : View(context) {
 
         // 5. Draw Projection Viewports (Indicator overlay)
         if (!isCapturingForProjection && projectionViewports.isNotEmpty()) {
-            val paint = Paint().apply {
-                style = Paint.Style.STROKE
-                strokeWidth = 3f * resources.displayMetrics.density
-                pathEffect = DashPathEffect(floatArrayOf(10f, 10f), 0f)
-                isAntiAlias = true
-            }
-            val textPaint = Paint().apply {
-                textSize = 12f * resources.displayMetrics.density
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                isAntiAlias = true
-            }
-            val textBgPaint = Paint().apply {
-                style = Paint.Style.FILL
-                isAntiAlias = true
-            }
+            projectionViewportPaint.strokeWidth = 3f * resources.displayMetrics.density
+            projectionTextPaint.textSize = 12f * resources.displayMetrics.density
 
             for (viewport in projectionViewports) {
-                paint.color = viewport.color
-                textPaint.color = Color.WHITE
-                textBgPaint.color = viewport.color
+                projectionViewportPaint.color = viewport.color
+                projectionTextPaint.color = Color.WHITE
+                projectionTextBgPaint.color = viewport.color
 
                 // Draw viewport rect in screen/view space (so no viewMatrix transformation)
-                val rect = RectF(viewport.left, viewport.top, viewport.right, viewport.bottom)
-                canvas.drawRect(rect, paint)
+                tempViewportRect.set(viewport.left, viewport.top, viewport.right, viewport.bottom)
+                canvas.drawRect(tempViewportRect, projectionViewportPaint)
 
                 // Draw label at the top-left of the rectangle
                 val text = viewport.label
-                val textWidth = textPaint.measureText(text)
-                val textHeight = textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
+                val textWidth = projectionTextPaint.measureText(text)
+                val textHeight = projectionTextPaint.fontMetrics.descent - projectionTextPaint.fontMetrics.ascent
                 
                 // Draw a small background pill for the label
-                val labelRect = RectF(
-                    rect.left,
-                    rect.top,
-                    rect.left + textWidth + 8f * resources.displayMetrics.density,
-                    rect.top + textHeight + 4f * resources.displayMetrics.density
+                tempLabelRect.set(
+                    tempViewportRect.left,
+                    tempViewportRect.top,
+                    tempViewportRect.left + textWidth + 8f * resources.displayMetrics.density,
+                    tempViewportRect.top + textHeight + 4f * resources.displayMetrics.density
                 )
-                canvas.drawRect(labelRect, textBgPaint)
+                canvas.drawRect(tempLabelRect, projectionTextBgPaint)
                 canvas.drawText(
                     text,
-                    rect.left + 4f * resources.displayMetrics.density,
-                    rect.top - textPaint.fontMetrics.ascent + 2f * resources.displayMetrics.density,
-                    textPaint
+                    tempViewportRect.left + 4f * resources.displayMetrics.density,
+                    tempViewportRect.top - projectionTextPaint.fontMetrics.ascent + 2f * resources.displayMetrics.density,
+                    projectionTextPaint
                 )
             }
         }

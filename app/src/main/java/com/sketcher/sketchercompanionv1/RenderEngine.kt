@@ -98,6 +98,7 @@ class RenderEngine {
     private val tempWorldBounds = FloatArray(4)
     private val tempPaperRect = RectF()
     private val debugPath = Path()
+    private val tempClipBounds = android.graphics.Rect()
 
     // --- PUBLIC DRAWING METHODS ---
 
@@ -454,13 +455,11 @@ class RenderEngine {
         // So we just draw lines from wMin to wMax.
         
         // Re-calculating bounds based on viewMatrix (which is Screen->World) is tricky if we are already in World space.
-        // If we are in World Space, `canvas.clipBounds` gives us the visible world area!
-        
-        val clipBounds = canvas.clipBounds
-        wMinX = clipBounds.left.toFloat()
-        wMaxX = clipBounds.right.toFloat()
-        wMinY = clipBounds.top.toFloat()
-        wMaxY = clipBounds.bottom.toFloat()
+        canvas.getClipBounds(tempClipBounds)
+        wMinX = tempClipBounds.left.toFloat()
+        wMaxX = tempClipBounds.right.toFloat()
+        wMinY = tempClipBounds.top.toFloat()
+        wMaxY = tempClipBounds.bottom.toFloat()
         
         // Clamp to paper Size if finite
         if (isFinite && paperBounds != null) {
