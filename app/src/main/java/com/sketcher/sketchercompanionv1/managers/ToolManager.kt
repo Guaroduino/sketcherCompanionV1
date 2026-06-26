@@ -45,8 +45,11 @@ class ToolManager(context: Context) {
     private val _brushOpacity = MutableStateFlow(1f)
     val brushOpacity = _brushOpacity.asStateFlow()
 
-    private val _sizePresets = MutableStateFlow(listOf(5f, 15f, 30f))
-    val sizePresets = _sizePresets.asStateFlow()
+    private val _brushPresets = MutableStateFlow<List<BrushPreset>>(emptyList())
+    val brushPresets = _brushPresets.asStateFlow()
+
+    private val _selectedPresetIndex = MutableStateFlow<Int?>(null)
+    val selectedPresetIndex = _selectedPresetIndex.asStateFlow()
 
     var currentSize by mutableFloatStateOf(2f)
         private set
@@ -116,6 +119,7 @@ class ToolManager(context: Context) {
         fingerModeActive = freehandConfig.isFingerMode
         fingerOffsetXValue = freehandConfig.fingerOffsetX
         fingerOffsetYValue = freehandConfig.fingerOffsetY
+        _brushPresets.value = loadBrushPresets()
         selectTool(currentTool)
     }
 
@@ -164,13 +168,64 @@ class ToolManager(context: Context) {
         _fillColor.value = (current and 0x00FFFFFF) or (alpha shl 24)
     }
 
-    fun saveSizePreset(index: Int, size: Float) {
-        val currentList = _sizePresets.value.toMutableList()
-        if (index in currentList.indices) {
-            currentList[index] = size
-            _sizePresets.value = currentList
-            prefs.edit().putFloat("size_preset_$index", size).apply()
+    private fun loadBrushPresets(): List<BrushPreset> {
+        val json = prefs.getString("brush_presets_v1", null)
+        if (json != null) {
+            try {
+                val type = object : com.google.gson.reflect.TypeToken<List<BrushPreset>>() {}.type
+                val loaded: List<BrushPreset> = gson.fromJson(json, type)
+                if (loaded.size >= 5) {
+                    return loaded
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
+        return listOf(
+            BrushPreset(size = 2f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.4f, smoothing = 0.3f)),
+            BrushPreset(size = 5f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.5f, smoothing = 0.4f)),
+            BrushPreset(size = 12f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.6f, smoothing = 0.5f)),
+            BrushPreset(size = 20f, opacity = 0.8f, freehandSettings = FreehandSettings(thinning = 0.7f, smoothing = 0.6f, simulatePressure = true, taperStart = 20f, taperEnd = 20f)),
+            BrushPreset(size = 35f, opacity = 0.4f, freehandSettings = FreehandSettings(thinning = 0f, smoothing = 0.4f, isCumulativeOpacity = true))
+        )
+    }
+
+    fun saveBrushPreset(index: Int) {
+        val currentPreset = BrushPreset(
+            size = currentSize,
+            opacity = currentOpacity,
+            freehandSettings = currentFreehandSettings
+        )
+        val currentList = _brushPresets.value.toMutableList()
+        if (index in 0 until currentList.size) {
+            currentList[index] = currentPreset
+            _brushPresets.value = currentList
+            val json = gson.toJson(currentList)
+            prefs.edit().putString("brush_presets_v1", json).apply()
+            _selectedPresetIndex.value = index
+        }
+    }
+
+    fun selectBrushPreset(index: Int) {
+        val list = _brushPresets.value
+        if (index in list.indices) {
+            val preset = list[index]
+            selectTool(ToolType.FREEHAND)
+            setToolSize(preset.size)
+            setToolOpacity(preset.opacity)
+            updateFreehandSettings(preset.freehandSettings)
+            _selectedPresetIndex.value = index
+        }
+    }
+
+    fun isPresetModified(index: Int): Boolean {
+        val list = _brushPresets.value
+        if (index !in list.indices) return false
+        val preset = list[index]
+        return currentTool != ToolType.FREEHAND ||
+               _brushSize.value != preset.size ||
+               _brushOpacity.value != preset.opacity ||
+               currentFreehandSettings != preset.freehandSettings
     }
 
     fun updateStrokeType(type: StrokeType) {

@@ -1,15 +1,20 @@
 package com.sketcher.sketchercompanionv1.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.*
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -21,14 +26,16 @@ import com.sketcher.sketchercompanionv1.dto.*
 @Composable
 fun PaperSizeDialog(
     currentConfig: CanvasSizeConfig?,
+    currentColor: Int,
     pixelsPerMm: Float = 5.0f,
     onDismiss: () -> Unit,
-    onConfirm: (CanvasSizeConfig?) -> Unit
+    onConfirm: (CanvasSizeConfig?, Int) -> Unit
 ) {
     var selectedTab by remember { mutableStateOf(if (currentConfig == null) 0 else if (currentConfig.preset != null) 1 else 2) }
     var selectedPreset by remember { mutableStateOf(currentConfig?.preset ?: PaperSizePreset.LETTER) }
     var selectedOrientation by remember { mutableStateOf(currentConfig?.orientation ?: PaperOrientation.PORTRAIT) }
     var selectedOrigin by remember { mutableStateOf(currentConfig?.origin ?: CoordinateOrigin.TOP_LEFT) } // Origin State
+    var selectedColor by remember { mutableStateOf(Color(currentColor)) }
     
     // Custom size state
     var customWidth by remember { mutableStateOf(currentConfig?.widthInPixels?.toInt()?.toString() ?: "2550") }
@@ -42,7 +49,7 @@ fun PaperSizeDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(400.dp)
+                    .height(490.dp)
             ) {
                 // Tabs
                 TabRow(selectedTabIndex = selectedTab) {
@@ -199,6 +206,95 @@ fun PaperSizeDialog(
                         }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "Color del Papel:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val paperPresets = listOf(
+                        Color.White,
+                        Color(0xFFFFFDF6), // Off-white / Cream
+                        Color(0xFFF5F5F5), // Light Gray
+                        Color(0xFFE8F5E9), // Light Green
+                        Color(0xFF1E3A8A), // Blueprint Blue
+                        Color(0xFF1E293B), // Slate / Dark Gray
+                        Color(0xFF111111)  // Almost Black
+                    )
+
+                    paperPresets.forEach { color ->
+                        val isSelected = selectedColor == color
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(color)
+                                .border(
+                                    width = if (isSelected) 2.dp else 1.dp,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
+                                    shape = CircleShape
+                                )
+                                .clickable { selectedColor = color },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = if (color == Color.White || color == Color(0xFFFFFDF6) || color == Color(0xFFF5F5F5) || color == Color(0xFFE8F5E9)) Color.Black else Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Custom Color Picker Button
+                    var showCustomColorPicker by remember { mutableStateOf(false) }
+
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color.Transparent)
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                                shape = CircleShape
+                            )
+                            .clickable { showCustomColorPicker = true },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Palette,
+                            contentDescription = "Color personalizado",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    if (showCustomColorPicker) {
+                        ColorPickerDialog(
+                            initialColor = selectedColor.toArgb(),
+                            onDismiss = { showCustomColorPicker = false },
+                            onColorSelected = { colorInt ->
+                                selectedColor = Color(colorInt)
+                                showCustomColorPicker = false
+                            }
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
@@ -214,7 +310,7 @@ fun PaperSizeDialog(
                         }
                         else -> null
                     }
-                    onConfirm(config)
+                    onConfirm(config, selectedColor.toArgb())
                 }
             ) {
                 Text("Aceptar")

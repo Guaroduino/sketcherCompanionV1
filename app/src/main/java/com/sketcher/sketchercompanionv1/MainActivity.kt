@@ -225,8 +225,10 @@ class MainActivity : ComponentActivity() {
                         if (showPaperSizeDialog) {
                             com.sketcher.sketchercompanionv1.ui.PaperSizeDialog(
                                 currentConfig = sketchViewModel.canvasSizeConfig,
-                                onConfirm = { config -> 
+                                currentColor = sketchViewModel.backgroundColor,
+                                onConfirm = { config, color -> 
                                     sketchViewModel.updateCanvasSize(config)
+                                    sketchViewModel.backgroundColor = color
                                     showPaperSizeDialog = false
                                 },
                                 onDismiss = { showPaperSizeDialog = false }

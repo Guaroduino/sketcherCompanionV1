@@ -68,6 +68,11 @@ class ToolbarRepository(context: Context) {
                     // Migration: collapse separate selection tools into the generic parent
                     val effectiveRegistryId = if (saved.registryId.startsWith("tool_selection_")) "tool_selection" else saved.registryId
 
+                    // Skip removed tools
+                    if (effectiveRegistryId == StudioTool.PROPERTIES_TOOL_ID || effectiveRegistryId == StudioTool.STABILIZATION_TOOL_ID) {
+                        return@mapNotNull null
+                    }
+
                     // Find base template
                     val baseTool = ToolRegistry.getToolById(effectiveRegistryId) 
                         ?: ToolRegistry.getToolById("pencil") // Fallback

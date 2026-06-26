@@ -482,8 +482,6 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         _toolbarState.value = mapOf(
             ToolLocation.LeftBar to listOf(),
             ToolLocation.RightBar to listOfNotNull(
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById(StudioTool.PROPERTIES_TOOL_ID),
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById(StudioTool.STABILIZATION_TOOL_ID),
                 com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById(StudioTool.SIZE_OPACITY_TOOL_ID),
                 com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("pencil"),
                 com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("divider"),
@@ -781,8 +779,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         }
         toolManager.selectTool(type)
     }
-    fun saveSizePreset(index: Int, size: Float) = toolManager.saveSizePreset(index, size)
-    val sizePresets: StateFlow<List<Float>> = toolManager.sizePresets
+    val brushPresets: StateFlow<List<BrushPreset>> = toolManager.brushPresets
+    val selectedPresetIndex: StateFlow<Int?> = toolManager.selectedPresetIndex
+    fun saveBrushPreset(index: Int) = toolManager.saveBrushPreset(index)
+    fun selectBrushPreset(index: Int) = toolManager.selectBrushPreset(index)
+    fun isPresetModified(index: Int): Boolean = toolManager.isPresetModified(index)
 
     // legacy methods removed...
     
@@ -1171,23 +1172,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
 
     
-    // PRESETS
-    private fun loadPresets(): List<Float> {
-        return listOf(
-            prefs.getFloat("size_preset_0", 1f),
-            prefs.getFloat("size_preset_1", 3f),
-            prefs.getFloat("size_preset_2", 6f)
-        )
-    }
-    var brushSizePresets = mutableStateListOf<Float>().apply { addAll(loadPresets()) }
-        private set
 
-    fun updateBrushSizePreset(index: Int, size: Float) {
-        if (index in 0 until brushSizePresets.size) {
-            brushSizePresets[index] = size
-            prefs.edit().putFloat("size_preset_$index", size).apply()
-        }
-    }
     
     
 

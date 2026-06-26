@@ -176,6 +176,12 @@ data class FreehandSettings(
     val isCumulativeOpacity: Boolean = false
 )
 
+data class BrushPreset(
+    val size: Float,
+    val opacity: Float,
+    val freehandSettings: FreehandSettings
+)
+
 enum class ToolType { FREEHAND, FILL, ERASER, SELECTION, ANDROID_INK }
 
 enum class StrokeType { FREEHAND, LINE, POLYLINE, CIRCLE, ARC }

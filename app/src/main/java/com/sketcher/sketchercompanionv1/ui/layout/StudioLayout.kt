@@ -204,7 +204,6 @@ fun StudioLayout(
     var rightPanelWidth by remember(scaler) { mutableStateOf(scaler.sidePanelWidth * 1.4f) }
     var layersPanelWeight by remember { mutableFloatStateOf(0.5f) }
     var showPersonalizationDialog by remember { mutableStateOf(false) }
-    var showStabilizationPopup by remember { mutableStateOf(false) }
     var showSizeOpacityPopup by remember { mutableStateOf(false) }
     var showStudioMenu by remember { mutableStateOf(false) }
 
@@ -975,7 +974,7 @@ fun StudioLayout(
                                   com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
                                       onClick = {
                                           if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx
-                                          else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
+                                          else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
                                           else if (isRealAction) tool.onClick()
                                       },
                                       icon = tool.icon,
@@ -993,7 +992,7 @@ fun StudioLayout(
                                      com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
                                          onClick = {
                                              if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx
-                                             else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
+                                             else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
                                              else if (isRealAction) tool.onClick()
                                          },
                                          onLongClick = {
@@ -1101,7 +1100,7 @@ fun StudioLayout(
                                   com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
                                       onClick = {
                                           if (isEditMode) toolPickerTarget = ToolLocation.RightBar to idx
-                                          else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
+                                          else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
                                           else if (isRealAction) tool.onClick()
                                       },
                                       icon = tool.icon,
@@ -1119,7 +1118,7 @@ fun StudioLayout(
                                  com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
                                      onClick = {
                                          if (isEditMode) toolPickerTarget = ToolLocation.RightBar to idx
-                                         else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
+                                         else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
                                          else if (isRealAction) tool.onClick()
                                      },
                                      onLongClick = {
@@ -1228,7 +1227,7 @@ fun StudioLayout(
                                   com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
                                       onClick = {
                                           if (isEditMode) toolPickerTarget = ToolLocation.TopBar to idx
-                                          else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
+                                          else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
                                           else if (isRealAction) tool.onClick()
                                       },
                                       icon = tool.icon,
@@ -1246,7 +1245,7 @@ fun StudioLayout(
                                  com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
                                      onClick = {
                                          if (isEditMode) toolPickerTarget = ToolLocation.TopBar to idx
-                                         else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
+                                         else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
                                          else if (isRealAction) tool.onClick()
                                      },
                                      onLongClick = {
@@ -1356,7 +1355,7 @@ fun StudioLayout(
                                   com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
                                       onClick = {
                                           if (isEditMode) toolPickerTarget = ToolLocation.BottomBar to idx
-                                          else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
+                                          else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
                                           else if (isRealAction) tool.onClick()
                                       },
                                       icon = tool.icon,
@@ -1374,7 +1373,7 @@ fun StudioLayout(
                                  com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
                                      onClick = {
                                          if (isEditMode) toolPickerTarget = ToolLocation.BottomBar to idx
-                                         else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showStabilizationPopup = true
+                                         else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
                                          else if (isRealAction) tool.onClick()
                                      },
                                      onLongClick = {
@@ -1539,22 +1538,7 @@ fun StudioLayout(
 
 
 
-        if (viewModel.showPropertiesPanel) {
-            Dialog(onDismissRequest = { viewModel.togglePropertiesPanel() }) {
-                ToolPropertiesPanel(viewModel = viewModel, onDismiss = { viewModel.togglePropertiesPanel() })
-            }
-        }
 
-        // --- QUICK STABILIZATION POPUP ---
-        if (showStabilizationPopup) {
-            val currentStabilization by viewModel.globalStabilization.collectAsState()
-            QuickStabilizationPopup(
-                value = currentStabilization,
-                onValueChange = { viewModel.updateGlobalStabilization(it) },
-                onDismiss = { showStabilizationPopup = false },
-                theme = theme
-            )
-        }
 
         // --- BRUSH SIZE & OPACITY POPUP ---
         if (showSizeOpacityPopup) {

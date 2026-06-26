@@ -54,7 +54,7 @@ object ToolRegistry {
         StudioTool("menu", Icons.Default.Menu, "Menu", isPlaceholder = false),
         StudioTool(StudioTool.PROPERTIES_TOOL_ID, Icons.Default.Tune, "Properties", isPlaceholder = false),
         StudioTool(StudioTool.STABILIZATION_TOOL_ID, Icons.Default.Timeline, "Stabilization", isPlaceholder = false),
-        StudioTool(StudioTool.SIZE_OPACITY_TOOL_ID, Icons.Default.Lens, "Size & Opacity", isPlaceholder = false),
+        StudioTool(StudioTool.SIZE_OPACITY_TOOL_ID, Icons.Default.Lens, "Brush Settings", isPlaceholder = false),
         StudioTool("divider", Icons.Default.Remove, "Divider", isPlaceholder = false),
         StudioTool("edit", Icons.Default.Edit, "Edit", isPlaceholder = true),
         StudioTool("create", Icons.Default.Add, "Create", isPlaceholder = true),

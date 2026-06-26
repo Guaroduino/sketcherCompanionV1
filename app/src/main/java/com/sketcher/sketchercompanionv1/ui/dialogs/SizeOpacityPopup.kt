@@ -3,12 +3,16 @@ package com.sketcher.sketchercompanionv1.ui.dialogs
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,8 +23,14 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import com.sketcher.sketchercompanionv1.SketcherViewModel
 import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
+import com.sketcher.sketchercompanionv1.dto.BrushPreset
+import com.sketcher.sketchercompanionv1.dto.ToolType
+import com.sketcher.sketchercompanionv1.ui.FreehandSettingsContent
+import com.sketcher.sketchercompanionv1.ui.EraserSettingsContent
 
 @Composable
 fun SizeOpacityPopup(
@@ -30,7 +40,9 @@ fun SizeOpacityPopup(
 ) {
     val brushSize by viewModel.brushSize.collectAsState()
     val brushOpacity by viewModel.brushOpacity.collectAsState()
-    val presets by viewModel.sizePresets.collectAsState()
+    val presets by viewModel.brushPresets.collectAsState()
+    val selectedIndex by viewModel.selectedPresetIndex.collectAsState()
+    var isToolSettingsExpanded by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss) {
         MaterialTheme(
@@ -47,11 +59,14 @@ fun SizeOpacityPopup(
                 border = BorderStroke(1.dp, theme.iconColor.copy(alpha = 0.1f)),
                 tonalElevation = 6.dp,
                 modifier = Modifier
-                    .width(300.dp)
+                    .width(340.dp)
+                    .heightIn(max = 600.dp)
                     .padding(16.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     // Header
@@ -74,24 +89,58 @@ fun SizeOpacityPopup(
                         }
                     }
 
-                    // Presets Row
-                    Text(
-                        text = "Presets (Long press to save current)",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = theme.iconColor.copy(alpha = 0.6f)
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        presets.forEachIndexed { index, presetSize ->
-                            PresetButton(
-                                size = presetSize,
-                                isSelected = brushSize == presetSize,
-                                theme = theme,
-                                onClick = { viewModel.updateBrushSize(presetSize) },
-                                onLongClick = { viewModel.saveSizePreset(index, brushSize) }
-                            )
+                    // Presets Section
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "Presets (Long press to save current)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = theme.iconColor.copy(alpha = 0.6f)
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            presets.forEachIndexed { index, preset ->
+                                val isSelected = selectedIndex == index
+                                val isModified = if (isSelected) viewModel.isPresetModified(index) else false
+                                PresetButton(
+                                    size = preset.size,
+                                    isSelected = isSelected,
+                                    isModified = isModified,
+                                    theme = theme,
+                                    onClick = { viewModel.selectBrushPreset(index) },
+                                    onLongClick = { viewModel.saveBrushPreset(index) }
+                                )
+                            }
+                        }
+                        
+                        // Overwrite/Sync Button
+                        if (selectedIndex != null) {
+                            val activeIndex = selectedIndex!!
+                            val isModified = viewModel.isPresetModified(activeIndex)
+                            Button(
+                                onClick = { viewModel.saveBrushPreset(activeIndex) },
+                                enabled = isModified,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = theme.panelShape(),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = theme.highlightColor,
+                                    contentColor = theme.barBackgroundColor,
+                                    disabledContainerColor = theme.buttonColor.copy(alpha = 0.3f),
+                                    disabledContentColor = theme.iconColor.copy(alpha = 0.4f)
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Save,
+                                    contentDescription = "Save",
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (isModified) "Sobrescribir Preset ${activeIndex + 1}" else "Preset ${activeIndex + 1} Guardado",
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
 
@@ -127,6 +176,23 @@ fun SizeOpacityPopup(
                             value = brushOpacity,
                             onValueChange = { viewModel.updateBrushOpacity(it) },
                             valueRange = 0f..1f
+                        )
+                    }
+
+                    // Stabilization Slider
+                    val globalStabilization by viewModel.globalStabilization.collectAsState()
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Stabilization", style = MaterialTheme.typography.bodyMedium)
+                            Text("${(globalStabilization * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Slider(
+                            value = globalStabilization,
+                            onValueChange = { viewModel.updateGlobalStabilization(it) },
+                            valueRange = 0f..0.90f
                         )
                     }
 
@@ -177,6 +243,67 @@ fun SizeOpacityPopup(
                             )
                         )
                     }
+
+                    // Tool Settings Collapsible Section
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        HorizontalDivider(color = theme.iconColor.copy(alpha = 0.1f))
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { isToolSettingsExpanded = !isToolSettingsExpanded }
+                                .padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Tool Settings",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = theme.highlightColor
+                            )
+                            Icon(
+                                imageVector = if (isToolSettingsExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (isToolSettingsExpanded) "Collapse" else "Expand",
+                                tint = theme.highlightColor
+                            )
+                        }
+                        
+                        if (isToolSettingsExpanded) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                when (viewModel.currentTool) {
+                                    ToolType.FREEHAND -> {
+                                        FreehandSettingsContent(
+                                            currentSettings = viewModel.currentFreehandSettings,
+                                            onSettingsChanged = { viewModel.updateFreehandSettings(it) },
+                                            isFlattenedOuterStrokeEnabled = viewModel.toolManager.isFlattenedOuterStrokeEnabled,
+                                            onToggleFlattenedOuterStroke = { viewModel.toolManager.toggleFlattenedOuterStroke() }
+                                        )
+                                    }
+                                    ToolType.ERASER -> {
+                                        EraserSettingsContent(
+                                            selectionScope = viewModel.selectionScope,
+                                            onToggleSelectionScope = {
+                                                viewModel.selectionScope = if (viewModel.selectionScope == SketcherViewModel.SelectionScope.CURRENT_LAYER)
+                                                    SketcherViewModel.SelectionScope.ALL_LAYERS else SketcherViewModel.SelectionScope.CURRENT_LAYER
+                                            }
+                                        )
+                                    }
+                                    else -> {
+                                        Text(
+                                            text = "No additional properties for this tool.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = theme.iconColor.copy(alpha = 0.6f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -187,15 +314,28 @@ fun SizeOpacityPopup(
 private fun PresetButton(
     size: Float,
     isSelected: Boolean,
+    isModified: Boolean,
     theme: UiThemeConfig,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
+    val border = if (isSelected && isModified) {
+        BorderStroke(2.dp, theme.highlightColor)
+    } else {
+        null
+    }
+    val background = if (isSelected && !isModified) {
+        theme.highlightColor
+    } else {
+        theme.buttonColor
+    }
+
     Box(
         modifier = Modifier
             .size(48.dp)
             .clip(CircleShape)
-            .background(if (isSelected) theme.highlightColor else theme.buttonColor)
+            .background(background)
+            .then(if (border != null) Modifier.border(border, CircleShape) else Modifier)
             .pointerInput(Unit) {
                 detectTapGestures(
                     onTap = { onClick() },
@@ -205,10 +345,9 @@ private fun PresetButton(
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.size(32.dp)) {
-            // Mapping for preset button visual dot
             val radiusDp = 2f + ((size.coerceIn(1f, 100f) - 1f) / 99f) * 14f
             drawCircle(
-                color = theme.iconColor,
+                color = if (isSelected && !isModified) theme.buttonColor else theme.iconColor,
                 radius = radiusDp.dp.toPx()
             )
         }
