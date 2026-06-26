@@ -19,6 +19,8 @@ import com.sketcher.sketchercompanionv1.ui.model.StudioTool
 import com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler
 import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
 
+import androidx.compose.ui.draw.rotate
+
 @Composable
 fun ContextActionBar(
     modifier: Modifier = Modifier,
@@ -43,9 +45,14 @@ fun ContextActionBar(
                 .background(theme.barBackgroundColor.copy(alpha = 0.9f))
                 .padding(horizontal = scaler.smallMargin),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(scaler.smallMargin)
+            horizontalArrangement = Arrangement.spacedBy(scaler.smallButtonSpacing)
         ) {
             tools.forEachIndexed { index, tool ->
+                val iconMod = if (tool.registryId == "context_flip_vertical") {
+                    Modifier.rotate(90f)
+                } else {
+                    Modifier
+                }
                 SketcherIconButton(
                     onClick = { onToolClick(index, tool) },
                     icon = tool.icon,
@@ -57,7 +64,8 @@ fun ContextActionBar(
                     buttonColor = Color.Transparent, 
                     iconColor = theme.iconColor,
                     shape = CircleShape,
-                    iconSize = scaler.baseIconSize
+                    iconSize = scaler.baseIconSize,
+                    iconModifier = iconMod
                 )
             }
             if (isEditMode) {

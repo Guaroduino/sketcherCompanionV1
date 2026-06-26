@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 
 data class UiScaler(
     val scaleFactor: Float,
+    val buttonSpacingFactor: Float,
     val screenWidth: Dp,
     val screenHeight: Dp
 ) {
@@ -25,6 +26,9 @@ data class UiScaler(
     val toggleThickness: Dp get() = 12.dp * scaleFactor
     val smallIconSize: Dp get() = 16.dp * scaleFactor
     val baseIconSize: Dp get() = 24.dp * scaleFactor
+    
+    val buttonSpacing: Dp get() = 8.dp * scaleFactor * buttonSpacingFactor
+    val smallButtonSpacing: Dp get() = 4.dp * scaleFactor * buttonSpacingFactor
     
     // Derived Calculations using dynamic values
     val hudVerticalTargetPadding: Dp get() = baseBarHeight + (10.dp * scaleFactor)

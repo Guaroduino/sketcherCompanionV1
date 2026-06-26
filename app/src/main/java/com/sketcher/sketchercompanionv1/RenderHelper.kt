@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1
+package com.sketcher.sketchercompanionv1
 
 import android.graphics.Canvas
 import android.graphics.Matrix
@@ -100,49 +100,28 @@ object RenderHelper {
     }
 
     /**
-     * Draw canvas bounds if configured.
+     * Draw canvas bounds and shadow.
      * @param canvas The canvas to draw on
-     * @param canvasSizeConfig The canvas size configuration (null = infinite canvas)
+     * @param left The left boundary coordinate
+     * @param top The top boundary coordinate
+     * @param right The right boundary coordinate
+     * @param bottom The bottom boundary coordinate
      */
-    fun drawCanvasBounds(canvas: Canvas, canvasSizeConfig: com.sketcher.sketchercompanionv1.dto.CanvasSizeConfig?) {
-        if (canvasSizeConfig == null) return
-
-        val width = canvasSizeConfig.widthInPixels
-        val height = canvasSizeConfig.heightInPixels
-
+    fun drawCanvasBounds(canvas: Canvas, left: Float, top: Float, right: Float, bottom: Float) {
         // Draw subtle shadow outside bounds
         val shadowOffset = 10f
-        canvas.drawRect(
-            -shadowOffset,
-            -shadowOffset,
-            width + shadowOffset,
-            -shadowOffset,
-            canvasShadowPaint
-        )
-        canvas.drawRect(
-            -shadowOffset,
-            height,
-            width + shadowOffset,
-            height + shadowOffset,
-            canvasShadowPaint
-        )
-        canvas.drawRect(
-            -shadowOffset,
-            0f,
-            0f,
-            height,
-            canvasShadowPaint
-        )
-        canvas.drawRect(
-            width,
-            0f,
-            width + shadowOffset,
-            height,
-            canvasShadowPaint
-        )
+        
+        // Top shadow
+        canvas.drawRect(left - shadowOffset, top - shadowOffset, right + shadowOffset, top, canvasShadowPaint)
+        // Bottom shadow
+        canvas.drawRect(left - shadowOffset, bottom, right + shadowOffset, bottom + shadowOffset, canvasShadowPaint)
+        // Left shadow
+        canvas.drawRect(left - shadowOffset, top, left, bottom, canvasShadowPaint)
+        // Right shadow
+        canvas.drawRect(right, top, right + shadowOffset, bottom, canvasShadowPaint)
 
-        // Draw bounds rectangle
-        canvas.drawRect(0f, 0f, width, height, canvasBoundsPaint)
+        // Draw bounds rectangle outline
+        canvas.drawRect(left, top, right, bottom, canvasBoundsPaint)
     }
 }
 

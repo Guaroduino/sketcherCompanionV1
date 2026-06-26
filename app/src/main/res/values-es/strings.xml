@@ -42,6 +42,7 @@
     <string name="settings_lock_rotation">Bloquear Rotación</string>
     <string name="settings_stylus_only">Solo Stylus</string>
     <string name="settings_interface_scale">Escala de Interfaz</string>
+    <string name="settings_button_spacing">Separación de Botones</string>
     <string name="settings_debug_wireframe">Depurar Geometría (Wireframe)</string>
     <string name="settings_enable_prediction">Habilitar Predicción (Comp. Lag)</string>
     <string name="settings_debug_prediction">Depurar Predicción (Línea Roja)</string>

@@ -114,13 +114,13 @@ fun SizeOpacityPopup(
                         )
                     }
 
-                    // Opacity Slider
+                    // Stroke Opacity Slider
                     Column {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Opacity", style = MaterialTheme.typography.bodyMedium)
+                            Text("Stroke Opacity", style = MaterialTheme.typography.bodyMedium)
                             Text("${(brushOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
                         }
                         Slider(
@@ -128,6 +128,27 @@ fun SizeOpacityPopup(
                             onValueChange = { viewModel.updateBrushOpacity(it) },
                             valueRange = 0f..1f
                         )
+                    }
+
+                    // Fill Opacity Slider
+                    val isFillActive by viewModel.isFillActive.collectAsState()
+                    if (isFillActive) {
+                        val fillColor by viewModel.fillColor.collectAsState()
+                        val fillOpacity = ((fillColor shr 24) and 0xFF) / 255f
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Fill Opacity", style = MaterialTheme.typography.bodyMedium)
+                                Text("${(fillOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                            }
+                            Slider(
+                                value = fillOpacity,
+                                onValueChange = { viewModel.updateFillOpacity(it) },
+                                valueRange = 0f..1f
+                            )
+                        }
                     }
 
                     // Cumulative Opacity Toggle

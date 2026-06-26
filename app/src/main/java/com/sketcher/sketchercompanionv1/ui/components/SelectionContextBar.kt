@@ -17,6 +17,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.unit.dp
 import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
+import com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler
 
 @Composable
 fun SelectionContextBar(
@@ -30,6 +31,7 @@ fun SelectionContextBar(
     onFlipV: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val scaler = LocalUiScaler.current
     AnimatedVisibility(
         visible = isVisible,
         enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
@@ -48,7 +50,7 @@ fun SelectionContextBar(
                 modifier = Modifier
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(scaler.smallButtonSpacing)
             ) {
                 // Deselect Action
                 IconButton(onClick = onDeselect) {

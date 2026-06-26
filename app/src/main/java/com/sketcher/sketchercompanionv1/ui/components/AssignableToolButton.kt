@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import com.sketcher.sketchercompanionv1.ui.model.ToolLocation
 import com.sketcher.sketchercompanionv1.ui.model.StudioTool
 import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
+import com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler
 
 // Define ToolPayload as requested
 enum class ToolPayload(val label: String, val icon: ImageVector) {
@@ -68,6 +69,8 @@ fun AssignableToolButton(
     subTools: List<StudioTool> = emptyList(),
     onSubToolClick: ((StudioTool) -> Unit)? = null
 ) {
+    val scaler = LocalUiScaler.current
+    val scaleFactor = scaler.scaleFactor
     val backgroundColor = if (isActive || isSelected) highlightColor else buttonColor
     val drawBorder = isSelected // Show border if selected
     var showSubMenu by remember { mutableStateOf(false) }
@@ -78,7 +81,7 @@ fun AssignableToolButton(
 
     Box(
         modifier = Modifier
-            .size(48.dp) // Touch size matching BigTouchBox
+            .size(48.dp * scaleFactor) // Touch size matching BigTouchBox
             .combinedClickable(
                 onClick = {
                     Log.d("AssignableButton", "onClick: desc=$contentDescription isActive=$isActive, subCount=${subTools.size}")
@@ -103,11 +106,11 @@ fun AssignableToolButton(
         // Visual Button
         Box(
             modifier = Modifier
-                .size(36.dp)
+                .size(36.dp * scaleFactor)
                 .clip(shape)
                 .background(backgroundColor)
                 .then(
-                    if (drawBorder) Modifier.border(2.dp, theme?.iconColor ?: Color.White, shape)
+                    if (drawBorder) Modifier.border(2.dp * scaleFactor, theme?.iconColor ?: Color.White, shape)
                     else Modifier
                 ),
             contentAlignment = Alignment.Center
@@ -115,8 +118,8 @@ fun AssignableToolButton(
             if (isNone && (payload == ToolPayload.STROKE_COLOR || payload == ToolPayload.FILL_COLOR)) {
                 // "None" indicator: circle with diagonal slash
                 val noneColor = iconColor.copy(alpha = 0.55f)
-                Canvas(modifier = Modifier.size(24.dp)) {
-                    val strokeWidth = 2.5.dp.toPx()
+                Canvas(modifier = Modifier.size(24.dp * scaleFactor)) {
+                    val strokeWidth = (2.5.dp * scaleFactor).toPx()
                     val radius = size.minDimension / 2f - strokeWidth / 2f
                     val cx = size.width / 2f
                     val cy = size.height / 2f
@@ -143,14 +146,14 @@ fun AssignableToolButton(
                     // Hollow circle for Stroke
                     Box(
                         modifier = Modifier
-                            .size(24.dp)
-                            .border(width = 3.dp, color = colorPreview, shape = CircleShape)
+                            .size(24.dp * scaleFactor)
+                            .border(width = 3.dp * scaleFactor, color = colorPreview, shape = CircleShape)
                     )
                 } else {
                     // Solid circle for Fill
                     Box(
                         modifier = Modifier
-                            .size(24.dp)
+                            .size(24.dp * scaleFactor)
                             .clip(CircleShape)
                             .background(colorPreview)
                     )
@@ -169,9 +172,9 @@ fun AssignableToolButton(
             if (subTools.isNotEmpty()) {
                 Canvas(
                     modifier = Modifier
-                        .size(5.dp)
+                        .size(5.dp * scaleFactor)
                         .align(Alignment.BottomEnd)
-                        .offset(x = (-4).dp, y = (-4).dp)
+                        .offset(x = (-4).dp * scaleFactor, y = (-4).dp * scaleFactor)
                 ) {
                     val path = androidx.compose.ui.graphics.Path().apply {
                         moveTo(size.width, size.height)

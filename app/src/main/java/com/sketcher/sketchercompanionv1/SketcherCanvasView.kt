@@ -134,20 +134,34 @@ class SketcherCanvasView(context: Context) : View(context) {
     // Temp storage for coordinate mapping
     private val tempTouchPoint = FloatArray(2)
 
+    private val screenPxPerMm: Float by lazy {
+        UnitUtils.getScreenPxPerMm(context)
+    }
+
+    private fun getZoomScale100(): Float {
+        val basePx = scaleConfig.basePixelsPerMillimeter
+        val safeBasePx = if (basePx == 0f) 5f else basePx
+        return screenPxPerMm / safeBasePx
+    }
+
     // --- GESTURES ---
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             val currentScale = getMatrixScale(viewMatrix)
-            val projectedZoom = currentScale * detector.scaleFactor
-            // CLAMP ZOOM: 0.2f to 12.0f (Matched Legacy)
-            var clampedZoom = projectedZoom.coerceIn(0.2f, 12.0f)
+            val zoomScale100 = getZoomScale100()
+            val currentNormalizedZoom = currentScale / zoomScale100
+            val projectedNormalizedZoom = currentNormalizedZoom * detector.scaleFactor
             
-            // Snap to 100% (1.0f) if within threshold of 8%
+            // CLAMP ZOOM: 0.2f to 12.0f normalized zoom
+            var clampedNormalizedZoom = projectedNormalizedZoom.coerceIn(0.2f, 12.0f)
+            
+            // Snap to 100% (1.0 normalized) if within threshold of 8%
             val snapThreshold = 0.08f
-            if (kotlin.math.abs(clampedZoom - 1.0f) < snapThreshold) {
-                clampedZoom = 1.0f
+            if (kotlin.math.abs(clampedNormalizedZoom - 1.0f) < snapThreshold) {
+                clampedNormalizedZoom = 1.0f
             }
             
+            val clampedZoom = clampedNormalizedZoom * zoomScale100
             val effectiveFactor = clampedZoom / currentScale
             
             viewMatrix.postScale(effectiveFactor, effectiveFactor, detector.focusX, detector.focusY)
@@ -161,6 +175,7 @@ class SketcherCanvasView(context: Context) : View(context) {
             redrawAllCache()
         }
     })
+
 
 
 
@@ -405,15 +420,17 @@ class SketcherCanvasView(context: Context) : View(context) {
         val librarySnapshot = componentLibrary
         
         val canvas = android.graphics.Canvas(bitmap)
+        val activeLayerOpacity = layers.getOrNull(activeLayerIndex)?.opacity ?: 1f
         
         canvas.save()
         canvas.concat(viewMatrix)
         if (fill != null) {
-            renderEngine.drawElementRecursive(canvas, fill, librarySnapshot, viewMatrix)
+            renderEngine.drawElementRecursive(canvas, fill, librarySnapshot, viewMatrix, activeLayerOpacity)
         }
-        renderEngine.drawElementRecursive(canvas, stroke, librarySnapshot, viewMatrix)
+        renderEngine.drawElementRecursive(canvas, stroke, librarySnapshot, viewMatrix, activeLayerOpacity)
         canvas.restore()
         
+        lastBakedElement = stroke
         invalidate()
     }
 
@@ -423,19 +440,49 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     // --- CONFIGURATION SYNC ---
     var gridConfig: GridConfig = GridConfig()
-        set(value) { field = value; renderEngine.gridConfig = value; redrawAllCache(); updateSnapFunction() }
+        set(value) {
+            if (field == value) return
+            field = value
+            renderEngine.gridConfig = value
+            redrawAllCache()
+            updateSnapFunction()
+        }
     var scaleConfig: ScaleConfig = ScaleConfig()
-        set(value) { field = value; renderEngine.scaleConfig = value; redrawAllCache(); updateSnapFunction() }
+        set(value) {
+            if (field == value) return
+            field = value
+            renderEngine.scaleConfig = value
+            redrawAllCache()
+            updateSnapFunction()
+        }
     var currentUnit: DistanceUnit = DistanceUnit.M
-        set(value) { field = value; renderEngine.currentUnit = value; redrawAllCache(); updateSnapFunction() }
+        set(value) {
+            if (field == value) return
+            field = value
+            renderEngine.currentUnit = value
+            redrawAllCache()
+            updateSnapFunction()
+        }
     var canvasSizeConfig: CanvasSizeConfig? = null
-        set(value) { field = value; renderEngine.canvasSizeConfig = value; redrawAllCache(); updateSnapFunction() }
+        set(value) {
+            if (field == value) return
+            field = value
+            renderEngine.canvasSizeConfig = value
+            redrawAllCache()
+            updateSnapFunction()
+        }
     var canvasBackgroundColor: Int = android.graphics.Color.WHITE
-        set(value) { field = value; renderEngine.canvasBackgroundColor = value; redrawAllCache() }
+        set(value) {
+            if (field == value) return
+            field = value
+            renderEngine.canvasBackgroundColor = value
+            redrawAllCache()
+        }
         
     // --- SNAP LOGIC ---
     var isSnapToGridEnabled: Boolean = false
         set(value) { 
+            if (field == value) return
             field = value
             updateSnapFunction()
         }
@@ -456,9 +503,9 @@ class SketcherCanvasView(context: Context) : View(context) {
                     basePxPerMm = scaleConfig.basePixelsPerMillimeter
                 )
                 
-                // Calculate offset to align grid center with canvas center
-                val offsetX = canvasSizeConfig?.let { it.widthInPixels / 2f } ?: 0f
-                val offsetY = canvasSizeConfig?.let { it.heightInPixels / 2f } ?: 0f
+                // Grid always starts at (0,0) of the world/paper
+                val offsetX = 0f
+                val offsetY = 0f
 
                 val snappedWorldX: Float
                 val snappedWorldY: Float
@@ -484,11 +531,26 @@ class SketcherCanvasView(context: Context) : View(context) {
     }
     
     var isDebugPredictionEnabled: Boolean = false
-        set(value) { field = value; invalidate() }
+        set(value) {
+            if (field == value) return
+            field = value
+            invalidate()
+        }
     var isDebugWireframe: Boolean = false
-        set(value) { field = value; renderEngine.isDebugWireframe = value; redrawAllCache() }
+        set(value) {
+            if (field == value) return
+            field = value
+            renderEngine.isDebugWireframe = value
+            redrawAllCache()
+        }
     var isDebugWireframeByVM: Boolean = false
-        set(value) { field = value; redrawAllCache() }
+        set(value) {
+            if (field == value) return
+            field = value
+            redrawAllCache()
+        }
+
+    private var lastBakedElement: LayerElement? = null
 
     // --- LAYER DATA ---
     private val layers = mutableListOf<Layer>()
@@ -525,6 +587,7 @@ class SketcherCanvasView(context: Context) : View(context) {
             componentLibrary = library
             editingContext = editingCtx
             activeLayerIndex = activeIndex
+            lastBakedElement = null // Reset after skipping redraw
             return
         }
 
@@ -547,6 +610,10 @@ class SketcherCanvasView(context: Context) : View(context) {
             }
             if (oldLayer.elements.size != newLayer.elements.size) {
                 if (i == activeLayerIndex && newLayer.elements.size == oldLayer.elements.size + 1 && newLayer.elements.subList(0, oldLayer.elements.size) == oldLayer.elements) {
+                    val appended = newLayer.elements.last()
+                    if (appended !== lastBakedElement) {
+                        return false
+                    }
                     appendCount++
                 } else {
                     return false
@@ -558,36 +625,36 @@ class SketcherCanvasView(context: Context) : View(context) {
     
     // --- TOOL SYNC ---
     var activeStrokeType: StrokeType = StrokeType.FREEHAND
-        set(value) { field = value; strokePipeline.activeStrokeType = value }
+        set(value) { if (field == value) return; field = value; strokePipeline.activeStrokeType = value }
     var activeStrokeColor: Int = android.graphics.Color.BLACK
-        set(value) { field = value; strokePipeline.activeStrokeColor = value }
+        set(value) { if (field == value) return; field = value; strokePipeline.activeStrokeColor = value }
     var activeFillColor: Int = android.graphics.Color.TRANSPARENT
-        set(value) { field = value; strokePipeline.activeFillColor = value }
+        set(value) { if (field == value) return; field = value; strokePipeline.activeFillColor = value }
     var isStrokeActive: Boolean = true
-        set(value) { field = value; strokePipeline.isStrokeActive = value }
+        set(value) { if (field == value) return; field = value; strokePipeline.isStrokeActive = value }
     var isFillActive: Boolean = false
-        set(value) { field = value; strokePipeline.isFillActive = value }
+        set(value) { if (field == value) return; field = value; strokePipeline.isFillActive = value }
     
     var activeColor: Int = android.graphics.Color.BLACK
-        set(value) { field = value; activeStrokeColor = value }
+        set(value) { if (field == value) return; field = value; activeStrokeColor = value }
     var activeSize: Float = 10f
-        set(value) { field = value; strokePipeline.activeSize = value }
+        set(value) { if (field == value) return; field = value; strokePipeline.activeSize = value }
     var activeFreehandSettings: FreehandSettings = FreehandSettings()
-        set(value) { field = value; strokePipeline.activeFreehandSettings = value }
+        set(value) { if (field == value) return; field = value; strokePipeline.activeFreehandSettings = value }
     var isFlattenedOuterStrokeEnabled: Boolean = true
-        set(value) { field = value; strokePipeline.isFlattenedOuterStrokeEnabled = value }
+        set(value) { if (field == value) return; field = value; strokePipeline.isFlattenedOuterStrokeEnabled = value }
     var isFillModeEnabled: Boolean = false
-        set(value) { field = value; isFillActive = value }
+        set(value) { if (field == value) return; field = value; isFillActive = value }
     var fillModeColor: Int = android.graphics.Color.TRANSPARENT
-        set(value) { field = value; activeFillColor = value }
+        set(value) { if (field == value) return; field = value; activeFillColor = value }
     var isFingerMode: Boolean = false
-        set(value) { field = value; strokePipeline.isFingerMode = value }
+        set(value) { if (field == value) return; field = value; strokePipeline.isFingerMode = value }
     var fingerOffsetX: Float = 0f
-        set(value) { field = value; strokePipeline.fingerOffsetX = value }
+        set(value) { if (field == value) return; field = value; strokePipeline.fingerOffsetX = value }
     var fingerOffsetY: Float = 50f
-        set(value) { field = value; strokePipeline.fingerOffsetY = value }
+        set(value) { if (field == value) return; field = value; strokePipeline.fingerOffsetY = value }
     var globalStabilizationLevel: Float = 0f
-        set(value) { field = value; strokePipeline.globalStabilizationLevel = value }
+        set(value) { if (field == value) return; field = value; strokePipeline.globalStabilizationLevel = value }
     var isPalmRejectionEnabled: Boolean = false
     var snapFunction: ((Float, Float) -> Pair<Float, Float>)? = null
         set(value) { field = value; strokePipeline.snapFunction = value }
@@ -706,59 +773,102 @@ class SketcherCanvasView(context: Context) : View(context) {
         // Draw Transient Strokes manually while background rendering finishes
         canvas.save()
         canvas.concat(viewMatrix)
+        val activeLayerOpacity = layers.getOrNull(activeLayerIndex)?.opacity ?: 1f
         for (fill in transientFills) {
-            renderEngine.drawElementRecursive(canvas, fill, componentLibrary, viewMatrix)
+            renderEngine.drawElementRecursive(canvas, fill, componentLibrary, viewMatrix, activeLayerOpacity)
         }
         for (stroke in transientStrokes) {
-            renderEngine.drawElementRecursive(canvas, stroke, componentLibrary, viewMatrix)
+            renderEngine.drawElementRecursive(canvas, stroke, componentLibrary, viewMatrix, activeLayerOpacity)
         }
         canvas.restore()
 
         // 2. Draw Live Content (Stroke & Fill)
-        if (isDrawing && isStrokeActive) {
+        if (isDrawing && (isStrokeActive || isFillActive)) {
             val hasCommitted = currentCommittedPreviewPath != null
-            val hasLive = currentVectorPreviewPath != null
+            val hasLive = currentVectorPreviewPath != null || currentFillPath != null
             
             if (hasCommitted || hasLive) {
-                val opacity = (android.graphics.Color.alpha(activeStrokeColor) / 255f)
-                val isCumulative = activeFreehandSettings.isCumulativeOpacity
-                
-                if (opacity < 1f) {
-                    // Non-cumulative and cumulative semi-transparent strokes are both drawn in saveLayer to avoid the connection seam!
-                    saveLayerPaint.alpha = (opacity * 255).toInt()
-                    val bounds = currentStrokeBounds
-                    val saveCount = if (bounds != null && !bounds.isEmpty) {
-                        tempStrokeBounds.set(bounds)
-                        viewMatrix.mapRect(tempScreenBounds, tempStrokeBounds)
-                        // Pad slightly to account for anti-aliasing
-                        tempScreenBounds.inset(-4f, -4f)
-                        canvas.saveLayer(tempScreenBounds, saveLayerPaint)
+                // Pass 1: Draw Live Fill (always directly on canvas, using its own activeFillColor with alpha, multiplied by activeLayerOpacity)
+                if (isFillActive && currentFillPath != null) {
+                    val fillAlpha = (android.graphics.Color.alpha(activeFillColor) / 255f)
+                    val fillPaint = Paint().apply {
+                        style = Paint.Style.FILL
+                        val origColor = activeFillColor
+                        val newAlpha = (fillAlpha * activeLayerOpacity * 255).toInt().coerceIn(0, 255)
+                        color = (origColor and 0x00FFFFFF) or (newAlpha shl 24)
+                    }
+                    canvas.save()
+                    canvas.concat(viewMatrix)
+                    canvas.drawPath(currentFillPath!!, fillPaint)
+                    canvas.restore()
+                }
+
+                // Pass 2: Draw Live Stroke
+                if (isStrokeActive) {
+                    val strokeAlpha = (android.graphics.Color.alpha(activeStrokeColor) / 255f)
+                    val effectiveStrokeOpacity = strokeAlpha * activeLayerOpacity
+                    val isCumulative = activeFreehandSettings.isCumulativeOpacity
+                    
+                    if (effectiveStrokeOpacity < 1f && !isCumulative) {
+                        // Non-cumulative semi-transparent stroke: use saveLayer to avoid connection seams
+                        saveLayerPaint.alpha = (effectiveStrokeOpacity * 255).toInt().coerceIn(0, 255)
+                        val bounds = currentStrokeBounds
+                        val saveCount = if (bounds != null && !bounds.isEmpty) {
+                            tempStrokeBounds.set(bounds)
+                            viewMatrix.mapRect(tempScreenBounds, tempStrokeBounds)
+                            tempScreenBounds.inset(-4f, -4f)
+                            canvas.saveLayer(tempScreenBounds, saveLayerPaint)
+                        } else {
+                            canvas.saveLayer(null, saveLayerPaint)
+                        }
+                        
+                        val opaqueColor = activeStrokeColor or (0xFF shl 24)
+                        
+                        currentCommittedPreviewPath?.let { committed ->
+                            canvas.save()
+                            canvas.concat(viewMatrix)
+                            renderEngine.drawCommittedPreview(canvas, committed, opaqueColor)
+                            canvas.restore()
+                        }
+                        
+                        renderEngine.drawLiveStroke(
+                            canvas, 
+                            currentVectorPreviewPoints, 
+                            currentVectorPreviewPath,
+                            opaqueColor,
+                            fillPath = null, // Handled in Pass 1!
+                            fillColor = 0,
+                            isFillActive = false,
+                            isStrokeActive = true,
+                            currentLiveGeneratedRadius = currentLiveGeneratedRadius,
+                            viewMatrix = viewMatrix,
+                            isDrawing = isDrawing
+                        )
+                        
+                        canvas.restoreToCount(saveCount)
                     } else {
-                        canvas.saveLayer(null, saveLayerPaint)
+                        // Cumulative or fully opaque: draw directly onto canvas
+                        currentCommittedPreviewPath?.let { committed ->
+                            canvas.save()
+                            canvas.concat(viewMatrix)
+                            renderEngine.drawCommittedPreview(canvas, committed, activeStrokeColor)
+                            canvas.restore()
+                        }
+                        
+                        renderEngine.drawLiveStroke(
+                            canvas, 
+                            currentVectorPreviewPoints, 
+                            currentVectorPreviewPath,
+                            activeStrokeColor,
+                            fillPath = null, // Handled in Pass 1!
+                            fillColor = 0,
+                            isFillActive = false,
+                            isStrokeActive = true,
+                            currentLiveGeneratedRadius = currentLiveGeneratedRadius,
+                            viewMatrix = viewMatrix,
+                            isDrawing = isDrawing
+                        )
                     }
-                    
-                    val opaqueColor = activeStrokeColor or (0xFF shl 24)
-                    
-                    currentCommittedPreviewPath?.let { committed ->
-                        canvas.save()
-                        canvas.concat(viewMatrix)
-                        renderEngine.drawCommittedPreview(canvas, committed, opaqueColor)
-                        canvas.restore()
-                    }
-                    renderEngine.drawLiveStroke(
-                        canvas, 
-                        currentVectorPreviewPoints, 
-                        currentVectorPreviewPath,
-                        opaqueColor,
-                        fillPath = currentFillPath,
-                        fillColor = activeFillColor,
-                        isFillActive = isFillActive,
-                        isStrokeActive = isStrokeActive,
-                        currentLiveGeneratedRadius = currentLiveGeneratedRadius,
-                        viewMatrix = viewMatrix,
-                        isDrawing = isDrawing
-                    )
-                    canvas.restoreToCount(saveCount)
                     
                     // Draw live cumulative intersections on top with transparent paint
                     if (isCumulative && currentLiveIntersections.isNotEmpty()) {
@@ -770,27 +880,6 @@ class SketcherCanvasView(context: Context) : View(context) {
                         }
                         canvas.restore()
                     }
-                } else {
-                    // Cumulative or fully opaque: draw directly onto the canvas
-                    currentCommittedPreviewPath?.let { committed ->
-                        canvas.save()
-                        canvas.concat(viewMatrix)
-                        renderEngine.drawCommittedPreview(canvas, committed, activeStrokeColor)
-                        canvas.restore()
-                    }
-                    renderEngine.drawLiveStroke(
-                        canvas, 
-                        currentVectorPreviewPoints, 
-                        currentVectorPreviewPath,
-                        activeStrokeColor,
-                        fillPath = currentFillPath,
-                        fillColor = activeFillColor,
-                        isFillActive = isFillActive,
-                        isStrokeActive = isStrokeActive,
-                        currentLiveGeneratedRadius = currentLiveGeneratedRadius,
-                        viewMatrix = viewMatrix,
-                        isDrawing = isDrawing
-                    )
                 }
             }
         }
@@ -819,7 +908,8 @@ class SketcherCanvasView(context: Context) : View(context) {
                   val combinedMatrix = Matrix(viewMatrix)
                   combinedMatrix.postConcat(manager.selectionMatrix)
                   for (element in manager.selectedElements) {
-                      renderEngine.drawElementRecursive(canvas, element, componentLibrary, combinedMatrix)
+                      val elementLayerOpacity = layers.find { it.elements.contains(element) }?.opacity ?: 1f
+                      renderEngine.drawElementRecursive(canvas, element, componentLibrary, combinedMatrix, elementLayerOpacity)
                   }
                   canvas.restore()
              }

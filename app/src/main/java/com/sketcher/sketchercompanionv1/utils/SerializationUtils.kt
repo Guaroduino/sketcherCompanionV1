@@ -4,6 +4,7 @@ import android.graphics.Matrix
 import androidx.compose.runtime.toMutableStateList
 import android.graphics.Path
 import android.graphics.PointF
+import android.graphics.RectF
 
 import com.sketcher.sketchercompanionv1.FillData
 import com.sketcher.sketchercompanionv1.Layer
@@ -48,13 +49,30 @@ fun LayerElement.toLayerElementJson(): LayerElementJson {
             type = "FILL",
             fill = this.toFillDataJson()
         )
-        is ImageElement -> LayerElementJson(
-            type = "IMAGE",
-            image = ImageElementJson(
-                fileName = this.imageFileName,
-                matrixValues = this.matrixValues.toList()
+        is ImageElement -> {
+            val cropRectVal = this.cropRect
+            val cropPathVal = this.cropPath
+            LayerElementJson(
+                type = "IMAGE",
+                image = ImageElementJson(
+                    fileName = this.imageFileName,
+                    matrixValues = this.matrixValues.toList(),
+                    originalFileName = this.originalImageFileName,
+                    transparentColors = this.transparentColors,
+                    tolerance = this.tolerance,
+                    transparentColorTolerances = this.transparentColorTolerances,
+                    rotation = this.rotation,
+                    flipHorizontal = this.flipHorizontal,
+                    flipVertical = this.flipVertical,
+                    cropRectLeft = cropRectVal?.left,
+                    cropRectTop = cropRectVal?.top,
+                    cropRectRight = cropRectVal?.right,
+                    cropRectBottom = cropRectVal?.bottom,
+                    cropPathPointsX = cropPathVal?.map { it.x },
+                    cropPathPointsY = cropPathVal?.map { it.y }
+                )
             )
-        )
+        }
         is SvgElement -> LayerElementJson(
             type = "SVG",
             svg = SvgElementJson(
@@ -104,10 +122,37 @@ fun LayerElementJson.toLayerElement(
             val matrix = Matrix()
             matrix.setValues(imgJson.matrixValues.toFloatArray())
             val bitmap = bitmapLoader(imgJson.fileName) ?: android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
+            
+            val originalBitmap = imgJson.originalFileName?.let { bitmapLoader(it) }
+            val cropRect = if (imgJson.cropRectLeft != null && imgJson.cropRectTop != null && imgJson.cropRectRight != null && imgJson.cropRectBottom != null) {
+                RectF(imgJson.cropRectLeft, imgJson.cropRectTop, imgJson.cropRectRight, imgJson.cropRectBottom)
+            } else null
+            
+            val cropPath = if (imgJson.cropPathPointsX != null && imgJson.cropPathPointsY != null && imgJson.cropPathPointsX.size == imgJson.cropPathPointsY.size) {
+                imgJson.cropPathPointsX.indices.map { idx ->
+                    PointF(imgJson.cropPathPointsX[idx], imgJson.cropPathPointsY[idx])
+                }
+            } else null
+            
+            val rectF = if (cropRect != null) RectF(cropRect) else null
+            val transColors = imgJson.transparentColors ?: emptyList()
+            val singleTol = imgJson.tolerance ?: 10f
+            val transTols = imgJson.transparentColorTolerances ?: transColors.map { singleTol }
+            
             ImageElement(
                 bitmap = bitmap,
                 imageFileName = imgJson.fileName,
-                matrix = matrix
+                matrix = matrix,
+                originalBitmap = originalBitmap,
+                originalImageFileName = imgJson.originalFileName,
+                transparentColors = transColors,
+                tolerance = singleTol,
+                cropRect = rectF,
+                cropPath = cropPath,
+                transparentColorTolerances = transTols,
+                rotation = imgJson.rotation ?: 0f,
+                flipHorizontal = imgJson.flipHorizontal ?: false,
+                flipVertical = imgJson.flipVertical ?: false
             )
         }
         "SVG" -> {

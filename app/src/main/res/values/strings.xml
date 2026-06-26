@@ -43,6 +43,7 @@
     <string name="settings_lock_rotation">Lock Rotation</string>
     <string name="settings_stylus_only">Stylus Only</string>
     <string name="settings_interface_scale">Interface Scale</string>
+    <string name="settings_button_spacing">Button Spacing</string>
     <string name="settings_debug_wireframe">Debug Geometry (Wireframe)</string>
     <string name="settings_enable_prediction">Enable Prediction (Lag Comp)</string>
     <string name="settings_debug_prediction">Debug Prediction (Red Line)</string>

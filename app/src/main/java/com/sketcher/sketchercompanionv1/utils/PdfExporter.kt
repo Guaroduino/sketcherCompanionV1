@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1.utils
+package com.sketcher.sketchercompanionv1.utils
 
 import android.content.Context
 import android.graphics.Canvas
@@ -139,10 +139,14 @@ object PdfExporter {
             BoundsMode.CANVAS_SIZE -> {
                 // Use configured canvas size
                 if (canvasSizeConfig != null) {
+                    val transform = Matrix()
+                    if (canvasSizeConfig.origin == com.sketcher.sketchercompanionv1.dto.CoordinateOrigin.CENTER) {
+                        transform.postTranslate(canvasSizeConfig.widthInPixels / 2f, canvasSizeConfig.heightInPixels / 2f)
+                    }
                     Bounds(
                         width = canvasSizeConfig.widthInPixels,
                         height = canvasSizeConfig.heightInPixels,
-                        transform = Matrix() // Identity - content is already in canvas coordinates
+                        transform = transform
                     )
                 } else {
                     // Fallback to zoom extends if no canvas size

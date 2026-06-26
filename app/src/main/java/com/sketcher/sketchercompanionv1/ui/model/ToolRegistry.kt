@@ -37,6 +37,7 @@ object ToolRegistry {
         StudioTool("context_delete", Icons.Outlined.Delete, "Delete", isPlaceholder = false, isContextual = true),
         StudioTool("context_flip_horizontal", Icons.Outlined.Flip, "Flip Horizontal", isPlaceholder = false, isContextual = true),
         StudioTool("context_flip_vertical", Icons.Outlined.Flip, "Flip Vertical", isPlaceholder = false, isContextual = true),
+        StudioTool("context_edit_image", Icons.Default.Edit, "Edit Image", isPlaceholder = false, isContextual = true),
         
         // Existing tools...
         StudioTool("layers", Icons.Default.Layers, "Layers", isPlaceholder = true),

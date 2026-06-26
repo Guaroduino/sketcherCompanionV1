@@ -145,6 +145,18 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         prefs.edit().putFloat("interface_scale", clampedScale).apply()
     }
 
+    var buttonSpacingFactor by mutableStateOf(prefs.getFloat("button_spacing_factor", 1.0f))
+        private set
+
+    fun updateButtonSpacingFactor(factor: Float) {
+        if (!factor.isFinite()) return
+        val clampedFactor = factor.coerceIn(0.15f, 2.0f)
+        if (!clampedFactor.isFinite() || clampedFactor <= 0f) return
+
+        buttonSpacingFactor = clampedFactor
+        prefs.edit().putFloat("button_spacing_factor", clampedFactor).apply()
+    }
+
     // BACKGROUND COLOR
     var backgroundColor by mutableIntStateOf(AndroidColor.WHITE)
 
@@ -445,8 +457,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         "context_transform" -> ({ 
              enterTransformMode()
         })
-        "context_flip_horizontal" -> ({ /* TODO: Implement */ })
-        "context_flip_vertical" -> ({ /* TODO: Implement */ })
+        "context_flip_horizontal" -> ({ flipHorizontal() })
+        "context_flip_vertical" -> ({ flipVertical() })
+        "context_edit_image" -> ({ startEditingSelectedImage() })
         else -> ({})
     }
 
@@ -574,10 +587,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             initToolbarState()
             
             val defaultContextual = listOfNotNull(
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("context_deselect"),
                 com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("context_transform"),
                 com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("context_copy"),
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("context_delete")
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("context_delete"),
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("context_deselect"),
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("context_flip_horizontal"),
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("context_flip_vertical")
             ).map { tool ->
                 tool.copy(onClick = {
                     getActionForTool(tool.registryId).invoke()
@@ -595,6 +610,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         swapVertical = prefs.getBoolean("swap_vertical", false)
         swapHorizontal = prefs.getBoolean("swap_horizontal", false)
         interfaceScale = prefs.getFloat("interface_scale", 0.8f)
+        buttonSpacingFactor = prefs.getFloat("button_spacing_factor", 1.0f)
         toolbarBackgroundColor = prefs.getInt("toolbar_background_color", AndroidColor.WHITE)
         toolbarAlpha = prefs.getFloat("toolbar_alpha", 0.9f)
         isToolbarBlurEnabled = prefs.getBoolean("toolbar_blur_enabled", false)
@@ -679,7 +695,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun updateScaleConfig(u: String, b: Float) { scaleConfig = ScaleConfig(u, b); currentUnit = DistanceUnit.fromSymbol(u) }
     fun updateGridConfig(v: Boolean, s: Float, c: Int, c2: Int, c3: Int) { gridConfig = GridConfig(v, s, c, c2, c3) }
     fun setUnit(u: DistanceUnit) { currentUnit = u; scaleConfig = scaleConfig.copy(unitName = u.symbol) }
-    fun updateCanvasSize(config: CanvasSizeConfig?) { canvasSizeConfig = config }
+    fun updateCanvasSize(config: CanvasSizeConfig?) {
+        canvasSizeConfig = config
+        if (config != null && lastViewportWidth > 0f && lastViewportHeight > 0f) {
+            centerPaperAsHomeCamera()
+        }
+    }
 
     // --- COROUTINE HELPERS ---
     fun launchIO(block: suspend CoroutineScope.() -> Unit) = viewModelScope.launch(Dispatchers.IO) {
@@ -744,6 +765,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     fun updateBrushSize(newSize: Float) = toolManager.updateBrushSize(newSize)
     fun updateBrushOpacity(newAlpha: Float) = toolManager.updateBrushOpacity(newAlpha)
+    fun updateFillOpacity(opacity: Float) = toolManager.updateFillOpacity(opacity)
     fun updateStrokeType(type: StrokeType) = toolManager.updateStrokeType(type)
     
     fun setStrokeColor(color: Int) = toolManager.setStrokeColor(color)
@@ -865,20 +887,43 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         if (currentSelectionMode == SelectionMode.TRANSFORM_BOX) {
             confirmTransform()
         }
-        selectionManager.duplicateSelected(layerManager, activeLayerIndex) { label, action -> performSnapshotAction(label, action) }
+        selectionManager.duplicateSelected(layerManager, activeLayerIndex, componentLibrary) { label, action -> performSnapshotAction(label, action) }
+        enterTransformMode()
+    }
+
+    fun flipHorizontal() {
+        if (selectionManager.selectedElements.isEmpty()) return
+        if (currentSelectionMode != SelectionMode.TRANSFORM_BOX) {
+            enterTransformMode()
+        }
+        selectionManager.flipHorizontal()
+        notifyLayersChanged()
+    }
+
+    fun flipVertical() {
+        if (selectionManager.selectedElements.isEmpty()) return
+        if (currentSelectionMode != SelectionMode.TRANSFORM_BOX) {
+            enterTransformMode()
+        }
+        selectionManager.flipVertical()
+        notifyLayersChanged()
     }
 
     private var layersSnapshotBeforeTransform: List<Layer>? = null
 
     fun enterTransformMode() {
         if (selectionManager.selectedElements.isEmpty()) return
+        selectTool(ToolType.SELECTION)
         layersSnapshotBeforeTransform = createLayersSnapshot()
         selectionManager.backupOriginalElements()
         currentSelectionMode = SelectionMode.TRANSFORM_BOX
     }
 
     fun confirmTransform() {
-        selectionManager.commitTransformSession(componentLibrary)
+        val activeIndex = activeLayerIndex
+        if (layers.isNotEmpty() && activeIndex in layers.indices) {
+            selectionManager.commitTransformSession(layers[activeIndex], componentLibrary)
+        }
         val before = layersSnapshotBeforeTransform
         if (before != null) {
             val activeIndexBefore = activeLayerIndex
@@ -899,6 +944,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         layersSnapshotBeforeTransform = null
         selectionManager.clearBackup()
         currentSelectionMode = SelectionMode.FREEHAND
+        notifyLayersChanged()
     }
 
     // --- RESTORED LOGIC ---
@@ -1068,23 +1114,23 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     // --- GLOBAL STABILIZER ---
-    private val _smoothing = MutableStateFlow(prefs.getFloat("global_stabilization", 0f))
-    val smoothing = _smoothing.asStateFlow()
+    private val _globalStabilization = MutableStateFlow(prefs.getFloat("global_stabilization", 0.07f))
+    val globalStabilization = _globalStabilization.asStateFlow()
 
-    fun updateSmoothing(value: Float) {
+    fun updateGlobalStabilization(value: Float) {
         val clamped = value.coerceIn(0f, 1f)
-        _smoothing.value = clamped
+        _globalStabilization.value = clamped
         setGlobalStabilization(clamped)
     }
 
-    var globalStabilizationLevel by mutableFloatStateOf(prefs.getFloat("global_stabilization", 0f))
+    var globalStabilizationLevel by mutableFloatStateOf(prefs.getFloat("global_stabilization", 0.07f))
         private set
 
     fun setGlobalStabilization(level: Float) {
         val clamped = level.coerceIn(0f, 1f)
         if (globalStabilizationLevel != clamped) {
             globalStabilizationLevel = clamped
-            _smoothing.value = clamped // Keep StateFlow in sync
+            _globalStabilization.value = clamped // Keep StateFlow in sync
             prefs.edit().putFloat("global_stabilization", clamped).apply()
         }
     }
@@ -1281,18 +1327,80 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     
     @MainThread
     private fun restoreSnapshot(state: List<Layer>, restoredActiveIndex: Int) {
+        val selectedIndicesByLayerId = layers.associate { layer ->
+            layer.id to layer.elements.mapIndexedNotNull { index, element ->
+                if (selectionManager.selectedElements.contains(element)) index else null
+            }
+        }
+
         layerManager.internalUpdateLayers(
             newList = state.map { savedLayer ->
                 savedLayer.copy(elements = savedLayer.elements.toMutableStateList())
             },
             activeIndex = restoredActiveIndex
         )
+
+        val newSelected = mutableListOf<LayerElement>()
+        layerManager.layers.forEach { layer ->
+            val indices = selectedIndicesByLayerId[layer.id]
+            if (indices != null) {
+                indices.forEach { idx ->
+                    if (idx in layer.elements.indices) {
+                        newSelected.add(layer.elements[idx])
+                    }
+                }
+            }
+        }
+        selectionManager.selectedElements.clear()
+        selectionManager.selectedElements.addAll(newSelected)
+
         layerUpdateTrigger++
     }
     
     // --- ACTIONS ---
 
     
+    val screenPxPerMm: Float by lazy {
+        com.sketcher.sketchercompanionv1.utils.UnitUtils.getScreenPxPerMm(getApplication())
+    }
+
+    fun getZoomScale100(): Float {
+        val basePx = scaleConfig.basePixelsPerMillimeter
+        val safeBasePx = if (basePx == 0f) 5f else basePx
+        return screenPxPerMm / safeBasePx
+    }
+
+    private fun isHomeCameraDefaultOrIdentity(): Boolean {
+        return homeCameraMatrixValues[0] == 1f && homeCameraMatrixValues[1] == 0f && homeCameraMatrixValues[2] == 0f &&
+               homeCameraMatrixValues[3] == 0f && homeCameraMatrixValues[4] == 1f && homeCameraMatrixValues[5] == 0f &&
+               homeCameraMatrixValues[6] == 0f && homeCameraMatrixValues[7] == 0f && homeCameraMatrixValues[8] == 1f
+    }
+
+    fun centerPaperAsHomeCamera() {
+        val config = canvasSizeConfig ?: return
+        val w = config.widthInPixels
+        val h = config.heightInPixels
+        if (w > 0 && h > 0 && lastViewportWidth > 0.0f && lastViewportHeight > 0.0f) {
+            val padding = 50f
+            val scaleX = (lastViewportWidth - padding * 2.0f) / w
+            val scaleY = (lastViewportHeight - padding * 2.0f) / h
+            val scale = kotlin.math.min(scaleX, scaleY).coerceIn(0.1f, 12.0f)
+            
+            val cx = if (config.origin == com.sketcher.sketchercompanionv1.dto.CoordinateOrigin.CENTER) 0f else w / 2.0f
+            val cy = if (config.origin == com.sketcher.sketchercompanionv1.dto.CoordinateOrigin.CENTER) 0f else h / 2.0f
+            
+            val m = Matrix()
+            m.postTranslate(-cx, -cy)
+            m.postScale(scale, scale)
+            m.postTranslate(lastViewportWidth / 2.0f, lastViewportHeight / 2.0f)
+            
+            m.getValues(homeCameraMatrixValues)
+            prefs.edit().putString("home_camera_matrix_v3", homeCameraMatrixValues.joinToString(",")).apply()
+            
+            saveCameraState(m)
+        }
+    }
+
     // --- CAMERA ---
     val cameraMatrixValues = FloatArray(9).apply { Matrix().getValues(this) }
     private val _cameraMatrix = MutableStateFlow(Matrix())
@@ -1327,7 +1435,16 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         cameraUpdateTrigger++
         _cameraMatrix.value = Matrix(matrix)
     }
-    fun saveDimensions(w: Float, h: Float) { lastViewportWidth = w; lastViewportHeight = h }
+    fun saveDimensions(w: Float, h: Float) {
+        val sizeChanged = (lastViewportWidth != w || lastViewportHeight != h)
+        lastViewportWidth = w
+        lastViewportHeight = h
+        if (sizeChanged && w > 0f && h > 0f) {
+            if (isHomeCameraDefaultOrIdentity() && canvasSizeConfig != null) {
+                centerPaperAsHomeCamera()
+            }
+        }
+    }
     private fun getMatrixScale(matrix: Matrix): Float {
         val values = FloatArray(9)
         matrix.getValues(values)
@@ -1374,8 +1491,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                  val scaleY = (lastViewportHeight - padding * 2.0f) / h.toFloat()
                  val scale = kotlin.math.min(scaleX, scaleY).coerceIn(0.1f, 12.0f)
                  
-                 val cx = w.toFloat() / 2.0f
-                 val cy = h.toFloat() / 2.0f
+                 val cx = if (canvasSizeConfig!!.origin == com.sketcher.sketchercompanionv1.dto.CoordinateOrigin.CENTER) 0f else w.toFloat() / 2.0f
+                 val cy = if (canvasSizeConfig!!.origin == com.sketcher.sketchercompanionv1.dto.CoordinateOrigin.CENTER) 0f else h.toFloat() / 2.0f
                  
                  val m = Matrix()
                  m.postTranslate(-cx, -cy)
@@ -1446,12 +1563,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         val worldX = (cx - currentTx) / currentScale
         val worldY = (cy - currentTy) / currentScale
         
-        // New Matrix: Scale 1.0, preserve center
-        m.setScale(1f, 1f)
-        m.postTranslate(cx - worldX, cy - worldY)
+        // New Matrix: Scale zoomScale100, preserve center
+        val targetScale = getZoomScale100()
+        m.setScale(targetScale, targetScale)
+        m.postTranslate(cx - worldX * targetScale, cy - worldY * targetScale)
         
-        m.getValues(cameraMatrixValues)
-        cameraUpdateTrigger++
+        saveCameraState(m)
     }
 
     fun addImportedDxfData(data: DxfImportData, scaleToFit: Boolean, defaultStrokeWidth: Float, fillClosedShapes: Boolean = false, sourceUnit: DistanceUnit = DistanceUnit.MM) {
@@ -1468,12 +1585,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                      val scaleY = canvasH / bounds.height()
                      val scale = kotlin.math.min(scaleX, scaleY) * 0.9f 
                      
-                     val cx = bounds.centerX()
-                     val cy = bounds.centerY()
-                     
-                     matrix.postTranslate(-cx, -cy)
-                     matrix.postScale(scale, scale)
-                     matrix.postTranslate(canvasW/2f, canvasH/2f)
+                      val cx = bounds.centerX()
+                      val cy = bounds.centerY()
+                      
+                      matrix.postTranslate(-cx, -cy)
+                      matrix.postScale(scale, scale)
+                      val targetCx = if (canvasSizeConfig!!.origin == com.sketcher.sketchercompanionv1.dto.CoordinateOrigin.CENTER) 0f else canvasW / 2f
+                      val targetCy = if (canvasSizeConfig!!.origin == com.sketcher.sketchercompanionv1.dto.CoordinateOrigin.CENTER) 0f else canvasH / 2f
+                      matrix.postTranslate(targetCx, targetCy)
                 }
             } else {
                 val pixelScale = sourceUnit.toMillimeters * scaleConfig.basePixelsPerMillimeter
@@ -1753,38 +1872,135 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         return false
     }
     
+    var activeImageEditState by mutableStateOf<com.sketcher.sketchercompanionv1.dto.ImageEditState?>(null)
+        private set
+
+    val isSingleImageSelected: Boolean
+        get() = selectionManager.selectedElements.size == 1 && selectionManager.selectedElements.first() is ImageElement
+    fun startEditingSelectedImage() {
+        val selected = selectionManager.selectedElements.firstOrNull() as? ImageElement ?: return
+        val original = selected.originalBitmap ?: selected.bitmap
+        activeImageEditState = com.sketcher.sketchercompanionv1.dto.ImageEditState(
+            isNewImport = false,
+            elementId = selected.id,
+            originalBitmap = original,
+            filename = selected.imageFileName,
+            matrix = selected.matrix,
+            initialTransparentColors = selected.transparentColors,
+            initialTolerance = selected.tolerance,
+            initialCropRect = selected.cropRect,
+            initialCropPath = selected.cropPath,
+            initialTransparentColorTolerances = selected.transparentColorTolerances,
+            initialRotation = selected.rotation,
+            initialFlipHorizontal = selected.flipHorizontal,
+            initialFlipVertical = selected.flipVertical
+        )
+    }
+
+    fun dismissImageEdits() {
+        activeImageEditState = null
+    }
+
+    @MainThread
+    fun applyImageEdits(
+        processedBitmap: android.graphics.Bitmap,
+        transparentColors: List<Int>,
+        tolerance: Float,
+        cropRect: android.graphics.RectF?,
+        cropPath: List<android.graphics.PointF>?,
+        transparentColorTolerances: List<Float>,
+        rotation: Float,
+        flipHorizontal: Boolean,
+        flipVertical: Boolean
+    ) {
+        val state = activeImageEditState ?: return
+        activeImageEditState = null
+
+        if (state.isNewImport) {
+            if (activeLayerIndex !in layers.indices) return
+            performSnapshotAction("Insertar Imagen") {
+                val currentLayers = layers.toMutableList()
+                val layer = currentLayers[activeLayerIndex]
+                val matrix = Matrix()
+                if (lastViewportWidth > 0.0f && lastViewportHeight > 0.0f) {
+                     matrix.postTranslate(lastViewportWidth / 2.0f - processedBitmap.width / 2.0f, lastViewportHeight / 2.0f - processedBitmap.height / 2.0f)
+                }
+                val element = ImageElement(
+                    id = java.util.UUID.randomUUID().toString(),
+                    bitmap = processedBitmap, 
+                    imageFileName = state.filename,
+                    matrix = matrix,
+                    originalBitmap = state.originalBitmap,
+                    originalImageFileName = "orig_${state.filename}",
+                    transparentColors = transparentColors,
+                    tolerance = tolerance,
+                    cropRect = cropRect,
+                    cropPath = cropPath,
+                    transparentColorTolerances = transparentColorTolerances,
+                    rotation = rotation,
+                    flipHorizontal = flipHorizontal,
+                    flipVertical = flipVertical
+                )
+                layer.elements.add(element)
+                currentLayers[activeLayerIndex] = layer.copy()
+                layerManager.internalUpdateLayers(currentLayers, activeLayerIndex)
+                selectionManager.clearSelection()
+                selectionManager.selectedElements.add(element)
+            }
+        } else {
+            val elementId = state.elementId ?: return
+            performSnapshotAction("Editar Imagen") {
+                val currentLayers = layers.toMutableList()
+                var updatedElement: ImageElement? = null
+                
+                for (layer in currentLayers) {
+                    val idx = layer.elements.indexOfFirst { it is ImageElement && it.id == elementId }
+                    if (idx != -1) {
+                        val oldElement = layer.elements[idx] as ImageElement
+                        val newElement = oldElement.copy(
+                            bitmap = processedBitmap,
+                            originalBitmap = state.originalBitmap,
+                            transparentColors = transparentColors,
+                            tolerance = tolerance,
+                            cropRect = cropRect,
+                            cropPath = cropPath,
+                            transparentColorTolerances = transparentColorTolerances,
+                            rotation = rotation,
+                            flipHorizontal = flipHorizontal,
+                            flipVertical = flipVertical
+                        ) as ImageElement
+                        layer.elements[idx] = newElement
+                        updatedElement = newElement
+                        currentLayers[currentLayers.indexOf(layer)] = layer.copy()
+                        break
+                    }
+                }
+                
+                layerManager.internalUpdateLayers(currentLayers, activeLayerIndex)
+                
+                if (updatedElement != null) {
+                    selectionManager.clearSelection()
+                    selectionManager.selectedElements.add(updatedElement)
+                }
+            }
+        }
+    }
+
     fun insertImage(context: Context, uri: android.net.Uri) {
          launchIO {
-             com.sketcher.sketchercompanionv1.utils.BitmapUtils.loadScaledBitmap(context, uri)?.let { bitmap ->
+             // Enforce maxDimension of 1024 to prevent crashes/OOM on large images
+             com.sketcher.sketchercompanionv1.utils.BitmapUtils.loadScaledBitmap(context, uri, 1024)?.let { bitmap ->
                  withContext(Dispatchers.Main) {
-                     insertImageWithBitmap(bitmap, "img_${java.util.UUID.randomUUID()}.png")
+                      val filename = "img_${java.util.UUID.randomUUID()}.png"
+                      activeImageEditState = com.sketcher.sketchercompanionv1.dto.ImageEditState(
+                          isNewImport = true,
+                          elementId = null,
+                          originalBitmap = bitmap,
+                          filename = filename
+                      )
                  }
              }
          }
-    }
-    
-    @MainThread
-    fun insertImageWithBitmap(bitmap: android.graphics.Bitmap, filename: String) {
-        if (activeLayerIndex !in layers.indices) return
-        performSnapshotAction("Insertar Imagen") {
-            val currentLayers = layers.toMutableList()
-            val layer = currentLayers[activeLayerIndex]
-            val matrix = Matrix()
-            if (lastViewportWidth > 0.0f && lastViewportHeight > 0.0f) {
-                 matrix.postTranslate(lastViewportWidth / 2.0f - bitmap.width / 2.0f, lastViewportHeight / 2.0f - bitmap.height / 2.0f)
-            }
-            val element = ImageElement(
-                id = java.util.UUID.randomUUID().toString(),
-                bitmap = bitmap, 
-                imageFileName = filename,
-                matrix = matrix
-            )
-            layer.elements.add(element)
-            currentLayers[activeLayerIndex] = layer.copy()
-            layerManager.internalUpdateLayers(currentLayers, activeLayerIndex)
-            selectionManager.clearSelection()
-            selectionManager.selectedElements.add(element)
-        }
     }
     
     fun insertSvg(context: Context, uri: android.net.Uri) {
@@ -1856,7 +2072,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                         cameraMatrix = savedCameraMatrix,
                         scaleConfig = savedScaleConfig.copy(unitName = savedUnit.symbol)
                     ),
-                    componentLibrary = currentComponentLibrary.mapValues { it.value.toComponentDefinitionJson() }
+                    componentLibrary = currentComponentLibrary.mapValues { it.value.toComponentDefinitionJson() },
+                    canvasSizeConfig = canvasSizeConfig
                 )
                 com.sketcher.sketchercompanionv1.utils.ZipStorageManager.saveProject(
                     context = context,
@@ -1930,11 +2147,17 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         val loadedGrid = data.backgroundConfig.gridConfig
         gridConfig = loadedGrid ?: GridConfig()
         
+        canvasSizeConfig = data.canvasSizeConfig
+        
         // Camera
         if (data.canvasMetadata.cameraMatrix.size == 9) {
              for(i in 0..8) cameraMatrixValues[i] = data.canvasMetadata.cameraMatrix[i]
         }
         cameraUpdateTrigger++
+
+        if (isHomeCameraDefaultOrIdentity() && canvasSizeConfig != null && lastViewportWidth > 0f && lastViewportHeight > 0f) {
+            centerPaperAsHomeCamera()
+        }
     }
     
 
@@ -2246,8 +2469,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                      
                      val cx = (minX + maxX) / 2f
                      val cy = (minY + maxY) / 2f
-                     val targetCx = targetWidth / 2f
-                     val targetCy = targetHeight / 2f
+                     val isCenterOrigin = canvasSizeConfig?.origin == com.sketcher.sketchercompanionv1.dto.CoordinateOrigin.CENTER
+                     val targetCx = if (isCenterOrigin) 0f else targetWidth / 2f
+                     val targetCy = if (isCenterOrigin) 0f else targetHeight / 2f
                      
                      matrix.postTranslate(-cx, -cy)
                      matrix.postScale(scale, scale)
@@ -2259,8 +2483,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                  val cy = (minY + maxY) / 2f
                  val targetWidth = if (canvasSizeConfig != null) canvasSizeConfig!!.widthInPixels else lastViewportWidth
                  val targetHeight = if (canvasSizeConfig != null) canvasSizeConfig!!.heightInPixels else lastViewportHeight
-                 val targetCx = targetWidth / 2f
-                 val targetCy = targetHeight / 2f
+                 val isCenterOrigin = canvasSizeConfig?.origin == com.sketcher.sketchercompanionv1.dto.CoordinateOrigin.CENTER
+                 val targetCx = if (isCenterOrigin) 0f else targetWidth / 2f
+                 val targetCy = if (isCenterOrigin) 0f else targetHeight / 2f
                  
                  matrix.postTranslate(-cx, -cy)
                  matrix.postTranslate(targetCx, targetCy)

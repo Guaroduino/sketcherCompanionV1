@@ -84,7 +84,20 @@ data class SvgElementJson(
 
 data class ImageElementJson(
     val fileName: String,
-    val matrixValues: List<Float>
+    val matrixValues: List<Float>,
+    val originalFileName: String? = null,
+    val transparentColors: List<Int>? = null,
+    val tolerance: Float? = null,
+    val transparentColorTolerances: List<Float>? = null,
+    val rotation: Float? = null,
+    val flipHorizontal: Boolean? = null,
+    val flipVertical: Boolean? = null,
+    val cropRectLeft: Float? = null,
+    val cropRectTop: Float? = null,
+    val cropRectRight: Float? = null,
+    val cropRectBottom: Float? = null,
+    val cropPathPointsX: List<Float>? = null,
+    val cropPathPointsY: List<Float>? = null
 )
 
 data class VectorStrokeJson(
@@ -143,7 +156,7 @@ data class FreehandSettings(
     val thinning: Float = 0.5f,
     val smoothing: Float = 0.5f,
     val streamline: Float = 0.5f,
-    val simulatePressure: Boolean = true,
+    val simulatePressure: Boolean = false,
     val taperStart: Float = 0.0f,
     val taperEnd: Float = 0.0f,
     val capStart: Boolean = true, 
@@ -151,21 +164,15 @@ data class FreehandSettings(
     val isComplete: Boolean = false,
     
     // Custom App Params
-    val predictionLatency: Long = 35L,
-    val simplificationTolerance: Float = 0.3f,
+    val predictionLatency: Long = 15L,
+    val simplificationTolerance: Float = 0.2f,
 
     // Internal / Extras
     val velocityThinning: Float = 0.0f,
     val velocityMaxInput: Float = 1.0f,
-    val useCurveForPolygon: Boolean = false,
+    val useCurveForPolygon: Boolean = true,
     val isSimplificationEnabled: Boolean = true,
-    val taperStartTipRatio: Float = 0.0f,
-    val taperEndTipRatio: Float = 0.0f,
-    val wideningStartRatio: Float = 2.0f,
-    val wideningEndRatio: Float = 2.0f,
     val minWidthRatio: Float = 0.1f,
-    val useSplines: Boolean = true,
-    val isMonoline: Boolean = false,
     val isCumulativeOpacity: Boolean = false
 )
 
@@ -195,5 +202,21 @@ data class CanvasSizeConfigJson(
     val presetName: String? = null, // Name of PaperSizePreset enum, null if custom
     val orientation: String = "PORTRAIT", // "PORTRAIT" or "LANDSCAPE"
     val origin: String = "TOP_LEFT" // "TOP_LEFT" or "CENTER"
+)
+
+data class ImageEditState(
+    val isNewImport: Boolean,
+    val elementId: String?,
+    val originalBitmap: android.graphics.Bitmap,
+    val filename: String,
+    val matrix: android.graphics.Matrix = android.graphics.Matrix(),
+    val initialTransparentColors: List<Int> = emptyList(),
+    val initialTolerance: Float = 10f,
+    val initialCropRect: android.graphics.RectF? = null,
+    val initialCropPath: List<android.graphics.PointF>? = null,
+    val initialTransparentColorTolerances: List<Float> = emptyList(),
+    val initialRotation: Float = 0f,
+    val initialFlipHorizontal: Boolean = false,
+    val initialFlipVertical: Boolean = false
 )
 

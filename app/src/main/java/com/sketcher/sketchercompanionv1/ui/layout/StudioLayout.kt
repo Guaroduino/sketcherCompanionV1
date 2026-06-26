@@ -76,8 +76,10 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Edit
+import com.sketcher.sketchercompanionv1.ui.dialogs.ImageEditDialog
 import com.sketcher.sketchercompanionv1.ui.dialogs.ToolPropertiesPanel
-import com.sketcher.sketchercompanionv1.ui.dialogs.QuickSmoothingPopup
+import com.sketcher.sketchercompanionv1.ui.dialogs.QuickStabilizationPopup
 import com.sketcher.sketchercompanionv1.ui.dialogs.SizeOpacityPopup
 import com.sketcher.sketchercompanionv1.ui.components.DynamicSizeButton
 import com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton
@@ -346,6 +348,7 @@ fun StudioLayout(
                 view.isPalmRejectionEnabled = viewModel.isPalmRejectionEnabled
                 view.isDebugWireframe = viewModel.isDebugWireframe
                 view.canvasBackgroundColor = viewModel.backgroundColor
+                view.canvasSizeConfig = viewModel.canvasSizeConfig
                 
                 view.gridConfig = viewModel.gridConfig
                 view.scaleConfig = viewModel.scaleConfig
@@ -935,7 +938,7 @@ fun StudioLayout(
             ) {
                 Column(
                     modifier = Modifier.padding(vertical = scaler.smallMargin),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(scaler.buttonSpacing),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     leftTools.forEachIndexed { idx, tool ->
@@ -1061,7 +1064,7 @@ fun StudioLayout(
             ) {
                  Column(
                     modifier = Modifier.padding(vertical = scaler.smallMargin),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(scaler.buttonSpacing),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     rightTools.forEachIndexed { idx, tool ->
@@ -1188,7 +1191,7 @@ fun StudioLayout(
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = scaler.smallMargin, vertical = 4.dp), 
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(scaler.buttonSpacing),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     topTools.forEachIndexed { idx, tool ->
@@ -1315,7 +1318,7 @@ fun StudioLayout(
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = scaler.smallMargin, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(scaler.buttonSpacing),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
 
@@ -1445,7 +1448,18 @@ fun StudioLayout(
                 )
             )
         } else {
-            rawContextTools
+            if (viewModel.isSingleImageSelected) {
+                val editImageTool = StudioTool(
+                    id = "context_edit_image",
+                    icon = Icons.Default.Edit,
+                    contentDescription = "Editar Imagen",
+                    isPlaceholder = false,
+                    onClick = { viewModel.startEditingSelectedImage() }
+                )
+                listOf(editImageTool) + rawContextTools
+            } else {
+                rawContextTools
+            }
         }
         
         Box(
@@ -1533,10 +1547,10 @@ fun StudioLayout(
 
         // --- QUICK STABILIZATION POPUP ---
         if (showStabilizationPopup) {
-            val currentSmoothing by viewModel.smoothing.collectAsState()
-            QuickSmoothingPopup(
-                value = currentSmoothing,
-                onValueChange = { viewModel.updateSmoothing(it) },
+            val currentStabilization by viewModel.globalStabilization.collectAsState()
+            QuickStabilizationPopup(
+                value = currentStabilization,
+                onValueChange = { viewModel.updateGlobalStabilization(it) },
                 onDismiss = { showStabilizationPopup = false },
                 theme = theme
             )
@@ -1651,6 +1665,22 @@ fun StudioLayout(
                         onValueChange = { tempScale = it },
                         onValueChangeFinished = { viewModel.updateInterfaceScale(tempScale) },
                         valueRange = 0.5f..1.5f,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    // Button Spacing Slider
+                    var tempSpacing by remember { mutableStateOf(viewModel.buttonSpacingFactor) }
+                    LaunchedEffect(viewModel.buttonSpacingFactor) {
+                        tempSpacing = viewModel.buttonSpacingFactor
+                    }
+                    Text("Button Spacing: ${(tempSpacing * 100).toInt()}%", color = theme.iconColor, style = MaterialTheme.typography.labelMedium)
+                    Slider(
+                        value = tempSpacing,
+                        onValueChange = { tempSpacing = it },
+                        onValueChangeFinished = { viewModel.updateButtonSpacingFactor(tempSpacing) },
+                        valueRange = 0.15f..2.0f,
                         modifier = Modifier.fillMaxWidth()
                     )
  
@@ -1859,6 +1889,17 @@ fun StudioLayout(
             viewModel = viewModel,
             actions = projectActions,
             onDismiss = { showStudioMenu = false }
+        )
+    }
+
+    viewModel.activeImageEditState?.let { editState ->
+        ImageEditDialog(
+            state = editState,
+            theme = theme,
+            onDismiss = { viewModel.dismissImageEdits() },
+            onConfirm = { processedBmp, transColors, tol, cropRect, cropPath, transTols, rotation, flipH, flipV ->
+                viewModel.applyImageEdits(processedBmp, transColors, tol, cropRect, cropPath, transTols, rotation, flipH, flipV)
+            }
         )
     }
 }

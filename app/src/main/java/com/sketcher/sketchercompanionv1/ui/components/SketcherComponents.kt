@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.foundation.shape.CircleShape
+import com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler
 
 /**
  * A helper component that decouples the visual size of an element from its touch area.
@@ -58,17 +59,20 @@ fun SketcherIconButton(
     buttonColor: Color,
     iconColor: Color,
     shape: Shape = CircleShape,
-    iconSize: Dp = 24.dp
+    iconSize: Dp = 24.dp,
+    iconModifier: Modifier = Modifier
 ) {
+    val scaler = LocalUiScaler.current
+    val scaleFactor = scaler.scaleFactor
     val backgroundColor = backgroundColorOverride ?: if (isActive) highlightColor else buttonColor
 
     BigTouchBox(
         onClick = onClick,
-        touchSize = 48.dp
+        touchSize = 48.dp * scaleFactor
     ) {
         Box(
             modifier = Modifier
-                .size(36.dp) // Standard button size within the 48dp touch area
+                .size(36.dp * scaleFactor) // Standard button size within the 48dp touch area
                 .clip(shape)
                 .background(backgroundColor),
             contentAlignment = Alignment.Center
@@ -79,6 +83,7 @@ fun SketcherIconButton(
                 tint = iconColor,
                 modifier = Modifier
                     .size(iconSize)
+                    .then(iconModifier)
                     .then(if (isEditMode) Modifier.alpha(0.6f) else Modifier)
             )
         }

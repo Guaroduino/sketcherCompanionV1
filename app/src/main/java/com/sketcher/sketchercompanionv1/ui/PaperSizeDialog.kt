@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1.ui
+package com.sketcher.sketchercompanionv1.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -37,7 +37,7 @@ fun PaperSizeDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("TamaÃ±o de Lienzo") },
+        title = { Text("Tamaño de Lienzo") },
         text = {
             Column(
                 modifier = Modifier
@@ -70,7 +70,7 @@ fun PaperSizeDialog(
                     0 -> {
                         // Infinite canvas
                         Text(
-                            "El lienzo serÃ¡ infinito sin lÃ­mites.",
+                            "El lienzo será infinito sin límites.",
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.padding(16.dp)
                         )
@@ -147,7 +147,7 @@ fun PaperSizeDialog(
                                                 style = MaterialTheme.typography.bodyLarge
                                             )
                                             Text(
-                                                "${width.toInt()} Ã— ${height.toInt()} mm",
+                                                "${width.toInt()} × ${height.toInt()} mm",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -171,7 +171,7 @@ fun PaperSizeDialog(
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Text(
-                                "Dimensiones personalizadas en pÃ­xeles:",
+                                "Dimensiones personalizadas en píxeles:",
                                 style = MaterialTheme.typography.bodyMedium
                             )
 
@@ -192,7 +192,7 @@ fun PaperSizeDialog(
                             )
 
                             Text(
-                                "Nota: 300 DPI es calidad de impresiÃ³n estÃ¡ndar",
+                                "Nota: 300 DPI es calidad de impresión estándar",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

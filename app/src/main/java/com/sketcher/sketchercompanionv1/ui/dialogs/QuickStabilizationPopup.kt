@@ -17,7 +17,7 @@ import androidx.compose.ui.window.Dialog
 import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
 
 @Composable
-fun QuickSmoothingPopup(
+fun QuickStabilizationPopup(
     value: Float,
     onValueChange: (Float) -> Unit,
     onDismiss: () -> Unit,
@@ -56,7 +56,7 @@ fun QuickSmoothingPopup(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Stabilization",
+                            text = "Estabilización",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -80,7 +80,7 @@ fun QuickSmoothingPopup(
                         Slider(
                             value = value,
                             onValueChange = onValueChange,
-                            valueRange = 0f..1f,
+                            valueRange = 0f..0.90f,
                             modifier = Modifier.weight(1f)
                         )
                         

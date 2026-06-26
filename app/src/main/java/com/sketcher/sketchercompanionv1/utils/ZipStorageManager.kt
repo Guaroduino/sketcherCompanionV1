@@ -39,6 +39,15 @@ object ZipStorageManager {
                         element.bitmap.compress(Bitmap.CompressFormat.PNG, 100, zipOut)
                         zipOut.closeEntry()
                     }
+                    val originalFileName = element.originalImageFileName
+                    val originalBmp = element.originalBitmap
+                    if (originalFileName != null && originalBmp != null && originalFileName.isNotEmpty() && savedFileNames.add(originalFileName)) {
+                        val entryName = "$DIR_ASSETS$originalFileName"
+                        val imageEntry = ZipEntry(entryName)
+                        zipOut.putNextEntry(imageEntry)
+                        originalBmp.compress(Bitmap.CompressFormat.PNG, 100, zipOut)
+                        zipOut.closeEntry()
+                    }
                 }
                 is com.sketcher.sketchercompanionv1.SvgElement -> {
                     val fileName = element.svgFileName

@@ -161,8 +161,17 @@ class MainActivity : ComponentActivity() {
             val screenWidth = configuration.screenWidthDp.dp
             val screenHeight = configuration.screenHeightDp.dp
             
-            val scaler = remember(interfaceScale, screenWidth, screenHeight) {
-                com.sketcher.sketchercompanionv1.ui.theme.UiScaler(interfaceScale, screenWidth, screenHeight)
+            val buttonSpacingFactor by androidx.compose.runtime.remember {
+                androidx.compose.runtime.derivedStateOf { sketchViewModel.buttonSpacingFactor }
+            }
+            
+            val scaler = remember(interfaceScale, buttonSpacingFactor, screenWidth, screenHeight) {
+                com.sketcher.sketchercompanionv1.ui.theme.UiScaler(
+                    scaleFactor = interfaceScale,
+                    buttonSpacingFactor = buttonSpacingFactor,
+                    screenWidth = screenWidth,
+                    screenHeight = screenHeight
+                )
             }
   
             androidx.compose.runtime.CompositionLocalProvider(

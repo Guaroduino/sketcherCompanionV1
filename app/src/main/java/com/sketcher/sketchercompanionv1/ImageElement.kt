@@ -1,15 +1,26 @@
-﻿package com.sketcher.sketchercompanionv1
+package com.sketcher.sketchercompanionv1
 
 import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.graphics.RectF
+import android.graphics.PointF
 import java.util.UUID
 
 data class ImageElement(
     val id: String = UUID.randomUUID().toString(),
     val bitmap: Bitmap,
     val imageFileName: String, // Filename for storage (e.g. "img_123.png")
-    val matrix: Matrix = Matrix()
+    val matrix: Matrix = Matrix(),
+    @Transient var originalBitmap: Bitmap? = null,
+    val originalImageFileName: String? = null,
+    val transparentColors: List<Int> = emptyList(),
+    val tolerance: Float = 0f,
+    val cropRect: RectF? = null,
+    val cropPath: List<PointF>? = null,
+    val transparentColorTolerances: List<Float> = emptyList(),
+    val rotation: Float = 0f,
+    val flipHorizontal: Boolean = false,
+    val flipVertical: Boolean = false
 ) : LayerElement {
 
     // Helper property for serialization
@@ -35,7 +46,17 @@ data class ImageElement(
             id = UUID.randomUUID().toString(),
             bitmap = bitmap, // Shared bitmap
             imageFileName = imageFileName,
-            matrix = Matrix(matrix)
+            matrix = Matrix(matrix),
+            originalBitmap = originalBitmap,
+            originalImageFileName = originalImageFileName,
+            transparentColors = transparentColors,
+            tolerance = tolerance,
+            cropRect = cropRect,
+            cropPath = cropPath,
+            transparentColorTolerances = transparentColorTolerances,
+            rotation = rotation,
+            flipHorizontal = flipHorizontal,
+            flipVertical = flipVertical
         )
     }
 }

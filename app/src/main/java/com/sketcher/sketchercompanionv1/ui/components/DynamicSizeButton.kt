@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.CircleShape
+import com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler
 
 @Composable
 fun DynamicSizeButton(
@@ -25,23 +26,25 @@ fun DynamicSizeButton(
     iconColor: Color,
     shape: Shape = CircleShape
 ) {
+    val scaler = LocalUiScaler.current
+    val scaleFactor = scaler.scaleFactor
     val backgroundColor = backgroundColorOverride ?: if (isActive) highlightColor else buttonColor
 
     BigTouchBox(
         onClick = onClick,
-        touchSize = 48.dp
+        touchSize = 48.dp * scaleFactor
     ) {
         Box(
             modifier = Modifier
-                .size(36.dp)
+                .size(36.dp * scaleFactor)
                 .clip(shape)
                 .background(backgroundColor),
             contentAlignment = Alignment.Center
         ) {
-            Canvas(modifier = Modifier.size(36.dp)) {
+            Canvas(modifier = Modifier.size(36.dp * scaleFactor)) {
                 // Map brushSize (assume 1-100 range) to 2dp - 18dp radius
                 val clampedSize = brushSize.coerceIn(1f, 100f)
-                val radiusDp = 2f + ((clampedSize - 1f) / 99f) * 16f
+                val radiusDp = (2f + ((clampedSize - 1f) / 99f) * 16f) * scaleFactor
                 
                 drawCircle(
                     color = iconColor,

@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1.ui
+package com.sketcher.sketchercompanionv1.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Column
@@ -29,6 +29,18 @@ fun ScaleIndicator(
     currentZoom: Float,
     modifier: Modifier = Modifier
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val zoomScale100 = androidx.compose.runtime.remember(context, scaleConfig) {
+        val dm = context.resources.displayMetrics
+        val xdpi = dm.xdpi
+        val dpi = if (xdpi > 50f && xdpi < 1000f) xdpi else dm.densityDpi.toFloat()
+        val screenPxPerMm = dpi / 25.4f
+        val basePx = scaleConfig.basePixelsPerMillimeter
+        val safeBasePx = if (basePx == 0f) 5f else basePx
+        screenPxPerMm / safeBasePx
+    }
+    val normalizedZoom = currentZoom / zoomScale100
+
     // 1. Define Ideal Visual Width (in pixels)
     // We want the bar to be roughly 100 logical pixels wide on screen for readability
     val density = LocalDensity.current
@@ -61,7 +73,7 @@ fun ScaleIndicator(
     ) {
         // Row 1: Info (Zoom)
         Text(
-            text = "Zoom: ${(currentZoom * 100).toInt()}%",
+            text = "Zoom: ${(normalizedZoom * 100).toInt()}%",
             style = MaterialTheme.typography.bodySmall,
             color = Color.Gray,
             fontWeight = FontWeight.Bold,

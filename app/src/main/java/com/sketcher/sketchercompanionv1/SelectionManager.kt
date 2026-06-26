@@ -484,9 +484,42 @@ class SelectionManager {
         currentDragMode = DragMode.NONE
     }
 
-    fun commitTransformSession(library: Map<String, ComponentDefinition> = emptyMap()) {
+    fun flipHorizontal() {
+        val bounds = getSelectionBounds()
+        if (bounds.isEmpty) return
+
+        val flipMatrix = Matrix()
+        flipMatrix.postScale(-1f, 1f, bounds.centerX(), bounds.centerY())
+
+        applyTransform(flipMatrix)
+    }
+
+    fun flipVertical() {
+        val bounds = getSelectionBounds()
+        if (bounds.isEmpty) return
+
+        val flipMatrix = Matrix()
+        flipMatrix.postScale(1f, -1f, bounds.centerX(), bounds.centerY())
+
+        applyTransform(flipMatrix)
+    }
+
+    fun commitTransformSession(activeLayer: Layer, library: Map<String, ComponentDefinition> = emptyMap()) {
         if (selectedElements.isEmpty()) return
-        selectedElements.forEach { it.transform(selectionMatrix) }
+        
+        val transformedElements = selectedElements.map { selected ->
+            val copy = selected.copyElement()
+            copy.transform(selectionMatrix)
+            
+            val idx = activeLayer.elements.indexOfFirst { it === selected }
+            if (idx != -1) {
+                activeLayer.elements[idx] = copy
+            }
+            copy
+        }
+        selectedElements.clear()
+        selectedElements.addAll(transformedElements)
+        
         recalculateBaseBounds(library)
         selectionMatrix.reset()
         activeTransform = null
@@ -521,7 +554,7 @@ class SelectionManager {
         }
     }
 
-    fun duplicateSelected(layerManager: LayerManager, activeLayerIndex: Int, onPerformSnapshot: (String, () -> Unit) -> Unit) {
+    fun duplicateSelected(layerManager: LayerManager, activeLayerIndex: Int, library: Map<String, ComponentDefinition>, onPerformSnapshot: (String, () -> Unit) -> Unit) {
         if (selectedElements.isEmpty()) return
         onPerformSnapshot("Duplicar Selección") {
             val currentLayers = layerManager.layers.toMutableList()
@@ -542,7 +575,7 @@ class SelectionManager {
             selectedElements.clear()
             selectedElements.addAll(duplicatedElements)
             selectionMatrix.reset()
-            recalculateBaseBounds(emptyMap())
+            recalculateBaseBounds(library)
         }
     }
 

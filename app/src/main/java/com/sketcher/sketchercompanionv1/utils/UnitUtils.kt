@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1.utils
+package com.sketcher.sketchercompanionv1.utils
 
 import com.sketcher.sketchercompanionv1.dto.DistanceUnit
 import kotlin.math.pow
@@ -94,5 +94,16 @@ object UnitUtils {
         
         return niceNormalized * magnitude
     }
+
+    /**
+     * Gets the screen density in physical pixels per millimeter.
+     */
+    fun getScreenPxPerMm(context: android.content.Context): Float {
+        val dm = context.resources.displayMetrics
+        val xdpi = dm.xdpi
+        val dpi = if (xdpi > 50f && xdpi < 1000f) xdpi else dm.densityDpi.toFloat()
+        return dpi / 25.4f
+    }
 }
+
 

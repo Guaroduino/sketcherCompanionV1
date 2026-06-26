@@ -81,7 +81,11 @@ class ToolManager(context: Context) {
         private set
 
     fun toggleFlattenedOuterStroke() {
-        isFlattenedOuterStrokeEnabled = !isFlattenedOuterStrokeEnabled
+        val newVal = !isFlattenedOuterStrokeEnabled
+        isFlattenedOuterStrokeEnabled = newVal
+        if (newVal && currentFreehandSettings.isCumulativeOpacity) {
+            updateFreehandSettings(currentFreehandSettings.copy(isCumulativeOpacity = false))
+        }
     }
 
     // --- FINGER OFFSET ---
@@ -130,6 +134,9 @@ class ToolManager(context: Context) {
         currentOpacity = config.opacity
         _brushOpacity.value = config.opacity
         currentFreehandSettings = config.freehandSettings
+        if (config.freehandSettings.isCumulativeOpacity) {
+            isFlattenedOuterStrokeEnabled = false
+        }
     }
 
     fun setToolSize(size: Float) {
@@ -150,6 +157,12 @@ class ToolManager(context: Context) {
 
     fun updateBrushSize(newSize: Float) = setToolSize(newSize)
     fun updateBrushOpacity(newAlpha: Float) = setToolOpacity(newAlpha)
+
+    fun updateFillOpacity(opacity: Float) {
+        val current = _fillColor.value
+        val alpha = (opacity * 255f).coerceIn(0f, 255f).toInt()
+        _fillColor.value = (current and 0x00FFFFFF) or (alpha shl 24)
+    }
 
     fun saveSizePreset(index: Int, size: Float) {
         val currentList = _sizePresets.value.toMutableList()
@@ -190,10 +203,14 @@ class ToolManager(context: Context) {
     fun updateSmoothing(value: Float) = setGlobalStabilization(value)
 
     fun updateFreehandSettings(newSettings: FreehandSettings) {
-        currentFreehandSettings = newSettings
+        var settings = newSettings
+        if (settings.isCumulativeOpacity) {
+            isFlattenedOuterStrokeEnabled = false
+        }
+        currentFreehandSettings = settings
         val config = toolConfigs[currentTool]!!
-        toolConfigs[currentTool] = config.copy(freehandSettings = newSettings)
-        saveFreehandSettings(newSettings)
+        toolConfigs[currentTool] = config.copy(freehandSettings = settings)
+        saveFreehandSettings(settings)
     }
 
     fun setFingerMode(enabled: Boolean) {
@@ -216,13 +233,13 @@ class ToolManager(context: Context) {
     }
 
     private fun loadFreehandSettings(): FreehandSettings {
-        val json = prefs.getString("freehand_settings_v2", null) ?: return FreehandSettings()
+        val json = prefs.getString("freehand_settings_v3", null) ?: return FreehandSettings()
         return try { gson.fromJson(json, FreehandSettings::class.java) } catch (e: Exception) { FreehandSettings() }
     }
 
     private fun saveFreehandSettings(settings: FreehandSettings) {
         val json = gson.toJson(settings)
-        prefs.edit().putString("freehand_settings_v2", json).apply()
+        prefs.edit().putString("freehand_settings_v3", json).apply()
     }
 
     fun getToolConfigMap(): Map<ToolType, ToolConfig> = toolConfigs.toMap()

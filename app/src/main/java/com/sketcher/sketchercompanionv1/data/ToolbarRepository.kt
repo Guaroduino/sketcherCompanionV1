@@ -94,7 +94,7 @@ class ToolbarRepository(context: Context) {
                 }
             }
             
-            val reconstructedContextualTools = layout.contextualToolbar?.mapNotNull { saved ->
+            val loadedContextual = layout.contextualToolbar?.mapNotNull { saved ->
                 val baseTool = ToolRegistry.getToolById(saved.registryId) ?: return@mapNotNull null
                 var restored = baseTool.copy(
                     id = saved.instanceId,
@@ -112,6 +112,12 @@ class ToolbarRepository(context: Context) {
                 }
                 restored
             } ?: getDefaultContextualTools()
+
+            val reconstructedContextualTools = if (loadedContextual.none { it.registryId == "context_flip_horizontal" }) {
+                getDefaultContextualTools()
+            } else {
+                loadedContextual
+            }
             
             ToolbarStateResult(
                 tools = reconstructedTools, 
@@ -127,10 +133,12 @@ class ToolbarRepository(context: Context) {
 
     private fun getDefaultContextualTools(): List<StudioTool> {
         return listOfNotNull(
-            ToolRegistry.getToolById("context_deselect"),
             ToolRegistry.getToolById("context_transform"),
             ToolRegistry.getToolById("context_copy"),
-            ToolRegistry.getToolById("context_delete")
+            ToolRegistry.getToolById("context_delete"),
+            ToolRegistry.getToolById("context_deselect"),
+            ToolRegistry.getToolById("context_flip_horizontal"),
+            ToolRegistry.getToolById("context_flip_vertical")
         )
     }
 }

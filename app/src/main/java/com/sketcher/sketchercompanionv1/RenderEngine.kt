@@ -140,6 +140,9 @@ class RenderEngine {
             paperPaint.color = canvasBackgroundColor
             canvas.drawRect(left, top, right, bottom, paperPaint)
             
+            // Draw paper bounds and shadow
+            RenderHelper.drawCanvasBounds(canvas, left, top, right, bottom)
+            
             // Clip to paper for content?
             canvas.clipRect(left, top, right, bottom)
             
@@ -208,13 +211,7 @@ class RenderEngine {
              if (!visible) continue
              
              // Setup Layer Paint/Alpha
-             val layerAlpha = if (layer.opacity < 1f) (layer.opacity * 255).toInt() else 255
-             val saveCount = if (layerAlpha < 255) {
-                 canvas.saveLayerAlpha(null, layerAlpha) 
-             } else {
-                 canvas.save()
-             }
-             
+             val saveCount = canvas.save()
              canvas.concat(viewMatrix)
              
              for (element in layer.elements) {
@@ -233,7 +230,7 @@ class RenderEngine {
                       }
                   }
 
-                  drawElementRecursive(canvas, element, componentLibrary, viewMatrix)
+                  drawElementRecursive(canvas, element, componentLibrary, viewMatrix, layer.opacity)
              }
              
              canvas.restoreToCount(saveCount)
@@ -241,16 +238,22 @@ class RenderEngine {
     }
     
     // Recursive drawing for groups/components
-    fun drawElementRecursive(canvas: Canvas, element: LayerElement, library: Map<String, ComponentDefinition>, viewMatrix: Matrix) {
+    fun drawElementRecursive(
+        canvas: Canvas, 
+        element: LayerElement, 
+        library: Map<String, ComponentDefinition>, 
+        viewMatrix: Matrix,
+        alphaMultiplier: Float = 1f
+    ) {
          when (element) {
-             is VectorStroke -> drawVectorStroke(canvas, element, viewMatrix)
-             is FillData -> drawFill(canvas, element)
+             is VectorStroke -> drawVectorStroke(canvas, element, viewMatrix, alphaMultiplier)
+             is FillData -> drawFill(canvas, element, alphaMultiplier)
              is GroupElement -> {
                  canvas.save()
                  canvas.concat(element.matrix)
                  val nextMatrix = Matrix(viewMatrix)
                  nextMatrix.postConcat(element.matrix)
-                 element.elements.forEach { drawElementRecursive(canvas, it, library, nextMatrix) }
+                 element.elements.forEach { drawElementRecursive(canvas, it, library, nextMatrix, alphaMultiplier) }
                  canvas.restore()
              }
              is ComponentInstance -> {
@@ -260,55 +263,80 @@ class RenderEngine {
                      canvas.concat(element.matrix)
                      val nextMatrix = Matrix(viewMatrix)
                      nextMatrix.postConcat(element.matrix)
-                     def.elements.forEach { drawElementRecursive(canvas, it, library, nextMatrix) }
+                     def.elements.forEach { drawElementRecursive(canvas, it, library, nextMatrix, alphaMultiplier) }
                      canvas.restore()
                  }
              }
              is ImageElement -> {
+                 val origAlpha = imagePaint.alpha
+                 val newAlpha = (origAlpha * alphaMultiplier).toInt().coerceIn(0, 255)
+                 imagePaint.alpha = newAlpha
                  canvas.drawBitmap(element.bitmap, element.matrix, imagePaint)
+                 imagePaint.alpha = origAlpha
              }
-             is SvgElement -> element.render(canvas)
+             is SvgElement -> {
+                 if (alphaMultiplier < 1f) {
+                     val bounds = element.getBoundingBox(library)
+                     val saveCount = canvas.saveLayer(bounds, Paint().apply { alpha = (alphaMultiplier * 255).toInt().coerceIn(0, 255) })
+                     element.render(canvas)
+                     canvas.restoreToCount(saveCount)
+                 } else {
+                     element.render(canvas)
+                 }
+             }
              else -> {} // Unknown
          }
     }
 
-    private fun drawVectorStroke(canvas: Canvas, stroke: VectorStroke, viewMatrix: Matrix) {
-    // Pass 1: FILL (if enabled)
-    if (stroke.isFillEnabled && stroke.fillPath != null) {
-        vectorPaint.style = Paint.Style.FILL
-        vectorPaint.color = stroke.fillColor
-        canvas.drawPath(stroke.fillPath, vectorPaint)
-    }
-
-    // Pass 2: STROKE (if enabled)
-    if (stroke.isStrokeEnabled) {
-        // For FREEHAND, the 'path' IS already the mesh (shape)
-        if (stroke.strokeType == StrokeType.FREEHAND) {
+    private fun drawVectorStroke(canvas: Canvas, stroke: VectorStroke, viewMatrix: Matrix, alphaMultiplier: Float = 1f) {
+        // Pass 1: FILL (if enabled)
+        if (stroke.isFillEnabled && stroke.fillPath != null) {
             vectorPaint.style = Paint.Style.FILL
-            vectorPaint.color = stroke.strokeColor
-            canvas.drawPath(stroke.path, vectorPaint)
-            if (stroke.paths.isNotEmpty()) {
-                for (p in stroke.paths) {
-                    canvas.drawPath(p, vectorPaint)
+            val origColor = stroke.fillColor
+            val origAlpha = Color.alpha(origColor)
+            val newAlpha = (origAlpha * alphaMultiplier).toInt().coerceIn(0, 255)
+            vectorPaint.color = (origColor and 0x00FFFFFF) or (newAlpha shl 24)
+            canvas.drawPath(stroke.fillPath, vectorPaint)
+        }
+
+        // Pass 2: STROKE (if enabled)
+        if (stroke.isStrokeEnabled) {
+            // For FREEHAND, the 'path' IS already the mesh (shape)
+            if (stroke.strokeType == StrokeType.FREEHAND) {
+                vectorPaint.style = Paint.Style.FILL
+                val origColor = stroke.strokeColor
+                val origAlpha = Color.alpha(origColor)
+                val newAlpha = (origAlpha * alphaMultiplier).toInt().coerceIn(0, 255)
+                vectorPaint.color = (origColor and 0x00FFFFFF) or (newAlpha shl 24)
+                canvas.drawPath(stroke.path, vectorPaint)
+                if (stroke.paths.isNotEmpty()) {
+                    for (p in stroke.paths) {
+                        canvas.drawPath(p, vectorPaint)
+                    }
                 }
+            } else {
+                // For others, it's a line
+                vectorPaint.style = Paint.Style.STROKE
+                val origColor = stroke.strokeColor
+                val origAlpha = Color.alpha(origColor)
+                val newAlpha = (origAlpha * alphaMultiplier).toInt().coerceIn(0, 255)
+                vectorPaint.color = (origColor and 0x00FFFFFF) or (newAlpha shl 24)
+                vectorPaint.strokeWidth = if (stroke.maxWidth > 0) stroke.maxWidth else 0f
+                canvas.drawPath(stroke.path, vectorPaint)
             }
-        } else {
-            // For others, it's a line
-            vectorPaint.style = Paint.Style.STROKE
-            vectorPaint.color = stroke.strokeColor
-            vectorPaint.strokeWidth = if (stroke.maxWidth > 0) stroke.maxWidth else 0f
-            canvas.drawPath(stroke.path, vectorPaint)
+        }
+
+        // Pass 3: DEBUG WIREFRAME (if enabled and stroke has points)
+        if (isDebugWireframe && stroke.points.isNotEmpty()) {
+            drawDebugWireframe(canvas, stroke.points, viewMatrix)
         }
     }
-
-    // Pass 3: DEBUG WIREFRAME (if enabled and stroke has points)
-    if (isDebugWireframe && stroke.points.isNotEmpty()) {
-        drawDebugWireframe(canvas, stroke.points, viewMatrix)
-    }
-}
     
-    fun drawFill(canvas: Canvas, fill: FillData) {
-        fillPaint.color = fill.color
+    fun drawFill(canvas: Canvas, fill: FillData, alphaMultiplier: Float = 1f) {
+        val origColor = fill.color
+        val origAlpha = Color.alpha(origColor)
+        val newAlpha = (origAlpha * alphaMultiplier).toInt().coerceIn(0, 255)
+        fillPaint.color = (origColor and 0x00FFFFFF) or (newAlpha shl 24)
         canvas.drawPath(fill.path, fillPaint)
     }
 

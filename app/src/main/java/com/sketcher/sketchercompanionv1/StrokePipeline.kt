@@ -180,16 +180,18 @@ class StrokePipeline(
                 stabilizerY = targetY
             }
 
-            // Snap to Grid (if needed - currently passed function not implemented here,
-            // assuming passed or handled largely in View previously?
-            // View had `snapFunction`. We should probably accept a snap callback.)
-            // For now, omitting snap inside pipeline unless required.
-            // User requirement: "Do NOT change drawing logic".
-            // I should add snap callback.
+            // Snap to Grid (if enabled)
+            var snapX = stabilizerX
+            var snapY = stabilizerY
+            snapFunction?.let { snap ->
+                val snapped = snap(stabilizerX, stabilizerY)
+                snapX = snapped.first
+                snapY = snapped.second
+            }
 
             // Transform stabilized point to world BEFORE filtering
-            reusablePointBuffer[0] = stabilizerX
-            reusablePointBuffer[1] = stabilizerY
+            reusablePointBuffer[0] = snapX
+            reusablePointBuffer[1] = snapY
             reusableInverseMatrix.mapPoints(reusablePointBuffer)
             val worldP = StrokePoint(reusablePointBuffer[0], reusablePointBuffer[1], p.pressure, p.timestamp)
 
@@ -309,7 +311,7 @@ class StrokePipeline(
             committedIntersections.clear()
         }
 
-        val settings = liveSettingsCache.copy(size = activeSize, isComplete = false)
+        val settings = liveSettingsCache.copy(size = activeSize, isComplete = false, streamline = globalStabilizationLevel * 0.8f)
 
         // 2. Incremental preview for FREEHAND only when stroke is long enough
         val result: PerfectFreehandGenerator.FreehandResult
@@ -522,7 +524,7 @@ class StrokePipeline(
         // Generate High Fidelity Path (pass simulatePressure = false since we pre-simulated it!)
         val genResult = PerfectFreehandGenerator.generate(
             finalPoints, 
-            activeFreehandSettings.copy(size = activeSize, isComplete = true, simulatePressure = false), 
+            activeFreehandSettings.copy(size = activeSize, isComplete = true, simulatePressure = false, streamline = globalStabilizationLevel * 0.8f), 
             currentZoom
         )
         val rawPath = Path(genResult.path)
@@ -590,7 +592,7 @@ class StrokePipeline(
                         strokeColor = activeStrokeColorSnap,
                         fillColor = activeFillColorSnap,
                         isStrokeEnabled = isStrokeActiveSnap,
-                        isFillEnabled = isFillActiveSnap,
+                        isFillEnabled = false,
                         maxWidth = activeSizeSnap,
                         path = path,
                         fillPath = fPath,
@@ -637,7 +639,7 @@ class StrokePipeline(
             val chunkPaths = if (activeFreehandSettings.isCumulativeOpacity && activeStrokeType == StrokeType.FREEHAND) {
                 PerfectFreehandGenerator.generateCumulativeChunks(
                     finalPoints,
-                    activeFreehandSettings.copy(size = activeSize, isComplete = true, simulatePressure = false),
+                    activeFreehandSettings.copy(size = activeSize, isComplete = true, simulatePressure = false, streamline = globalStabilizationLevel * 0.8f),
                     currentZoom
                 )
             } else {
@@ -649,7 +651,7 @@ class StrokePipeline(
                 strokeColor = activeStrokeColor,
                 fillColor = activeFillColor,
                 isStrokeEnabled = isStrokeActive,
-                isFillEnabled = isFillActive,
+                isFillEnabled = false,
                 maxWidth = activeSize,
                 path = path,
                 fillPath = fPath,
@@ -707,7 +709,7 @@ class StrokePipeline(
         // Duplicate Logic (pass simulatePressure = false since we pre-simulated it!)
         val genResult = PerfectFreehandGenerator.generate(
              finalPoints, 
-             activeFreehandSettings.copy(size = activeSize, isComplete = true, simulatePressure = false), 
+             activeFreehandSettings.copy(size = activeSize, isComplete = true, simulatePressure = false, streamline = globalStabilizationLevel * 0.8f), 
              currentZoom
         )
         val path = Path(genResult.path)
@@ -725,7 +727,7 @@ class StrokePipeline(
         val chunkPaths = if (activeFreehandSettings.isCumulativeOpacity && activeStrokeType == StrokeType.FREEHAND) {
             PerfectFreehandGenerator.generateCumulativeChunks(
                 finalPoints,
-                activeFreehandSettings.copy(size = activeSize, isComplete = true, simulatePressure = false),
+                activeFreehandSettings.copy(size = activeSize, isComplete = true, simulatePressure = false, streamline = globalStabilizationLevel * 0.8f),
                 currentZoom
             )
         } else {
@@ -737,7 +739,7 @@ class StrokePipeline(
              strokeColor = activeStrokeColor,
              fillColor = activeFillColor,
              isStrokeEnabled = isStrokeActive,
-             isFillEnabled = isFillActive,
+             isFillEnabled = false,
              maxWidth = activeSize,
              path = path,
              fillPath = fPath,

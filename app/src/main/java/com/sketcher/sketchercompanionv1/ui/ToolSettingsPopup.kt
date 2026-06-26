@@ -113,13 +113,6 @@ fun FreehandSettingsContent(
         onValueChange = { onSettingsChanged(currentSettings.copy(velocityMaxInput = it)) }
     )
 
-    // 2. Streamline
-    SettingSlider(
-        label = "EstabilizaciÃ³n (Streamline): ${(currentSettings.streamline * 100).toInt()}%",
-        value = currentSettings.streamline,
-        onValueChange = { onSettingsChanged(currentSettings.copy(streamline = it)) }
-    )
-
     // 3. Smoothing
     SettingSlider(
         label = "Suavizado (Bordes)",
@@ -155,51 +148,19 @@ fun FreehandSettingsContent(
     Text("Opciones de Punta", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
 
     // Taper
-    val taperStartText = if (currentSettings.taperStart > 0) "Afilado" else if (currentSettings.taperStart < 0) "Ensanchado" else "-"
      SettingSlider(
-        label = "Inicio ($taperStartText): ${currentSettings.taperStart.toInt()}px",
+        label = "Afilado de Inicio: ${currentSettings.taperStart.toInt()}px",
         value = currentSettings.taperStart,
-        valueRange = -150f..150f,
+        valueRange = 0f..150f,
         onValueChange = { onSettingsChanged(currentSettings.copy(taperStart = it)) }
     )
     
-    if (currentSettings.taperStart > 0) {
-        SettingSlider(
-            label = "   â””â”€ Grueso Punta: ${(currentSettings.taperStartTipRatio * 100).toInt()}%",
-            value = currentSettings.taperStartTipRatio,
-            onValueChange = { onSettingsChanged(currentSettings.copy(taperStartTipRatio = it)) }
-        )
-    } else if (currentSettings.taperStart < 0) {
-        SettingSlider(
-            label = "   â””â”€ Intensidad: ${String.format("%.1f", currentSettings.wideningStartRatio)}x",
-            value = currentSettings.wideningStartRatio,
-            valueRange = 1f..5f,
-            onValueChange = { onSettingsChanged(currentSettings.copy(wideningStartRatio = it)) }
-        )
-    }
-    
-    val taperEndText = if (currentSettings.taperEnd > 0) "Afilado" else if (currentSettings.taperEnd < 0) "Ensanchado" else "-"
      SettingSlider(
-        label = "Fin ($taperEndText): ${currentSettings.taperEnd.toInt()}px",
+        label = "Afilado de Fin: ${currentSettings.taperEnd.toInt()}px",
         value = currentSettings.taperEnd,
-        valueRange = -150f..150f,
+        valueRange = 0f..150f,
         onValueChange = { onSettingsChanged(currentSettings.copy(taperEnd = it)) }
     )
-
-    if (currentSettings.taperEnd > 0) {
-        SettingSlider(
-            label = "   â””â”€ Grueso Punta: ${(currentSettings.taperEndTipRatio * 100).toInt()}%",
-            value = currentSettings.taperEndTipRatio,
-            onValueChange = { onSettingsChanged(currentSettings.copy(taperEndTipRatio = it)) }
-        )
-    } else if (currentSettings.taperEnd < 0) {
-        SettingSlider(
-            label = "   â””â”€ Intensidad: ${String.format("%.1f", currentSettings.wideningEndRatio)}x",
-            value = currentSettings.wideningEndRatio,
-            valueRange = 1f..5f,
-            onValueChange = { onSettingsChanged(currentSettings.copy(wideningEndRatio = it)) }
-        )
-    }
 
     // Caps
     Row(
