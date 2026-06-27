@@ -60,7 +60,9 @@ fun SketcherIconButton(
     iconColor: Color,
     shape: Shape = CircleShape,
     iconSize: Dp = 24.dp,
-    iconModifier: Modifier = Modifier
+    iconModifier: Modifier = Modifier,
+    tool: com.sketcher.sketchercompanionv1.ui.model.StudioTool? = null,
+    theme: com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig? = null
 ) {
     val scaler = LocalUiScaler.current
     val scaleFactor = scaler.scaleFactor
@@ -77,15 +79,27 @@ fun SketcherIconButton(
                 .background(backgroundColor),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = contentDescription,
-                tint = iconColor,
-                modifier = Modifier
-                    .size(iconSize)
-                    .then(iconModifier)
-                    .then(if (isEditMode) Modifier.alpha(0.6f) else Modifier)
-            )
+            if (tool != null && theme != null) {
+                ToolIcon(
+                    tool = tool,
+                    theme = theme,
+                    tint = iconColor,
+                    modifier = Modifier
+                        .size(iconSize)
+                        .then(iconModifier)
+                        .then(if (isEditMode) Modifier.alpha(0.6f) else Modifier)
+                )
+            } else {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = contentDescription,
+                    tint = iconColor,
+                    modifier = Modifier
+                        .size(iconSize)
+                        .then(iconModifier)
+                        .then(if (isEditMode) Modifier.alpha(0.6f) else Modifier)
+                )
+            }
         }
     }
 }

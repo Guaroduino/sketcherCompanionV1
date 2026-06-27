@@ -12,7 +12,8 @@ data class SavedTool(
     val instanceId: String,
     val registryId: String,
     val isPlaceholder: Boolean,
-    val payload: ToolPayload? = null
+    val payload: ToolPayload? = null,
+    val subTools: List<SavedTool>? = null
 )
 
 data class SavedLayout(
@@ -32,24 +33,20 @@ class ToolbarRepository(context: Context) {
         toolColors: Map<String, Int>,
         contextualToolbar: List<StudioTool>
     ) {
-        val savedToolsMap = toolbarState.mapValues { (_, tools) ->
-            tools.map { tool ->
-                SavedTool(
-                    instanceId = tool.id,
-                    registryId = tool.registryId,
-                    isPlaceholder = tool.isPlaceholder,
-                    payload = assignedMap[tool.id]
-                )
-            }
-        }
-        val savedContextualTools = contextualToolbar.map { tool ->
-            SavedTool(
+        fun mapToolToSaved(tool: StudioTool): SavedTool {
+            return SavedTool(
                 instanceId = tool.id,
                 registryId = tool.registryId,
                 isPlaceholder = tool.isPlaceholder,
-                payload = assignedMap[tool.id]
+                payload = assignedMap[tool.id],
+                subTools = tool.subTools.map { mapToolToSaved(it) }
             )
         }
+
+        val savedToolsMap = toolbarState.mapValues { (_, tools) ->
+            tools.map { mapToolToSaved(it) }
+        }
+        val savedContextualTools = contextualToolbar.map { mapToolToSaved(it) }
         
         val layout = SavedLayout(savedToolsMap, assignedMap, toolColors, savedContextualTools)
         val json = gson.toJson(layout)
@@ -63,59 +60,49 @@ class ToolbarRepository(context: Context) {
             val type = object : TypeToken<SavedLayout>() {}.type
             val layout: SavedLayout = gson.fromJson(json, type)
             
+            fun reconstructStudioTool(saved: SavedTool, assignedMap: Map<String, ToolPayload>): StudioTool? {
+                val effectiveRegistryId = if (saved.registryId.startsWith("tool_selection_")) "tool_selection" else saved.registryId
+
+                if (effectiveRegistryId == StudioTool.PROPERTIES_TOOL_ID || effectiveRegistryId == StudioTool.STABILIZATION_TOOL_ID) {
+                    return null
+                }
+
+                val baseTool = ToolRegistry.getToolById(effectiveRegistryId) 
+                    ?: ToolRegistry.getToolById("pencil") // Fallback
+                
+                if (baseTool == null) return null
+                
+                val restoredSubTools = saved.subTools?.mapNotNull { subSaved ->
+                    reconstructStudioTool(subSaved, assignedMap)
+                } ?: emptyList()
+
+                var restored = baseTool.copy(
+                    id = saved.instanceId,
+                    registryId = effectiveRegistryId,
+                    isPlaceholder = baseTool.isPlaceholder,
+                    subTools = restoredSubTools
+                )
+                
+                val assignedPayload = assignedMap[saved.instanceId]
+                if (assignedPayload != null) {
+                     restored = restored.copy(
+                         icon = assignedPayload.icon,
+                         contentDescription = assignedPayload.label,
+                         isPlaceholder = false
+                     )
+                }
+                
+                return restored
+            }
+
             val reconstructedTools = layout.tools.mapValues { (_, savedList) ->
                 savedList.mapNotNull { saved ->
-                    // Migration: collapse separate selection tools into the generic parent
-                    val effectiveRegistryId = if (saved.registryId.startsWith("tool_selection_")) "tool_selection" else saved.registryId
-
-                    // Skip removed tools
-                    if (effectiveRegistryId == StudioTool.PROPERTIES_TOOL_ID || effectiveRegistryId == StudioTool.STABILIZATION_TOOL_ID) {
-                        return@mapNotNull null
-                    }
-
-                    // Find base template
-                    val baseTool = ToolRegistry.getToolById(effectiveRegistryId) 
-                        ?: ToolRegistry.getToolById("pencil") // Fallback
-                    
-                    if (baseTool == null) return@mapNotNull null
-                    
-                    var restored = baseTool.copy(
-                        id = saved.instanceId,
-                        registryId = effectiveRegistryId,
-                        isPlaceholder = baseTool.isPlaceholder
-                    )
-                    
-                    // Apply payload if present (assigned tool)
-                    val assignedPayload = layout.assignedMap[saved.instanceId]
-                    if (assignedPayload != null) {
-                         restored = restored.copy(
-                             icon = assignedPayload.icon,
-                             contentDescription = assignedPayload.label,
-                             isPlaceholder = false
-                         )
-                    }
-                    
-                    restored
+                    reconstructStudioTool(saved, layout.assignedMap)
                 }
             }
             
             val loadedContextual = layout.contextualToolbar?.mapNotNull { saved ->
-                val baseTool = ToolRegistry.getToolById(saved.registryId) ?: return@mapNotNull null
-                var restored = baseTool.copy(
-                    id = saved.instanceId,
-                    registryId = saved.registryId,
-                    isPlaceholder = baseTool.isPlaceholder
-                )
-                
-                val assignedPayload = layout.assignedMap[saved.instanceId]
-                if (assignedPayload != null) {
-                    restored = restored.copy(
-                        icon = assignedPayload.icon,
-                        contentDescription = assignedPayload.label,
-                        isPlaceholder = false
-                    )
-                }
-                restored
+                reconstructStudioTool(saved, layout.assignedMap)
             } ?: getDefaultContextualTools()
 
             val reconstructedContextualTools = if (loadedContextual.none { it.registryId == "context_flip_horizontal" }) {

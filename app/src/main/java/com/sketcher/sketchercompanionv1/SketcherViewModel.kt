@@ -336,6 +336,22 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
     }
 
+    private fun bindToolActions(tool: StudioTool): StudioTool {
+        val boundSubTools = tool.subTools.map { bindToolActions(it) }
+        val uniqueId = tool.id
+        return tool.copy(
+            subTools = boundSubTools,
+            onClick = {
+                val payload = _assignedTools.value[uniqueId]
+                if (payload != null) {
+                    activateTool(payload, uniqueId)
+                } else {
+                    getActionForTool(tool.registryId).invoke()
+                }
+            }
+        )
+    }
+
     fun addTool(location: ToolLocation, tool: StudioTool) {
         val uniqueId = UUID.randomUUID().toString()
         val initialPayload = getPayloadFromToolId(tool.id)
@@ -346,26 +362,18 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         val uniqueTool = tool.copy(
             id = uniqueId,
-            registryId = tool.id,
-            onClick = {
-                val payload = _assignedTools.value[uniqueId]
-                if (payload != null) {
-                    activateTool(payload, uniqueId)
-                } else {
-                    // Use registryId because it's the stable identifier for actions
-                    getActionForTool(tool.id).invoke() 
-                }
-            }
+            registryId = tool.id
         )
+        val boundTool = bindToolActions(uniqueTool)
         
         if (location == ToolLocation.ContextBar) {
             val list = _contextualToolbar.value.toMutableList()
-            list.add(uniqueTool)
+            list.add(boundTool)
             _contextualToolbar.value = list
         } else {
             val currentMap = _toolbarState.value.toMutableMap()
             val list = currentMap[location]?.toMutableList() ?: mutableListOf()
-            list.add(uniqueTool)
+            list.add(boundTool)
             currentMap[location] = list
             _toolbarState.value = currentMap
         }
@@ -386,8 +394,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             val list = currentMap[location]?.toMutableList() ?: return
             if (index in list.indices) {
                 val tool = list.removeAt(index)
-                // Cleanup assignment
-                _assignedTools.value = _assignedTools.value - tool.id
+                
+                // Cleanup assignments of parent and all its subtools
+                var updatedAssigned = _assignedTools.value - tool.id
+                tool.subTools.forEach { sub ->
+                    updatedAssigned = updatedAssigned - sub.id
+                }
+                _assignedTools.value = updatedAssigned
                 
                 currentMap[location] = list
                 _toolbarState.value = currentMap
@@ -412,18 +425,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 
                 val uniqueTool = newTool.copy(
                     id = uniqueId,
-                    registryId = newTool.id,
-                    onClick = {
-                        val payload = _assignedTools.value[uniqueId]
-                        if (payload != null) {
-                            activateTool(payload, uniqueId)
-                        } else {
-                            getActionForTool(newTool.id).invoke()
-                        }
-                    }
+                    registryId = newTool.id
                 )
                 
-                list[index] = uniqueTool
+                list[index] = bindToolActions(uniqueTool)
                 _contextualToolbar.value = list
             }
         } else {
@@ -431,6 +436,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             val list = currentMap[location]?.toMutableList() ?: return
             if (index in list.indices) {
                 val oldTool = list[index]
+                
+                // Keep the existing sub-tools of the slot
+                val existingSubTools = oldTool.subTools
+                
+                // Cleanup assignment of old main tool
                 _assignedTools.value = _assignedTools.value - oldTool.id
                 
                 val uniqueId = UUID.randomUUID().toString()
@@ -443,23 +453,138 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 val uniqueTool = newTool.copy(
                     id = uniqueId,
                     registryId = newTool.id,
-                    onClick = {
-                        val payload = _assignedTools.value[uniqueId]
-                        if (payload != null) {
-                            activateTool(payload, uniqueId)
-                        } else {
-                            getActionForTool(newTool.id).invoke()
-                        }
-                    }
+                    subTools = existingSubTools
                 )
                 
-                list[index] = uniqueTool
+                list[index] = bindToolActions(uniqueTool)
                 currentMap[location] = list
                 _toolbarState.value = currentMap
             }
         }
         
         toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
+    }
+
+    fun addSubTool(location: ToolLocation, parentIndex: Int, tool: StudioTool) {
+        val currentMap = _toolbarState.value.toMutableMap()
+        val list = currentMap[location]?.toMutableList() ?: return
+        if (parentIndex in list.indices) {
+            val parentTool = list[parentIndex]
+            val subList = parentTool.subTools.toMutableList()
+            
+            val uniqueId = UUID.randomUUID().toString()
+            val initialPayload = getPayloadFromToolId(tool.id)
+            if (initialPayload != null) {
+                _assignedTools.value = _assignedTools.value + (uniqueId to initialPayload)
+            }
+            
+            val uniqueTool = tool.copy(
+                id = uniqueId,
+                registryId = tool.id
+            )
+            
+            subList.add(uniqueTool)
+            val updatedParentTool = parentTool.copy(subTools = subList)
+            
+            list[parentIndex] = bindToolActions(updatedParentTool)
+            currentMap[location] = list
+            _toolbarState.value = currentMap
+            
+            toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
+        }
+    }
+
+    fun removeSubTool(location: ToolLocation, parentIndex: Int, subToolIndex: Int) {
+        val currentMap = _toolbarState.value.toMutableMap()
+        val list = currentMap[location]?.toMutableList() ?: return
+        if (parentIndex in list.indices) {
+            val parentTool = list[parentIndex]
+            val subList = parentTool.subTools.toMutableList()
+            if (subToolIndex in subList.indices) {
+                val removedTool = subList.removeAt(subToolIndex)
+                _assignedTools.value = _assignedTools.value - removedTool.id
+                
+                val updatedParentTool = parentTool.copy(subTools = subList)
+                list[parentIndex] = bindToolActions(updatedParentTool)
+                currentMap[location] = list
+                _toolbarState.value = currentMap
+                
+                toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
+            }
+        }
+    }
+
+    fun swapSubToolToMain(location: ToolLocation, parentIndex: Int, subToolIndex: Int) {
+        val currentMap = _toolbarState.value.toMutableMap()
+        val list = currentMap[location]?.toMutableList() ?: return
+        if (parentIndex in list.indices) {
+            val parentTool = list[parentIndex]
+            val subList = if (parentTool.subTools.isNotEmpty()) parentTool.subTools.toMutableList()
+                          else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(parentTool.registryId).toMutableList()
+            if (subToolIndex in subList.indices) {
+                val clickedSubTool = subList[subToolIndex]
+                
+                // Swap: clickedSubTool becomes main, parentTool becomes subtool (clear its nested subTools to prevent recursion)
+                subList[subToolIndex] = parentTool.copy(subTools = emptyList())
+                
+                val newMainTool = clickedSubTool.copy(subTools = subList)
+                
+                list[parentIndex] = bindToolActions(newMainTool)
+                currentMap[location] = list
+                _toolbarState.value = currentMap
+                
+                // Execute clicked tool action
+                newMainTool.onClick()
+                
+                toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
+            }
+        }
+    }
+
+    fun moveSubTool(location: ToolLocation, parentIndex: Int, fromIndex: Int, toIndex: Int) {
+        val currentMap = _toolbarState.value.toMutableMap()
+        val list = currentMap[location]?.toMutableList() ?: return
+        if (parentIndex in list.indices) {
+            val parentTool = list[parentIndex]
+            val fullList = (listOf(parentTool) + parentTool.subTools).toMutableList()
+            if (fromIndex in fullList.indices && toIndex in fullList.indices) {
+                // Swap elements
+                val temp = fullList[fromIndex]
+                fullList[fromIndex] = fullList[toIndex]
+                fullList[toIndex] = temp
+                
+                // Clear nested subtools to avoid recursion
+                val clearedSubList = fullList.subList(1, fullList.size).map { it.copy(subTools = emptyList()) }
+                val updatedParentTool = fullList[0].copy(subTools = clearedSubList)
+                
+                list[parentIndex] = bindToolActions(updatedParentTool)
+                currentMap[location] = list
+                _toolbarState.value = currentMap
+                
+                toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
+            }
+        }
+    }
+
+    fun insertPlaceholderSlot(location: ToolLocation, targetIndex: Int, relativePosition: Int) {
+        val currentMap = _toolbarState.value.toMutableMap()
+        val list = currentMap[location]?.toMutableList() ?: return
+        if (targetIndex in list.indices) {
+            val insertIndex = if (relativePosition < 0) targetIndex else targetIndex + 1
+            val placeholderTool = StudioTool(
+                id = java.util.UUID.randomUUID().toString(),
+                icon = androidx.compose.material.icons.Icons.Default.AddCircleOutline,
+                contentDescription = "New Slot",
+                isPlaceholder = true,
+                registryId = "placeholder"
+            )
+            val boundTool = bindToolActions(placeholderTool)
+            list.add(insertIndex, boundTool)
+            currentMap[location] = list
+            _toolbarState.value = currentMap
+            
+            toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
+        }
     }
 
     internal fun getActionForTool(id: String): () -> Unit = when(id) {
@@ -638,19 +763,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             _assignedTools.value = loaded.assignedMap
             _assignedToolColors.value = loaded.toolColors
             
-            // Re-bind actions (since they aren't serialized)
             val toolsWithActions = loaded.tools.mapValues { (_, list) ->
-                list.map { tool ->
-                    tool.copy(onClick = {
-                        val payload = _assignedTools.value[tool.id]
-                        if (payload != null) {
-                            activateTool(payload, tool.id)
-                        } else {
-                            // Use registryId to lookup action
-                            getActionForTool(tool.registryId).invoke()
-                        }
-                    })
-                }
+                list.map { tool -> bindToolActions(tool) }
             }
             _toolbarState.value = toolsWithActions
             
@@ -899,19 +1013,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             _assignedTools.value = loaded.assignedMap
             _assignedToolColors.value = loaded.toolColors
             
-            // Re-bind actions (since they aren't serialized)
             val toolsWithActions = loaded.tools.mapValues { (_, list) ->
-                list.map { tool ->
-                    tool.copy(onClick = {
-                        val payload = _assignedTools.value[tool.id]
-                        if (payload != null) {
-                            activateTool(payload, tool.id)
-                        } else {
-                            // Use registryId to lookup action
-                            getActionForTool(tool.registryId).invoke()
-                        }
-                    })
-                }
+                list.map { tool -> bindToolActions(tool) }
             }
             _toolbarState.value = toolsWithActions
             
@@ -2284,6 +2387,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 val (projectData, bitmapMap, svgMap) = com.sketcher.sketchercompanionv1.utils.ZipStorageManager.loadProject(context, uri)
                 withContext(Dispatchers.Main) {
                     restoreProjectState(projectData, bitmapMap, svgMap)
+                    reloadToolbarLayout()
                     currentFileUri = uri
                     android.widget.Toast.makeText(context, "Proyecto cargado correctamente", android.widget.Toast.LENGTH_SHORT).show()
                 }
@@ -2604,6 +2708,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                         layerManager.internalUpdateLayers(newLayers, 0)
                         if (layers.isEmpty()) layerManager.addNewLayer(true)
                     }
+                    _themeConfig.value = themeRepository.getTheme()
+                    reloadToolbarLayout()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()

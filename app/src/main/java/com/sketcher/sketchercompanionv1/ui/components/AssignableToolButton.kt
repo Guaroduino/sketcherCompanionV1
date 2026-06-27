@@ -69,7 +69,8 @@ fun AssignableToolButton(
     isSelected: Boolean = false,
     isNone: Boolean = false,
     subTools: List<StudioTool> = emptyList(),
-    onSubToolClick: ((StudioTool) -> Unit)? = null
+    onSubToolClick: ((StudioTool) -> Unit)? = null,
+    tool: StudioTool? = null
 ) {
     val scaler = LocalUiScaler.current
     val scaleFactor = scaler.scaleFactor
@@ -161,14 +162,24 @@ fun AssignableToolButton(
                     )
                 }
             } else {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = contentDescription,
-                    tint = iconColor,
-                    modifier = Modifier
-                        .size(iconSize)
-                        .then(if (isEditMode) Modifier.alpha(0.6f) else Modifier)
-                )
+                if (tool != null && theme != null) {
+                    ToolIcon(
+                        tool = tool,
+                        theme = theme,
+                        tint = iconColor,
+                        modifier = Modifier.then(if (isEditMode) Modifier.alpha(0.6f) else Modifier),
+                        iconSize = iconSize
+                    )
+                } else {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = contentDescription,
+                        tint = iconColor,
+                        modifier = Modifier
+                            .size(iconSize)
+                            .then(if (isEditMode) Modifier.alpha(0.6f) else Modifier)
+                    )
+                }
             }
             // Sub-tools group indicator: small triangle in the bottom-right corner
             if (subTools.isNotEmpty()) {
@@ -202,7 +213,13 @@ fun AssignableToolButton(
                 subTools.forEach { subTool ->
                     DropdownMenuItem(
                         text = { Text(subTool.contentDescription, color = theme?.iconColor ?: Color.White) },
-                        leadingIcon = { Icon(subTool.icon, contentDescription = null, tint = theme?.iconColor ?: Color.White) },
+                        leadingIcon = { 
+                            if (theme != null) {
+                                ToolIcon(tool = subTool, theme = theme, tint = theme.iconColor, iconSize = 24.dp)
+                            } else {
+                                Icon(subTool.icon, contentDescription = null, tint = Color.White)
+                            }
+                        },
                         onClick = {
                             showSubMenu = false
                             onSubToolClick?.invoke(subTool)

@@ -43,7 +43,8 @@ class ThemeRepository(context: Context) {
         val recentColors: List<Int>,
         val isShadowEnabled: Boolean,
         val shadowOpacity: Float,
-        val shadowBlur: Float
+        val shadowBlur: Float,
+        val customIcons: Map<String, String>? = emptyMap()
     )
 
     private fun UiThemeConfig.toDto(): ThemeDto {
@@ -58,7 +59,8 @@ class ThemeRepository(context: Context) {
             recentColors = this.recentColors.map { it.toArgb() },
             isShadowEnabled = this.isShadowEnabled,
             shadowOpacity = this.shadowOpacity,
-            shadowBlur = this.shadowBlur.value
+            shadowBlur = this.shadowBlur.value,
+            customIcons = this.customIcons
         )
     }
 
@@ -74,7 +76,8 @@ class ThemeRepository(context: Context) {
             recentColors = this.recentColors.map { Color(it) },
             isShadowEnabled = this.isShadowEnabled,
             shadowOpacity = this.shadowOpacity,
-            shadowBlur = this.shadowBlur.dp
+            shadowBlur = this.shadowBlur.dp,
+            customIcons = this.customIcons ?: emptyMap()
         )
     }
 }

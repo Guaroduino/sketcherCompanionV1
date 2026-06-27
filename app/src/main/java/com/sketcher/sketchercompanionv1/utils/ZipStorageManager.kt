@@ -91,6 +91,35 @@ object ZipStorageManager {
                 zipOut.write(jsonString.toByteArray(Charsets.UTF_8))
                 zipOut.closeEntry()
 
+                // Save toolbar layout if available in SharedPreferences
+                val prefs = context.getSharedPreferences("toolbar_prefs", Context.MODE_PRIVATE)
+                val toolbarLayoutJson = prefs.getString("saved_layout_v2", null)
+                if (toolbarLayoutJson != null) {
+                    val entry = ZipEntry("toolbar_layout.json")
+                    zipOut.putNextEntry(entry)
+                    zipOut.write(toolbarLayoutJson.toByteArray(Charsets.UTF_8))
+                    zipOut.closeEntry()
+                }
+
+                // Save custom icons if available in SharedPreferences
+                val themePrefs = context.getSharedPreferences("app_theme", Context.MODE_PRIVATE)
+                val themeJson = themePrefs.getString("saved_theme", null)
+                if (themeJson != null) {
+                    try {
+                        val parsed = Gson().fromJson(themeJson, Map::class.java)
+                        val customIconsObj = parsed["customIcons"]
+                        if (customIconsObj != null) {
+                            val customIconsJson = Gson().toJson(customIconsObj)
+                            val entry = ZipEntry("custom_icons.json")
+                            zipOut.putNextEntry(entry)
+                            zipOut.write(customIconsJson.toByteArray(Charsets.UTF_8))
+                            zipOut.closeEntry()
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+
                 // 2. Write Assets (Images & SVGs)
                 val savedFileNames = mutableSetOf<String>()
 
@@ -127,6 +156,41 @@ object ZipStorageManager {
                         val bytes = zipIn.readBytes()
                         val jsonString = String(bytes, Charsets.UTF_8)
                         projectData = Gson().fromJson(jsonString, ProjectData::class.java)
+                    } else if (name == "toolbar_layout.json") {
+                        val bytes = zipIn.readBytes()
+                        val jsonString = String(bytes, Charsets.UTF_8)
+                        if (jsonString.isNotEmpty()) {
+                            val prefs = context.getSharedPreferences("toolbar_prefs", Context.MODE_PRIVATE)
+                            prefs.edit().putString("saved_layout_v2", jsonString).apply()
+                        }
+                    } else if (name == "custom_icons.json") {
+                        val bytes = zipIn.readBytes()
+                        val jsonString = String(bytes, Charsets.UTF_8)
+                        if (jsonString.isNotEmpty()) {
+                            try {
+                                val typeToken = object : com.google.gson.reflect.TypeToken<Map<String, String>>() {}.type
+                                val loadedIcons: Map<String, String> = Gson().fromJson(jsonString, typeToken)
+                                
+                                val themePrefs = context.getSharedPreferences("app_theme", Context.MODE_PRIVATE)
+                                val themeJson = themePrefs.getString("saved_theme", null)
+                                val gson = Gson()
+                                val updatedThemeJson = if (themeJson != null) {
+                                    val mapType = object : com.google.gson.reflect.TypeToken<MutableMap<String, Any>>() {}.type
+                                    val map: MutableMap<String, Any> = gson.fromJson(themeJson, mapType)
+                                    val currentIcons = map["customIcons"] as? Map<*, *> ?: emptyMap<Any, Any>()
+                                    val mergedIcons = currentIcons.toMutableMap().apply {
+                                        putAll(loadedIcons)
+                                    }
+                                    map["customIcons"] = mergedIcons
+                                    gson.toJson(map)
+                                } else {
+                                    gson.toJson(mapOf("customIcons" to loadedIcons))
+                                }
+                                themePrefs.edit().putString("saved_theme", updatedThemeJson).apply()
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
                     } else if (name.startsWith(DIR_ASSETS)) {
                         // Read Asset
                         val cleanName = name.removePrefix(DIR_ASSETS)

@@ -11,6 +11,7 @@ data class StudioTool(
     val isContextual: Boolean = false,
     val parentGroupId: String? = null,
     val registryId: String = id,
+    val subTools: List<StudioTool> = emptyList(),
     val onClick: () -> Unit = {}
 ) {
     companion object {

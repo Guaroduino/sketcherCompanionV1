@@ -7,8 +7,10 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -20,7 +22,10 @@ import com.sketcher.sketchercompanionv1.ui.model.ToolLocation
 import com.sketcher.sketchercompanionv1.ui.model.ToolRegistry
 import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
 import com.sketcher.sketchercompanionv1.ui.theme.sdp
-
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 
@@ -31,47 +36,217 @@ fun ToolPickerDialog(
     theme: UiThemeConfig,
     onDismiss: () -> Unit,
     onToolSelected: (StudioTool) -> Unit,
-    onRemove: (() -> Unit)? = null
+    onRemove: (() -> Unit)? = null,
+    slotTools: List<StudioTool> = emptyList(),
+    onAddSubTool: ((StudioTool) -> Unit)? = null,
+    onRemoveSubTool: ((Int) -> Unit)? = null,
+    onMoveSubTool: ((Int, Int) -> Unit)? = null,
+    onInsertSlotAbove: (() -> Unit)? = null,
+    onInsertSlotBelow: (() -> Unit)? = null
 ) {
+    val scaler = com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler.current
+    var isAddingAdditional by remember { mutableStateOf(false) }
+
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surface,
+        Card(
             modifier = Modifier
-                .padding(16.dp)
+                .padding(16.sdp)
                 .fillMaxWidth()
-                .fillMaxHeight(0.7f)
+                .fillMaxHeight(0.85f),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = theme.barBackgroundColor.copy(alpha = 0.98f),
+                contentColor = theme.iconColor
+            ),
+            border = androidx.compose.foundation.BorderStroke(1.dp, theme.iconColor.copy(alpha = 0.1f)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
         ) {
             Column(
-                modifier = Modifier.padding(16.dp),
+                modifier = Modifier.padding(16.sdp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = if (index == null) "Add Tool to ${location.name}" else "Replace Tool in ${location.name}",
+                    text = if (index == null) "Add Tool to ${location.name}" else "Configure Slot in ${location.name}",
                     style = MaterialTheme.typography.titleLarge,
                     color = theme.iconColor
                 )
                 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.sdp))
+
+                // --- SLOT CONFIGURATION SECTION ---
+                if (index != null && slotTools.isNotEmpty()) {
+                    Text(
+                        text = "Current tools in this slot:",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = theme.iconColor.copy(alpha = 0.8f),
+                        modifier = Modifier.align(Alignment.Start)
+                    )
+                    Spacer(modifier = Modifier.height(8.sdp))
+                    
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(vertical = 4.sdp),
+                        horizontalArrangement = Arrangement.spacedBy(8.sdp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        slotTools.forEachIndexed { i, tool ->
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(theme.buttonColor.copy(alpha = 0.3f))
+                                    .padding(horizontal = 10.sdp, vertical = 6.sdp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.sdp)
+                                ) {
+                                    // Move Left Arrow
+                                    if (i > 0) {
+                                        Icon(
+                                            imageVector = Icons.Default.KeyboardArrowLeft,
+                                            contentDescription = "Move Left",
+                                            tint = theme.iconColor.copy(alpha = 0.7f),
+                                            modifier = Modifier
+                                                .size(scaler.baseIconSize)
+                                                .clickable { onMoveSubTool?.invoke(i, i - 1) }
+                                        )
+                                    }
+
+                                    Icon(
+                                        imageVector = tool.icon,
+                                        contentDescription = null,
+                                        tint = theme.iconColor,
+                                        modifier = Modifier.size(scaler.smallIconSize)
+                                    )
+                                    Text(
+                                        text = if (i == 0) "${tool.contentDescription} (Main)" else tool.contentDescription,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = theme.iconColor
+                                    )
+
+                                    // Move Right Arrow
+                                    if (i < slotTools.size - 1) {
+                                        Icon(
+                                            imageVector = Icons.Default.KeyboardArrowRight,
+                                            contentDescription = "Move Right",
+                                            tint = theme.iconColor.copy(alpha = 0.7f),
+                                            modifier = Modifier
+                                                .size(scaler.baseIconSize)
+                                                .clickable { onMoveSubTool?.invoke(i, i + 1) }
+                                        )
+                                    }
+
+                                    if (i > 0) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Remove tool",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier
+                                                .size(scaler.smallIconSize)
+                                                .clickable { onRemoveSubTool?.invoke(i - 1) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.sdp))
+                }
+
+                HorizontalDivider(color = theme.iconColor.copy(alpha = 0.15f))
+                Spacer(modifier = Modifier.height(12.sdp))
+
+                // --- HEADER & ADD ADDITIONAL BUTTON ---
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (isAddingAdditional) "Select tool to add to slot:" else "Select main tool:",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = theme.iconColor
+                    )
+                    
+                    if (index != null) {
+                        Button(
+                            onClick = { isAddingAdditional = !isAddingAdditional },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isAddingAdditional) theme.highlightColor else theme.buttonColor.copy(alpha = 0.5f),
+                                contentColor = theme.iconColor
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.sdp, vertical = 6.sdp)
+                        ) {
+                            Text(if (isAddingAdditional) "Cancel Add" else "Add Additional")
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.sdp))
                 
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(80.dp), // Increased width for text
+                    columns = GridCells.Adaptive(80.sdp),
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    contentPadding = PaddingValues(8.sdp),
+                    horizontalArrangement = Arrangement.spacedBy(8.sdp),
+                    verticalArrangement = Arrangement.spacedBy(8.sdp)
                 ) {
-                    // Filter out placeholders, wrong context tools, and sub-tools (they belong in dropdowns)
                     val isContextSlot = location == ToolLocation.ContextBar
                     items(ToolRegistry.allTools.filter { !it.isPlaceholder && it.isContextual == isContextSlot && it.parentGroupId == null }) { tool ->
-                        ToolItem(tool = tool, theme = theme) {
-                            onToolSelected(tool)
-                            onDismiss()
+                        ToolItem(tool = tool, theme = theme, scaler = scaler) {
+                            if (isAddingAdditional) {
+                                onAddSubTool?.invoke(tool)
+                                isAddingAdditional = false
+                            } else {
+                                onToolSelected(tool)
+                                onDismiss()
+                            }
                         }
                     }
                 }
                 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.sdp))
+
+                // --- INSERT SLOT ABOVE / BELOW ---
+                if (index != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.sdp)
+                    ) {
+                        Button(
+                            onClick = {
+                                onInsertSlotAbove?.invoke()
+                                onDismiss()
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = theme.buttonColor.copy(alpha = 0.5f),
+                                contentColor = theme.iconColor
+                            ),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Insert slot above")
+                        }
+                        Button(
+                            onClick = {
+                                onInsertSlotBelow?.invoke()
+                                onDismiss()
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = theme.buttonColor.copy(alpha = 0.5f),
+                                contentColor = theme.iconColor
+                            ),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Insert slot below")
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.sdp))
+                }
                 
                 if (onRemove != null && index != null) {
                     Button(
@@ -85,9 +260,9 @@ fun ToolPickerDialog(
                             contentColor = Color.White
                         )
                     ) {
-                        Text("Remove from Bar")
+                        Text("Remove entire slot from Bar")
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(8.sdp))
                 }
                 
                 TextButton(
@@ -105,6 +280,7 @@ fun ToolPickerDialog(
 fun ToolItem(
     tool: StudioTool,
     theme: UiThemeConfig,
+    scaler: com.sketcher.sketchercompanionv1.ui.theme.UiScaler,
     onClick: () -> Unit
 ) {
     val backgroundColor = theme.buttonColor.copy(alpha = 0.2f)
@@ -113,12 +289,12 @@ fun ToolItem(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(8.dp),
+            .padding(8.sdp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
             modifier = Modifier
-                .size(48.dp)
+                .size(48.sdp)
                 .background(backgroundColor, RoundedCornerShape(8.dp)),
             contentAlignment = Alignment.Center
         ) {
@@ -126,11 +302,11 @@ fun ToolItem(
                 imageVector = tool.icon,
                 contentDescription = tool.contentDescription,
                 tint = theme.iconColor,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(scaler.baseIconSize)
             )
         }
         
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(4.sdp))
         
         Text(
             text = tool.contentDescription,

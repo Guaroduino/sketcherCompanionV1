@@ -17,7 +17,8 @@ data class UiThemeConfig(
     val recentColors: List<Color> = listOf(Color.Red, Color.Green, Color.Blue, Color.Cyan, Color.Magenta, Color.Yellow),
     val isShadowEnabled: Boolean = true,
     val shadowOpacity: Float = 0.27f,
-    val shadowBlur: androidx.compose.ui.unit.Dp = 2.dp
+    val shadowBlur: androidx.compose.ui.unit.Dp = 2.dp,
+    val customIcons: Map<String, String> = emptyMap()
 ) {
     fun floatingShape(): Shape {
         return if (isRound) CircleShape else RoundedCornerShape(8.dp)

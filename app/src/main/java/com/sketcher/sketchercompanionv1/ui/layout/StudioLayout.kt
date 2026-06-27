@@ -266,6 +266,7 @@ fun StudioLayout(
     var rightPanelWidth by remember(scaler) { mutableStateOf(scaler.sidePanelWidth * 1.4f) }
     var layersPanelWeight by remember { mutableFloatStateOf(0.5f) }
     var showPersonalizationDialog by remember { mutableStateOf(false) }
+    var showIconEditorDialog by remember { mutableStateOf(false) }
     var showSnapConfigDialog by remember { mutableStateOf(false) }
     var showSizeOpacityPopup by remember { mutableStateOf(false) }
     var showStudioMenu by remember { mutableStateOf(false) }
@@ -820,7 +821,7 @@ fun StudioLayout(
                     contentAlignment = Alignment.Center
                 ) {
                     if (topLeftTool != null) {
-                        Icon(topLeftTool.icon, topLeftTool.contentDescription, tint = theme.iconColor)
+                        com.sketcher.sketchercompanionv1.ui.components.ToolIcon(tool = topLeftTool, theme = theme, tint = theme.iconColor)
                     } else if (isEditMode) {
                         Icon(Icons.Default.Add, "Add Tool", tint = theme.iconColor)
                     }
@@ -877,7 +878,7 @@ fun StudioLayout(
                     contentAlignment = Alignment.Center
                 ) {
                     if (topRightTool != null) {
-                        Icon(topRightTool.icon, topRightTool.contentDescription, tint = theme.iconColor)
+                        com.sketcher.sketchercompanionv1.ui.components.ToolIcon(tool = topRightTool, theme = theme, tint = theme.iconColor)
                     } else if (isEditMode) {
                         Icon(Icons.Default.Add, "Add Tool", tint = theme.iconColor)
                     }
@@ -933,7 +934,7 @@ fun StudioLayout(
                     contentAlignment = Alignment.Center
                 ) {
                     if (bottomLeftTool != null) {
-                        Icon(bottomLeftTool.icon, bottomLeftTool.contentDescription, tint = theme.iconColor)
+                        com.sketcher.sketchercompanionv1.ui.components.ToolIcon(tool = bottomLeftTool, theme = theme, tint = theme.iconColor)
                     } else if (isEditMode) {
                         Icon(Icons.Default.Add, "Add Tool", tint = theme.iconColor)
                     }
@@ -989,7 +990,7 @@ fun StudioLayout(
                     contentAlignment = Alignment.Center
                 ) {
                     if (bottomRightTool != null) {
-                        Icon(bottomRightTool.icon, bottomRightTool.contentDescription, tint = theme.iconColor)
+                        com.sketcher.sketchercompanionv1.ui.components.ToolIcon(tool = bottomRightTool, theme = theme, tint = theme.iconColor)
                     } else if (isEditMode) {
                         Icon(Icons.Default.Add, "Add Tool", tint = theme.iconColor)
                     }
@@ -1067,7 +1068,7 @@ fun StudioLayout(
                                        buttonColor = theme.buttonColor,
                                        iconColor = theme.iconColor,
                                        shape = theme.floatingShape(),
-                                       iconSize = scaler.smallIconSize
+                                       iconSize = scaler.smallIconSize, tool = tool, theme = theme
                                    )
                               } else {
                                   com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
@@ -1096,7 +1097,7 @@ fun StudioLayout(
                                       shape = theme.floatingShape(),
                                       iconSize = scaler.smallIconSize,
                                       location = ToolLocation.LeftBar,
-                                      theme = theme,
+                                      theme = theme, tool = tool,
                                       payload = assignedToolsMap[tool.id],
                                       colorPreview = when (assignedToolsMap[tool.id]) {
                                           ToolPayload.STROKE_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(strokeColorVal)
@@ -1200,7 +1201,7 @@ fun StudioLayout(
                                       buttonColor = theme.buttonColor,
                                       iconColor = theme.iconColor,
                                       shape = theme.floatingShape(),
-                                      iconSize = scaler.smallIconSize
+                                      iconSize = scaler.smallIconSize, tool = tool, theme = theme
                                    )
                              } else {
                                  com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
@@ -1229,7 +1230,7 @@ fun StudioLayout(
                                      shape = theme.floatingShape(),
                                      iconSize = scaler.smallIconSize,
                                       location = ToolLocation.RightBar,
-                                      theme = theme,
+                                      theme = theme, tool = tool,
                                       payload = assignedToolsMap[tool.id],
                                        colorPreview = when (assignedToolsMap[tool.id]) {
                                            ToolPayload.STROKE_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(strokeColorVal)
@@ -1334,7 +1335,7 @@ fun StudioLayout(
                                       buttonColor = theme.buttonColor,
                                       iconColor = theme.iconColor,
                                       shape = theme.floatingShape(),
-                                      iconSize = scaler.smallIconSize
+                                      iconSize = scaler.smallIconSize, tool = tool, theme = theme
                                   )
                              } else {
                                  com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
@@ -1363,7 +1364,7 @@ fun StudioLayout(
                                      shape = theme.floatingShape(),
                                      iconSize = scaler.smallIconSize,
                                       location = ToolLocation.TopBar,
-                                      theme = theme,
+                                      theme = theme, tool = tool,
                                       payload = assignedToolsMap[tool.id],
                                        colorPreview = when (assignedToolsMap[tool.id]) {
                                            ToolPayload.STROKE_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(strokeColorVal)
@@ -1469,7 +1470,7 @@ fun StudioLayout(
                                       buttonColor = theme.buttonColor,
                                       iconColor = theme.iconColor,
                                       shape = theme.floatingShape(),
-                                      iconSize = scaler.smallIconSize
+                                      iconSize = scaler.smallIconSize, tool = tool, theme = theme
                                   )
                              } else {
                                  com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
@@ -1498,7 +1499,7 @@ fun StudioLayout(
                                      shape = theme.floatingShape(),
                                      iconSize = scaler.smallIconSize,
                                       location = ToolLocation.BottomBar,
-                                      theme = theme,
+                                      theme = theme, tool = tool,
                                       payload = assignedToolsMap[tool.id],
                                       colorPreview = when (assignedToolsMap[tool.id]) {
                                           ToolPayload.STROKE_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(strokeColorVal)
@@ -2115,6 +2116,28 @@ fun StudioLayout(
                         }
                     }
 
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = { 
+                            showIconEditorDialog = true
+                            showPersonalizationDialog = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = theme.buttonColor,
+                            contentColor = theme.iconColor
+                        ),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = null,
+                            tint = theme.iconColor,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                        Text("Edit Button Icons")
+                    }
+
                     Spacer(modifier = Modifier.height(24.dp))
                     Button(
                         onClick = { showPersonalizationDialog = false },
@@ -2136,6 +2159,13 @@ fun StudioLayout(
             viewModel = viewModel,
             actions = projectActions,
             onDismiss = { showStudioMenu = false }
+        )
+    }
+
+    if (showIconEditorDialog) {
+        com.sketcher.sketchercompanionv1.ui.dialogs.IconEditorDialog(
+            viewModel = viewModel,
+            onDismiss = { showIconEditorDialog = false }
         )
     }
 
