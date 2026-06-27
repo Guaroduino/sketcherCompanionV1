@@ -10,6 +10,7 @@ data class ProjectActions(
     val onImportImage: () -> Unit,
     val onImportSvg: () -> Unit,
     val onImportDxf: () -> Unit,
+    val onImportPdf: () -> Unit,
     val onExportPng: () -> Unit,
     val onExportSvg: () -> Unit,
     val onExportPdf: () -> Unit,

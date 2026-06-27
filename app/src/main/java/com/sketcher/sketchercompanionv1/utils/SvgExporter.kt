@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1.utils
+package com.sketcher.sketchercompanionv1.utils
 
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -166,7 +166,6 @@ object SvgExporter {
     }
 
     private fun exportVectorStroke(sb: StringBuilder, stroke: VectorStroke) {
-        // Use the generated path for visual consistency
         val d = PathToSvgHelper.pathToString(stroke.path)
         if (d.isEmpty()) return
         
@@ -174,17 +173,18 @@ object SvgExporter {
         val alpha = (Color.alpha(stroke.strokeColor) / 255f)
         val strokeOpacity = if (alpha < 1f) "stroke-opacity=\"$alpha\"" else ""
         
-        // VectorStroke typically uses the path as the FILL of the shape because it's an outline path?
-        // Wait, VectorStroke in this app seems to be an Outline Path (created by PathGenerator).
-        // If PathGenerator generates the outline (left/right points), then we should FILL it.
-        // Let's check: VectorStroke has `path` which is usually the outline.
-        // IF it was a centerline, we would STROKE it.
-        // PathGenerator.generateStrokePath returns a closed shape usually?
-        // Let's assume it is a filled shape for now (Outline).
-        // If it was just a line, we'd stroke it. 
-        // Based on previous files, `generateStrokePath` creates a complex path.
-        
-        sb.append("    <path d=\"$d\" fill=\"$colorHex\" stroke=\"none\" $strokeOpacity />\n")
+        if (stroke.strokeType == StrokeType.FREEHAND) {
+            sb.append("    <path d=\"$d\" fill=\"$colorHex\" stroke=\"none\" $strokeOpacity />\n")
+        } else {
+            val strokeWidth = stroke.maxWidth
+            val fillHex = if (stroke.isFillEnabled) colorToHex(stroke.fillColor) else "none"
+            val fillOpacity = if (stroke.isFillEnabled) {
+                val fAlpha = (Color.alpha(stroke.fillColor) / 255f)
+                if (fAlpha < 1f) "fill-opacity=\"$fAlpha\"" else ""
+            } else ""
+            
+            sb.append("    <path d=\"$d\" fill=\"$fillHex\" stroke=\"$colorHex\" stroke-width=\"$strokeWidth\" stroke-linecap=\"round\" stroke-linejoin=\"round\" $strokeOpacity $fillOpacity />\n")
+        }
     }
 
 

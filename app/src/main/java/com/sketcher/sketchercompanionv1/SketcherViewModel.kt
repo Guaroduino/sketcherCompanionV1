@@ -259,6 +259,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 updateStrokeType(StrokeType.FREEHAND)
                 selectTool(ToolType.FREEHAND)
             }
+            ToolPayload.PEN -> {
+                updateStrokeType(StrokeType.PEN)
+                selectTool(ToolType.PEN)
+            }
             ToolPayload.ERASER -> selectTool(ToolType.ERASER)
             ToolPayload.STROKE_COLOR -> {
                 toolId?.let { id ->
@@ -289,6 +293,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     
     private fun getPayloadFromToolId(id: String): ToolPayload? = when(id) {
         "pencil" -> ToolPayload.PENCIL
+        "pen" -> ToolPayload.PEN
         "eraser" -> ToolPayload.ERASER
         "stroke_color" -> ToolPayload.STROKE_COLOR
         "fill_color" -> ToolPayload.FILL_COLOR
@@ -474,6 +479,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
              updateStrokeType(StrokeType.FREEHAND)
              selectTool(ToolType.FREEHAND) 
         })
+        "pen" -> ({ 
+             updateStrokeType(StrokeType.PEN)
+             selectTool(ToolType.PEN) 
+        })
         "eraser" -> ({ selectTool(ToolType.ERASER) })
         "line" -> ({
              updateStrokeType(StrokeType.LINE)
@@ -497,6 +506,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         })
         "spline" -> ({
              updateStrokeType(StrokeType.SPLINE)
+             selectTool(ToolType.FREEHAND)
+        })
+        "bezier" -> ({
+             updateStrokeType(StrokeType.BEZIER)
              selectTool(ToolType.FREEHAND)
         })
         "trim" -> ({ selectTool(ToolType.TRIM) })
@@ -542,6 +555,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         if (_assignedTools.value.isEmpty()) {
             _assignedTools.value = mapOf(
                 "pencil" to ToolPayload.PENCIL,
+                "pen" to ToolPayload.PEN,
                 "eraser" to ToolPayload.ERASER,
                 "stroke_color" to ToolPayload.STROKE_COLOR,
                 "fill_color" to ToolPayload.FILL_COLOR
@@ -559,6 +573,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             ToolLocation.RightBar to listOfNotNull(
                 com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById(StudioTool.SIZE_OPACITY_TOOL_ID),
                 com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("pencil"),
+                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("pen"),
                 com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("divider"),
                 com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("stroke_color"),
                 com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("fill_color"),
@@ -649,6 +664,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             // Reset to defaults if no layout exists
             _assignedTools.value = mapOf(
                 "pencil" to ToolPayload.PENCIL,
+                "pen" to ToolPayload.PEN,
                 "eraser" to ToolPayload.ERASER,
                 "stroke_color" to ToolPayload.STROKE_COLOR,
                 "fill_color" to ToolPayload.FILL_COLOR
@@ -2152,6 +2168,17 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                  }
              }
          }
+    }
+
+    fun insertPdfPageBitmap(context: Context, bitmap: android.graphics.Bitmap, pageIndex: Int, dpi: Int, originalFileName: String) {
+        val sanitizedName = originalFileName.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
+        val filename = "pdf_${sanitizedName}_p${pageIndex}_${dpi}dpi_${java.util.UUID.randomUUID()}.png"
+        activeImageEditState = com.sketcher.sketchercompanionv1.dto.ImageEditState(
+            isNewImport = true,
+            elementId = null,
+            originalBitmap = bitmap,
+            filename = filename
+        )
     }
     
     fun insertSvg(context: Context, uri: android.net.Uri) {

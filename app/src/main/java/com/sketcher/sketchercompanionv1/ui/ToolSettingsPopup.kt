@@ -89,7 +89,8 @@ fun FreehandSettingsContent(
     currentSettings: FreehandSettings,
     onSettingsChanged: (FreehandSettings) -> Unit,
     isFlattenedOuterStrokeEnabled: Boolean,
-    onToggleFlattenedOuterStroke: () -> Unit
+    onToggleFlattenedOuterStroke: () -> Unit,
+    showFlatStrokeOption: Boolean = true
 ) {
     Text("Ajustes de Pincel (Perfect Freehand)", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
 
@@ -238,27 +239,29 @@ fun FreehandSettingsContent(
         Text("Equilibrado - Recomendado", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
     }
 
-    HorizontalDivider()
-    
-    Text("Experimento: Modo Trazo Plano", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-    
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text("Trazo Optimizado (Plano)")
-            Text(
-                text = "Procesa los puntos exteriores vectorialmente al levantar el lápiz para una mancha limpia y sin trazos internos.",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.Gray
+    if (showFlatStrokeOption) {
+        HorizontalDivider()
+        
+        Text("Experimento: Modo Trazo Plano", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+        
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Trazo Optimizado (Plano)")
+                Text(
+                    text = "Procesa los puntos exteriores vectorialmente al levantar el lápiz para una mancha limpia y sin trazos internos.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
+            }
+            Switch(
+                checked = isFlattenedOuterStrokeEnabled,
+                onCheckedChange = { onToggleFlattenedOuterStroke() }
             )
         }
-        Switch(
-            checked = isFlattenedOuterStrokeEnabled,
-            onCheckedChange = { onToggleFlattenedOuterStroke() }
-        )
     }
 }
 

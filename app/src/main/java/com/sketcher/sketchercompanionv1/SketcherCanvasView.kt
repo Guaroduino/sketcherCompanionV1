@@ -879,7 +879,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                     val strokeAlpha = (android.graphics.Color.alpha(activeStrokeColor) / 255f)
                     val effectiveStrokeOpacity = strokeAlpha * activeLayerOpacity
                     val isCumulative = activeFreehandSettings.isCumulativeOpacity
-                    val isCadDraw = currentTool == ToolType.FREEHAND && activeStrokeType != StrokeType.FREEHAND
+                    val isCadDraw = activeStrokeType != StrokeType.FREEHAND
                     
                     if (effectiveStrokeOpacity < 1f && !isCumulative) {
                         // Non-cumulative semi-transparent stroke: use saveLayer to avoid connection seams
@@ -1043,16 +1043,34 @@ class SketcherCanvasView(context: Context) : View(context) {
         
         // Draw Stylus Hover Preview Line for multi-step tools
         if (!isDrawing && strokePipeline.isMultiStepInProgress) {
-            val lastPt = strokePipeline.currentStrokePointsList.lastOrNull()
+            val activeStrokeType = strokePipeline.activeStrokeType
+            val startPt = if (activeStrokeType == StrokeType.BEZIER) {
+                val pts = strokePipeline.currentStrokePointsList
+                if (pts.size >= 2) pts[pts.size - 2] else null
+            } else {
+                strokePipeline.currentStrokePointsList.lastOrNull()
+            }
             val hoverPt = hoverWorldPoint
-            if (lastPt != null && hoverPt != null) {
+            if (startPt != null && hoverPt != null) {
                 canvas.save()
                 canvas.concat(viewMatrix)
                 hoverPreviewPaint.color = activeStrokeColor
                 hoverPreviewPaint.strokeWidth = (activeSize / getMatrixScale(viewMatrix)).coerceIn(1f, 10f)
-                canvas.drawLine(lastPt.x, lastPt.y, hoverPt.x, hoverPt.y, hoverPreviewPaint)
+                canvas.drawLine(startPt.x, startPt.y, hoverPt.x, hoverPt.y, hoverPreviewPaint)
                 canvas.restore()
             }
+        }
+        
+        if (strokePipeline.isMultiStepInProgress && strokePipeline.activeStrokeType == StrokeType.BEZIER) {
+            val tempStroke = VectorStroke(
+                points = strokePipeline.currentStrokePointsList,
+                strokeColor = activeStrokeColor,
+                maxWidth = activeSize,
+                path = android.graphics.Path(),
+                strokeType = StrokeType.BEZIER
+            )
+            val density = resources.displayMetrics.density
+            renderEngine.drawGrips(canvas, tempStroke, viewMatrix, density)
         }
 
         currentSnapPoint?.let { snap ->
@@ -1129,10 +1147,41 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-            activeSnapPoints = if (isElementSnappingEnabled) {
+            val baseSnapPoints = if (isElementSnappingEnabled) {
                 getCombinedSnapPoints()
             } else {
                 emptyList()
+            }
+
+            val isDrawTool = currentTool == ToolType.FREEHAND || currentTool == ToolType.PEN
+            if (isElementSnappingEnabled && isSnapEndpointEnabled && isDrawTool) {
+                val pts = floatArrayOf(event.x, event.y)
+                inverseMatrix.mapPoints(pts)
+                val worldX = pts[0]
+                val worldY = pts[1]
+
+                var snappedWorldX = worldX
+                var snappedWorldY = worldY
+                val zoom = getMatrixScale(viewMatrix)
+                val resolvedSnap = SnapEngine.resolveSnap(worldX, worldY, baseSnapPoints, zoom)
+                if (resolvedSnap != null) {
+                    snappedWorldX = resolvedSnap.point.x
+                    snappedWorldY = resolvedSnap.point.y
+                } else if (isSnapToGridEnabled) {
+                    val gridStepPx = UnitUtils.projectUnitsToPixels(
+                        value = gridConfig.spacing,
+                        unit = currentUnit,
+                        basePxPerMm = scaleConfig.basePixelsPerMillimeter
+                    )
+                    if (gridStepPx > 0) {
+                        snappedWorldX = kotlin.math.round(worldX / gridStepPx) * gridStepPx
+                        snappedWorldY = kotlin.math.round(worldY / gridStepPx) * gridStepPx
+                    }
+                }
+
+                activeSnapPoints = baseSnapPoints + SnapPoint(android.graphics.PointF(snappedWorldX, snappedWorldY), SnapType.ENDPOINT)
+            } else {
+                activeSnapPoints = baseSnapPoints
             }
         } else if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
             currentSnapPoint = null
@@ -1286,6 +1335,79 @@ class SketcherCanvasView(context: Context) : View(context) {
                             stroke.points[idx].x = worldX
                             stroke.points[idx].y = worldY
                         }
+                    } else if (stroke.strokeType == StrokeType.BEZIER) {
+                        val size = stroke.points.size
+                        val isClosed = (stroke.points.first().x == stroke.points.last().x && stroke.points.first().y == stroke.points.last().y)
+                        
+                        if (idx % 3 == 0) {
+                            // Anchor point: translate it and its tangent handles together
+                            val dx = worldX - origPts[idx].x
+                            val dy = worldY - origPts[idx].y
+                            stroke.points[idx].x = worldX
+                            stroke.points[idx].y = worldY
+                            
+                            if (isClosed) {
+                                if (idx == 0) {
+                                    stroke.points[size - 1].x = worldX
+                                    stroke.points[size - 1].y = worldY
+                                } else if (idx == size - 1) {
+                                    stroke.points[0].x = worldX
+                                    stroke.points[0].y = worldY
+                                }
+                            }
+                            
+                            if (idx + 1 < size) {
+                                stroke.points[idx + 1].x = origPts[idx + 1].x + dx
+                                stroke.points[idx + 1].y = origPts[idx + 1].y + dy
+                            } else if (isClosed && idx == size - 1) {
+                                stroke.points[1].x = origPts[1].x + dx
+                                stroke.points[1].y = origPts[1].y + dy
+                            }
+                            
+                            if (idx - 1 >= 0) {
+                                stroke.points[idx - 1].x = origPts[idx - 1].x + dx
+                                stroke.points[idx - 1].y = origPts[idx - 1].y + dy
+                            } else if (isClosed && idx == 0) {
+                                stroke.points[size - 2].x = origPts[size - 2].x + dx
+                                stroke.points[size - 2].y = origPts[size - 2].y + dy
+                            }
+                        } else if (idx % 3 == 1) {
+                            // Out-tangent handle
+                            stroke.points[idx].x = worldX
+                            stroke.points[idx].y = worldY
+                            val anchorIdx = idx - 1
+                            if (anchorIdx >= 0) {
+                                val anchor = stroke.points[anchorIdx]
+                                val dx = worldX - anchor.x
+                                val dy = worldY - anchor.y
+                                val oppIdx = anchorIdx - 1
+                                if (oppIdx >= 0 && oppIdx < size) {
+                                    stroke.points[oppIdx].x = anchor.x - dx
+                                    stroke.points[oppIdx].y = anchor.y - dy
+                                } else if (isClosed && anchorIdx == 0) {
+                                    stroke.points[size - 2].x = anchor.x - dx
+                                    stroke.points[size - 2].y = anchor.y - dy
+                                }
+                            }
+                        } else if (idx % 3 == 2) {
+                            // In-tangent handle
+                            stroke.points[idx].x = worldX
+                            stroke.points[idx].y = worldY
+                            val anchorIdx = idx + 1
+                            if (anchorIdx < size) {
+                                val anchor = stroke.points[anchorIdx]
+                                val dx = worldX - anchor.x
+                                val dy = worldY - anchor.y
+                                val oppIdx = anchorIdx + 1
+                                if (oppIdx < size) {
+                                    stroke.points[oppIdx].x = anchor.x - dx
+                                    stroke.points[oppIdx].y = anchor.y - dy
+                                } else if (isClosed && anchorIdx == size - 1) {
+                                    stroke.points[1].x = anchor.x - dx
+                                    stroke.points[1].y = anchor.y - dy
+                                }
+                            }
+                        }
                     } else {
                         stroke.points[idx].x = worldX
                         stroke.points[idx].y = worldY
@@ -1347,6 +1469,13 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     fun cancelGeometricStroke() {
         strokePipeline.reset()
+        currentSnapPoint = null
+        hoverWorldPoint = null
+        invalidate()
+    }
+
+    fun undoLastGeometricPoint() {
+        strokePipeline.undoLastPoint()
         currentSnapPoint = null
         hoverWorldPoint = null
         invalidate()

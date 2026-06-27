@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.AutoFixNormal
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.BorderColor
 import androidx.compose.material.icons.filled.FormatColorFill
+import androidx.compose.material.icons.filled.Gesture
 import android.util.Log
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -41,6 +42,7 @@ import com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler
 // Define ToolPayload as requested
 enum class ToolPayload(val label: String, val icon: ImageVector) {
     PENCIL("Pencil", Icons.Default.Edit),
+    PEN("Pen", Icons.Default.Gesture),
     ERASER("Eraser", Icons.Default.AutoFixNormal),
     STROKE_COLOR("Stroke Color", Icons.Default.BorderColor),
     FILL_COLOR("Fill Color", Icons.Default.FormatColorFill)

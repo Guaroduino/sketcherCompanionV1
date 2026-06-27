@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1.ui.layout
+package com.sketcher.sketchercompanionv1.ui.layout
 
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.FilterCenterFocus
+import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -140,6 +141,9 @@ fun StudioLayout(
             tool.registryId == "spline" -> {
                 currentTool == ToolType.FREEHAND && currentStrokeType == StrokeType.SPLINE
             }
+            tool.registryId == "bezier" -> {
+                currentTool == ToolType.FREEHAND && currentStrokeType == StrokeType.BEZIER
+            }
             payload == ToolPayload.ERASER || tool.registryId == "eraser" -> {
                 currentTool == ToolType.ERASER
             }
@@ -178,6 +182,7 @@ fun StudioLayout(
         val isClickingActiveCadTool = (
             (tool.registryId == "polyline" && currentStrokeType == StrokeType.POLYLINE) ||
             (tool.registryId == "spline" && currentStrokeType == StrokeType.SPLINE) ||
+            (tool.registryId == "bezier" && currentStrokeType == StrokeType.BEZIER) ||
             (tool.registryId == "arc" && currentStrokeType == StrokeType.ARC) ||
             (tool.registryId == "ellipse" && currentStrokeType == StrokeType.ELLIPSE)
         )
@@ -1046,6 +1051,7 @@ fun StudioLayout(
                              } else if (tool.isPlaceholder || tool.registryId.contains("zoom") || tool.registryId == "home_view") {
                                    val isActionButton = resolveIsActionButton(tool); val isRealAction = !tool.isPlaceholder || isActionButton
                                    val bgColor = if (isActionButton) null else androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.3f)
+                                   
                                    com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
                                        onClick = {
                                            if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx
@@ -1653,6 +1659,19 @@ fun StudioLayout(
                     onClick = { canvasViewRef.value?.cancelGeometricStroke() },
                     icon = Icons.Default.Close,
                     contentDescription = "Cancel Shape",
+                    isActive = false,
+                    highlightColor = theme.highlightColor,
+                    buttonColor = Color.Transparent, 
+                    iconColor = theme.iconColor,
+                    shape = CircleShape,
+                    iconSize = scaler.baseIconSize
+                )
+                
+                // Undo Last Point Button
+                com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
+                    onClick = { canvasViewRef.value?.undoLastGeometricPoint() },
+                    icon = Icons.Default.Undo,
+                    contentDescription = "Undo Last Point",
                     isActive = false,
                     highlightColor = theme.highlightColor,
                     buttonColor = Color.Transparent, 

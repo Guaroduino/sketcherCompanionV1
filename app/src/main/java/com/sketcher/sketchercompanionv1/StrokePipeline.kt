@@ -246,7 +246,7 @@ class StrokePipeline(
 
     private fun updateGeometricPoints(action: Int, worldP: StrokePoint) {
          when (activeStrokeType) {
-            StrokeType.FREEHAND -> {
+            StrokeType.FREEHAND, StrokeType.PEN -> {
                 currentStrokePoints.add(worldP)
             }
             StrokeType.LINE, StrokeType.CIRCLE -> {
@@ -307,6 +307,57 @@ class StrokePipeline(
                 } else if (action == MotionEvent.ACTION_MOVE) {
                     if (currentStrokePoints.isNotEmpty()) {
                         currentStrokePoints[currentStrokePoints.size - 1] = worldP
+                    }
+                }
+            }
+            StrokeType.BEZIER -> {
+                if (action == MotionEvent.ACTION_DOWN) {
+                    if (!isMultiStepInProgress) {
+                        currentStrokePoints.clear()
+                        isMultiStepInProgress = true
+                        currentStrokePoints.add(worldP)
+                        currentStrokePoints.add(worldP)
+                    } else {
+                        val firstPt = currentStrokePoints.firstOrNull()
+                        if (firstPt != null && currentStrokePoints.size > 2) {
+                            val dx = worldP.x - firstPt.x
+                            val dy = worldP.y - firstPt.y
+                            val distSq = dx * dx + dy * dy
+                            val threshold = 12f / currentZoom
+                            if (distSq < threshold * threshold) {
+                                val outTan = currentStrokePoints[1]
+                                val inTanX = 2 * firstPt.x - outTan.x
+                                val inTanY = 2 * firstPt.y - outTan.y
+                                val inTan = StrokePoint(inTanX, inTanY, firstPt.pressure, firstPt.timestamp)
+                                currentStrokePoints.add(inTan)
+                                currentStrokePoints.add(firstPt)
+                                forceFinishGeometric()
+                                return
+                            }
+                        }
+                        currentStrokePoints.add(worldP)
+                        currentStrokePoints.add(worldP)
+                        currentStrokePoints.add(worldP)
+                    }
+                } else if (action == MotionEvent.ACTION_MOVE) {
+                    if (currentStrokePoints.size == 2) {
+                        currentStrokePoints[1] = worldP
+                    } else if (currentStrokePoints.size >= 5) {
+                        val activeNodeIndex = (currentStrokePoints.size - 2) / 3
+                        val anchorIdx = activeNodeIndex * 3
+                        if (anchorIdx < currentStrokePoints.size) {
+                            val anchor = currentStrokePoints[anchorIdx]
+                            val dx = worldP.x - anchor.x
+                            val dy = worldP.y - anchor.y
+                            val outIdx = anchorIdx + 1
+                            if (outIdx < currentStrokePoints.size) {
+                                currentStrokePoints[outIdx] = StrokePoint(anchor.x + dx, anchor.y + dy, worldP.pressure, worldP.timestamp)
+                            }
+                            val inIdx = anchorIdx - 1
+                            if (inIdx >= 0) {
+                                currentStrokePoints[inIdx] = StrokePoint(anchor.x - dx, anchor.y - dy, worldP.pressure, worldP.timestamp)
+                            }
+                        }
                     }
                 }
             }
@@ -536,7 +587,7 @@ class StrokePipeline(
         }
 
         // Handle Multi-step continuation
-        if (activeStrokeType == StrokeType.POLYLINE || activeStrokeType == StrokeType.SPLINE ||
+        if (activeStrokeType == StrokeType.POLYLINE || activeStrokeType == StrokeType.SPLINE || activeStrokeType == StrokeType.BEZIER ||
             ((activeStrokeType == StrokeType.ARC || activeStrokeType == StrokeType.ELLIPSE) && currentStrokePoints.size < 3)) {
              updatePreview()
              isMultiStepInProgress = true
@@ -857,6 +908,43 @@ class StrokePipeline(
         reset()
     }
 
+    fun undoLastPoint() {
+        if (currentStrokePoints.isEmpty()) return
+        
+        when (activeStrokeType) {
+            StrokeType.FREEHAND, StrokeType.PEN -> {}
+            StrokeType.LINE, StrokeType.CIRCLE -> {
+                reset()
+            }
+            StrokeType.POLYLINE, StrokeType.SPLINE -> {
+                if (currentStrokePoints.size <= 2) {
+                    reset()
+                } else {
+                    currentStrokePoints.removeAt(currentStrokePoints.size - 1)
+                    updatePreview()
+                }
+            }
+            StrokeType.BEZIER -> {
+                if (currentStrokePoints.size <= 2) {
+                    reset()
+                } else {
+                    currentStrokePoints.removeAt(currentStrokePoints.size - 1)
+                    currentStrokePoints.removeAt(currentStrokePoints.size - 1)
+                    currentStrokePoints.removeAt(currentStrokePoints.size - 1)
+                    updatePreview()
+                }
+            }
+            StrokeType.ARC, StrokeType.ELLIPSE -> {
+                if (currentStrokePoints.size <= 2) {
+                    reset()
+                } else {
+                    currentStrokePoints.removeAt(currentStrokePoints.size - 1)
+                    updatePreview()
+                }
+            }
+        }
+    }
+
     fun reset() {
         currentStrokePoints.clear()
         committedPath.rewind()
@@ -874,7 +962,7 @@ class StrokePipeline(
 
     private fun getInterpolatedPoints(isFinal: Boolean): List<StrokePoint> {
         return when (activeStrokeType) {
-            StrokeType.FREEHAND -> {
+            StrokeType.FREEHAND, StrokeType.PEN -> {
                 if (!isFinal) {
                     val latencyMs = activeFreehandSettings.predictionLatency.toLong()
                     val predictedPt = predictor.getPredictedPoint(

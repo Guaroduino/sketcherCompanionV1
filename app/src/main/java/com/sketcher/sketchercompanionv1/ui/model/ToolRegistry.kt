@@ -17,6 +17,7 @@ import androidx.compose.material.icons.outlined.*
 object ToolRegistry {
     val allTools = listOf(
         StudioTool("pencil", Icons.Default.Edit, "Pencil", isPlaceholder = false),
+        StudioTool("pen", Icons.Default.Gesture, "Pen", isPlaceholder = false),
         StudioTool("eraser", Icons.Default.AutoFixNormal, "Eraser", isPlaceholder = false),
         StudioTool("brush", Icons.Default.Brush, "Brush", isPlaceholder = false),
         StudioTool("line", Icons.Default.Timeline, "Line", isPlaceholder = false),
@@ -26,6 +27,7 @@ object ToolRegistry {
         StudioTool("arc", Icons.Default.Gesture, "Arc", isPlaceholder = false),
         StudioTool("ellipse", Icons.Default.Adjust, "Ellipse", isPlaceholder = false),
         StudioTool("spline", Icons.Default.Gesture, "Spline", isPlaceholder = false),
+        StudioTool("bezier", Icons.Default.FormatShapes, "Bezier Spline", isPlaceholder = false),
         StudioTool("trim", Icons.Default.ContentCut, "Trim", isPlaceholder = false),
         StudioTool("extend", Icons.Default.TrendingFlat, "Extend", isPlaceholder = false),
         StudioTool("edit_points", Icons.Default.Build, "Edit Points", isPlaceholder = false),

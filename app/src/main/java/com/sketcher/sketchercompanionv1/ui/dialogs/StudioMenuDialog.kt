@@ -117,6 +117,12 @@ fun StudioMenuDialog(
                             onDismiss()
                         }
                     }
+                    item {
+                        MenuItem(Icons.Default.PictureAsPdf, "Import PDF", theme.iconColor) { 
+                            actions.onImportPdf()
+                            onDismiss()
+                        }
+                    }
 
                     item { Spacer(modifier = Modifier.height(8.dp)) }
                     item { MenuSectionHeader("EXPORT", theme.iconColor) }

@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1.utils
+package com.sketcher.sketchercompanionv1.utils
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -7,6 +7,36 @@ import android.net.Uri
 import java.io.InputStream
 
 object BitmapUtils {
+
+    /**
+     * Resolves the actual filename of a Uri (e.g. from ContentResolver openable columns).
+     */
+    fun getFileNameFromUri(context: Context, uri: Uri): String? {
+        var result: String? = null
+        if (uri.scheme == "content") {
+            val cursor = context.contentResolver.query(uri, null, null, null, null)
+            try {
+                if (cursor != null && cursor.moveToFirst()) {
+                    val index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (index != -1) {
+                        result = cursor.getString(index)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                cursor?.close()
+            }
+        }
+        if (result == null) {
+            result = uri.path
+            val cut = result?.lastIndexOf('/') ?: -1
+            if (cut != -1) {
+                result = result?.substring(cut + 1)
+            }
+        }
+        return result
+    }
 
     /**
      * Loads a bitmap from a URI, scaling it down if necessary to fit within maxDimension.

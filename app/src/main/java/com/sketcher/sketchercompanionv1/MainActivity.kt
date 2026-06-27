@@ -95,6 +95,9 @@ class MainActivity : ComponentActivity() {
             var showLoadTemplateDialog by remember { mutableStateOf(false) }
             var showDxfImportDialog by remember { mutableStateOf(false) }
             var dxfImportUri by remember { mutableStateOf<android.net.Uri?>(null) }
+            var showPdfImportDialog by remember { mutableStateOf(false) }
+            var pdfImportUri by remember { mutableStateOf<android.net.Uri?>(null) }
+            var pdfOriginalFileName by remember { mutableStateOf("document.pdf") }
             var showDxfExportDialog by remember { mutableStateOf(false) }
             var showExportPngDialog by remember { mutableStateOf(false) }
             var showExportSvgDialog by remember { mutableStateOf(false) }
@@ -115,6 +118,13 @@ class MainActivity : ComponentActivity() {
             }
             val dxfImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
                 uri?.let { dxfImportUri = it; showDxfImportDialog = true }
+            }
+            val pdfImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                uri?.let { 
+                    pdfImportUri = it
+                    pdfOriginalFileName = com.sketcher.sketchercompanionv1.utils.BitmapUtils.getFileNameFromUri(context, it) ?: "document.pdf"
+                    showPdfImportDialog = true
+                }
             }
             val exportPngLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/png")) { uri ->
                 uri?.let { sketchViewModel.exportPng(context, it, sketchViewModel.lastExportPngConfig) }
@@ -138,6 +148,7 @@ class MainActivity : ComponentActivity() {
                     onImportImage = { importImageLauncher.launch("image/*") },
                     onImportSvg = { importSvgLauncher.launch("*/*") },
                     onImportDxf = { dxfImportLauncher.launch(arrayOf("*/*")) },
+                    onImportPdf = { pdfImportLauncher.launch(arrayOf("application/pdf")) },
                     onExportPng = { showExportPngDialog = true },
                     onExportSvg = { showExportSvgDialog = true },
                     onExportPdf = { 
@@ -282,6 +293,18 @@ class MainActivity : ComponentActivity() {
                                 onImport = { data, scaleToFit, defaultStrokeWidth, fillClosedShapes, selectedUnit ->
                                     sketchViewModel.addImportedDxfData(data, scaleToFit, defaultStrokeWidth, fillClosedShapes, selectedUnit)
                                     showDxfImportDialog = false
+                                }
+                            )
+                        }
+
+                        if (showPdfImportDialog && pdfImportUri != null) {
+                            com.sketcher.sketchercompanionv1.ui.dialogs.PdfImportDialog(
+                                uri = pdfImportUri!!,
+                                fileName = pdfOriginalFileName,
+                                onDismiss = { showPdfImportDialog = false },
+                                onImport = { bitmap, pageIndex, dpi ->
+                                    sketchViewModel.insertPdfPageBitmap(context, bitmap, pageIndex, dpi, pdfOriginalFileName)
+                                    showPdfImportDialog = false
                                 }
                             )
                         }

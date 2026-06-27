@@ -393,14 +393,94 @@ class RenderEngine {
     fun drawGrips(canvas: Canvas, stroke: VectorStroke, viewMatrix: Matrix, density: Float) {
         val size = 6f * density // 6dp half size
         val pts = FloatArray(2)
-        for (p in stroke.points) {
-            pts[0] = p.x
-            pts[1] = p.y
-            viewMatrix.mapPoints(pts)
-            val sx = pts[0]
-            val sy = pts[1]
-            canvas.drawRect(sx - size, sy - size, sx + size, sy + size, gripFillPaint)
-            canvas.drawRect(sx - size, sy - size, sx + size, sy + size, gripBorderPaint)
+        
+        if (stroke.strokeType == StrokeType.BEZIER) {
+            val sizeAnchor = 6f * density
+            val sizeHandle = 4f * density
+            val anchorPts = FloatArray(2)
+            
+            val linePaint = Paint().apply {
+                color = android.graphics.Color.parseColor("#FF007AFF")
+                strokeWidth = 1.5f * density
+                style = Paint.Style.STROKE
+            }
+            
+            val handlePaint = Paint().apply {
+                color = android.graphics.Color.parseColor("#FF007AFF")
+                style = Paint.Style.FILL
+            }
+            
+            val handleBorderPaint = Paint().apply {
+                color = android.graphics.Color.WHITE
+                strokeWidth = 1f * density
+                style = Paint.Style.STROKE
+            }
+            
+            val N = stroke.points.size
+            val numNodes = (N + 2) / 3
+            
+            // Draw tangent lines and handles first
+            for (i in 0 until numNodes) {
+                val anchorIdx = 3 * i
+                if (anchorIdx >= N) break
+                val anchor = stroke.points[anchorIdx]
+                
+                anchorPts[0] = anchor.x
+                anchorPts[1] = anchor.y
+                viewMatrix.mapPoints(anchorPts)
+                val ax = anchorPts[0]
+                val ay = anchorPts[1]
+                
+                val outIdx = anchorIdx + 1
+                if (outIdx < N) {
+                    val outPt = stroke.points[outIdx]
+                    pts[0] = outPt.x
+                    pts[1] = outPt.y
+                    viewMatrix.mapPoints(pts)
+                    val ox = pts[0]
+                    val oy = pts[1]
+                    canvas.drawLine(ax, ay, ox, oy, linePaint)
+                    canvas.drawCircle(ox, oy, sizeHandle, handlePaint)
+                    canvas.drawCircle(ox, oy, sizeHandle, handleBorderPaint)
+                }
+                
+                val inIdx = anchorIdx - 1
+                if (anchorIdx > 0 && inIdx < N) {
+                    val inPt = stroke.points[inIdx]
+                    pts[0] = inPt.x
+                    pts[1] = inPt.y
+                    viewMatrix.mapPoints(pts)
+                    val ix = pts[0]
+                    val iy = pts[1]
+                    canvas.drawLine(ax, ay, ix, iy, linePaint)
+                    canvas.drawCircle(ix, iy, sizeHandle, handlePaint)
+                    canvas.drawCircle(ix, iy, sizeHandle, handleBorderPaint)
+                }
+            }
+            
+            // Draw main anchors
+            for (i in 0 until numNodes) {
+                val anchorIdx = 3 * i
+                if (anchorIdx >= N) break
+                val anchor = stroke.points[anchorIdx]
+                pts[0] = anchor.x
+                pts[1] = anchor.y
+                viewMatrix.mapPoints(pts)
+                val ax = pts[0]
+                val ay = pts[1]
+                canvas.drawRect(ax - sizeAnchor, ay - sizeAnchor, ax + sizeAnchor, ay + sizeAnchor, gripFillPaint)
+                canvas.drawRect(ax - sizeAnchor, ay - sizeAnchor, ax + sizeAnchor, ay + sizeAnchor, gripBorderPaint)
+            }
+        } else {
+            for (p in stroke.points) {
+                pts[0] = p.x
+                pts[1] = p.y
+                viewMatrix.mapPoints(pts)
+                val sx = pts[0]
+                val sy = pts[1]
+                canvas.drawRect(sx - size, sy - size, sx + size, sy + size, gripFillPaint)
+                canvas.drawRect(sx - size, sy - size, sx + size, sy + size, gripBorderPaint)
+            }
         }
     }
 

@@ -47,7 +47,7 @@ object SnapEngine {
                         snapPoints.add(SnapPoint(PointF((p1.x + p2.x) / 2, (p1.y + p2.y) / 2), SnapType.MIDPOINT))
                     }
                 }
-                StrokeType.POLYLINE, StrokeType.FREEHAND -> {
+                StrokeType.POLYLINE, StrokeType.FREEHAND, StrokeType.PEN -> {
                     // For polylines/freehand, endpoints of the entire stroke
                     val pStart = PointF(pts.first().x, pts.first().y)
                     val pEnd = PointF(pts.last().x, pts.last().y)
@@ -115,7 +115,29 @@ object SnapEngine {
                         snapPoints.add(SnapPoint(PointF(center.x, center.y + rY), SnapType.ENDPOINT))
                     }
                 }
-                else -> {}
+                StrokeType.SPLINE -> {
+                    if (pts.isNotEmpty()) {
+                        val pStart = PointF(pts.first().x, pts.first().y)
+                        val pEnd = PointF(pts.last().x, pts.last().y)
+                        snapPoints.add(SnapPoint(pStart, SnapType.ENDPOINT))
+                        snapPoints.add(SnapPoint(pEnd, SnapType.ENDPOINT))
+                        for (i in 1 until pts.size - 1) {
+                            snapPoints.add(SnapPoint(PointF(pts[i].x, pts[i].y), SnapType.ENDPOINT))
+                        }
+                    }
+                }
+                StrokeType.BEZIER -> {
+                    if (pts.isNotEmpty()) {
+                        val numNodes = (pts.size + 2) / 3
+                        for (i in 0 until numNodes) {
+                            val idx = 3 * i
+                            if (idx < pts.size) {
+                                val anchor = pts[idx]
+                                snapPoints.add(SnapPoint(PointF(anchor.x, anchor.y), SnapType.ENDPOINT))
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -243,7 +265,7 @@ object SnapEngine {
         val pts = stroke.points
         if (pts.size < 2) return emptyList()
 
-        if (stroke.strokeType == StrokeType.LINE || stroke.strokeType == StrokeType.POLYLINE || stroke.strokeType == StrokeType.FREEHAND) {
+        if (stroke.strokeType == StrokeType.LINE || stroke.strokeType == StrokeType.POLYLINE || stroke.strokeType == StrokeType.FREEHAND || stroke.strokeType == StrokeType.PEN) {
             for (i in 0 until pts.size - 1) {
                 segments.add(Pair(PointF(pts[i].x, pts[i].y), PointF(pts[i + 1].x, pts[i + 1].y)))
             }
