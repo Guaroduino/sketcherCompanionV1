@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.FilterCenterFocus
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -87,6 +88,7 @@ import com.sketcher.sketchercompanionv1.ui.components.SelectionContextBar
 import com.sketcher.sketchercompanionv1.ui.components.ContextActionBar
 import com.sketcher.sketchercompanionv1.ui.panels.OutlinerPanel
 import com.sketcher.sketchercompanionv1.dto.ToolType
+import com.sketcher.sketchercompanionv1.dto.StrokeType
 import androidx.core.view.drawToBitmap
 
 @Composable
@@ -113,16 +115,49 @@ fun StudioLayout(
     val cameraMatrix by viewModel.cameraMatrix.collectAsState()
 
     val currentTool = viewModel.toolManager.currentTool
+    val currentStrokeType = viewModel.toolManager.currentStrokeType
     val resolveIsActive: (StudioTool) -> Boolean = { tool ->
         val payload = assignedToolsMap[tool.id]
-        if (payload == ToolPayload.PENCIL || tool.registryId == "pencil" || tool.registryId == "brush") {
-            currentTool == ToolType.FREEHAND
-        } else if (payload == ToolPayload.ERASER || tool.registryId == "eraser") {
-            currentTool == ToolType.ERASER
-        } else if (tool.registryId.startsWith("tool_selection") || tool.registryId == "tool_transform") {
-            currentTool == ToolType.SELECTION
-        } else {
-            tool.isActive
+        when {
+            payload == ToolPayload.PENCIL || tool.registryId == "pencil" || tool.registryId == "brush" -> {
+                currentTool == ToolType.FREEHAND && currentStrokeType == StrokeType.FREEHAND
+            }
+            tool.registryId == "line" -> {
+                currentTool == ToolType.FREEHAND && currentStrokeType == StrokeType.LINE
+            }
+            tool.registryId == "circle" -> {
+                currentTool == ToolType.FREEHAND && currentStrokeType == StrokeType.CIRCLE
+            }
+            tool.registryId == "polyline" -> {
+                currentTool == ToolType.FREEHAND && currentStrokeType == StrokeType.POLYLINE
+            }
+            tool.registryId == "arc" -> {
+                currentTool == ToolType.FREEHAND && currentStrokeType == StrokeType.ARC
+            }
+            tool.registryId == "ellipse" -> {
+                currentTool == ToolType.FREEHAND && currentStrokeType == StrokeType.ELLIPSE
+            }
+            tool.registryId == "spline" -> {
+                currentTool == ToolType.FREEHAND && currentStrokeType == StrokeType.SPLINE
+            }
+            payload == ToolPayload.ERASER || tool.registryId == "eraser" -> {
+                currentTool == ToolType.ERASER
+            }
+            tool.registryId == "trim" -> {
+                currentTool == ToolType.TRIM
+            }
+            tool.registryId == "extend" -> {
+                currentTool == ToolType.EXTEND
+            }
+            tool.registryId == "edit_points" -> {
+                currentTool == ToolType.EDIT_POINTS
+            }
+            tool.registryId.startsWith("tool_selection") || tool.registryId == "tool_transform" -> {
+                currentTool == ToolType.SELECTION
+            }
+            else -> {
+                tool.isActive
+            }
         }
     }
 
@@ -132,10 +167,29 @@ fun StudioLayout(
         tool.registryId.startsWith("tool_selection") || tool.registryId == "tool_transform"
     }
 
+    val canvasViewRef = remember { mutableStateOf<SketcherCanvasView?>(null) }
+
+    val handleToolClick: (StudioTool) -> Unit = { tool ->
+        val inProgress = viewModel.isMultiStepStrokeInProgress
+        val currentStrokeType = viewModel.toolManager.currentStrokeType
+        val isClickingActiveCadTool = (
+            (tool.registryId == "polyline" && currentStrokeType == StrokeType.POLYLINE) ||
+            (tool.registryId == "spline" && currentStrokeType == StrokeType.SPLINE) ||
+            (tool.registryId == "arc" && currentStrokeType == StrokeType.ARC) ||
+            (tool.registryId == "ellipse" && currentStrokeType == StrokeType.ELLIPSE)
+        )
+        if (inProgress && isClickingActiveCadTool) {
+            canvasViewRef.value?.finishGeometricStroke()
+        } else {
+            if (inProgress && tool.registryId != "undo" && tool.registryId != "redo" && tool.registryId != "zoom_in" && tool.registryId != "zoom_out" && tool.registryId != "zoom_fit" && tool.registryId != "home_view") {
+                canvasViewRef.value?.finishGeometricStroke()
+            }
+            tool.onClick()
+        }
+    }
+
     // Tool Picker State
     var toolPickerTarget by remember { mutableStateOf<Pair<ToolLocation, Int?>?>(null) }
-
-    val canvasViewRef = remember { mutableStateOf<SketcherCanvasView?>(null) }
     val isProjectionActive = viewModel.isProjectionActive
 
     LaunchedEffect(isProjectionActive) {
@@ -318,6 +372,18 @@ fun StudioLayout(
                         viewModel.erase(worldX, worldY, diameterPx)
                     }
                     onCameraMatrixChanged = { matrix: android.graphics.Matrix -> viewModel.saveCameraState(matrix) }
+                    onGripEditCompleted = { stroke, oldPts, newPts ->
+                        viewModel.commitGripEdit(stroke, oldPts, newPts)
+                    }
+                    onTrimRequested = { x, y ->
+                        viewModel.trimElementAt(x, y)
+                    }
+                    onExtendRequested = { x, y ->
+                        viewModel.extendElementAt(x, y)
+                    }
+                    onGeometricProgressChanged = { inProgress ->
+                        viewModel.updateMultiStepStrokeInProgress(inProgress)
+                    }
                     canvasBackgroundColor = viewModel.backgroundColor
                     canvasViewRef.value = this
                 }
@@ -354,6 +420,7 @@ fun StudioLayout(
                 view.currentUnit = viewModel.currentUnit
                 view.globalStabilizationLevel = viewModel.globalStabilizationLevel
                 view.isSnapToGridEnabled = viewModel.isSnapToGridEnabled
+                view.isElementSnappingEnabled = viewModel.isElementSnappingEnabled
                 view.selectionManager = viewModel.selectionManager
                 view.currentSelectionMode = viewModel.currentSelectionMode
                 // Synchronize Camera Matrix (Studio UI Activation)
@@ -969,66 +1036,69 @@ fun StudioLayout(
                                      shape = theme.floatingShape()
                                  )
                              } else if (tool.isPlaceholder || tool.registryId.contains("zoom") || tool.registryId == "home_view") {
-                                  val isActionButton = resolveIsActionButton(tool); val isRealAction = !tool.isPlaceholder || isActionButton
-                                  val bgColor = if (isActionButton) null else androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.3f)
-                                  com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
-                                      onClick = {
-                                          if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx
-                                          else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
-                                          else if (isRealAction) tool.onClick()
-                                      },
-                                      icon = tool.icon,
-                                      contentDescription = tool.contentDescription,
-                                      isActive = resolveIsActive(tool),
-                                      isEditMode = isEditMode,
-                                      backgroundColorOverride = bgColor,
-                                      highlightColor = theme.highlightColor,
-                                      buttonColor = theme.buttonColor,
-                                      iconColor = theme.iconColor,
-                                      shape = theme.floatingShape(),
-                                      iconSize = scaler.smallIconSize
-                                  )
-                             } else {
-                                     com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
-                                         onClick = {
-                                             if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx
-                                             else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
-                                             else if (isRealAction) tool.onClick()
-                                         },
-                                         onLongClick = {
-                                             if (!isEditMode) {
-                                                 val p = assignedToolsMap[tool.id]
-                                                 if (p != null) viewModel.editTool(p)
-                                             }
-                                         },
-                                         icon = tool.icon,
-                                         contentDescription = tool.contentDescription,
-                                         isActive = resolveIsActive(tool),
-                                         isEditMode = isEditMode,
-                                         highlightColor = theme.highlightColor,
-                                         buttonColor = theme.buttonColor,
-                                         iconColor = theme.iconColor,
-                                         shape = theme.floatingShape(),
-                                         iconSize = scaler.smallIconSize,
-                                          location = ToolLocation.LeftBar,
-                                          theme = theme,
-                                          payload = assignedToolsMap[tool.id],
-                                          colorPreview = when (assignedToolsMap[tool.id]) {
-                                              ToolPayload.STROKE_COLOR -> Color(strokeColorVal)
-                                              ToolPayload.FILL_COLOR -> Color(fillColorVal)
-                                              else -> assignedColorsMap[tool.id]?.let { Color(it) }
+                                   val isActionButton = resolveIsActionButton(tool); val isRealAction = !tool.isPlaceholder || isActionButton
+                                   val bgColor = if (isActionButton) null else androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.3f)
+                                   com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
+                                       onClick = {
+                                           if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx
+                                           else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
+                                           else if (isRealAction) handleToolClick(tool)
+                                       },
+                                       icon = tool.icon,
+                                       contentDescription = tool.contentDescription,
+                                       isActive = resolveIsActive(tool),
+                                       isEditMode = isEditMode,
+                                       backgroundColorOverride = bgColor,
+                                       highlightColor = theme.highlightColor,
+                                       buttonColor = theme.buttonColor,
+                                       iconColor = theme.iconColor,
+                                       shape = theme.floatingShape(),
+                                       iconSize = scaler.smallIconSize
+                                   )
+                              } else {
+                                      com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
+                                          onClick = {
+                                              if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx
+                                              else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
+                                              else if (isRealAction) handleToolClick(tool)
                                           },
-                                          isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && isStrokeActiveVal) ||
-                                                       (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && isFillActiveVal),
-                                       isNone = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && !isStrokeActiveVal) ||
-                                                (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && !isFillActiveVal),
-                                           subTools = if (!isEditMode) com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId) else emptyList(),
-                                           onSubToolClick = { subTool -> 
-                                               viewModel.replaceTool(ToolLocation.LeftBar, idx, subTool)
-                                               viewModel.getActionForTool(subTool.id).invoke() 
-                                           }
-                                      )
-                             }
+                                          onLongClick = {
+                                              if (!isEditMode) {
+                                                  val p = assignedToolsMap[tool.id]
+                                                  if (p != null) viewModel.editTool(p)
+                                              }
+                                          },
+                                          icon = tool.icon,
+                                          contentDescription = tool.contentDescription,
+                                          isActive = resolveIsActive(tool),
+                                          isEditMode = isEditMode,
+                                          highlightColor = theme.highlightColor,
+                                          buttonColor = theme.buttonColor,
+                                          iconColor = theme.iconColor,
+                                          shape = theme.floatingShape(),
+                                          iconSize = scaler.smallIconSize,
+                                           location = ToolLocation.LeftBar,
+                                           theme = theme,
+                                           payload = assignedToolsMap[tool.id],
+                                           colorPreview = when (assignedToolsMap[tool.id]) {
+                                               ToolPayload.STROKE_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(strokeColorVal)
+                                               ToolPayload.FILL_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(fillColorVal)
+                                               else -> null
+                                           },
+                                           isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && isStrokeActiveVal) ||
+                                                        (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && isFillActiveVal),
+                                        isNone = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && !isStrokeActiveVal) ||
+                                                 (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && !isFillActiveVal),
+                                            subTools = if (!isEditMode) com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId) else emptyList(),
+                                            onSubToolClick = { subTool -> 
+                                                if (viewModel.isMultiStepStrokeInProgress) {
+                                                    canvasViewRef.value?.finishGeometricStroke()
+                                                }
+                                                viewModel.replaceTool(ToolLocation.LeftBar, idx, subTool)
+                                                viewModel.getActionForTool(subTool.id).invoke() 
+                                            }
+                                       )
+                              }
                          }
                     }
                     if (isEditMode) {
@@ -1119,7 +1189,7 @@ fun StudioLayout(
                                      onClick = {
                                          if (isEditMode) toolPickerTarget = ToolLocation.RightBar to idx
                                          else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
-                                         else if (isRealAction) tool.onClick()
+                                         else if (isRealAction) handleToolClick(tool)
                                      },
                                      onLongClick = {
                                          if (!isEditMode) {
@@ -1140,9 +1210,9 @@ fun StudioLayout(
                                       theme = theme,
                                       payload = assignedToolsMap[tool.id],
                                        colorPreview = when (assignedToolsMap[tool.id]) {
-                                           ToolPayload.STROKE_COLOR -> Color(strokeColorVal)
-                                           ToolPayload.FILL_COLOR -> Color(fillColorVal)
-                                           else -> assignedColorsMap[tool.id]?.let { Color(it) }
+                                           ToolPayload.STROKE_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(strokeColorVal)
+                                           ToolPayload.FILL_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(fillColorVal)
+                                           else -> null
                                        },
                                        isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && isStrokeActiveVal) ||
                                                     (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && isFillActiveVal),
@@ -1150,6 +1220,9 @@ fun StudioLayout(
                                                 (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && !isFillActiveVal),
                                       subTools = if (!isEditMode) com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId) else emptyList(),
                                       onSubToolClick = { subTool -> 
+                                          if (viewModel.isMultiStepStrokeInProgress) {
+                                              canvasViewRef.value?.finishGeometricStroke()
+                                          }
                                           viewModel.replaceTool(ToolLocation.RightBar, idx, subTool)
                                           viewModel.getActionForTool(subTool.id).invoke() 
                                       }
@@ -1228,7 +1301,7 @@ fun StudioLayout(
                                       onClick = {
                                           if (isEditMode) toolPickerTarget = ToolLocation.TopBar to idx
                                           else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
-                                          else if (isRealAction) tool.onClick()
+                                          else if (isRealAction) handleToolClick(tool)
                                       },
                                       icon = tool.icon,
                                       contentDescription = tool.contentDescription,
@@ -1246,7 +1319,7 @@ fun StudioLayout(
                                      onClick = {
                                          if (isEditMode) toolPickerTarget = ToolLocation.TopBar to idx
                                          else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
-                                         else if (isRealAction) tool.onClick()
+                                         else if (isRealAction) handleToolClick(tool)
                                      },
                                      onLongClick = {
                                          if (!isEditMode) {
@@ -1267,9 +1340,9 @@ fun StudioLayout(
                                       theme = theme,
                                       payload = assignedToolsMap[tool.id],
                                        colorPreview = when (assignedToolsMap[tool.id]) {
-                                           ToolPayload.STROKE_COLOR -> Color(strokeColorVal)
-                                           ToolPayload.FILL_COLOR -> Color(fillColorVal)
-                                           else -> assignedColorsMap[tool.id]?.let { Color(it) }
+                                           ToolPayload.STROKE_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(strokeColorVal)
+                                           ToolPayload.FILL_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(fillColorVal)
+                                           else -> null
                                        },
                                        isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && isStrokeActiveVal) ||
                                                     (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && isFillActiveVal),
@@ -1277,6 +1350,9 @@ fun StudioLayout(
                                                 (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && !isFillActiveVal),
                                       subTools = if (!isEditMode) com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId) else emptyList(),
                                       onSubToolClick = { subTool -> 
+                                          if (viewModel.isMultiStepStrokeInProgress) {
+                                              canvasViewRef.value?.finishGeometricStroke()
+                                          }
                                           viewModel.replaceTool(ToolLocation.TopBar, idx, subTool)
                                           viewModel.getActionForTool(subTool.id).invoke() 
                                       }
@@ -1374,7 +1450,7 @@ fun StudioLayout(
                                      onClick = {
                                          if (isEditMode) toolPickerTarget = ToolLocation.BottomBar to idx
                                          else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
-                                         else if (isRealAction) tool.onClick()
+                                         else if (isRealAction) handleToolClick(tool)
                                      },
                                      onLongClick = {
                                          if (!isEditMode) {
@@ -1394,17 +1470,20 @@ fun StudioLayout(
                                       location = ToolLocation.BottomBar,
                                       theme = theme,
                                       payload = assignedToolsMap[tool.id],
-                                       colorPreview = when (assignedToolsMap[tool.id]) {
-                                           ToolPayload.STROKE_COLOR -> Color(strokeColorVal)
-                                           ToolPayload.FILL_COLOR -> Color(fillColorVal)
-                                           else -> assignedColorsMap[tool.id]?.let { Color(it) }
-                                       },
-                                       isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && isStrokeActiveVal) ||
-                                                    (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && isFillActiveVal),
-                                       isNone = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && !isStrokeActiveVal) ||
-                                                (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && !isFillActiveVal),
+                                      colorPreview = when (assignedToolsMap[tool.id]) {
+                                          ToolPayload.STROKE_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(strokeColorVal)
+                                          ToolPayload.FILL_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(fillColorVal)
+                                          else -> null
+                                      },
+                                      isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && isStrokeActiveVal) ||
+                                                   (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && isFillActiveVal),
+                                      isNone = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && !isStrokeActiveVal) ||
+                                               (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && !isFillActiveVal),
                                       subTools = if (!isEditMode) com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId) else emptyList(),
                                       onSubToolClick = { subTool -> 
+                                          if (viewModel.isMultiStepStrokeInProgress) {
+                                              canvasViewRef.value?.finishGeometricStroke()
+                                          }
                                           viewModel.replaceTool(ToolLocation.BottomBar, idx, subTool)
                                           viewModel.getActionForTool(subTool.id).invoke() 
                                       }
@@ -1484,7 +1563,7 @@ fun StudioLayout(
                         val isNew = tool == null
                         toolPickerTarget = Pair(ToolLocation.ContextBar, if (isNew) null else index)
                     } else {
-                        tool?.onClick?.invoke()
+                        tool?.let { handleToolClick(it) }
                     }
                 }
             )
@@ -1516,6 +1595,61 @@ fun StudioLayout(
                         Text("Finish Customization", style = MaterialTheme.typography.labelLarge)
                     }
                 }
+            }
+        }
+
+        // --- GEOMETRIC DRAWING CONTEXT BAR ---
+        AnimatedVisibility(
+            visible = viewModel.isMultiStepStrokeInProgress,
+            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = (if (swapVertical) animTopOffset else animBottomOffset) + scaler.floatingBarWidth + scaler.margin + 16.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .advancedShadow(
+                        color = Color.Black,
+                        alpha = shadowAlpha,
+                        cornersRadius = scaler.baseBarHeight / 2,
+                        shadowBlurRadius = shadowBlur,
+                        offsetX = shadowOffsetX,
+                        offsetY = shadowOffsetY
+                    )
+                    .height(scaler.baseBarHeight)
+                    .clip(CircleShape)
+                    .background(theme.barBackgroundColor.copy(alpha = 0.9f))
+                    .padding(horizontal = scaler.smallMargin),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(scaler.smallButtonSpacing)
+            ) {
+                // Snap Toggle Button
+                val isSnapping = viewModel.isElementSnappingEnabled
+                com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
+                    onClick = { viewModel.toggleElementSnapping() },
+                    icon = Icons.Default.FilterCenterFocus,
+                    contentDescription = "Toggle Snap",
+                    isActive = isSnapping,
+                    highlightColor = theme.highlightColor,
+                    buttonColor = Color.Transparent, 
+                    iconColor = if (isSnapping) theme.highlightColor else theme.iconColor,
+                    shape = CircleShape,
+                    iconSize = scaler.baseIconSize
+                )
+                
+                // Confirm/Checkmark Button
+                com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
+                    onClick = { canvasViewRef.value?.finishGeometricStroke() },
+                    icon = Icons.Default.Check,
+                    contentDescription = "Confirm Shape",
+                    isActive = false,
+                    highlightColor = theme.highlightColor,
+                    buttonColor = Color.Transparent, 
+                    iconColor = theme.iconColor,
+                    shape = CircleShape,
+                    iconSize = scaler.baseIconSize
+                )
             }
         }
 

@@ -83,8 +83,8 @@ class StrokePipeline(
     private val combinedPreviewPath = Path() // (unused after seam fix, kept for safety)
 
 
-    // --- State ---
     private val currentStrokePoints = mutableListOf<StrokePoint>()
+    val currentStrokePointsList: List<StrokePoint> get() = currentStrokePoints
     private var isDrawing: Boolean = false
     private var currentStrokeId: Int = 0
 
@@ -104,7 +104,7 @@ class StrokePipeline(
     private var lastPointTimestamp: Long = 0L
 
     // Geometric State
-    private var isMultiStepInProgress: Boolean = false
+    var isMultiStepInProgress: Boolean = false
 
     // Dependencies
     private val inputHandler = StrokeInputHandler
@@ -121,7 +121,8 @@ class StrokePipeline(
         // Separate committed head path (drawn under previewPath to avoid seam artifacts)
         val committedPreviewPath: Path? = null,
         val intersections: List<Path> = emptyList(),
-        val bounds: RectF? = null
+        val bounds: RectF? = null,
+        val isMultiStepInProgress: Boolean = false
     )
 
     fun onTouchEvent(event: MotionEvent): Boolean {
@@ -133,15 +134,17 @@ class StrokePipeline(
         val stabilizedPoints = mutableListOf<StrokePoint>()
 
         if (action == MotionEvent.ACTION_DOWN) {
-           currentStrokeId++
            isDrawing = true
-           currentStrokePoints.clear()
-           committedPath.rewind()
-           committedPathBounds.setEmpty()
-           commitHeadCount = 0
-           committedLastRadius = 0f
-           combinedPreviewPath.rewind()
-           lastPointTimestamp = 0L
+           if (!isMultiStepInProgress) {
+               currentStrokeId++
+               currentStrokePoints.clear()
+               committedPath.rewind()
+               committedPathBounds.setEmpty()
+               commitHeadCount = 0
+               committedLastRadius = 0f
+               combinedPreviewPath.rewind()
+               lastPointTimestamp = 0L
+           }
 
            if (rawEventPoints.isNotEmpty()) {
                var startX = rawEventPoints.first().x
@@ -261,26 +264,46 @@ class StrokePipeline(
                     }
                 }
             }
-            StrokeType.POLYLINE -> {
+            StrokeType.POLYLINE, StrokeType.SPLINE -> {
                 if (action == MotionEvent.ACTION_DOWN) {
                     if (!isMultiStepInProgress) {
                         currentStrokePoints.clear()
                         isMultiStepInProgress = true
+                        currentStrokePoints.add(worldP)
+                        currentStrokePoints.add(worldP)
+                    } else {
+                        // Check if we are snapping back to the start point to close/finish the shape!
+                        val firstPt = currentStrokePoints.firstOrNull()
+                        if (firstPt != null && currentStrokePoints.size > 2) {
+                            val dx = worldP.x - firstPt.x
+                            val dy = worldP.y - firstPt.y
+                            val distSq = dx * dx + dy * dy
+                            val threshold = 12f / currentZoom
+                            if (distSq < threshold * threshold) {
+                                // Update the active preview point to close the shape
+                                currentStrokePoints[currentStrokePoints.size - 1] = firstPt
+                                forceFinishGeometric()
+                                return
+                            }
+                        }
+                        currentStrokePoints.add(worldP)
                     }
-                    currentStrokePoints.add(worldP)
                 } else if (action == MotionEvent.ACTION_MOVE) {
                     if (currentStrokePoints.isNotEmpty()) {
                         currentStrokePoints[currentStrokePoints.size - 1] = worldP
                     }
                 }
             }
-            StrokeType.ARC -> {
+            StrokeType.ARC, StrokeType.ELLIPSE -> {
                 if (action == MotionEvent.ACTION_DOWN) {
                     if (!isMultiStepInProgress || currentStrokePoints.size >= 3) {
                         currentStrokePoints.clear()
                         isMultiStepInProgress = true
+                        currentStrokePoints.add(worldP)
+                        currentStrokePoints.add(worldP)
+                    } else {
+                        currentStrokePoints.add(worldP)
                     }
-                    currentStrokePoints.add(worldP)
                 } else if (action == MotionEvent.ACTION_MOVE) {
                     if (currentStrokePoints.isNotEmpty()) {
                         currentStrokePoints[currentStrokePoints.size - 1] = worldP
@@ -293,10 +316,33 @@ class StrokePipeline(
 
 
     private fun updatePreview() {
-        // 1. Determine points based on type
         val livePoints: List<StrokePoint> = getInterpolatedPoints(isFinal = false)
 
         if (livePoints.isEmpty()) return
+
+        val isCad = activeStrokeType != StrokeType.FREEHAND
+        if (isCad) {
+            val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(activeStrokeType, livePoints)
+            val totalBounds = RectF()
+            centerline.computeBounds(totalBounds, true)
+            val pad = (activeSize * 2f).coerceAtLeast(10f)
+            totalBounds.inset(-pad, -pad)
+
+            onUpdate(PipelineUpdate(
+                previewPath = centerline,
+                previewPoints = livePoints,
+                centerPoints = livePoints.map { android.graphics.PointF(it.x, it.y) },
+                outlinePoints = emptyList(),
+                lastRadius = activeSize / 2f,
+                fillPath = if (isFillActive && livePoints.size >= 3) centerline else null,
+                fillColor = if (isFillActive) activeFillColor else 0,
+                committedPreviewPath = null,
+                intersections = emptyList(),
+                bounds = totalBounds,
+                isMultiStepInProgress = isMultiStepInProgress
+            ))
+            return
+        }
 
         // Update settings cache if base changed
         if (activeFreehandSettings !== lastBaseSettings) {
@@ -477,20 +523,21 @@ class StrokePipeline(
             fillColor = if (isFillActive) activeFillColor else 0,
             committedPreviewPath = committedPathToSend,
             intersections = liveIntersections,
-            bounds = if (hasBounds) totalBounds else null
+            bounds = if (hasBounds) totalBounds else null,
+            isMultiStepInProgress = isMultiStepInProgress
         ))
     }
 
     private fun finalizeStroke() {
         isDrawing = false
+        if (currentStrokePoints.isEmpty()) {
+            reset()
+            return
+        }
 
         // Handle Multi-step continuation
-        if (activeStrokeType == StrokeType.POLYLINE || activeStrokeType == StrokeType.ARC) {
-             // If manual geometric, we might just update preview and return?
-             // Logic in View was: if multi-step, keep drawing true.
-             // We need to support that.
-             // For now, let's assume we just update preview for these unless explicitly finished?
-             // The View logic: "Skip automatic finalization".
+        if (activeStrokeType == StrokeType.POLYLINE || activeStrokeType == StrokeType.SPLINE ||
+            ((activeStrokeType == StrokeType.ARC || activeStrokeType == StrokeType.ELLIPSE) && currentStrokePoints.size < 3)) {
              updatePreview()
              isMultiStepInProgress = true
              return
@@ -502,6 +549,28 @@ class StrokePipeline(
         if (finalPointsRaw.isEmpty()) {
              reset()
              return
+        }
+
+        val isCad = activeStrokeType != StrokeType.FREEHAND
+        if (isCad) {
+            val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(activeStrokeType, finalPointsRaw)
+            val stroke = VectorStroke(
+                points = finalPointsRaw,
+                strokeColor = activeStrokeColor,
+                fillColor = activeFillColor,
+                isStrokeEnabled = isStrokeActive,
+                isFillEnabled = isFillActive,
+                maxWidth = activeSize,
+                path = centerline,
+                fillPath = if (isFillActive && finalPointsRaw.size >= 3) centerline else null,
+                brushType = "CAD",
+                strokeType = activeStrokeType,
+                isCadGeometry = true
+            )
+            val fill = if (isFillActive && finalPointsRaw.size >= 3) FillData(centerline, activeFillColor) else null
+            onStrokeCompleted(stroke, fill)
+            reset()
+            return
         }
 
         // Pre-simulate pressure on finalPointsRaw if simulatePressure is true
@@ -569,7 +638,8 @@ class StrokePipeline(
                 fillPath = fillPath,
                 fillColor = if (isFillActiveSnap) activeFillColorSnap else 0,
                 committedPreviewPath = null,
-                bounds = finalBounds
+                bounds = finalBounds,
+                isMultiStepInProgress = isMultiStepInProgress
             ))
 
             pipelineScope.launch {
@@ -682,9 +752,30 @@ class StrokePipeline(
     fun forceFinishGeometric() {
         if (!isMultiStepInProgress || currentStrokePoints.isEmpty()) return
         
-        // Similar to finalizeStroke but forced
-        val finalPointsRaw = getInterpolatedPoints(isFinal = true) // This handles POLYLINE/ARC logic
+        val finalPointsRaw = getInterpolatedPoints(isFinal = true)
         if (finalPointsRaw.isEmpty()) {
+            reset()
+            return
+        }
+        
+        val isCad = activeStrokeType != StrokeType.FREEHAND
+        if (isCad) {
+            val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(activeStrokeType, finalPointsRaw)
+            val stroke = VectorStroke(
+                points = finalPointsRaw,
+                strokeColor = activeStrokeColor,
+                fillColor = activeFillColor,
+                isStrokeEnabled = isStrokeActive,
+                isFillEnabled = isFillActive,
+                maxWidth = activeSize,
+                path = centerline,
+                fillPath = if (isFillActive && finalPointsRaw.size >= 3) centerline else null,
+                brushType = "CAD",
+                strokeType = activeStrokeType,
+                isCadGeometry = true
+            )
+            val fill = if (isFillActive && finalPointsRaw.size >= 3) FillData(centerline, activeFillColor) else null
+            onStrokeCompleted(stroke, fill)
             reset()
             return
         }
@@ -795,23 +886,6 @@ class StrokePipeline(
                 } else {
                     currentStrokePoints.toList()
                 }
-            }
-            StrokeType.LINE -> {
-                if (currentStrokePoints.size >= 2) interpolateLine(currentStrokePoints[0], currentStrokePoints[1])
-                else currentStrokePoints.toList()
-            }
-            StrokeType.CIRCLE -> {
-                if (currentStrokePoints.size >= 2) interpolateCircle(currentStrokePoints[0], currentStrokePoints[1])
-                else currentStrokePoints.toList()
-            }
-            StrokeType.POLYLINE -> {
-                if (currentStrokePoints.size >= 2) interpolatePolyline(currentStrokePoints)
-                else currentStrokePoints.toList()
-            }
-            StrokeType.ARC -> {
-                if (currentStrokePoints.size >= 3) interpolateArc(currentStrokePoints[0], currentStrokePoints[1], currentStrokePoints[2])
-                else if (currentStrokePoints.size == 2) interpolateLine(currentStrokePoints[0], currentStrokePoints[1])
-                else currentStrokePoints.toList()
             }
             else -> currentStrokePoints.toList()
         }

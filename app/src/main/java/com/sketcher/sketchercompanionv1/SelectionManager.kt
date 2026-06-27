@@ -579,18 +579,27 @@ class SelectionManager {
         }
     }
 
-    private fun isHit(element: LayerElement, x: Float, y: Float, library: Map<String, ComponentDefinition>): Boolean {
+    fun isHit(element: LayerElement, x: Float, y: Float, library: Map<String, ComponentDefinition>): Boolean {
         when (element) {
             is VectorStroke -> {
                 if (element.points.isEmpty()) return false
-                // Touch tolerance of 15dp / screen units, plus half width
                 val tolerance = (element.maxWidth * 0.5f + 15f).coerceAtLeast(15f)
-                if (element.points.size == 1) {
-                    return kotlin.math.hypot(x - element.points[0].x, y - element.points[0].y) < tolerance
+                
+                val hitPoints = if (element.isCadGeometry && 
+                    element.strokeType != com.sketcher.sketchercompanionv1.dto.StrokeType.LINE && 
+                    element.strokeType != com.sketcher.sketchercompanionv1.dto.StrokeType.POLYLINE
+                ) {
+                    com.sketcher.sketchercompanionv1.utils.GeometryUtils.flattenPath(element.path)
+                } else {
+                    element.points.map { android.graphics.PointF(it.x, it.y) }
                 }
-                for (i in 0 until element.points.size - 1) {
-                    val p1 = element.points[i]
-                    val p2 = element.points[i + 1]
+
+                if (hitPoints.size == 1) {
+                    return kotlin.math.hypot(x - hitPoints[0].x, y - hitPoints[0].y) < tolerance
+                }
+                for (i in 0 until hitPoints.size - 1) {
+                    val p1 = hitPoints[i]
+                    val p2 = hitPoints[i + 1]
                     if (distanceToSegment(x, y, p1.x, p1.y, p2.x, p2.y) < tolerance) {
                         return true
                     }

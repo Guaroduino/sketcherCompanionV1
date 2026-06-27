@@ -22,6 +22,13 @@ object ToolRegistry {
         StudioTool("line", Icons.Default.Timeline, "Line", isPlaceholder = false),
         StudioTool("circle", Icons.Default.RadioButtonUnchecked, "Circle", isPlaceholder = false),
         StudioTool("square", Icons.Default.CheckBoxOutlineBlank, "Square", isPlaceholder = false),
+        StudioTool("polyline", Icons.Default.Polyline, "Polyline", isPlaceholder = false),
+        StudioTool("arc", Icons.Default.Gesture, "Arc", isPlaceholder = false),
+        StudioTool("ellipse", Icons.Default.Adjust, "Ellipse", isPlaceholder = false),
+        StudioTool("spline", Icons.Default.Gesture, "Spline", isPlaceholder = false),
+        StudioTool("trim", Icons.Default.ContentCut, "Trim", isPlaceholder = false),
+        StudioTool("extend", Icons.Default.TrendingFlat, "Extend", isPlaceholder = false),
+        StudioTool("edit_points", Icons.Default.Build, "Edit Points", isPlaceholder = false),
         StudioTool("undo", Icons.Default.Undo, "Undo", isPlaceholder = false),
         StudioTool("redo", Icons.Default.Redo, "Redo", isPlaceholder = false),
         // Selection tools

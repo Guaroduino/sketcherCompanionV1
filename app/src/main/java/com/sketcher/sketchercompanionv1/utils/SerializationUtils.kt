@@ -220,7 +220,10 @@ fun VectorStroke.toVectorStrokeJson(): VectorStrokeJson {
         isStrokeEnabled = this.isStrokeEnabled,
         isFillEnabled = this.isFillEnabled,
         isCumulative = this.paths.isNotEmpty(),
-        isFlattened = this.isFlattened
+        isFlattened = this.isFlattened,
+        lineStyle = this.lineStyle,
+        isCadGeometry = this.isCadGeometry,
+        isScreenSpaceWidth = this.isScreenSpaceWidth
     )
 }
 
@@ -259,6 +262,8 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
             path.close()
         }
         path
+    } else if (this.isCadGeometry) {
+        com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(this.strokeType, pts)
     } else {
         PerfectFreehandGenerator.generate(
             rawPoints = pts, 
@@ -301,7 +306,10 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         leftPoints = emptyList(), // Not perfectly restorable, but usually ok
         rightPoints = emptyList(),
         paths = chunkPaths,
-        isFlattened = this.isFlattened
+        isFlattened = this.isFlattened,
+        lineStyle = this.lineStyle ?: "SOLID",
+        isCadGeometry = this.isCadGeometry ?: false,
+        isScreenSpaceWidth = this.isScreenSpaceWidth ?: false
     )
 }
 

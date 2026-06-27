@@ -112,6 +112,9 @@ class ToolManager(context: Context) {
         put(ToolType.FILL, loadConfig(ToolType.FILL, 1f, 1.0f))
         put(ToolType.ERASER, loadConfig(ToolType.ERASER, 10f, 1f))
         put(ToolType.SELECTION, loadConfig(ToolType.SELECTION, 1f, 1f))
+        put(ToolType.TRIM, loadConfig(ToolType.TRIM, 1f, 1f))
+        put(ToolType.EXTEND, loadConfig(ToolType.EXTEND, 1f, 1f))
+        put(ToolType.EDIT_POINTS, loadConfig(ToolType.EDIT_POINTS, 1f, 1f))
     }
 
     init {
@@ -350,6 +353,9 @@ class ToolManager(context: Context) {
         toolConfigs[ToolType.FILL] = loadConfig(ToolType.FILL, 1f, 1.0f)
         toolConfigs[ToolType.ERASER] = loadConfig(ToolType.ERASER, 10f, 1f)
         toolConfigs[ToolType.SELECTION] = loadConfig(ToolType.SELECTION, 1f, 1f)
+        toolConfigs[ToolType.TRIM] = loadConfig(ToolType.TRIM, 1f, 1f)
+        toolConfigs[ToolType.EXTEND] = loadConfig(ToolType.EXTEND, 1f, 1f)
+        toolConfigs[ToolType.EDIT_POINTS] = loadConfig(ToolType.EDIT_POINTS, 1f, 1f)
 
         val freehandConfig = toolConfigs[ToolType.FREEHAND]!!
         fingerModeActive = freehandConfig.isFingerMode

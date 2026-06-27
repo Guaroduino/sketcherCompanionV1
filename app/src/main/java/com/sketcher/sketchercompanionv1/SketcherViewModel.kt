@@ -105,6 +105,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     // GRID CONFIG
     var gridConfig by mutableStateOf(GridConfig(spacing = 5f, isVisible = false))
     var isSnapToGridEnabled by mutableStateOf(false)
+    var isElementSnappingEnabled by mutableStateOf(prefs.getBoolean("element_snapping", true))
+        private set
+
+    fun toggleElementSnapping() {
+        isElementSnappingEnabled = !isElementSnappingEnabled
+        prefs.edit().putBoolean("element_snapping", isElementSnappingEnabled).apply()
+    }
 
     // CANVAS SIZE CONFIG
     var canvasSizeConfig by mutableStateOf<CanvasSizeConfig?>(null)
@@ -212,9 +219,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
 
     fun activateTool(payload: ToolPayload, toolId: String? = null) {
-        lastActiveColorToolId = toolId
+        if (payload == ToolPayload.STROKE_COLOR || payload == ToolPayload.FILL_COLOR) {
+            lastActiveColorToolId = toolId
+        }
         when(payload) {
-            ToolPayload.PENCIL -> selectTool(ToolType.FREEHAND)
+            ToolPayload.PENCIL -> {
+                updateStrokeType(StrokeType.FREEHAND)
+                selectTool(ToolType.FREEHAND)
+            }
             ToolPayload.ERASER -> selectTool(ToolType.ERASER)
             ToolPayload.STROKE_COLOR -> {
                 toolId?.let { id ->
@@ -425,8 +437,38 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         "home_view" -> ({ resetCamera() })
         "stroke_color" -> ({ _showStrokeColorPicker.value = true })
         "fill_color" -> ({ _showFillColorPicker.value = true })
-        "pencil" -> ({ selectTool(ToolType.FREEHAND) })
+        "pencil" -> ({ 
+             updateStrokeType(StrokeType.FREEHAND)
+             selectTool(ToolType.FREEHAND) 
+        })
         "eraser" -> ({ selectTool(ToolType.ERASER) })
+        "line" -> ({
+             updateStrokeType(StrokeType.LINE)
+             selectTool(ToolType.FREEHAND)
+        })
+        "circle" -> ({
+             updateStrokeType(StrokeType.CIRCLE)
+             selectTool(ToolType.FREEHAND)
+        })
+        "polyline" -> ({
+             updateStrokeType(StrokeType.POLYLINE)
+             selectTool(ToolType.FREEHAND)
+        })
+        "arc" -> ({
+             updateStrokeType(StrokeType.ARC)
+             selectTool(ToolType.FREEHAND)
+        })
+        "ellipse" -> ({
+             updateStrokeType(StrokeType.ELLIPSE)
+             selectTool(ToolType.FREEHAND)
+        })
+        "spline" -> ({
+             updateStrokeType(StrokeType.SPLINE)
+             selectTool(ToolType.FREEHAND)
+        })
+        "trim" -> ({ selectTool(ToolType.TRIM) })
+        "extend" -> ({ selectTool(ToolType.EXTEND) })
+        "edit_points" -> ({ selectTool(ToolType.EDIT_POINTS) })
         "tool_selection" -> ({
              if (currentSelectionMode == SelectionMode.TRANSFORM_BOX) confirmTransform()
              selectTool(ToolType.SELECTION)
@@ -1235,6 +1277,95 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         canUndo = undoStack.isNotEmpty()
         canRedo = redoStack.isNotEmpty()
     }
+
+    fun trimElementAt(x: Float, y: Float) {
+        val activeLayer = layers.getOrNull(activeLayerIndex) ?: return
+        val visibleStrokes = activeLayer.elements.filterIsInstance<VectorStroke>()
+        
+        var targetStroke: VectorStroke? = null
+        for (stroke in visibleStrokes.asReversed()) {
+            if (selectionManager.isHit(stroke, x, y, componentLibrary)) {
+                targetStroke = stroke
+                break
+            }
+        }
+        
+        if (targetStroke != null) {
+            val remaining = com.sketcher.sketchercompanionv1.utils.GeometryUtils.trimStroke(
+                targetStroke,
+                visibleStrokes,
+                x,
+                y
+            )
+            if (remaining != null) {
+                val cmd = ModifyElementsCommand(
+                    targetLayer = activeLayer,
+                    elementsToRemove = listOf(targetStroke),
+                    elementsToAdd = remaining,
+                    label = "Recortar Segmento"
+                )
+                performAction(cmd)
+            }
+        }
+    }
+
+    fun extendElementAt(x: Float, y: Float) {
+        val activeLayer = layers.getOrNull(activeLayerIndex) ?: return
+        val visibleStrokes = activeLayer.elements.filterIsInstance<VectorStroke>()
+        
+        var targetStroke: VectorStroke? = null
+        for (stroke in visibleStrokes.asReversed()) {
+            if (selectionManager.isHit(stroke, x, y, componentLibrary)) {
+                targetStroke = stroke
+                break
+            }
+        }
+        
+        if (targetStroke != null) {
+            val extended = com.sketcher.sketchercompanionv1.utils.GeometryUtils.extendStroke(
+                targetStroke,
+                visibleStrokes,
+                x,
+                y
+            )
+            if (extended != null) {
+                val cmd = ModifyElementsCommand(
+                    targetLayer = activeLayer,
+                    elementsToRemove = listOf(targetStroke),
+                    elementsToAdd = listOf(extended),
+                    label = "Alargar Segmento"
+                )
+                performAction(cmd)
+            }
+        }
+    }
+
+    fun commitGripEdit(stroke: VectorStroke, oldPoints: List<StrokePoint>, newPoints: List<StrokePoint>) {
+        val activeLayer = layers.getOrNull(activeLayerIndex) ?: return
+        
+        val updatedStroke = stroke.copy(
+            points = newPoints,
+            path = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(stroke.strokeType, newPoints),
+            fillPath = if (stroke.isFillEnabled && newPoints.size >= 3) {
+                com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(stroke.strokeType, newPoints)
+            } else null
+        )
+        
+        val cmd = ModifyElementsCommand(
+            targetLayer = activeLayer,
+            elementsToRemove = listOf(stroke),
+            elementsToAdd = listOf(updatedStroke),
+            label = "Edición de Puntos"
+        )
+        performAction(cmd)
+        
+        // Mantener el elemento editado seleccionado
+        if (selectionManager.selectedElements.contains(stroke)) {
+            selectionManager.selectedElements.remove(stroke)
+            selectionManager.selectedElements.add(updatedStroke)
+            selectionManager.recalculateBaseBounds(componentLibrary)
+        }
+    }
     
     /**
      * Performs an Undo operation. Must be called from the Main thread.
@@ -1246,6 +1377,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         lastUndoTime = now
 
         if (undoStack.isEmpty()) return
+        selectionManager.clearSelection()
         val command = undoStack.pop()
         command.undo()
         redoStack.push(command)
@@ -1263,6 +1395,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         lastRedoTime = now
 
         if (redoStack.isEmpty()) return
+        selectionManager.clearSelection()
         val command = redoStack.pop()
         command.execute()
         undoStack.push(command)
@@ -2557,6 +2690,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 collectStrokes(element.elements, target, newMatrix)
             }
         }
+    }
+
+    var isMultiStepStrokeInProgress by mutableStateOf(false)
+        private set
+
+    fun updateMultiStepStrokeInProgress(inProgress: Boolean) {
+        isMultiStepStrokeInProgress = inProgress
     }
 
     // ── LIVE PROJECTION ─────────────────────────────────────────────────

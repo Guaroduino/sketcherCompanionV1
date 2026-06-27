@@ -9,6 +9,8 @@ import android.graphics.PointF
 import android.graphics.RectF
 import com.sketcher.sketchercompanionv1.dto.*
 import com.sketcher.sketchercompanionv1.utils.UnitUtils
+import com.sketcher.sketchercompanionv1.managers.SnapPoint
+import com.sketcher.sketchercompanionv1.managers.SnapType
 
 /**
  * Handles all direct Canvas drawing operations.
@@ -81,6 +83,13 @@ class RenderEngine {
         setShadowLayer(5f, 0f, 2f, 0x44000000)
     }
 
+    private val snapPaint = Paint().apply {
+        color = Color.parseColor("#FF34C759") // iOS Green
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        isAntiAlias = true
+    }
+
     // --- CONFIGURATION ---
     var gridConfig: GridConfig = GridConfig()
     var scaleConfig: ScaleConfig = ScaleConfig()
@@ -100,7 +109,21 @@ class RenderEngine {
     private val debugPath = Path()
     private val tempClipBounds = android.graphics.Rect()
 
+    private val gripFillPaint = Paint().apply {
+        color = Color.parseColor("#FF007AFF") // iOS Blue
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    
+    private val gripBorderPaint = Paint().apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        strokeWidth = 2f
+        isAntiAlias = true
+    }
+
     // --- PUBLIC DRAWING METHODS ---
+
 
     fun drawLayers(
         canvas: Canvas, 
@@ -321,8 +344,43 @@ class RenderEngine {
                 val origAlpha = Color.alpha(origColor)
                 val newAlpha = (origAlpha * alphaMultiplier).toInt().coerceIn(0, 255)
                 vectorPaint.color = (origColor and 0x00FFFFFF) or (newAlpha shl 24)
-                vectorPaint.strokeWidth = if (stroke.maxWidth > 0) stroke.maxWidth else 0f
+                
+                var width = if (stroke.maxWidth > 0) stroke.maxWidth else 0f
+                if (stroke.isScreenSpaceWidth) {
+                    viewMatrix.getValues(tempFloatArray)
+                    val zoom = kotlin.math.sqrt(tempFloatArray[Matrix.MSCALE_X] * tempFloatArray[Matrix.MSCALE_X] + tempFloatArray[Matrix.MSKEW_X] * tempFloatArray[Matrix.MSKEW_X])
+                    if (zoom > 0.001f) {
+                        width /= zoom
+                    }
+                }
+                vectorPaint.strokeWidth = width
+
+                // Apply dash path effect for CAD styles
+                if (stroke.isCadGeometry) {
+                    when (stroke.lineStyle.uppercase()) {
+                        "DASHED" -> {
+                            val interval = kotlin.math.max(1f, width)
+                            vectorPaint.pathEffect = android.graphics.DashPathEffect(
+                                floatArrayOf(4f * interval, 2f * interval), 0f
+                            )
+                        }
+                        "DOTTED" -> {
+                            val interval = kotlin.math.max(1f, width)
+                            // With round caps, 0-length dash draws a dot
+                            vectorPaint.pathEffect = android.graphics.DashPathEffect(
+                                floatArrayOf(0f, 2f * interval), 0f
+                            )
+                        }
+                        else -> {
+                            vectorPaint.pathEffect = null
+                        }
+                    }
+                } else {
+                    vectorPaint.pathEffect = null
+                }
+
                 canvas.drawPath(stroke.path, vectorPaint)
+                vectorPaint.pathEffect = null
             }
         }
 
@@ -331,6 +389,21 @@ class RenderEngine {
             drawDebugWireframe(canvas, stroke.points, viewMatrix)
         }
     }
+
+    fun drawGrips(canvas: Canvas, stroke: VectorStroke, viewMatrix: Matrix, density: Float) {
+        val size = 6f * density // 6dp half size
+        val pts = FloatArray(2)
+        for (p in stroke.points) {
+            pts[0] = p.x
+            pts[1] = p.y
+            viewMatrix.mapPoints(pts)
+            val sx = pts[0]
+            val sy = pts[1]
+            canvas.drawRect(sx - size, sy - size, sx + size, sy + size, gripFillPaint)
+            canvas.drawRect(sx - size, sy - size, sx + size, sy + size, gripBorderPaint)
+        }
+    }
+
     
     fun drawFill(canvas: Canvas, fill: FillData, alphaMultiplier: Float = 1f) {
         val origColor = fill.color
@@ -352,46 +425,75 @@ class RenderEngine {
     }
 
     fun drawLiveStroke(
-    canvas: Canvas, 
-    previewPoints: List<StrokePoint>?, 
-    previewPath: Path?, 
-    previewColor: Int, 
-    fillPath: Path? = null,
-    fillColor: Int = 0,
-    isFillActive: Boolean = false,
-    isStrokeActive: Boolean = true,
-    currentLiveGeneratedRadius: Float,
-    viewMatrix: Matrix,
-    isDrawing: Boolean
-) {
-     if (!isDrawing) return
-     
-     canvas.save()
-     canvas.concat(viewMatrix)
-
-     // Pass 1: FILL
-     if (isFillActive && fillPath != null) {
-         vectorPaint.style = Paint.Style.FILL
-         vectorPaint.color = fillColor
-         canvas.drawPath(fillPath, vectorPaint)
-     }
-
-     // Pass 2: STROKE
-     if (isStrokeActive && previewPath != null) {
-         vectorPaint.color = previewColor
-         vectorPaint.style = if (previewPoints != null) Paint.Style.FILL else Paint.Style.STROKE
-         vectorPaint.strokeWidth = if (previewPoints == null) currentLiveGeneratedRadius * 2 else 0f
+        canvas: Canvas, 
+        previewPoints: List<StrokePoint>?, 
+        previewPath: Path?, 
+        previewColor: Int, 
+        fillPath: Path? = null,
+        fillColor: Int = 0,
+        isFillActive: Boolean = false,
+        isStrokeActive: Boolean = true,
+        currentLiveGeneratedRadius: Float,
+        viewMatrix: Matrix,
+        isDrawing: Boolean,
+        isCad: Boolean = false,
+        lineStyle: String = "SOLID"
+    ) {
+         if (!isDrawing) return
          
-         canvas.drawPath(previewPath, vectorPaint)
-     }
-     
-     // Debug Wireframe
-     if (isDebugWireframe && previewPoints != null) {
-         drawDebugWireframe(canvas, previewPoints, viewMatrix)
-     }
-     
-     canvas.restore()
-}
+         canvas.save()
+         canvas.concat(viewMatrix)
+    
+         // Pass 1: FILL
+         if (isFillActive && fillPath != null) {
+             vectorPaint.style = Paint.Style.FILL
+             vectorPaint.color = fillColor
+             canvas.drawPath(fillPath, vectorPaint)
+         }
+    
+         // Pass 2: STROKE
+         if (isStrokeActive && previewPath != null) {
+             vectorPaint.color = previewColor
+             val width = if (isCad || previewPoints == null) currentLiveGeneratedRadius * 2 else 0f
+             
+             if (isCad) {
+                 vectorPaint.style = Paint.Style.STROKE
+                 vectorPaint.strokeWidth = width
+                 
+                 when (lineStyle.uppercase()) {
+                     "DASHED" -> {
+                         val interval = kotlin.math.max(1f, width)
+                         vectorPaint.pathEffect = android.graphics.DashPathEffect(
+                             floatArrayOf(4f * interval, 2f * interval), 0f
+                         )
+                     }
+                     "DOTTED" -> {
+                         val interval = kotlin.math.max(1f, width)
+                         vectorPaint.pathEffect = android.graphics.DashPathEffect(
+                             floatArrayOf(0f, 2f * interval), 0f
+                         )
+                     }
+                     else -> {
+                         vectorPaint.pathEffect = null
+                     }
+                 }
+             } else {
+                 vectorPaint.style = if (previewPoints != null) Paint.Style.FILL else Paint.Style.STROKE
+                 vectorPaint.strokeWidth = width
+                 vectorPaint.pathEffect = null
+             }
+             
+             canvas.drawPath(previewPath, vectorPaint)
+             vectorPaint.pathEffect = null
+         }
+         
+         // Debug Wireframe
+         if (isDebugWireframe && previewPoints != null) {
+             drawDebugWireframe(canvas, previewPoints, viewMatrix)
+         }
+         
+         canvas.restore()
+    }
     
     private fun drawDebugWireframe(canvas: Canvas, points: List<StrokePoint>, viewMatrix: Matrix) {
         // Calculate zoom for consistent hairline
@@ -630,5 +732,42 @@ class RenderEngine {
     private fun drawHandle(canvas: Canvas, x: Float, y: Float, size: Float) {
         canvas.drawCircle(x, y, size, selectionHandlePaint)
         canvas.drawCircle(x, y, size, selectionBorderPaint)
+    }
+
+    fun drawSnapMarker(canvas: Canvas, snapPoint: SnapPoint, viewMatrix: Matrix, density: Float) {
+        val pts = floatArrayOf(snapPoint.point.x, snapPoint.point.y)
+        viewMatrix.mapPoints(pts)
+        val sx = pts[0]
+        val sy = pts[1]
+
+        val size = 8f * density // 8dp half size
+
+        canvas.save()
+        when (snapPoint.type) {
+            SnapType.ENDPOINT -> {
+                // Square
+                canvas.drawRect(sx - size, sy - size, sx + size, sy + size, snapPaint)
+            }
+            SnapType.MIDPOINT -> {
+                // Triangle
+                val path = Path().apply {
+                    moveTo(sx, sy - size)
+                    lineTo(sx + size, sy + size)
+                    lineTo(sx - size, sy + size)
+                    close()
+                }
+                canvas.drawPath(path, snapPaint)
+            }
+            SnapType.CENTER -> {
+                // Circle
+                canvas.drawCircle(sx, sy, size, snapPaint)
+            }
+            SnapType.INTERSECTION -> {
+                // Cross (X)
+                canvas.drawLine(sx - size, sy - size, sx + size, sy + size, snapPaint)
+                canvas.drawLine(sx + size, sy - size, sx - size, sy + size, snapPaint)
+            }
+        }
+        canvas.restore()
     }
 }

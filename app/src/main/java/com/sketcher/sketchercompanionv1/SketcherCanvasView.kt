@@ -17,6 +17,9 @@ import android.os.Handler
 import android.os.Looper
 import com.sketcher.sketchercompanionv1.dto.*
 import com.sketcher.sketchercompanionv1.utils.UnitUtils
+import com.sketcher.sketchercompanionv1.managers.SnapEngine
+import com.sketcher.sketchercompanionv1.managers.SnapPoint
+import com.sketcher.sketchercompanionv1.managers.SnapType
 import kotlin.math.round
 import androidx.core.view.drawToBitmap
 
@@ -86,6 +89,11 @@ class SketcherCanvasView(context: Context) : View(context) {
         pathEffect = dashPathEffect
         isAntiAlias = true
     }
+    private val hoverPreviewPaint = Paint().apply {
+        style = Paint.Style.STROKE
+        pathEffect = dashPathEffect
+        isAntiAlias = true
+    }
     private val tempViewportRect = RectF()
     private val tempLabelRect = RectF()
 
@@ -130,6 +138,18 @@ class SketcherCanvasView(context: Context) : View(context) {
     // Transient Strokes Cache
     private val transientStrokes = mutableListOf<VectorStroke>()
     private val transientFills = mutableListOf<FillData>()
+    
+    // Callbacks para CAD y Grip Editing
+    var onGripEditCompleted: ((VectorStroke, List<StrokePoint>, List<StrokePoint>) -> Unit)? = null
+    var onTrimRequested: ((Float, Float) -> Unit)? = null
+    var onExtendRequested: ((Float, Float) -> Unit)? = null
+
+    // Grip Editing Drag States
+    private var activeDraggedStroke: VectorStroke? = null
+    private var activeDraggedPointIndex: Int = -1
+    private var originalStrokePoints: List<StrokePoint>? = null
+    private var isDraggingGrip = false
+    
     
     // Temp storage for coordinate mapping
     private val tempTouchPoint = FloatArray(2)
@@ -192,6 +212,14 @@ class SketcherCanvasView(context: Context) : View(context) {
                 clampMatrixToBounds(viewMatrix)
                 setCameraMatrix(viewMatrix, isIntermediate = true)
                 onCameraMatrixChanged?.invoke(viewMatrix)
+                return true
+            }
+            return false
+        }
+
+        override fun onDoubleTap(e: MotionEvent): Boolean {
+            if (strokePipeline.isMultiStepInProgress) {
+                finishGeometricStroke()
                 return true
             }
             return false
@@ -336,6 +364,7 @@ class SketcherCanvasView(context: Context) : View(context) {
             currentFillColor = if (isFillActive) activeFillColor else null
             
             isDrawing = (update.previewPath != null || update.previewPoints != null)
+            onGeometricProgressChanged?.invoke(update.isMultiStepInProgress)
             invalidate()
         },
         onStrokeCompleted = { stroke, fill ->
@@ -487,38 +516,52 @@ class SketcherCanvasView(context: Context) : View(context) {
             updateSnapFunction()
         }
         
+    var isElementSnappingEnabled: Boolean = true
+        set(value) {
+            if (field == value) return
+            field = value
+            updateSnapFunction()
+        }
+        
+    private var activeSnapPoints: List<SnapPoint> = emptyList()
+    private var currentSnapPoint: SnapPoint? = null
+    private var hoverWorldPoint: android.graphics.PointF? = null
+        
     private fun updateSnapFunction() {
-        snapFunction = if (isSnapToGridEnabled) {
+        snapFunction = if (isSnapToGridEnabled || isElementSnappingEnabled) {
             { screenX: Float, screenY: Float ->
-                // 1. Screen -> World
                 val pts = floatArrayOf(screenX, screenY)
                 inverseMatrix.mapPoints(pts)
                 val worldX = pts[0]
                 val worldY = pts[1]
 
-                // 2. Snap in World Space
-                val gridStepPx = UnitUtils.projectUnitsToPixels(
-                    value = gridConfig.spacing,
-                    unit = currentUnit,
-                    basePxPerMm = scaleConfig.basePixelsPerMillimeter
-                )
-                
-                // Grid always starts at (0,0) of the world/paper
-                val offsetX = 0f
-                val offsetY = 0f
+                var snappedWorldX = worldX
+                var snappedWorldY = worldY
+                var resolvedSnap: SnapPoint? = null
 
-                val snappedWorldX: Float
-                val snappedWorldY: Float
-
-                if (gridStepPx > 0) {
-                    snappedWorldX = offsetX + round((worldX - offsetX) / gridStepPx) * gridStepPx
-                    snappedWorldY = offsetY + round((worldY - offsetY) / gridStepPx) * gridStepPx
-                } else {
-                    snappedWorldX = worldX
-                    snappedWorldY = worldY
+                if (isElementSnappingEnabled) {
+                    val zoom = getMatrixScale(viewMatrix)
+                    resolvedSnap = SnapEngine.resolveSnap(worldX, worldY, activeSnapPoints, zoom)
+                    if (resolvedSnap != null) {
+                        snappedWorldX = resolvedSnap.point.x
+                        snappedWorldY = resolvedSnap.point.y
+                    }
                 }
-                
-                // 3. World -> Screen
+
+                if (resolvedSnap == null && isSnapToGridEnabled) {
+                    val gridStepPx = UnitUtils.projectUnitsToPixels(
+                        value = gridConfig.spacing,
+                        unit = currentUnit,
+                        basePxPerMm = scaleConfig.basePixelsPerMillimeter
+                    )
+                    if (gridStepPx > 0) {
+                        snappedWorldX = round(worldX / gridStepPx) * gridStepPx
+                        snappedWorldY = round(worldY / gridStepPx) * gridStepPx
+                    }
+                }
+
+                currentSnapPoint = resolvedSnap
+
                 pts[0] = snappedWorldX
                 pts[1] = snappedWorldY
                 viewMatrix.mapPoints(pts)
@@ -808,6 +851,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                     val strokeAlpha = (android.graphics.Color.alpha(activeStrokeColor) / 255f)
                     val effectiveStrokeOpacity = strokeAlpha * activeLayerOpacity
                     val isCumulative = activeFreehandSettings.isCumulativeOpacity
+                    val isCadDraw = currentTool == ToolType.FREEHAND && activeStrokeType != StrokeType.FREEHAND
                     
                     if (effectiveStrokeOpacity < 1f && !isCumulative) {
                         // Non-cumulative semi-transparent stroke: use saveLayer to avoid connection seams
@@ -842,7 +886,8 @@ class SketcherCanvasView(context: Context) : View(context) {
                             isStrokeActive = true,
                             currentLiveGeneratedRadius = currentLiveGeneratedRadius,
                             viewMatrix = viewMatrix,
-                            isDrawing = isDrawing
+                            isDrawing = isDrawing,
+                            isCad = isCadDraw
                         )
                         
                         canvas.restoreToCount(saveCount)
@@ -866,7 +911,8 @@ class SketcherCanvasView(context: Context) : View(context) {
                             isStrokeActive = true,
                             currentLiveGeneratedRadius = currentLiveGeneratedRadius,
                             viewMatrix = viewMatrix,
-                            isDrawing = isDrawing
+                            isDrawing = isDrawing,
+                            isCad = isCadDraw
                         )
                     }
                     
@@ -915,10 +961,19 @@ class SketcherCanvasView(context: Context) : View(context) {
              }
         }
 
-        // 4. Selection Box/Handles
+        // 4. Selection Box/Handles OR Grip Handles
         selectionManager?.let { manager ->
             if (manager.selectedElements.isNotEmpty()) {
-                renderEngine.drawSelectionOverlay(canvas, manager, viewMatrix)
+                if (currentTool == ToolType.EDIT_POINTS) {
+                    val density = resources.displayMetrics.density
+                    for (element in manager.selectedElements) {
+                        if (element is VectorStroke) {
+                            renderEngine.drawGrips(canvas, element, viewMatrix, density)
+                        }
+                    }
+                } else {
+                    renderEngine.drawSelectionOverlay(canvas, manager, viewMatrix)
+                }
             }
         }
 
@@ -958,15 +1013,104 @@ class SketcherCanvasView(context: Context) : View(context) {
             }
         }
         
+        // Draw Stylus Hover Preview Line for multi-step tools
+        if (!isDrawing && strokePipeline.isMultiStepInProgress) {
+            val lastPt = strokePipeline.currentStrokePointsList.lastOrNull()
+            val hoverPt = hoverWorldPoint
+            if (lastPt != null && hoverPt != null) {
+                canvas.save()
+                canvas.concat(viewMatrix)
+                hoverPreviewPaint.color = activeStrokeColor
+                hoverPreviewPaint.strokeWidth = (activeSize / getMatrixScale(viewMatrix)).coerceIn(1f, 10f)
+                canvas.drawLine(lastPt.x, lastPt.y, hoverPt.x, hoverPt.y, hoverPreviewPaint)
+                canvas.restore()
+            }
+        }
+
+        currentSnapPoint?.let { snap ->
+            renderEngine.drawSnapMarker(canvas, snap, viewMatrix, resources.displayMetrics.density)
+        }
+        
         onDrawAction?.invoke()
         onDrawAction = null
     }
 
     var onDrawAction: (() -> Unit)? = null
 
-    // --- INPUT GESTURES ---
+    override fun onHoverEvent(event: MotionEvent): Boolean {
+        if (!isElementSnappingEnabled && !isSnapToGridEnabled) {
+            currentSnapPoint = null
+            hoverWorldPoint = null
+            invalidate()
+            return super.onHoverEvent(event)
+        }
+
+        val action = event.actionMasked
+        val zoom = getMatrixScale(viewMatrix)
+
+        when (action) {
+            MotionEvent.ACTION_HOVER_ENTER -> {
+                activeSnapPoints = if (isElementSnappingEnabled) {
+                    SnapEngine.getSnapPoints(layers)
+                } else {
+                    emptyList()
+                }
+            }
+            MotionEvent.ACTION_HOVER_MOVE -> {
+                val pts = floatArrayOf(event.x, event.y)
+                inverseMatrix.mapPoints(pts)
+                val worldX = pts[0]
+                val worldY = pts[1]
+
+                var snappedWorldX = worldX
+                var snappedWorldY = worldY
+                var resolvedSnap: SnapPoint? = null
+
+                if (isElementSnappingEnabled) {
+                    resolvedSnap = SnapEngine.resolveSnap(worldX, worldY, activeSnapPoints, zoom)
+                    if (resolvedSnap != null) {
+                        snappedWorldX = resolvedSnap.point.x
+                        snappedWorldY = resolvedSnap.point.y
+                    }
+                }
+
+                if (resolvedSnap == null && isSnapToGridEnabled) {
+                    val gridStepPx = UnitUtils.projectUnitsToPixels(
+                        value = gridConfig.spacing,
+                        unit = currentUnit,
+                        basePxPerMm = scaleConfig.basePixelsPerMillimeter
+                    )
+                    if (gridStepPx > 0) {
+                        snappedWorldX = kotlin.math.round(worldX / gridStepPx) * gridStepPx
+                        snappedWorldY = kotlin.math.round(worldY / gridStepPx) * gridStepPx
+                    }
+                }
+
+                currentSnapPoint = resolvedSnap
+                hoverWorldPoint = android.graphics.PointF(snappedWorldX, snappedWorldY)
+                invalidate()
+            }
+            MotionEvent.ACTION_HOVER_EXIT -> {
+                currentSnapPoint = null
+                hoverWorldPoint = null
+                invalidate()
+            }
+        }
+        return true
+    }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            activeSnapPoints = if (isElementSnappingEnabled) {
+                SnapEngine.getSnapPoints(layers)
+            } else {
+                emptyList()
+            }
+        } else if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+            currentSnapPoint = null
+            activeSnapPoints = emptyList()
+        }
+
         // --- 1. GESTURES (Zoom/Pan) ---
         // Delegate to Scale and Gesture Detectors
         val wasInProgress = scaleDetector.isInProgress
@@ -975,8 +1119,10 @@ class SketcherCanvasView(context: Context) : View(context) {
         
         // Manual Pan Logic Removed (Replaced by GestureDetector)
 
-        // If we are zooming or have 2+ fingers, don't draw
-        if (scaleDetector.isInProgress || event.pointerCount >= 2 || (wasInProgress && (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_POINTER_UP))) {
+        // If we are zooming or have 2+ fingers, don't draw.
+        // We only allow scale/pan block if we actually have 2+ pointers to avoid single-finger ghost/stuck scale detector states.
+        val isScaleActive = scaleDetector.isInProgress && event.pointerCount >= 2
+        if (isScaleActive || event.pointerCount >= 2 || (wasInProgress && (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_POINTER_UP))) {
             if (event.actionMasked == MotionEvent.ACTION_UP || (event.pointerCount == 2 && event.actionMasked == MotionEvent.ACTION_POINTER_UP)) {
                 redrawAllCache()
             }
@@ -997,8 +1143,171 @@ class SketcherCanvasView(context: Context) : View(context) {
         return when (currentTool) {
             ToolType.SELECTION -> handleSelectionInput(event)
             ToolType.ERASER -> handleEraserInput(event)
+            ToolType.TRIM -> {
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                    tempTouchPoint[0] = event.x
+                    tempTouchPoint[1] = event.y
+                    inverseMatrix.mapPoints(tempTouchPoint)
+                    onTrimRequested?.invoke(tempTouchPoint[0], tempTouchPoint[1])
+                }
+                true
+            }
+            ToolType.EXTEND -> {
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                    tempTouchPoint[0] = event.x
+                    tempTouchPoint[1] = event.y
+                    inverseMatrix.mapPoints(tempTouchPoint)
+                    onExtendRequested?.invoke(tempTouchPoint[0], tempTouchPoint[1])
+                }
+                true
+            }
+            ToolType.EDIT_POINTS -> handleEditPointsInput(event)
             else -> strokePipeline.onTouchEvent(event)
         }
+    }
+
+    private fun handleEditPointsInput(event: MotionEvent): Boolean {
+        val density = resources.displayMetrics.density
+        val manager = selectionManager ?: return false
+        
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                isDraggingGrip = false
+                activeDraggedStroke = null
+                activeDraggedPointIndex = -1
+                
+                // Find if touch is near a control point (grip) of selected elements
+                var foundStroke: VectorStroke? = null
+                var foundPointIndex: Int = -1
+                var minDistancePx = Float.MAX_VALUE
+                
+                val selected = manager.selectedElements.filterIsInstance<VectorStroke>()
+                for (stroke in selected) {
+                    for (idx in stroke.points.indices) {
+                        val p = stroke.points[idx]
+                        val pts = floatArrayOf(p.x, p.y)
+                        viewMatrix.mapPoints(pts)
+                        val dist = kotlin.math.hypot(event.x - pts[0], event.y - pts[1])
+                        if (dist < 28f * density && dist < minDistancePx) { // 28dp touch target
+                            foundStroke = stroke
+                            foundPointIndex = idx
+                            minDistancePx = dist
+                        }
+                    }
+                }
+                
+                if (foundStroke != null) {
+                    activeDraggedStroke = foundStroke
+                    activeDraggedPointIndex = foundPointIndex
+                    originalStrokePoints = foundStroke.points.map { it.copy() }
+                    isDraggingGrip = true
+                    invalidate()
+                    return true
+                } else {
+                    // Try to select/deselect a single element
+                    tempTouchPoint[0] = event.x
+                    tempTouchPoint[1] = event.y
+                    inverseMatrix.mapPoints(tempTouchPoint)
+                    val worldX = tempTouchPoint[0]
+                    val worldY = tempTouchPoint[1]
+                    
+                    val layerIndex = activeLayerIndex
+                    if (layerIndex in layers.indices) {
+                        val didSelect = manager.selectSingleAt(worldX, worldY, layers[layerIndex], componentLibrary, addToSelection = false)
+                        if (didSelect) {
+                            invalidate()
+                            return true
+                        }
+                    }
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (isDraggingGrip && activeDraggedStroke != null) {
+                    var finalScreenX = event.x
+                    var finalScreenY = event.y
+                    
+                    val snapFn = snapFunction
+                    if (snapFn != null) {
+                        val snapped = snapFn(event.x, event.y)
+                        finalScreenX = snapped.first
+                        finalScreenY = snapped.second
+                    } else {
+                        currentSnapPoint = null
+                    }
+                    
+                    tempTouchPoint[0] = finalScreenX
+                    tempTouchPoint[1] = finalScreenY
+                    inverseMatrix.mapPoints(tempTouchPoint)
+                    val worldX = tempTouchPoint[0]
+                    val worldY = tempTouchPoint[1]
+                    
+                    val stroke = activeDraggedStroke!!
+                    val origPts = originalStrokePoints ?: return true
+                    val idx = activeDraggedPointIndex
+                    
+                    if (stroke.strokeType == StrokeType.CIRCLE || stroke.strokeType == StrokeType.ELLIPSE) {
+                        if (idx == 0) {
+                            // Translate whole shape if center dragged
+                            val dx = worldX - origPts[0].x
+                            val dy = worldY - origPts[0].y
+                            for (i in stroke.points.indices) {
+                                stroke.points[i].x = origPts[i].x + dx
+                                stroke.points[i].y = origPts[i].y + dy
+                            }
+                        } else {
+                            stroke.points[idx].x = worldX
+                            stroke.points[idx].y = worldY
+                        }
+                    } else {
+                        stroke.points[idx].x = worldX
+                        stroke.points[idx].y = worldY
+                    }
+                    
+                    val newPath = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(stroke.strokeType, stroke.points)
+                    stroke.path.rewind()
+                    stroke.path.set(newPath)
+                    
+                    if (stroke.isFillEnabled && stroke.points.size >= 3) {
+                        stroke.fillPath?.rewind()
+                        stroke.fillPath?.set(newPath)
+                    }
+                    
+                    redrawAllCache()
+                    invalidate()
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (isDraggingGrip && activeDraggedStroke != null) {
+                    val stroke = activeDraggedStroke!!
+                    val origPts = originalStrokePoints
+                    
+                    if (origPts != null) {
+                        val newPoints = stroke.points.map { it.copy() }
+                        
+                        // Temporarily restore original points so undo/redo command acts properly
+                        for (i in stroke.points.indices) {
+                            stroke.points[i].x = origPts[i].x
+                            stroke.points[i].y = origPts[i].y
+                        }
+                        stroke.path.rewind()
+                        stroke.path.set(com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(stroke.strokeType, stroke.points))
+                        if (stroke.isFillEnabled && stroke.points.size >= 3) {
+                            stroke.fillPath?.rewind()
+                            stroke.fillPath?.set(stroke.path)
+                        }
+                        
+                        onGripEditCompleted?.invoke(stroke, origPts, newPoints)
+                    }
+                }
+                isDraggingGrip = false
+                activeDraggedStroke = null
+                activeDraggedPointIndex = -1
+                originalStrokePoints = null
+                currentSnapPoint = null
+                invalidate()
+            }
+        }
+        return true
     }
 
     fun finishGeometricStroke() {

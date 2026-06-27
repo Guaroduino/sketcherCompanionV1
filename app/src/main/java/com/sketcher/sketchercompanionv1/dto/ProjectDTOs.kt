@@ -111,7 +111,10 @@ data class VectorStrokeJson(
     val isStrokeEnabled: Boolean? = null,
     val isFillEnabled: Boolean? = null,
     val isCumulative: Boolean = false,
-    val isFlattened: Boolean = false
+    val isFlattened: Boolean = false,
+    val lineStyle: String = "SOLID",
+    val isCadGeometry: Boolean = false,
+    val isScreenSpaceWidth: Boolean = false
 )
 
 data class StrokePointJson(
@@ -182,9 +185,9 @@ data class BrushPreset(
     val freehandSettings: FreehandSettings
 )
 
-enum class ToolType { FREEHAND, FILL, ERASER, SELECTION, ANDROID_INK }
+enum class ToolType { FREEHAND, FILL, ERASER, SELECTION, ANDROID_INK, TRIM, EXTEND, EDIT_POINTS }
 
-enum class StrokeType { FREEHAND, LINE, POLYLINE, CIRCLE, ARC }
+enum class StrokeType { FREEHAND, LINE, POLYLINE, CIRCLE, ARC, ELLIPSE, SPLINE }
 
 data class FillSettings(val tolerance: Float = 0.1f)
 
