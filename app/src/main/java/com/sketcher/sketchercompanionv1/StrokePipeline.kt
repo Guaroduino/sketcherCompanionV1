@@ -206,7 +206,7 @@ class StrokePipeline(
             // 0.5 world units (0.1mm at 5px/mm) is a good stable threshold for most zooms
             val minDistSq = 0.25f
 
-            val isStart = (action == MotionEvent.ACTION_DOWN && stabilizedPoints.isEmpty() && currentStrokePoints.isEmpty())
+            val isStart = (action == MotionEvent.ACTION_DOWN && stabilizedPoints.isEmpty())
 
             if (distSq > minDistSq || isStart) {
                 var sanitizedTime = p.timestamp
@@ -857,7 +857,7 @@ class StrokePipeline(
         reset()
     }
 
-    private fun reset() {
+    fun reset() {
         currentStrokePoints.clear()
         committedPath.rewind()
         committedPathBounds.setEmpty()

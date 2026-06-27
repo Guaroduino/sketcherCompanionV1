@@ -113,6 +113,38 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         prefs.edit().putBoolean("element_snapping", isElementSnappingEnabled).apply()
     }
 
+    private val _isSnapEndpointEnabled = mutableStateOf(prefs.getBoolean("snap_endpoint_enabled", true))
+    var isSnapEndpointEnabled: Boolean
+        get() = _isSnapEndpointEnabled.value
+        set(value) {
+            _isSnapEndpointEnabled.value = value
+            prefs.edit().putBoolean("snap_endpoint_enabled", value).apply()
+        }
+
+    private val _isSnapMidpointEnabled = mutableStateOf(prefs.getBoolean("snap_midpoint_enabled", true))
+    var isSnapMidpointEnabled: Boolean
+        get() = _isSnapMidpointEnabled.value
+        set(value) {
+            _isSnapMidpointEnabled.value = value
+            prefs.edit().putBoolean("snap_midpoint_enabled", value).apply()
+        }
+
+    private val _isSnapCenterEnabled = mutableStateOf(prefs.getBoolean("snap_center_enabled", true))
+    var isSnapCenterEnabled: Boolean
+        get() = _isSnapCenterEnabled.value
+        set(value) {
+            _isSnapCenterEnabled.value = value
+            prefs.edit().putBoolean("snap_center_enabled", value).apply()
+        }
+
+    private val _isSnapIntersectionEnabled = mutableStateOf(prefs.getBoolean("snap_intersection_enabled", true))
+    var isSnapIntersectionEnabled: Boolean
+        get() = _isSnapIntersectionEnabled.value
+        set(value) {
+            _isSnapIntersectionEnabled.value = value
+            prefs.edit().putBoolean("snap_intersection_enabled", value).apply()
+        }
+
     // CANVAS SIZE CONFIG
     var canvasSizeConfig by mutableStateOf<CanvasSizeConfig?>(null)
         private set
@@ -437,6 +469,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         "home_view" -> ({ resetCamera() })
         "stroke_color" -> ({ _showStrokeColorPicker.value = true })
         "fill_color" -> ({ _showFillColorPicker.value = true })
+        "toggle_snap" -> ({ toggleElementSnapping() })
         "pencil" -> ({ 
              updateStrokeType(StrokeType.FREEHAND)
              selectTool(ToolType.FREEHAND) 

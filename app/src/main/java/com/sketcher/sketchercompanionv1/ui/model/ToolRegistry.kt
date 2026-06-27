@@ -29,6 +29,7 @@ object ToolRegistry {
         StudioTool("trim", Icons.Default.ContentCut, "Trim", isPlaceholder = false),
         StudioTool("extend", Icons.Default.TrendingFlat, "Extend", isPlaceholder = false),
         StudioTool("edit_points", Icons.Default.Build, "Edit Points", isPlaceholder = false),
+        StudioTool("toggle_snap", Icons.Default.FilterCenterFocus, "Toggle Snap", isPlaceholder = false),
         StudioTool("undo", Icons.Default.Undo, "Undo", isPlaceholder = false),
         StudioTool("redo", Icons.Default.Redo, "Redo", isPlaceholder = false),
         // Selection tools

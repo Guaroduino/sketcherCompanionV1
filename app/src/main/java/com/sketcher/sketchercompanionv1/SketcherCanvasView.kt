@@ -572,6 +572,34 @@ class SketcherCanvasView(context: Context) : View(context) {
             null
         }
     }
+
+    var isSnapEndpointEnabled: Boolean = true
+    var isSnapMidpointEnabled: Boolean = true
+    var isSnapCenterEnabled: Boolean = true
+    var isSnapIntersectionEnabled: Boolean = true
+
+    private fun getCombinedSnapPoints(): List<SnapPoint> {
+        val allPoints = SnapEngine.getSnapPoints(layers)
+        
+        val activeSettings = mutableSetOf<SnapType>()
+        if (isSnapEndpointEnabled) activeSettings.add(SnapType.ENDPOINT)
+        if (isSnapMidpointEnabled) activeSettings.add(SnapType.MIDPOINT)
+        if (isSnapCenterEnabled) activeSettings.add(SnapType.CENTER)
+        if (isSnapIntersectionEnabled) activeSettings.add(SnapType.INTERSECTION)
+        
+        val pts = allPoints.filter { it.type in activeSettings }.toMutableList()
+        
+        if (strokePipeline.isMultiStepInProgress) {
+            val polyPoints = strokePipeline.currentStrokePointsList
+            if (polyPoints.size >= 2 && isSnapEndpointEnabled) {
+                for (i in 0 until polyPoints.size - 1) {
+                    val p = polyPoints[i]
+                    pts.add(SnapPoint(android.graphics.PointF(p.x, p.y), SnapType.ENDPOINT))
+                }
+            }
+        }
+        return pts
+    }
     
     var isDebugPredictionEnabled: Boolean = false
         set(value) {
@@ -1051,7 +1079,7 @@ class SketcherCanvasView(context: Context) : View(context) {
         when (action) {
             MotionEvent.ACTION_HOVER_ENTER -> {
                 activeSnapPoints = if (isElementSnappingEnabled) {
-                    SnapEngine.getSnapPoints(layers)
+                    getCombinedSnapPoints()
                 } else {
                     emptyList()
                 }
@@ -1102,7 +1130,7 @@ class SketcherCanvasView(context: Context) : View(context) {
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             activeSnapPoints = if (isElementSnappingEnabled) {
-                SnapEngine.getSnapPoints(layers)
+                getCombinedSnapPoints()
             } else {
                 emptyList()
             }
@@ -1312,6 +1340,16 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     fun finishGeometricStroke() {
         strokePipeline.forceFinishGeometric()
+        currentSnapPoint = null
+        hoverWorldPoint = null
+        invalidate()
+    }
+
+    fun cancelGeometricStroke() {
+        strokePipeline.reset()
+        currentSnapPoint = null
+        hoverWorldPoint = null
+        invalidate()
     }
 
     // --- CALLBACKS ---

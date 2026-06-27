@@ -1,4 +1,4 @@
-package com.sketcher.sketchercompanionv1.ui.layout
+﻿package com.sketcher.sketchercompanionv1.ui.layout
 
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -152,6 +152,9 @@ fun StudioLayout(
             tool.registryId == "edit_points" -> {
                 currentTool == ToolType.EDIT_POINTS
             }
+            tool.registryId == "toggle_snap" -> {
+                viewModel.isElementSnappingEnabled
+            }
             tool.registryId.startsWith("tool_selection") || tool.registryId == "tool_transform" -> {
                 currentTool == ToolType.SELECTION
             }
@@ -258,6 +261,7 @@ fun StudioLayout(
     var rightPanelWidth by remember(scaler) { mutableStateOf(scaler.sidePanelWidth * 1.4f) }
     var layersPanelWeight by remember { mutableFloatStateOf(0.5f) }
     var showPersonalizationDialog by remember { mutableStateOf(false) }
+    var showSnapConfigDialog by remember { mutableStateOf(false) }
     var showSizeOpacityPopup by remember { mutableStateOf(false) }
     var showStudioMenu by remember { mutableStateOf(false) }
 
@@ -367,7 +371,7 @@ fun StudioLayout(
                     onHybridStrokeCompleted = { s, f -> viewModel.addHybridStroke(s, f) }
                     // Delegar el borrado al sistema de comandos del ViewModel para evitar
                     // ConcurrentModificationException: el ViewModel muta la lista de forma
-                    // segura a través de EraseCommand, sin usar iteradores en el hilo de UI.
+                    // segura a trav�s de EraseCommand, sin usar iteradores en el hilo de UI.
                     onRequestErase = { worldX, worldY, diameterPx ->
                         viewModel.erase(worldX, worldY, diameterPx)
                     }
@@ -421,6 +425,10 @@ fun StudioLayout(
                 view.globalStabilizationLevel = viewModel.globalStabilizationLevel
                 view.isSnapToGridEnabled = viewModel.isSnapToGridEnabled
                 view.isElementSnappingEnabled = viewModel.isElementSnappingEnabled
+                view.isSnapEndpointEnabled = viewModel.isSnapEndpointEnabled
+                view.isSnapMidpointEnabled = viewModel.isSnapMidpointEnabled
+                view.isSnapCenterEnabled = viewModel.isSnapCenterEnabled
+                view.isSnapIntersectionEnabled = viewModel.isSnapIntersectionEnabled
                 view.selectionManager = viewModel.selectionManager
                 view.currentSelectionMode = viewModel.currentSelectionMode
                 // Synchronize Camera Matrix (Studio UI Activation)
@@ -1056,52 +1064,56 @@ fun StudioLayout(
                                        iconSize = scaler.smallIconSize
                                    )
                               } else {
-                                      com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
-                                          onClick = {
-                                              if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx
-                                              else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
-                                              else if (isRealAction) handleToolClick(tool)
-                                          },
-                                          onLongClick = {
-                                              if (!isEditMode) {
+                                  com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
+                                      onClick = {
+                                          if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx
+                                          else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
+                                          else if (isRealAction) handleToolClick(tool)
+                                      },
+                                      onLongClick = {
+                                          if (!isEditMode) {
+                                              if (tool.registryId == "toggle_snap") {
+                                                  showSnapConfigDialog = true
+                                              } else {
                                                   val p = assignedToolsMap[tool.id]
                                                   if (p != null) viewModel.editTool(p)
                                               }
-                                          },
-                                          icon = tool.icon,
-                                          contentDescription = tool.contentDescription,
-                                          isActive = resolveIsActive(tool),
-                                          isEditMode = isEditMode,
-                                          highlightColor = theme.highlightColor,
-                                          buttonColor = theme.buttonColor,
-                                          iconColor = theme.iconColor,
-                                          shape = theme.floatingShape(),
-                                          iconSize = scaler.smallIconSize,
-                                           location = ToolLocation.LeftBar,
-                                           theme = theme,
-                                           payload = assignedToolsMap[tool.id],
-                                           colorPreview = when (assignedToolsMap[tool.id]) {
-                                               ToolPayload.STROKE_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(strokeColorVal)
-                                               ToolPayload.FILL_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(fillColorVal)
-                                               else -> null
-                                           },
-                                           isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && isStrokeActiveVal) ||
-                                                        (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && isFillActiveVal),
-                                        isNone = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && !isStrokeActiveVal) ||
-                                                 (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && !isFillActiveVal),
-                                            subTools = if (!isEditMode) com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId) else emptyList(),
-                                            onSubToolClick = { subTool -> 
-                                                if (viewModel.isMultiStepStrokeInProgress) {
-                                                    canvasViewRef.value?.finishGeometricStroke()
-                                                }
-                                                viewModel.replaceTool(ToolLocation.LeftBar, idx, subTool)
-                                                viewModel.getActionForTool(subTool.id).invoke() 
-                                            }
-                                       )
-                              }
-                         }
-                    }
-                    if (isEditMode) {
+                                          }
+                                      },
+                                      icon = tool.icon,
+                                      contentDescription = tool.contentDescription,
+                                      isActive = resolveIsActive(tool),
+                                      isEditMode = isEditMode,
+                                      highlightColor = theme.highlightColor,
+                                      buttonColor = theme.buttonColor,
+                                      iconColor = theme.iconColor,
+                                      shape = theme.floatingShape(),
+                                      iconSize = scaler.smallIconSize,
+                                      location = ToolLocation.LeftBar,
+                                      theme = theme,
+                                      payload = assignedToolsMap[tool.id],
+                                      colorPreview = when (assignedToolsMap[tool.id]) {
+                                          ToolPayload.STROKE_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(strokeColorVal)
+                                          ToolPayload.FILL_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(fillColorVal)
+                                          else -> null
+                                      },
+                                      isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && isStrokeActiveVal) ||
+                                                   (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && isFillActiveVal),
+                                      isNone = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && !isStrokeActiveVal) ||
+                                               (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && !isFillActiveVal),
+                                      subTools = if (!isEditMode) com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId) else emptyList(),
+                                      onSubToolClick = { subTool -> 
+                                          if (viewModel.isMultiStepStrokeInProgress) {
+                                              canvasViewRef.value?.finishGeometricStroke()
+                                          }
+                                          viewModel.replaceTool(ToolLocation.LeftBar, idx, subTool)
+                                                                                     viewModel.getActionForTool(subTool.id).invoke()
+                                       }
+                                   )
+                               }
+                          }
+                     }
+                     if (isEditMode) {
                         BigTouchBox(
                             onClick = { toolPickerTarget = ToolLocation.LeftBar to null },
                             touchSize = 48.dp
@@ -1171,7 +1183,7 @@ fun StudioLayout(
                                       onClick = {
                                           if (isEditMode) toolPickerTarget = ToolLocation.RightBar to idx
                                           else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
-                                          else if (isRealAction) tool.onClick()
+                                          else if (isRealAction) handleToolClick(tool)
                                       },
                                       icon = tool.icon,
                                       contentDescription = tool.contentDescription,
@@ -1183,7 +1195,7 @@ fun StudioLayout(
                                       iconColor = theme.iconColor,
                                       shape = theme.floatingShape(),
                                       iconSize = scaler.smallIconSize
-                                  )
+                                   )
                              } else {
                                  com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
                                      onClick = {
@@ -1192,11 +1204,15 @@ fun StudioLayout(
                                          else if (isRealAction) handleToolClick(tool)
                                      },
                                      onLongClick = {
-                                         if (!isEditMode) {
-                                             val p = assignedToolsMap[tool.id]
-                                             if (p != null) viewModel.editTool(p)
-                                         }
-                                     },
+                                          if (!isEditMode) {
+                                              if (tool.registryId == "toggle_snap") {
+                                                  showSnapConfigDialog = true
+                                              } else {
+                                                  val p = assignedToolsMap[tool.id]
+                                                  if (p != null) viewModel.editTool(p)
+                                              }
+                                          }
+                                      },
                                      icon = tool.icon,
                                      contentDescription = tool.contentDescription,
                                      isActive = resolveIsActive(tool),
@@ -1322,11 +1338,15 @@ fun StudioLayout(
                                          else if (isRealAction) handleToolClick(tool)
                                      },
                                      onLongClick = {
-                                         if (!isEditMode) {
-                                             val p = assignedToolsMap[tool.id]
-                                             if (p != null) viewModel.editTool(p)
-                                         }
-                                     },
+                                          if (!isEditMode) {
+                                              if (tool.registryId == "toggle_snap") {
+                                                  showSnapConfigDialog = true
+                                              } else {
+                                                  val p = assignedToolsMap[tool.id]
+                                                  if (p != null) viewModel.editTool(p)
+                                              }
+                                          }
+                                      },
                                      icon = tool.icon,
                                      contentDescription = tool.contentDescription,
                                      isActive = resolveIsActive(tool),
@@ -1453,11 +1473,15 @@ fun StudioLayout(
                                          else if (isRealAction) handleToolClick(tool)
                                      },
                                      onLongClick = {
-                                         if (!isEditMode) {
-                                             val p = assignedToolsMap[tool.id]
-                                             if (p != null) viewModel.editTool(p)
-                                         }
-                                     },
+                                          if (!isEditMode) {
+                                              if (tool.registryId == "toggle_snap") {
+                                                  showSnapConfigDialog = true
+                                              } else {
+                                                  val p = assignedToolsMap[tool.id]
+                                                  if (p != null) viewModel.editTool(p)
+                                              }
+                                          }
+                                      },
                                      icon = tool.icon,
                                      contentDescription = tool.contentDescription,
                                      isActive = resolveIsActive(tool),
@@ -1624,16 +1648,15 @@ fun StudioLayout(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(scaler.smallButtonSpacing)
             ) {
-                // Snap Toggle Button
-                val isSnapping = viewModel.isElementSnappingEnabled
+                // Cancel Button
                 com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
-                    onClick = { viewModel.toggleElementSnapping() },
-                    icon = Icons.Default.FilterCenterFocus,
-                    contentDescription = "Toggle Snap",
-                    isActive = isSnapping,
+                    onClick = { canvasViewRef.value?.cancelGeometricStroke() },
+                    icon = Icons.Default.Close,
+                    contentDescription = "Cancel Shape",
+                    isActive = false,
                     highlightColor = theme.highlightColor,
                     buttonColor = Color.Transparent, 
-                    iconColor = if (isSnapping) theme.highlightColor else theme.iconColor,
+                    iconColor = theme.iconColor,
                     shape = CircleShape,
                     iconSize = scaler.baseIconSize
                 )
@@ -1710,6 +1733,93 @@ fun StudioLayout(
                 onDismiss = { viewModel.setShowFillColorPicker(false) },
                 onDisable = { viewModel.toggleFill(false); viewModel.setShowFillColorPicker(false) }
             )
+        }
+
+        if (showSnapConfigDialog) {
+            Dialog(onDismissRequest = { showSnapConfigDialog = false }) {
+                Card(
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = theme.barBackgroundColor.copy(alpha = 0.95f)
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                    modifier = Modifier
+                        .width(300.dp)
+                        .padding(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .padding(24.dp)
+                            .fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Text(
+                            text = "Configuraci�n de Snap",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                color = theme.iconColor
+                            )
+                        )
+                        
+                        Divider(color = theme.iconColor.copy(alpha = 0.1f))
+                        
+                        val toggleRow = @Composable { label: String, isChecked: Boolean, onCheckedChange: (Boolean) -> Unit ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onCheckedChange(!isChecked) }
+                                    .padding(vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        color = theme.iconColor.copy(alpha = 0.8f)
+                                    )
+                                )
+                                Switch(
+                                    checked = isChecked,
+                                    onCheckedChange = onCheckedChange,
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = Color.White,
+                                        checkedTrackColor = theme.highlightColor,
+                                        uncheckedThumbColor = theme.iconColor.copy(alpha = 0.5f),
+                                        uncheckedTrackColor = theme.iconColor.copy(alpha = 0.1f)
+                                    )
+                                )
+                            }
+                        }
+                        
+                        toggleRow("Punto Final (Endpoint)", viewModel.isSnapEndpointEnabled) {
+                            viewModel.isSnapEndpointEnabled = it
+                        }
+                        toggleRow("Punto Medio (Midpoint)", viewModel.isSnapMidpointEnabled) {
+                            viewModel.isSnapMidpointEnabled = it
+                        }
+                        toggleRow("Centro (Center)", viewModel.isSnapCenterEnabled) {
+                            viewModel.isSnapCenterEnabled = it
+                        }
+                        toggleRow("IntersecciÃ³n (Intersection)", viewModel.isSnapIntersectionEnabled) {
+                            viewModel.isSnapIntersectionEnabled = it
+                        }
+                        
+                        Button(
+                            onClick = { showSnapConfigDialog = false },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = theme.highlightColor,
+                                contentColor = Color.White
+                            ),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp)
+                        ) {
+                            Text("Aceptar")
+                        }
+                    }
+                }
+            }
         }
 
         if (viewModel.showPerformanceStats) {
@@ -1925,7 +2035,7 @@ fun StudioLayout(
                             Spacer(modifier = Modifier.height(12.dp))
 
                             // Angle Slider
-                            Text("Shadow Angle: ${theme.shadowAngle.toInt()}Â°", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
+                            Text("Shadow Angle: ${theme.shadowAngle.toInt()}°", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
                             Slider(
                                 value = theme.shadowAngle,
                                 onValueChange = { 
@@ -2116,4 +2226,6 @@ fun PerformanceStatsOverlay(
         }
     }
 }
+
+
 

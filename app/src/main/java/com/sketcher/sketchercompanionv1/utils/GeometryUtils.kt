@@ -285,6 +285,9 @@ object GeometryUtils {
                         path.moveTo(p1.x, p1.y)
                         path.lineTo(p3.x, p3.y)
                     }
+                } else if (points.size == 2) {
+                    path.moveTo(points[0].x, points[0].y)
+                    path.lineTo(points[1].x, points[1].y)
                 }
             }
             StrokeType.ELLIPSE -> {
@@ -296,6 +299,11 @@ object GeometryUtils {
                     val rY = hypot(pY.x - center.x, pY.y - center.y)
                     val rect = RectF(center.x - rX, center.y - rY, center.x + rX, center.y + rY)
                     path.addOval(rect, Path.Direction.CW)
+                } else if (points.size == 2) {
+                    val center = points[0]
+                    val edge = points[1]
+                    val r = hypot(edge.x - center.x, edge.y - center.y)
+                    path.addCircle(center.x, center.y, r, Path.Direction.CW)
                 }
             }
             StrokeType.SPLINE -> {
