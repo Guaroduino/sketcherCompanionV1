@@ -38,7 +38,121 @@ import com.sketcher.sketchercompanionv1.ui.model.ToolRegistry
 import com.sketcher.sketchercompanionv1.ui.model.VectorIcon
 import kotlin.math.roundToInt
 
-enum class DrawMode { FREEHAND, LINE, ARC, ERASER }
+enum class DrawMode { FREEHAND, LINE, ARC, ERASER, PAN }
+
+fun insertSpacesInPath(pathStr: String): String {
+    var s = pathStr.replace("([MmLlQqCcZz])".toRegex(), " $1 ")
+    s = s.replace("(\\d)-".toRegex(), "$1 -")
+    s = s.replace(",", " ")
+    s = s.replace("\\s+".toRegex(), " ")
+    return s.trim()
+}
+
+fun fitPathsToViewport(rawPathList: List<String>): List<String> {
+    val pathList = rawPathList.map { insertSpacesInPath(it) }
+    val xCoords = mutableListOf<Float>()
+    val yCoords = mutableListOf<Float>()
+    
+    for (path in pathList) {
+        val parts = path.split(" ")
+        var i = 0
+        while (i < parts.size) {
+            val part = parts[i]
+            if (part == "M" || part == "L" || part == "m" || part == "l") {
+                val x = parts.getOrNull(i + 1)?.toFloatOrNull()
+                val y = parts.getOrNull(i + 2)?.toFloatOrNull()
+                if (x != null && y != null) {
+                    xCoords.add(x)
+                    yCoords.add(y)
+                }
+                i += 3
+                continue
+            } else if (part == "Q" || part == "q") {
+                val cx = parts.getOrNull(i + 1)?.toFloatOrNull()
+                val cy = parts.getOrNull(i + 2)?.toFloatOrNull()
+                val ex = parts.getOrNull(i + 3)?.toFloatOrNull()
+                val ey = parts.getOrNull(i + 4)?.toFloatOrNull()
+                if (cx != null && cy != null) {
+                    xCoords.add(cx)
+                    yCoords.add(cy)
+                }
+                if (ex != null && ey != null) {
+                    xCoords.add(ex)
+                    yCoords.add(ey)
+                }
+                i += 5
+                continue
+            }
+            i++
+        }
+    }
+    
+    if (xCoords.isEmpty() || yCoords.isEmpty()) return rawPathList
+    
+    val minX = xCoords.minOrNull() ?: 0f
+    val maxX = xCoords.maxOrNull() ?: 100f
+    val minY = yCoords.minOrNull() ?: 0f
+    val maxY = yCoords.maxOrNull() ?: 100f
+    
+    val width = maxX - minX
+    val height = maxY - minY
+    
+    if (width == 0f && height == 0f) return rawPathList
+    
+    val targetSize = 70f
+    val scale = targetSize / maxOf(width, height).coerceAtLeast(1f)
+    
+    val centerX = minX + width / 2f
+    val centerY = minY + height / 2f
+    
+    val dx = 50f - centerX * scale
+    val dy = 50f - centerY * scale
+    
+    return pathList.map { path ->
+        val parts = path.split(" ")
+        val newParts = mutableListOf<String>()
+        var i = 0
+        while (i < parts.size) {
+            val part = parts[i]
+            if (part == "M" || part == "L" || part == "m" || part == "l") {
+                newParts.add(part.uppercase())
+                val x = parts.getOrNull(i + 1)?.toFloatOrNull()
+                val y = parts.getOrNull(i + 2)?.toFloatOrNull()
+                if (x != null && y != null) {
+                    val nx = x * scale + dx
+                    val ny = y * scale + dy
+                    newParts.add(nx.toString())
+                    newParts.add(ny.toString())
+                    i += 3
+                    continue
+                }
+            } else if (part == "Q" || part == "q") {
+                newParts.add(part.uppercase())
+                val cx = parts.getOrNull(i + 1)?.toFloatOrNull()
+                val cy = parts.getOrNull(i + 2)?.toFloatOrNull()
+                val ex = parts.getOrNull(i + 3)?.toFloatOrNull()
+                val ey = parts.getOrNull(i + 4)?.toFloatOrNull()
+                if (cx != null && cy != null && ex != null && ey != null) {
+                    val ncx = cx * scale + dx
+                    val ncy = cy * scale + dy
+                    val nex = ex * scale + dx
+                    val ney = ey * scale + dy
+                    newParts.add(ncx.toString())
+                    newParts.add(ncy.toString())
+                    newParts.add(nex.toString())
+                    newParts.add(ney.toString())
+                    i += 5
+                    continue
+                }
+            }
+            if (part.isNotEmpty() && part.toFloatOrNull() == null) {
+                newParts.add(part)
+            }
+            i++
+        }
+        newParts.joinToString(" ")
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,6 +188,11 @@ fun IconEditorDialog(
     // Draw Mode configuration
     var drawMode by remember { mutableStateOf(DrawMode.FREEHAND) }
     var arcCurvature by remember { mutableFloatStateOf(20f) } // Bulge factor for arcs
+    
+    // Zoom and Pan states
+    var zoomScale by remember { mutableFloatStateOf(1f) }
+    var panOffset by remember { mutableStateOf(Offset.Zero) }
+    var showImportDialog by remember { mutableStateOf(false) }
     
     // Helper to load tool's icon
     fun loadIconForTool(tool: StudioTool) {
@@ -377,6 +496,51 @@ fun IconEditorDialog(
                     }
                 }
                 
+                // 2a. Zoom and View Controls Row
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Zoom: ${"%.1f".format(zoomScale)}x",
+                            fontSize = 12.sp,
+                            color = theme.iconColor
+                        )
+                        if (zoomScale > 1f || panOffset != Offset.Zero) {
+                            Text(
+                                text = "Reset View",
+                                fontSize = 10.sp,
+                                color = theme.highlightColor,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                modifier = Modifier
+                                    .clickable {
+                                        zoomScale = 1f
+                                        panOffset = Offset.Zero
+                                    }
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    
+                    Slider(
+                        value = zoomScale,
+                        onValueChange = {
+                            zoomScale = it
+                            if (zoomScale == 1f) {
+                                panOffset = Offset.Zero
+                            }
+                        },
+                        valueRange = 1f..5f,
+                        modifier = Modifier.width(150.dp)
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(10.dp))
                 
                 // 2b. Draw Mode Selection Row
@@ -400,7 +564,7 @@ fun IconEditorDialog(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(4.dp))
                                     .background(
-                                        if (isSel) theme.iconColor
+                                        if (isSel) theme.highlightColor
                                         else theme.buttonColor.copy(alpha = 0.3f)
                                     )
                                     .clickable { drawMode = mode }
@@ -410,7 +574,7 @@ fun IconEditorDialog(
                                 Text(
                                     text = mode.name.lowercase().replaceFirstChar { it.uppercase() },
                                     fontSize = 10.sp,
-                                    color = if (isSel) theme.barBackgroundColor else theme.iconColor,
+                                    color = if (isSel) theme.iconColor else theme.iconColor.copy(alpha = 0.8f),
                                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                                 )
                             }
@@ -454,64 +618,81 @@ fun IconEditorDialog(
                         VectorIcon(activePaths.toList()).toComposePaths()
                     }
                     
+                    fun getNormalizedOffset(screenOffset: Offset, canvasW: Float, canvasH: Float): Offset {
+                        val center = Offset(canvasW / 2f, canvasH / 2f)
+                        val vx = (screenOffset.x - center.x - panOffset.x) / zoomScale + center.x
+                        val vy = (screenOffset.y - center.y - panOffset.y) / zoomScale + center.y
+                        val rx = vx / canvasW * 100f
+                        val ry = vy / canvasH * 100f
+                        return Offset(snapValue(rx, gridSize), snapValue(ry, gridSize))
+                    }
+                    
                     Canvas(
                         modifier = Modifier
                             .fillMaxSize()
-                            .pointerInput(gridSize, drawMode, arcCurvature, strokeWidth) {
+                            .pointerInput(gridSize, drawMode, arcCurvature, strokeWidth, zoomScale, panOffset) {
                                 detectDragGestures(
                                     onDragStart = { offset ->
-                                        val rx = offset.x / size.width * 100f
-                                        val ry = offset.y / size.height * 100f
-                                        val sx = snapValue(rx, gridSize)
-                                        val sy = snapValue(ry, gridSize)
+                                        val canvasW = size.width.toFloat()
+                                        val canvasH = size.height.toFloat()
                                         
-                                        if (drawMode == DrawMode.ERASER) {
+                                        if (drawMode == DrawMode.PAN) {
+                                            // Panning starts
+                                        } else if (drawMode == DrawMode.ERASER) {
                                             hasErasedInCurrentDrag = false
                                             val threshold = (strokeWidth * 1.5f).coerceAtLeast(6f)
-                                            val pt = Offset(sx, sy)
-                                            val toRemove = activePaths.filter { isStrokeNearPoint(it, pt, threshold) }
+                                            val norm = getNormalizedOffset(offset, canvasW, canvasH)
+                                            val toRemove = activePaths.filter { isStrokeNearPoint(it, norm, threshold) }
                                             if (toRemove.isNotEmpty()) {
                                                 activePaths.removeAll(toRemove)
                                                 hasErasedInCurrentDrag = true
                                             }
                                         } else {
+                                            val norm = getNormalizedOffset(offset, canvasW, canvasH)
                                             currentStroke.clear()
-                                            currentStroke.add(Offset(sx, sy))
+                                            currentStroke.add(norm)
                                         }
                                     },
-                                    onDrag = { change, _ ->
-                                        val offset = change.position
-                                        val rx = offset.x / size.width * 100f
-                                        val ry = offset.y / size.height * 100f
-                                        val sx = snapValue(rx, gridSize)
-                                        val sy = snapValue(ry, gridSize)
+                                    onDrag = { change, dragAmount ->
+                                        val canvasW = size.width.toFloat()
+                                        val canvasH = size.height.toFloat()
                                         
-                                        if (drawMode == DrawMode.ERASER) {
+                                        if (drawMode == DrawMode.PAN) {
+                                            val maxPanX = ((zoomScale - 1f) * canvasW / 2f).coerceAtLeast(0f)
+                                            val maxPanY = ((zoomScale - 1f) * canvasH / 2f).coerceAtLeast(0f)
+                                            panOffset = Offset(
+                                                (panOffset.x + dragAmount.x).coerceIn(-maxPanX, maxPanX),
+                                                (panOffset.y + dragAmount.y).coerceIn(-maxPanY, maxPanY)
+                                            )
+                                        } else if (drawMode == DrawMode.ERASER) {
                                             val threshold = (strokeWidth * 1.5f).coerceAtLeast(6f)
-                                            val pt = Offset(sx, sy)
-                                            val toRemove = activePaths.filter { isStrokeNearPoint(it, pt, threshold) }
+                                            val norm = getNormalizedOffset(change.position, canvasW, canvasH)
+                                            val toRemove = activePaths.filter { isStrokeNearPoint(it, norm, threshold) }
                                             if (toRemove.isNotEmpty()) {
                                                 activePaths.removeAll(toRemove)
                                                 hasErasedInCurrentDrag = true
                                             }
                                         } else {
+                                            val norm = getNormalizedOffset(change.position, canvasW, canvasH)
                                             if (drawMode == DrawMode.FREEHAND) {
                                                 val last = currentStroke.lastOrNull()
-                                                if (last == null || Offset(sx, sy) != last) {
-                                                    currentStroke.add(Offset(sx, sy))
+                                                if (last == null || norm != last) {
+                                                    currentStroke.add(norm)
                                                 }
                                             } else {
                                                 if (currentStroke.size > 0) {
                                                     val p1 = currentStroke[0]
                                                     currentStroke.clear()
                                                     currentStroke.add(p1)
-                                                    currentStroke.add(Offset(sx, sy))
+                                                    currentStroke.add(norm)
                                                 }
                                             }
                                         }
                                     },
                                     onDragEnd = {
-                                        if (drawMode == DrawMode.ERASER) {
+                                        if (drawMode == DrawMode.PAN) {
+                                            // Panning ends
+                                        } else if (drawMode == DrawMode.ERASER) {
                                             if (hasErasedInCurrentDrag) {
                                                 pushHistory()
                                                 hasErasedInCurrentDrag = false
@@ -548,7 +729,7 @@ fun IconEditorDialog(
                                                             val cpy = midY + py * (arcCurvature / 100f)
                                                             activePaths.add("M ${p1.x} ${p1.y} Q $cpx $cpy ${p2.x} ${p2.y}")
                                                         }
-                                                        DrawMode.ERASER -> {}
+                                                        else -> {}
                                                     }
                                                 }
                                                 pushHistory()
@@ -562,83 +743,87 @@ fun IconEditorDialog(
                         val canvasW = size.width
                         val canvasH = size.height
                         
-                        if (gridSize > 0) {
-                            val linesColor = theme.iconColor.copy(alpha = 0.08f)
-                            for (i in 1 until gridSize) {
-                                val frac = i.toFloat() / gridSize
-                                drawLine(
-                                    color = linesColor,
-                                    start = Offset(frac * canvasW, 0f),
-                                    end = Offset(frac * canvasW, canvasH),
-                                    strokeWidth = 1f
-                                )
-                                drawLine(
-                                    color = linesColor,
-                                    start = Offset(0f, frac * canvasH),
-                                    end = Offset(canvasW, frac * canvasH),
-                                    strokeWidth = 1f
-                                )
-                            }
-                        }
-                        
-                        // B. Draw already drawn lines
-                        val scaleX = canvasW / 100f
-                        val scaleY = canvasH / 100f
-                        
+                        val center = Offset(canvasW / 2f, canvasH / 2f)
                         withTransform({
-                            scale(scaleX, scaleY, pivot = Offset.Zero)
+                            translate(panOffset.x, panOffset.y)
+                            scale(zoomScale, zoomScale, pivot = center)
                         }) {
-                            parsedPaths.forEach { path ->
-                                drawPath(
-                                    path = path,
-                                    color = theme.iconColor,
-                                    style = Stroke(
-                                        width = strokeWidth,
-                                        cap = StrokeCap.Round,
-                                        join = StrokeJoin.Round
+                            if (gridSize > 0) {
+                                val linesColor = theme.iconColor.copy(alpha = 0.08f)
+                                for (i in 1 until gridSize) {
+                                    val frac = i.toFloat() / gridSize
+                                    drawLine(
+                                        color = linesColor,
+                                        start = Offset(frac * canvasW, 0f),
+                                        end = Offset(frac * canvasW, canvasH),
+                                        strokeWidth = 1f
                                     )
-                                )
+                                    drawLine(
+                                        color = linesColor,
+                                        start = Offset(0f, frac * canvasH),
+                                        end = Offset(canvasW, frac * canvasH),
+                                        strokeWidth = 1f
+                                    )
+                                }
                             }
                             
-                            // C. Draw current stroke in progress
-                            if (currentStroke.size > 1) {
-                                val p1 = currentStroke[0]
-                                val p2 = currentStroke[currentStroke.size - 1]
-                                
-                                val strokePath = androidx.compose.ui.graphics.Path()
-                                when (drawMode) {
-                                    DrawMode.FREEHAND -> {
-                                        strokePath.moveTo(p1.x, p1.y)
-                                        for (i in 1 until currentStroke.size) {
-                                            strokePath.lineTo(currentStroke[i].x, currentStroke[i].y)
-                                        }
-                                    }
-                                    DrawMode.LINE -> {
-                                        strokePath.moveTo(p1.x, p1.y)
-                                        strokePath.lineTo(p2.x, p2.y)
-                                    }
-                                    DrawMode.ARC -> {
-                                         val midX = (p1.x + p2.x) / 2f
-                                         val midY = (p1.y + p2.y) / 2f
-                                         val dx = p2.x - p1.x
-                                         val dy = p2.y - p1.y
-                                         val cpx = midX + (-dy) * (arcCurvature / 100f)
-                                         val cpy = midY + dx * (arcCurvature / 100f)
-                                         
-                                         strokePath.moveTo(p1.x, p1.y)
-                                         strokePath.quadraticBezierTo(cpx, cpy, p2.x, p2.y)
-                                     }
-                                     DrawMode.ERASER -> {}
-                                 }
-                                drawPath(
-                                    path = strokePath,
-                                    color = theme.iconColor.copy(alpha = 0.5f),
-                                    style = Stroke(
-                                        width = strokeWidth,
-                                        cap = StrokeCap.Round,
-                                        join = StrokeJoin.Round
+                            val scaleX = canvasW / 100f
+                            val scaleY = canvasH / 100f
+                            
+                            withTransform({
+                                scale(scaleX, scaleY, pivot = Offset.Zero)
+                            }) {
+                                parsedPaths.forEach { path ->
+                                    drawPath(
+                                        path = path,
+                                        color = theme.iconColor,
+                                        style = Stroke(
+                                            width = strokeWidth,
+                                            cap = StrokeCap.Round,
+                                            join = StrokeJoin.Round
+                                        )
                                     )
-                                )
+                                }
+                                
+                                if (currentStroke.size > 1) {
+                                    val p1 = currentStroke[0]
+                                    val p2 = currentStroke[currentStroke.size - 1]
+                                    
+                                    val strokePath = androidx.compose.ui.graphics.Path()
+                                    when (drawMode) {
+                                        DrawMode.FREEHAND -> {
+                                            strokePath.moveTo(p1.x, p1.y)
+                                            for (i in 1 until currentStroke.size) {
+                                                strokePath.lineTo(currentStroke[i].x, currentStroke[i].y)
+                                            }
+                                        }
+                                        DrawMode.LINE -> {
+                                            strokePath.moveTo(p1.x, p1.y)
+                                            strokePath.lineTo(p2.x, p2.y)
+                                        }
+                                        DrawMode.ARC -> {
+                                            val midX = (p1.x + p2.x) / 2f
+                                            val midY = (p1.y + p2.y) / 2f
+                                            val dx = p2.x - p1.x
+                                            val dy = p2.y - p1.y
+                                            val cpx = midX + (-dy) * (arcCurvature / 100f)
+                                            val cpy = midY + dx * (arcCurvature / 100f)
+                                            
+                                            strokePath.moveTo(p1.x, p1.y)
+                                            strokePath.quadraticBezierTo(cpx, cpy, p2.x, p2.y)
+                                        }
+                                        else -> {}
+                                    }
+                                    drawPath(
+                                        path = strokePath,
+                                        color = theme.iconColor.copy(alpha = 0.5f),
+                                        style = Stroke(
+                                            width = strokeWidth,
+                                            cap = StrokeCap.Round,
+                                            join = StrokeJoin.Round
+                                        )
+                                    )
+                                }
                             }
                         }
                     }
@@ -705,6 +890,12 @@ fun IconEditorDialog(
                             modifier = Modifier.size(36.dp)
                         ) {
                             Icon(Icons.Default.Loop, "Invert", tint = theme.iconColor)
+                        }
+                        IconButton(
+                            onClick = { showImportDialog = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Default.ContentPaste, "Import SVG/Code", tint = theme.iconColor)
                         }
                     }
                 }
@@ -814,6 +1005,105 @@ fun IconEditorDialog(
                             )
                         ) {
                             Text("Save")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showImportDialog) {
+        var importText by remember { mutableStateOf("") }
+        Dialog(onDismissRequest = { showImportDialog = false }) {
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = theme.barBackgroundColor.copy(alpha = 0.98f),
+                    contentColor = theme.iconColor
+                ),
+                border = androidx.compose.foundation.BorderStroke(1.dp, theme.iconColor.copy(alpha = 0.15f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "Import SVG or Path Data",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = theme.iconColor
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Paste standard SVG code or raw path data (e.g. M 10 10 L 20 20). The editor will automatically normalize, scale, and center it.",
+                        fontSize = 11.sp,
+                        color = theme.iconColor.copy(alpha = 0.7f),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = importText,
+                        onValueChange = { importText = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(140.dp),
+                        placeholder = { Text("<svg>...</svg> or M 0 0 ...", fontSize = 12.sp) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = theme.iconColor,
+                            unfocusedTextColor = theme.iconColor,
+                            focusedBorderColor = theme.highlightColor,
+                            unfocusedBorderColor = theme.iconColor.copy(alpha = 0.3f),
+                            focusedContainerColor = theme.buttonColor.copy(alpha = 0.2f),
+                            unfocusedContainerColor = theme.buttonColor.copy(alpha = 0.1f)
+                        )
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = { showImportDialog = false },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = theme.buttonColor.copy(alpha = 0.3f),
+                                contentColor = theme.iconColor
+                            )
+                        ) {
+                            Text("Cancel")
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                val trimmed = importText.trim()
+                                if (trimmed.isNotEmpty()) {
+                                    val paths = mutableListOf<String>()
+                                    val pathRegex = """d\s*=\s*["']([^"']+)["']""".toRegex(RegexOption.IGNORE_CASE)
+                                    val matches = pathRegex.findAll(trimmed).map { it.groupValues[1] }.toList()
+                                    
+                                    if (matches.isNotEmpty()) {
+                                        paths.addAll(matches)
+                                    } else {
+                                        paths.add(trimmed)
+                                    }
+                                    
+                                    if (paths.isNotEmpty()) {
+                                        val fitted = fitPathsToViewport(paths)
+                                        activePaths.clear()
+                                        activePaths.addAll(fitted)
+                                        pushHistory()
+                                    }
+                                }
+                                showImportDialog = false
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = theme.iconColor,
+                                contentColor = theme.barBackgroundColor
+                            )
+                        ) {
+                            Text("Import")
                         }
                     }
                 }
