@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -211,20 +212,27 @@ fun AssignableToolButton(
                 modifier = Modifier.background(theme?.barBackgroundColor ?: Color.DarkGray)
             ) {
                 subTools.forEach { subTool ->
-                    DropdownMenuItem(
-                        text = { Text(subTool.contentDescription, color = theme?.iconColor ?: Color.White) },
-                        leadingIcon = { 
-                            if (theme != null) {
-                                ToolIcon(tool = subTool, theme = theme, tint = theme.iconColor, iconSize = 24.dp)
-                            } else {
-                                Icon(subTool.icon, contentDescription = null, tint = Color.White)
+                    if (subTool.registryId == "divider") {
+                        androidx.compose.material3.HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 4.dp),
+                            color = (theme?.iconColor ?: Color.White).copy(alpha = 0.2f)
+                        )
+                    } else {
+                        DropdownMenuItem(
+                            text = { Text(subTool.contentDescription, color = theme?.iconColor ?: Color.White) },
+                            leadingIcon = { 
+                                if (theme != null) {
+                                    ToolIcon(tool = subTool, theme = theme, tint = theme.iconColor, iconSize = 24.dp)
+                                } else {
+                                    Icon(subTool.icon, contentDescription = null, tint = Color.White)
+                                }
+                            },
+                            onClick = {
+                                showSubMenu = false
+                                onSubToolClick?.invoke(subTool)
                             }
-                        },
-                        onClick = {
-                            showSubMenu = false
-                            onSubToolClick?.invoke(subTool)
-                        }
-                    )
+                        )
+                    }
                 }
             }
         }

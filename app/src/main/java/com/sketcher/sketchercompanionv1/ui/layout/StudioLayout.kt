@@ -1024,7 +1024,7 @@ fun StudioLayout(
                     leftTools.forEachIndexed { idx, tool ->
                          val isActionButton = resolveIsActionButton(tool)
                          val isRealAction = !tool.isPlaceholder || isActionButton
-                         if (tool.id == "divider") {
+                         if (tool.registryId == "divider") {
                              Box(
                                  modifier = Modifier
                                      .height(2.dp)
@@ -1108,15 +1108,22 @@ fun StudioLayout(
                                                    (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && isFillActiveVal),
                                       isNone = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && !isStrokeActiveVal) ||
                                                (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && !isFillActiveVal),
-                                      subTools = if (!isEditMode) com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId) else emptyList(),
-                                      onSubToolClick = { subTool -> 
-                                          if (viewModel.isMultiStepStrokeInProgress) {
-                                              canvasViewRef.value?.finishGeometricStroke()
-                                          }
-                                          viewModel.replaceTool(ToolLocation.LeftBar, idx, subTool)
-                                                                                     viewModel.getActionForTool(subTool.id).invoke()
-                                       }
-                                   )
+                                      subTools = if (!isEditMode) {
+                                           if (tool.subTools.isNotEmpty()) tool.subTools 
+                                           else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId)
+                                       } else emptyList(),
+                                       onSubToolClick = { subTool -> 
+                                           if (viewModel.isMultiStepStrokeInProgress) {
+                                               canvasViewRef.value?.finishGeometricStroke()
+                                           }
+                                           val displayedSubTools = if (tool.subTools.isNotEmpty()) tool.subTools 
+                                                                   else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId)
+                                           val subIdx = displayedSubTools.indexOfFirst { it.id == subTool.id }
+                                           if (subIdx != -1) {
+                                               viewModel.swapSubToolToMain(ToolLocation.LeftBar, idx, subIdx)
+                                           }
+                                        }
+                                    )
                                }
                           }
                      }
@@ -1158,7 +1165,7 @@ fun StudioLayout(
                     rightTools.forEachIndexed { idx, tool ->
                          val isActionButton = resolveIsActionButton(tool)
                          val isRealAction = !tool.isPlaceholder || isActionButton
-                         if (tool.id == "divider") {
+                         if (tool.registryId == "divider") {
                              Box(
                                  modifier = Modifier
                                      .height(2.dp)
@@ -1241,15 +1248,22 @@ fun StudioLayout(
                                                     (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && isFillActiveVal),
                                        isNone = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && !isStrokeActiveVal) ||
                                                 (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && !isFillActiveVal),
-                                      subTools = if (!isEditMode) com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId) else emptyList(),
-                                      onSubToolClick = { subTool -> 
-                                          if (viewModel.isMultiStepStrokeInProgress) {
-                                              canvasViewRef.value?.finishGeometricStroke()
-                                          }
-                                          viewModel.replaceTool(ToolLocation.RightBar, idx, subTool)
-                                          viewModel.getActionForTool(subTool.id).invoke() 
-                                      }
-                                  )
+                                      subTools = if (!isEditMode) {
+                                           if (tool.subTools.isNotEmpty()) tool.subTools 
+                                           else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId)
+                                       } else emptyList(),
+                                       onSubToolClick = { subTool -> 
+                                           if (viewModel.isMultiStepStrokeInProgress) {
+                                               canvasViewRef.value?.finishGeometricStroke()
+                                           }
+                                           val displayedSubTools = if (tool.subTools.isNotEmpty()) tool.subTools 
+                                                                   else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId)
+                                           val subIdx = displayedSubTools.indexOfFirst { it.id == subTool.id }
+                                           if (subIdx != -1) {
+                                               viewModel.swapSubToolToMain(ToolLocation.RightBar, idx, subIdx)
+                                           }
+                                       }
+                                   )
                              }
                          }
                     }
@@ -1292,7 +1306,7 @@ fun StudioLayout(
                     topTools.forEachIndexed { idx, tool ->
                          val isActionButton = resolveIsActionButton(tool)
                          val isRealAction = !tool.isPlaceholder || isActionButton
-                         if (tool.id == "divider") {
+                         if (tool.registryId == "divider") {
                              Box(
                                  modifier = Modifier
                                      .width(2.dp)
@@ -1375,15 +1389,22 @@ fun StudioLayout(
                                                     (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && isFillActiveVal),
                                        isNone = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && !isStrokeActiveVal) ||
                                                 (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && !isFillActiveVal),
-                                      subTools = if (!isEditMode) com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId) else emptyList(),
-                                      onSubToolClick = { subTool -> 
-                                          if (viewModel.isMultiStepStrokeInProgress) {
-                                              canvasViewRef.value?.finishGeometricStroke()
-                                          }
-                                          viewModel.replaceTool(ToolLocation.TopBar, idx, subTool)
-                                          viewModel.getActionForTool(subTool.id).invoke() 
-                                      }
-                                  )
+                                      subTools = if (!isEditMode) {
+                                           if (tool.subTools.isNotEmpty()) tool.subTools 
+                                           else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId)
+                                       } else emptyList(),
+                                       onSubToolClick = { subTool -> 
+                                           if (viewModel.isMultiStepStrokeInProgress) {
+                                               canvasViewRef.value?.finishGeometricStroke()
+                                           }
+                                           val displayedSubTools = if (tool.subTools.isNotEmpty()) tool.subTools 
+                                                                   else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId)
+                                           val subIdx = displayedSubTools.indexOfFirst { it.id == subTool.id }
+                                           if (subIdx != -1) {
+                                               viewModel.swapSubToolToMain(ToolLocation.TopBar, idx, subIdx)
+                                           }
+                                       }
+                                   )
                              }
                          }
                     }
@@ -1427,7 +1448,7 @@ fun StudioLayout(
                     bottomTools.forEachIndexed { idx, tool ->
                          val isActionButton = resolveIsActionButton(tool)
                          val isRealAction = !tool.isPlaceholder || isActionButton
-                         if (tool.id == "divider") {
+                         if (tool.registryId == "divider") {
                              Box(
                                  modifier = Modifier
                                      .width(2.dp)
@@ -1510,15 +1531,22 @@ fun StudioLayout(
                                                    (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && isFillActiveVal),
                                       isNone = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && !isStrokeActiveVal) ||
                                                (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && !isFillActiveVal),
-                                      subTools = if (!isEditMode) com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId) else emptyList(),
-                                      onSubToolClick = { subTool -> 
-                                          if (viewModel.isMultiStepStrokeInProgress) {
-                                              canvasViewRef.value?.finishGeometricStroke()
-                                          }
-                                          viewModel.replaceTool(ToolLocation.BottomBar, idx, subTool)
-                                          viewModel.getActionForTool(subTool.id).invoke() 
-                                      }
-                                  )
+                                      subTools = if (!isEditMode) {
+                                           if (tool.subTools.isNotEmpty()) tool.subTools 
+                                           else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId)
+                                       } else emptyList(),
+                                       onSubToolClick = { subTool -> 
+                                           if (viewModel.isMultiStepStrokeInProgress) {
+                                               canvasViewRef.value?.finishGeometricStroke()
+                                           }
+                                           val displayedSubTools = if (tool.subTools.isNotEmpty()) tool.subTools 
+                                                                   else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId)
+                                           val subIdx = displayedSubTools.indexOfFirst { it.id == subTool.id }
+                                           if (subIdx != -1) {
+                                               viewModel.swapSubToolToMain(ToolLocation.BottomBar, idx, subIdx)
+                                           }
+                                       }
+                                   )
                              }
                          }
                     }
@@ -1698,6 +1726,8 @@ fun StudioLayout(
 
         // --- TOOL PICKER DIALOG ---
         toolPickerTarget?.let { (location, index) ->
+            val slotTool = index?.let { tools[location]?.getOrNull(it) }
+            val slotTools = if (slotTool != null) listOf(slotTool) + slotTool.subTools else emptyList()
             ToolPickerDialog(
                 location = location,
                 index = index,
@@ -1709,6 +1739,22 @@ fun StudioLayout(
                 },
                 onRemove = {
                     index?.let { viewModel.removeTool(location, it) }
+                },
+                slotTools = slotTools,
+                onAddSubTool = { newSubTool ->
+                    index?.let { viewModel.addSubTool(location, it, newSubTool) }
+                },
+                onRemoveSubTool = { subToolIndex ->
+                    index?.let { viewModel.removeSubTool(location, it, subToolIndex) }
+                },
+                onMoveSubTool = { from, to ->
+                    index?.let { viewModel.moveSubTool(location, it, from, to) }
+                },
+                onInsertSlotAbove = {
+                    index?.let { viewModel.insertPlaceholderSlot(location, it, -1) }
+                },
+                onInsertSlotBelow = {
+                    index?.let { viewModel.insertPlaceholderSlot(location, it, 1) }
                 }
             )
         }

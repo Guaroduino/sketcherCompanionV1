@@ -114,12 +114,12 @@ fun ToolPickerDialog(
                                         )
                                     }
 
-                                    Icon(
-                                        imageVector = tool.icon,
-                                        contentDescription = null,
-                                        tint = theme.iconColor,
-                                        modifier = Modifier.size(scaler.smallIconSize)
-                                    )
+                                     com.sketcher.sketchercompanionv1.ui.components.ToolIcon(
+                                         tool = tool,
+                                         theme = theme,
+                                         tint = theme.iconColor,
+                                         modifier = Modifier.size(scaler.smallIconSize)
+                                     )
                                     Text(
                                         text = if (i == 0) "${tool.contentDescription} (Main)" else tool.contentDescription,
                                         style = MaterialTheme.typography.bodySmall,
@@ -298,9 +298,9 @@ fun ToolItem(
                 .background(backgroundColor, RoundedCornerShape(8.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = tool.icon,
-                contentDescription = tool.contentDescription,
+            com.sketcher.sketchercompanionv1.ui.components.ToolIcon(
+                tool = tool,
+                theme = theme,
                 tint = theme.iconColor,
                 modifier = Modifier.size(scaler.baseIconSize)
             )
