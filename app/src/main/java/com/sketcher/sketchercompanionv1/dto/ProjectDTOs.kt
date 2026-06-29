@@ -185,9 +185,9 @@ data class BrushPreset(
     val freehandSettings: FreehandSettings
 )
 
-enum class ToolType { FREEHAND, PEN, FILL, ERASER, SELECTION, ANDROID_INK, TRIM, EXTEND, EDIT_POINTS }
+enum class ToolType { FREEHAND, PEN, FILL, ERASER, SELECTION, ANDROID_INK, TRIM, EXTEND, EDIT_POINTS, PAINT }
 
-enum class StrokeType { FREEHAND, PEN, LINE, POLYLINE, CIRCLE, ARC, ELLIPSE, SPLINE, BEZIER }
+enum class StrokeType { FREEHAND, PEN, LINE, POLYLINE, CIRCLE, ARC, ELLIPSE, SPLINE, BEZIER, PAINT }
 
 data class FillSettings(val tolerance: Float = 0.1f)
 

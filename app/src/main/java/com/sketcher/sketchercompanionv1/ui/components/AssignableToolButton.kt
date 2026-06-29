@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.BorderColor
 import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material.icons.filled.Gesture
+import androidx.compose.material.icons.filled.Brush
 import android.util.Log
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -49,7 +50,8 @@ enum class ToolPayload(val label: String, val icon: ImageVector) {
     PEN("Pen", Icons.Default.Gesture),
     ERASER("Eraser", Icons.Default.AutoFixNormal),
     STROKE_COLOR("Stroke Color", Icons.Default.BorderColor),
-    FILL_COLOR("Fill Color", Icons.Default.FormatColorFill)
+    FILL_COLOR("Fill Color", Icons.Default.FormatColorFill),
+    PAINT("Paint", Icons.Default.Brush)
 }
 
 @OptIn(ExperimentalFoundationApi::class)

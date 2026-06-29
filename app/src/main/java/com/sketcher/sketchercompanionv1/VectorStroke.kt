@@ -7,10 +7,10 @@ import android.graphics.RectF
 
 import com.sketcher.sketchercompanionv1.dto.StrokeType
 
-data class StrokePoint(var x: Float, var y: Float, val pressure: Float, val timestamp: Long = 0L)
+data class StrokePoint(val x: Float, val y: Float, val pressure: Float, val timestamp: Long = 0L)
 
 data class VectorStroke(
-    val points: List<StrokePoint>,
+    var points: List<StrokePoint>,
     val strokeColor: Int,
     val fillColor: Int = android.graphics.Color.TRANSPARENT,
     val isStrokeEnabled: Boolean = true,
@@ -39,12 +39,11 @@ data class VectorStroke(
         fillPath?.transform(matrix)
         path.computeBounds(cachedBounds, true)
         val pts = FloatArray(2)
-        points.forEach { p ->
+        points = points.map { p ->
             pts[0] = p.x
             pts[1] = p.y
             matrix.mapPoints(pts)
-            p.x = pts[0]
-            p.y = pts[1]
+            p.copy(x = pts[0], y = pts[1])
         }
     }
 

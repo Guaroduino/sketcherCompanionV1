@@ -169,8 +169,8 @@ object PdfExporter {
         // Calculate bounding box of all elements
         var minX = Float.MAX_VALUE
         var minY = Float.MAX_VALUE
-        var maxX = Float.MIN_VALUE
-        var maxY = Float.MIN_VALUE
+        var maxX = -Float.MAX_VALUE
+        var maxY = -Float.MAX_VALUE
 
         for (layer in layers) {
             if (!layer.isVisible) continue

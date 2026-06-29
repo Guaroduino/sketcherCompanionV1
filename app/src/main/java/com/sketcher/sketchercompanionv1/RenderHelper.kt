@@ -19,6 +19,8 @@ object RenderHelper {
     private val vectorPaint = Paint().apply {
         style = Paint.Style.FILL
         isAntiAlias = true
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
     }
 
     private val imagePaint = Paint().apply {
@@ -71,8 +73,58 @@ object RenderHelper {
     }
 
     fun drawVectorStroke(vStroke: VectorStroke, canvas: Canvas) {
-        vectorPaint.color = vStroke.strokeColor
-        canvas.drawPath(vStroke.path, vectorPaint)
+        // Pass 1: FILL (if enabled)
+        if (vStroke.isFillEnabled && vStroke.fillPath != null) {
+            vectorPaint.style = Paint.Style.FILL
+            vectorPaint.color = vStroke.fillColor
+            canvas.drawPath(vStroke.fillPath, vectorPaint)
+        }
+
+        // Pass 2: STROKE (if enabled)
+        if (vStroke.isStrokeEnabled) {
+            if (vStroke.strokeType == com.sketcher.sketchercompanionv1.dto.StrokeType.FREEHAND || 
+                vStroke.strokeType == com.sketcher.sketchercompanionv1.dto.StrokeType.PEN) {
+                vectorPaint.style = Paint.Style.FILL
+                vectorPaint.color = vStroke.strokeColor
+                canvas.drawPath(vStroke.path, vectorPaint)
+                if (vStroke.paths.isNotEmpty()) {
+                    for (p in vStroke.paths) {
+                        canvas.drawPath(p, vectorPaint)
+                    }
+                }
+            } else {
+                vectorPaint.style = Paint.Style.STROKE
+                vectorPaint.color = vStroke.strokeColor
+                val width = if (vStroke.maxWidth > 0) vStroke.maxWidth else 0f
+                vectorPaint.strokeWidth = width
+
+                // Apply dash path effect for CAD styles
+                if (vStroke.isCadGeometry) {
+                    when (vStroke.lineStyle.uppercase()) {
+                        "DASHED" -> {
+                            val interval = kotlin.math.max(1f, width)
+                            vectorPaint.pathEffect = android.graphics.DashPathEffect(
+                                floatArrayOf(4f * interval, 2f * interval), 0f
+                            )
+                        }
+                        "DOTTED" -> {
+                            val interval = kotlin.math.max(1f, width)
+                            vectorPaint.pathEffect = android.graphics.DashPathEffect(
+                                floatArrayOf(0f, 2f * interval), 0f
+                            )
+                        }
+                        else -> {
+                            vectorPaint.pathEffect = null
+                        }
+                    }
+                } else {
+                    vectorPaint.pathEffect = null
+                }
+
+                canvas.drawPath(vStroke.path, vectorPaint)
+                vectorPaint.pathEffect = null
+            }
+        }
     }
 
 

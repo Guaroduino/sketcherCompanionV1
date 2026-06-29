@@ -139,6 +139,23 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     val selectionManager = SelectionManager()
 
+    val liveProjectionController = com.sketcher.sketchercompanionv1.projection.LiveProjectionController(
+        scope = viewModelScope,
+        onClientCountChanged = { count -> projectionClientCount = count },
+        onUrlChanged = { url -> projectionUrl = url },
+        onActiveChanged = { active -> isProjectionActive = active },
+        onViewportsChanged = { viewports -> projectionViewports = viewports }
+    )
+
+    val toolbarManager = com.sketcher.sketchercompanionv1.managers.ToolbarManager(
+        toolbarRepository = toolbarRepository,
+        prefs = prefs,
+        getDefaultStrokeColor = { strokeColor.value },
+        getDefaultFillColor = { fillColor.value },
+        activateTool = { payload, id -> activateTool(payload, id) },
+        getActionForTool = { id -> getActionForTool(id) }
+    )
+
 
 
     // STATE
@@ -421,27 +438,15 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     // --- TOOLBAR STATE (Dynamic Slot System) ---
 
-    private val _toolbarState = MutableStateFlow<Map<ToolLocation, List<StudioTool>>>(emptyMap())
+    val toolbarState = toolbarManager.toolbarState
 
-    val toolbarState = _toolbarState.asStateFlow()
+    val contextualToolbar = toolbarManager.contextualToolbar
 
-
-
-    private val _contextualToolbar = MutableStateFlow<List<StudioTool>>(emptyList())
-
-    val contextualToolbar = _contextualToolbar.asStateFlow()
-
-
-
-    private val _isEditMode = MutableStateFlow(false)
-
-    val isEditMode = _isEditMode.asStateFlow()
-
-
+    val isEditMode = toolbarManager.isEditMode
 
     fun toggleEditMode() {
 
-        _isEditMode.value = !_isEditMode.value
+        toolbarManager.toggleEditMode()
 
     }
 
@@ -463,25 +468,15 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
 
 
-    private val _assignedToolColors = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val assignedToolColors = toolbarManager.assignedToolColors
 
-    val assignedToolColors = _assignedToolColors.asStateFlow()
-
-
-
-    private var lastActiveColorToolId: String? = null
-
-
+    var lastActiveColorToolId: String?
+        get() = toolbarManager.lastActiveColorToolId
+        set(value) { toolbarManager.lastActiveColorToolId = value }
 
     fun updateLastActiveToolColor(color: Int) {
 
-        lastActiveColorToolId?.let { id ->
-
-            _assignedToolColors.value = _assignedToolColors.value + (id to color)
-
-            toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
-
-        }
+        toolbarManager.updateLastActiveToolColor(color)
 
     }
 
@@ -518,28 +513,24 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         when(payload) {
 
             ToolPayload.PENCIL -> {
-
                 updateStrokeType(StrokeType.FREEHAND)
-
                 selectTool(ToolType.FREEHAND)
-
             }
-
             ToolPayload.PEN -> {
-
                 updateStrokeType(StrokeType.PEN)
-
                 selectTool(ToolType.PEN)
-
             }
-
+            ToolPayload.PAINT -> {
+                updateStrokeType(StrokeType.PAINT)
+                selectTool(ToolType.PAINT)
+            }
             ToolPayload.ERASER -> selectTool(ToolType.ERASER)
 
             ToolPayload.STROKE_COLOR -> {
 
                 toolId?.let { id ->
 
-                    _assignedToolColors.value[id]?.let { setStrokeColor(it) }
+                    assignedToolColors.value[id]?.let { setStrokeColor(it) }
 
                 }
 
@@ -551,7 +542,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                 toolId?.let { id ->
 
-                    _assignedToolColors.value[id]?.let { setFillColor(it) }
+                    assignedToolColors.value[id]?.let { setFillColor(it) }
 
                 }
 
@@ -583,783 +574,31 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     // --- ASSIGNED TOOLS STATE ---
 
-    private val _assignedTools = MutableStateFlow<Map<String, ToolPayload>>(emptyMap())
-
-    val assignedTools = _assignedTools.asStateFlow()
-
-    
-
-    private fun getPayloadFromToolId(id: String): ToolPayload? = when(id) {
-
-        "pencil" -> ToolPayload.PENCIL
-
-        "pen" -> ToolPayload.PEN
-
-        "eraser" -> ToolPayload.ERASER
-
-        "stroke_color" -> ToolPayload.STROKE_COLOR
-
-        "fill_color" -> ToolPayload.FILL_COLOR
-
-        else -> null
-
-    }
-
-
+    val assignedTools = toolbarManager.assignedTools
 
     fun assignTool(toolId: String, payload: ToolPayload) {
 
-        // 1. Update Map
-
-        _assignedTools.value = _assignedTools.value + (toolId to payload)
-
-        
-
-        // Initialize tool color if it's a color tool
-
-        if (payload == ToolPayload.STROKE_COLOR) {
-
-            _assignedToolColors.value = _assignedToolColors.value + (toolId to strokeColor.value)
-
-        } else if (payload == ToolPayload.FILL_COLOR) {
-
-            _assignedToolColors.value = _assignedToolColors.value + (toolId to fillColor.value)
-
-        }
-
-
-
-        // 2. Update List (Visuals) to reflect the new tool's icon/desc
-
-        val currentMap = _toolbarState.value.toMutableMap()
-
-        for ((loc, list) in currentMap) {
-
-            val idx = list.indexOfFirst { it.id == toolId }
-
-            if (idx != -1) {
-
-                val oldTool = list[idx]
-
-                val newList = list.toMutableList()
-
-                newList[idx] = oldTool.copy(
-
-                    icon = payload.icon,
-
-                    contentDescription = payload.label,
-
-                    isPlaceholder = false 
-
-                )
-
-                currentMap[loc] = newList
-
-                _toolbarState.value = currentMap
-
-                break
-
-            }
-
-        }
-
-        
-
-        // 3. Activate
-
-        activateTool(payload, toolId)
-
-        
-
-        // 4. Save
-
-        toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
+        toolbarManager.assignTool(toolId, payload)
 
     }
 
 
 
-    private fun bindToolActions(tool: StudioTool): StudioTool {
+    fun addTool(location: ToolLocation, tool: StudioTool) = toolbarManager.addTool(location, tool)
 
-        val boundSubTools = tool.subTools.map { bindToolActions(it) }
+    fun removeTool(location: ToolLocation, index: Int) = toolbarManager.removeTool(location, index)
 
-        val uniqueId = tool.id
+    fun replaceTool(location: ToolLocation, index: Int, newTool: StudioTool) = toolbarManager.replaceTool(location, index, newTool)
 
-        return tool.copy(
+    fun addSubTool(location: ToolLocation, parentIndex: Int, tool: StudioTool) = toolbarManager.addSubTool(location, parentIndex, tool)
 
-            subTools = boundSubTools,
+    fun removeSubTool(location: ToolLocation, parentIndex: Int, subToolIndex: Int) = toolbarManager.removeSubTool(location, parentIndex, subToolIndex)
 
-            onClick = {
+    fun swapSubToolToMain(location: ToolLocation, parentIndex: Int, subToolIndex: Int) = toolbarManager.swapSubToolToMain(location, parentIndex, subToolIndex)
 
-                val payload = _assignedTools.value[uniqueId]
+    fun moveSubTool(location: ToolLocation, parentIndex: Int, fromIndex: Int, toIndex: Int) = toolbarManager.moveSubTool(location, parentIndex, fromIndex, toIndex)
 
-                if (payload != null) {
-
-                    activateTool(payload, uniqueId)
-
-                } else {
-
-                    getActionForTool(tool.registryId).invoke()
-
-                }
-
-            }
-
-        )
-
-    }
-
-
-
-    fun addTool(location: ToolLocation, tool: StudioTool) {
-
-        val uniqueId = UUID.randomUUID().toString()
-
-        val initialPayload = getPayloadFromToolId(tool.id)
-
-        
-
-        if (initialPayload != null) {
-
-            _assignedTools.value = _assignedTools.value + (uniqueId to initialPayload)
-
-        }
-
-
-
-        val uniqueTool = tool.copy(
-
-            id = uniqueId,
-
-            registryId = tool.id
-
-        )
-
-        val boundTool = bindToolActions(uniqueTool)
-
-        
-
-        if (location == ToolLocation.ContextBar) {
-
-            val list = _contextualToolbar.value.toMutableList()
-
-            list.add(boundTool)
-
-            _contextualToolbar.value = list
-
-        } else {
-
-            val currentMap = _toolbarState.value.toMutableMap()
-
-            val list = currentMap[location]?.toMutableList() ?: mutableListOf()
-
-            list.add(boundTool)
-
-            currentMap[location] = list
-
-            _toolbarState.value = currentMap
-
-        }
-
-        
-
-        toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
-
-    }
-
-
-
-    fun removeTool(location: ToolLocation, index: Int) {
-
-        if (location == ToolLocation.ContextBar) {
-
-            val list = _contextualToolbar.value.toMutableList()
-
-            if (index in list.indices) {
-
-                val tool = list.removeAt(index)
-
-                _assignedTools.value = _assignedTools.value - tool.id
-
-                _contextualToolbar.value = list
-
-            }
-
-        } else {
-
-            val currentMap = _toolbarState.value.toMutableMap()
-
-            val list = currentMap[location]?.toMutableList() ?: return
-
-            if (index in list.indices) {
-
-                val tool = list.removeAt(index)
-
-                
-
-                // Cleanup assignments of parent and all its subtools
-
-                var updatedAssigned = _assignedTools.value - tool.id
-
-                tool.subTools.forEach { sub ->
-
-                    updatedAssigned = updatedAssigned - sub.id
-
-                }
-
-                _assignedTools.value = updatedAssigned
-
-                
-
-                currentMap[location] = list
-
-                _toolbarState.value = currentMap
-
-            }
-
-        }
-
-        
-
-        toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
-
-    }
-
-
-
-    fun replaceTool(location: ToolLocation, index: Int, newTool: StudioTool) {
-
-        if (location == ToolLocation.ContextBar) {
-
-            val list = _contextualToolbar.value.toMutableList()
-
-            if (index in list.indices) {
-
-                val oldTool = list[index]
-
-                _assignedTools.value = _assignedTools.value - oldTool.id
-
-                
-
-                val uniqueId = UUID.randomUUID().toString()
-
-                val initialPayload = getPayloadFromToolId(newTool.id)
-
-                if (initialPayload != null) {
-
-                    _assignedTools.value = _assignedTools.value + (uniqueId to initialPayload)
-
-                }
-
-                
-
-                val uniqueTool = newTool.copy(
-
-                    id = uniqueId,
-
-                    registryId = newTool.id
-
-                )
-
-                
-
-                list[index] = bindToolActions(uniqueTool)
-
-                _contextualToolbar.value = list
-
-            }
-
-        } else {
-
-            val currentMap = _toolbarState.value.toMutableMap()
-
-            val list = currentMap[location]?.toMutableList() ?: return
-
-            if (index in list.indices) {
-
-                val oldTool = list[index]
-
-                
-
-                // Keep the existing sub-tools of the slot
-
-                val existingSubTools = oldTool.subTools
-
-                
-
-                // Cleanup assignment of old main tool
-
-                _assignedTools.value = _assignedTools.value - oldTool.id
-
-                
-
-                val uniqueId = UUID.randomUUID().toString()
-
-                val initialPayload = getPayloadFromToolId(newTool.id)
-
-                
-
-                if (initialPayload != null) {
-
-                    _assignedTools.value = _assignedTools.value + (uniqueId to initialPayload)
-
-                }
-
-                
-
-                val uniqueTool = newTool.copy(
-
-                    id = uniqueId,
-
-                    registryId = newTool.id,
-
-                    subTools = existingSubTools
-
-                )
-
-                
-
-                list[index] = bindToolActions(uniqueTool)
-
-                currentMap[location] = list
-
-                _toolbarState.value = currentMap
-
-            }
-
-        }
-
-        
-
-        toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
-
-    }
-
-
-
-    fun addSubTool(location: ToolLocation, parentIndex: Int, tool: StudioTool) {
-
-        if (location == ToolLocation.ContextBar) {
-
-            val list = _contextualToolbar.value.toMutableList()
-
-            if (parentIndex in list.indices) {
-
-                val parentTool = list[parentIndex]
-
-                val subList = parentTool.subTools.toMutableList()
-
-                val uniqueId = UUID.randomUUID().toString()
-
-                val initialPayload = getPayloadFromToolId(tool.id)
-
-                if (initialPayload != null) {
-
-                    _assignedTools.value = _assignedTools.value + (uniqueId to initialPayload)
-
-                }
-
-                val uniqueTool = tool.copy(id = uniqueId, registryId = tool.id)
-
-                subList.add(uniqueTool)
-
-                val updatedParentTool = parentTool.copy(subTools = subList)
-
-                list[parentIndex] = bindToolActions(updatedParentTool)
-
-                _contextualToolbar.value = list
-
-                toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
-
-            }
-
-            return
-
-        }
-
-        val currentMap = _toolbarState.value.toMutableMap()
-
-        val list = currentMap[location]?.toMutableList() ?: return
-
-        if (parentIndex in list.indices) {
-
-            val parentTool = list[parentIndex]
-
-            val subList = parentTool.subTools.toMutableList()
-
-            
-
-            val uniqueId = UUID.randomUUID().toString()
-
-            val initialPayload = getPayloadFromToolId(tool.id)
-
-            if (initialPayload != null) {
-
-                _assignedTools.value = _assignedTools.value + (uniqueId to initialPayload)
-
-            }
-
-            
-
-            val uniqueTool = tool.copy(
-
-                id = uniqueId,
-
-                registryId = tool.id
-
-            )
-
-            
-
-            subList.add(uniqueTool)
-
-            val updatedParentTool = parentTool.copy(subTools = subList)
-
-            
-
-            list[parentIndex] = bindToolActions(updatedParentTool)
-
-            currentMap[location] = list
-
-            _toolbarState.value = currentMap
-
-            
-
-            toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
-
-        }
-
-    }
-
-
-
-    fun removeSubTool(location: ToolLocation, parentIndex: Int, subToolIndex: Int) {
-
-        if (location == ToolLocation.ContextBar) {
-
-            val list = _contextualToolbar.value.toMutableList()
-
-            if (parentIndex in list.indices) {
-
-                val parentTool = list[parentIndex]
-
-                val subList = parentTool.subTools.toMutableList()
-
-                if (subToolIndex in subList.indices) {
-
-                    val removedTool = subList.removeAt(subToolIndex)
-
-                    _assignedTools.value = _assignedTools.value - removedTool.id
-
-                    val updatedParentTool = parentTool.copy(subTools = subList)
-
-                    list[parentIndex] = bindToolActions(updatedParentTool)
-
-                    _contextualToolbar.value = list
-
-                    toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
-
-                }
-
-            }
-
-            return
-
-        }
-
-        val currentMap = _toolbarState.value.toMutableMap()
-
-        val list = currentMap[location]?.toMutableList() ?: return
-
-        if (parentIndex in list.indices) {
-
-            val parentTool = list[parentIndex]
-
-            val subList = parentTool.subTools.toMutableList()
-
-            if (subToolIndex in subList.indices) {
-
-                val removedTool = subList.removeAt(subToolIndex)
-
-                _assignedTools.value = _assignedTools.value - removedTool.id
-
-                
-
-                val updatedParentTool = parentTool.copy(subTools = subList)
-
-                list[parentIndex] = bindToolActions(updatedParentTool)
-
-                currentMap[location] = list
-
-                _toolbarState.value = currentMap
-
-                
-
-                toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
-
-            }
-
-        }
-
-    }
-
-
-
-    fun swapSubToolToMain(location: ToolLocation, parentIndex: Int, subToolIndex: Int) {
-
-        if (location == ToolLocation.ContextBar) {
-
-            val list = _contextualToolbar.value.toMutableList()
-
-            if (parentIndex in list.indices) {
-
-                val parentTool = list[parentIndex]
-
-                val subList = if (parentTool.subTools.isNotEmpty()) parentTool.subTools.toMutableList()
-
-                              else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(parentTool.registryId).toMutableList()
-
-                if (subToolIndex in subList.indices) {
-
-                    val clickedSubTool = subList[subToolIndex]
-
-                    subList[subToolIndex] = parentTool.copy(subTools = emptyList())
-
-                    val newMainTool = clickedSubTool.copy(subTools = subList)
-
-                    list[parentIndex] = bindToolActions(newMainTool)
-
-                    _contextualToolbar.value = list
-
-                    newMainTool.onClick()
-
-                    toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
-
-                }
-
-            }
-
-            return
-
-        }
-
-        val currentMap = _toolbarState.value.toMutableMap()
-
-        val list = currentMap[location]?.toMutableList() ?: return
-
-        if (parentIndex in list.indices) {
-
-            val parentTool = list[parentIndex]
-
-            val subList = if (parentTool.subTools.isNotEmpty()) parentTool.subTools.toMutableList()
-
-                          else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(parentTool.registryId).toMutableList()
-
-            if (subToolIndex in subList.indices) {
-
-                val clickedSubTool = subList[subToolIndex]
-
-                
-
-                // Swap: clickedSubTool becomes main, parentTool becomes subtool (clear its nested subTools to prevent recursion)
-
-                subList[subToolIndex] = parentTool.copy(subTools = emptyList())
-
-                
-
-                val newMainTool = clickedSubTool.copy(subTools = subList)
-
-                
-
-                list[parentIndex] = bindToolActions(newMainTool)
-
-                currentMap[location] = list
-
-                _toolbarState.value = currentMap
-
-                
-
-                // Execute clicked tool action
-
-                newMainTool.onClick()
-
-                
-
-                toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
-
-            }
-
-        }
-
-    }
-
-
-
-    fun moveSubTool(location: ToolLocation, parentIndex: Int, fromIndex: Int, toIndex: Int) {
-
-        if (location == ToolLocation.ContextBar) {
-
-            val list = _contextualToolbar.value.toMutableList()
-
-            if (parentIndex in list.indices) {
-
-                val parentTool = list[parentIndex]
-
-                val fullList = (listOf(parentTool) + parentTool.subTools).toMutableList()
-
-                if (fromIndex in fullList.indices && toIndex in fullList.indices) {
-
-                    val temp = fullList[fromIndex]
-
-                    fullList[fromIndex] = fullList[toIndex]
-
-                    fullList[toIndex] = temp
-
-                    val clearedSubList = fullList.subList(1, fullList.size).map { it.copy(subTools = emptyList()) }
-
-                    val updatedParentTool = fullList[0].copy(subTools = clearedSubList)
-
-                    list[parentIndex] = bindToolActions(updatedParentTool)
-
-                    _contextualToolbar.value = list
-
-                    toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
-
-                }
-
-            }
-
-            return
-
-        }
-
-        val currentMap = _toolbarState.value.toMutableMap()
-
-        val list = currentMap[location]?.toMutableList() ?: return
-
-        if (parentIndex in list.indices) {
-
-            val parentTool = list[parentIndex]
-
-            val fullList = (listOf(parentTool) + parentTool.subTools).toMutableList()
-
-            if (fromIndex in fullList.indices && toIndex in fullList.indices) {
-
-                // Swap elements
-
-                val temp = fullList[fromIndex]
-
-                fullList[fromIndex] = fullList[toIndex]
-
-                fullList[toIndex] = temp
-
-                
-
-                // Clear nested subtools to avoid recursion
-
-                val clearedSubList = fullList.subList(1, fullList.size).map { it.copy(subTools = emptyList()) }
-
-                val updatedParentTool = fullList[0].copy(subTools = clearedSubList)
-
-                
-
-                list[parentIndex] = bindToolActions(updatedParentTool)
-
-                currentMap[location] = list
-
-                _toolbarState.value = currentMap
-
-                
-
-                toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
-
-            }
-
-        }
-
-    }
-
-
-
-    fun insertPlaceholderSlot(location: ToolLocation, targetIndex: Int, relativePosition: Int) {
-
-        if (location == ToolLocation.ContextBar) {
-
-            val list = _contextualToolbar.value.toMutableList()
-
-            val insertIndex = if (targetIndex in list.indices) {
-
-                if (relativePosition < 0) targetIndex else targetIndex + 1
-
-            } else {
-
-                list.size
-
-            }
-
-            val placeholderTool = StudioTool(
-
-                id = java.util.UUID.randomUUID().toString(),
-
-                icon = androidx.compose.material.icons.Icons.Default.AddCircleOutline,
-
-                contentDescription = "New Slot",
-
-                isPlaceholder = true,
-
-                registryId = "placeholder"
-
-            )
-
-            val boundTool = bindToolActions(placeholderTool)
-
-            list.add(insertIndex, boundTool)
-
-            _contextualToolbar.value = list
-
-            toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
-
-            return
-
-        }
-
-        val currentMap = _toolbarState.value.toMutableMap()
-
-        val list = currentMap[location]?.toMutableList() ?: return
-
-        if (targetIndex in list.indices) {
-
-            val insertIndex = if (relativePosition < 0) targetIndex else targetIndex + 1
-
-            val placeholderTool = StudioTool(
-
-                id = java.util.UUID.randomUUID().toString(),
-
-                icon = androidx.compose.material.icons.Icons.Default.AddCircleOutline,
-
-                contentDescription = "New Slot",
-
-                isPlaceholder = true,
-
-                registryId = "placeholder"
-
-            )
-
-            val boundTool = bindToolActions(placeholderTool)
-
-            list.add(insertIndex, boundTool)
-
-            currentMap[location] = list
-
-            _toolbarState.value = currentMap
-
-            
-
-            toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
-
-        }
-
-    }
+    fun insertPlaceholderSlot(location: ToolLocation, targetIndex: Int, relativePosition: Int) = toolbarManager.insertPlaceholderSlot(location, targetIndex, relativePosition)
 
 
 
@@ -1396,11 +635,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         "toggle_snap" -> ({ toggleElementSnapping() })
 
         "pencil" -> ({ 
-
              updateStrokeType(StrokeType.FREEHAND)
-
              selectTool(ToolType.FREEHAND) 
+        })
 
+        "paint" -> ({ 
+             updateStrokeType(StrokeType.PAINT)
+             selectTool(ToolType.PAINT) 
         })
 
         "pen" -> ({ 
@@ -1557,147 +798,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
 
 
-    private fun initToolbarState() {
 
-        if (_assignedTools.value.isEmpty()) {
-
-            _assignedTools.value = mapOf(
-
-                "pencil" to ToolPayload.PENCIL,
-
-                "pen" to ToolPayload.PEN,
-
-                "eraser" to ToolPayload.ERASER,
-
-                "stroke_color" to ToolPayload.STROKE_COLOR,
-
-                "fill_color" to ToolPayload.FILL_COLOR
-
-            )
-
-        }
-
-        if (_assignedToolColors.value.isEmpty()) {
-
-            _assignedToolColors.value = mapOf(
-
-                "stroke_color" to strokeColor.value,
-
-                "fill_color" to fillColor.value
-
-            )
-
-        }
-
-        
-
-        _toolbarState.value = mapOf(
-
-            ToolLocation.LeftBar to listOf(),
-
-            ToolLocation.RightBar to listOfNotNull(
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById(StudioTool.SIZE_OPACITY_TOOL_ID),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("pencil"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("divider"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("stroke_color"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("fill_color"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("divider"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("eraser"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("pen"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("divider"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("edit_points"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("toggle_snap")
-
-            ),
-
-            ToolLocation.TopBar to listOfNotNull(
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("zoom_fit"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("zoom_in"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("zoom_out"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("home_view")
-
-            ),
-
-            ToolLocation.BottomBar to listOfNotNull(
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("tool_selection"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("action_paste")
-
-            ),
-
-            ToolLocation.TopLeftCorner to listOfNotNull(
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("menu")
-
-            ),
-
-            ToolLocation.TopRightCorner to listOfNotNull(
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("settings")
-
-            ),
-
-            ToolLocation.BottomLeftCorner to listOfNotNull(
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("undo")
-
-            ),
-
-            ToolLocation.BottomRightCorner to listOfNotNull(
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("redo")
-
-            )
-
-        ).mapValues { (loc, list) ->
-
-            list.map { tool ->
-
-                val toolId = tool.id
-
-                tool.copy(onClick = {
-
-                    val payload = _assignedTools.value[toolId]
-
-                    if (payload != null) {
-
-                        activateTool(payload, toolId)
-
-                    } else {
-
-                        getActionForTool(tool.registryId).invoke()
-
-                    }
-
-                })
-
-            }
-
-        }
-
-        val contextualWithActions = toolbarRepository.getDefaultContextualTools().map { tool ->
-            tool.copy(onClick = {
-                getActionForTool(tool.registryId).invoke()
-            })
-        }
-        _contextualToolbar.value = contextualWithActions
-    }
 
 
 
@@ -1735,107 +836,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     fun reloadToolbarLayout() {
 
-        val loaded = toolbarRepository.loadLayout()
-
-        if (loaded != null) {
-
-            _assignedTools.value = loaded.assignedMap
-
-            _assignedToolColors.value = loaded.toolColors
-
-            
-
-            val toolsWithActions = loaded.tools.mapValues { (_, list) ->
-
-                list.map { tool -> bindToolActions(tool) }
-
-            }
-
-            _toolbarState.value = toolsWithActions
-
-            
-
-            val contextualWithActions = loaded.contextualTools.map { tool ->
-
-                tool.copy(onClick = {
-
-                    getActionForTool(tool.registryId).invoke()
-
-                })
-
-            }
-
-            _contextualToolbar.value = contextualWithActions
-
-        } else {
-
-            // Reset to defaults if no layout exists
-
-            _assignedTools.value = mapOf(
-
-                "pencil" to ToolPayload.PENCIL,
-
-                "pen" to ToolPayload.PEN,
-
-                "eraser" to ToolPayload.ERASER,
-
-                "stroke_color" to ToolPayload.STROKE_COLOR,
-
-                "fill_color" to ToolPayload.FILL_COLOR
-
-            )
-
-            _assignedToolColors.value = mapOf(
-
-                "stroke_color" to strokeColor.value,
-
-                "fill_color" to fillColor.value
-
-            )
-
-            initToolbarState()
-
-            
-
-            val defaultContextual = listOfNotNull(
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("context_transform"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("divider"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("action_copy"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("action_cut"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("divider"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("context_delete"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("context_flip_horizontal"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("divider"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("context_group"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("context_edit"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("divider"),
-
-                com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getToolById("context_deselect")
-
-            ).map { tool ->
-
-                tool.copy(onClick = {
-
-                    getActionForTool(tool.registryId).invoke()
-
-                })
-
-            }
-
-            _contextualToolbar.value = defaultContextual
-
-        }
+        toolbarManager.reloadToolbarLayout()
 
     }
 
@@ -2163,35 +1164,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     init {
         hasPreferencesBackup = application.getSharedPreferences("sketcher_prefs_backup", Context.MODE_PRIVATE).all.isNotEmpty()
         selectTool(currentTool)
-        
-        val loaded = toolbarRepository.loadLayout()
-        val layoutResetV4 = prefs.getInt("layout_reset_v4", 0)
-        
-        if (loaded != null && layoutResetV4 >= 1) {
-            _assignedTools.value = loaded.assignedMap
-            _assignedToolColors.value = loaded.toolColors
-            
-            val toolsWithActions = loaded.tools.mapValues { (_, list) ->
-                list.map { tool -> bindToolActions(tool) }
-            }
-            _toolbarState.value = toolsWithActions
-            
-            val contextualWithActions = loaded.contextualTools.map { tool ->
-                tool.copy(onClick = {
-                    getActionForTool(tool.registryId).invoke()
-                })
-            }
-            _contextualToolbar.value = contextualWithActions
-        } else {
-            initToolbarState()
-            prefs.edit().putInt("layout_reset_v4", 1).apply()
-            toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
-        }
+        toolbarManager.initLayout()
     }
 
     fun updateContextualToolbar(newList: List<StudioTool>) {
-        _contextualToolbar.value = newList
-        toolbarRepository.saveLayout(_toolbarState.value, _assignedTools.value, _assignedToolColors.value, _contextualToolbar.value)
+        toolbarManager.updateContextualToolbar(newList)
     }
 
     fun setFingerMode(enabled: Boolean) {
@@ -3579,6 +2556,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         if (sizeChanged && w > 0f && h > 0f) {
 
+            liveProjectionController.updateViewportDimensions(w, h)
+
             if (isHomeCameraDefaultOrIdentity() && canvasSizeConfig != null) {
 
                 centerPaperAsHomeCamera()
@@ -4244,15 +3223,62 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
 
     fun addHybridStroke(stroke: VectorStroke, fill: FillData?) {
-
         val targetLayer = layers[activeLayerIndex]
-
         if (targetLayer.isLocked) return
 
+        if (stroke.strokeType == StrokeType.PAINT) {
+            val sameColorPaintStrokes = activeContainer.filterIsInstance<VectorStroke>().filter { existing ->
+                existing.strokeType == StrokeType.PAINT &&
+                existing.strokeColor == stroke.strokeColor &&
+                existing.fillColor == stroke.fillColor &&
+                existing.isFillEnabled == stroke.isFillEnabled &&
+                existing.isStrokeEnabled == stroke.isStrokeEnabled
+            }
+            
+            val overlappingStrokes = sameColorPaintStrokes.filter { existing ->
+                android.graphics.RectF.intersects(existing.getBoundingBox(), stroke.getBoundingBox())
+            }
+            
+            if (overlappingStrokes.isNotEmpty()) {
+                val mergedPath = android.graphics.Path(stroke.path)
+                for (existing in overlappingStrokes) {
+                    val unionPath = android.graphics.Path()
+                    unionPath.op(mergedPath, existing.path, android.graphics.Path.Op.UNION)
+                    mergedPath.set(unionPath)
+                }
+                
+                val zoom = run {
+                    val vals = FloatArray(9)
+                    _cameraMatrix.value.getValues(vals)
+                    val scale = kotlin.math.sqrt(vals[android.graphics.Matrix.MSCALE_X] * vals[android.graphics.Matrix.MSCALE_X] + vals[android.graphics.Matrix.MSKEW_X] * vals[android.graphics.Matrix.MSKEW_X])
+                    if (scale > 0.001f) scale else 1.0f
+                }
+                
+                val outlinePointsPointF = com.sketcher.sketchercompanionv1.utils.GeometryUtils.flattenPath(mergedPath, step = 8f / zoom)
+                val outlineStrokePoints = outlinePointsPointF.map { pt -> StrokePoint(pt.x, pt.y, 0.5f) }
+                val simplifiedPoints = if (outlineStrokePoints.size > 2) {
+                    com.sketcher.sketchercompanionv1.utils.StrokeSimplifier.simplify(outlineStrokePoints, 1.5f / zoom, 20f)
+                } else {
+                    outlineStrokePoints
+                }
 
+                val mergedStroke = stroke.copy(
+                    points = simplifiedPoints,
+                    path = mergedPath,
+                    fillPath = if (stroke.isFillEnabled) mergedPath else null
+                )
+
+                performAction(com.sketcher.sketchercompanionv1.command.MergePaintStrokesCommand(
+                    activeContainer, 
+                    overlappingStrokes, 
+                    stroke, 
+                    mergedStroke
+                ))
+                return
+            }
+        }
 
         performAction(AddHybridStrokeCommand(activeContainer, stroke, fill))
-
     }
 
 
@@ -5877,815 +4903,101 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     }
 
-
-
     // ── LIVE PROJECTION ─────────────────────────────────────────────────
 
-
-
     var isProjectionActive by mutableStateOf(false)
-
         private set
 
     var projectionUrl by mutableStateOf("")
-
         private set
 
     var projectionClientCount by mutableIntStateOf(0)
-
         private set
 
     var isProjectionPaused by mutableStateOf(false)
-
         private set
 
     var projectionMode by mutableStateOf("sync") // "sync" | "fixed"
-
         private set
 
-    var fixedZoomMode by mutableStateOf("fit") // "fit" | "home"
-
-
-
-    fun toggleProjectionPause() {
-
-        isProjectionPaused = !isProjectionPaused
-
-        updateProjectionViewports()
-
-    }
-
-
-
-    fun updateProjectionMode(mode: String) {
-
-        if (mode == "sync" || mode == "fixed") {
-
-            projectionMode = mode
-
-            projectionServer?.clients?.forEach { client ->
-
-                client.mode = mode
-
-            }
-
-            updateProjectionViewports()
-
+    private val _fixedZoomMode = mutableStateOf("fit")
+    var fixedZoomMode: String
+        get() = _fixedZoomMode.value
+        set(value) {
+            _fixedZoomMode.value = value
+            liveProjectionController.updateFixedZoomMode(value)
         }
-
-    }
-
-
-
-    // Viewport rectangles to draw on the canvas for each connected client
-
-    // Each entry: [left, top, right, bottom] in screen coordinates
 
     data class ProjectionViewport(val left: Float, val top: Float, val right: Float, val bottom: Float, val color: Int, val label: String)
 
     var projectionViewports by mutableStateOf<List<ProjectionViewport>>(emptyList())
-
         private set
 
+    fun toggleProjectionPause() {
+        liveProjectionController.togglePause()
+        isProjectionPaused = liveProjectionController.isProjectionPaused
+    }
 
-
-    private var projectionServer: LiveProjectionServer? = null
-
-    private val viewportColors = listOf(
-
-        AndroidColor.parseColor("#00E5FF"),  // cyan
-
-        AndroidColor.parseColor("#FF6D00"),  // orange
-
-        AndroidColor.parseColor("#D500F9"),  // magenta
-
-        AndroidColor.parseColor("#76FF03"),  // lime
-
-    )
-
-
+    fun updateProjectionMode(mode: String) {
+        liveProjectionController.updateMode(mode)
+        projectionMode = liveProjectionController.projectionMode
+    }
 
     fun startProjection() {
-
-        if (isProjectionActive) return
-
-        val ip = getLocalIpAddress() ?: run {
-
-            android.util.Log.w("Projection", "No WiFi IP found")
-
-            return
-
-        }
-
-        val port = 8080
-
-        try {
-
-            val server = LiveProjectionServer(
-
-                port = port,
-
-                getCurrentMode = { projectionMode },
-
-                onClientCountChanged = { count ->
-
-                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-
-                        projectionClientCount = count
-
-                        updateProjectionViewports()
-
-                    }
-
-                },
-
-                onClientUpdated = {
-
-                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-
-                        updateProjectionViewports()
-
-                    }
-
-                }
-
-            )
-
-            server.start(0, false)
-
-            projectionServer = server
-
-            projectionUrl = "http://$ip:$port"
-
-            isProjectionActive = true
-
-            android.util.Log.d("Projection", "Server started at $projectionUrl")
-
-        } catch (e: Exception) {
-
-            android.util.Log.e("Projection", "Failed to start server", e)
-
-        }
-
+        liveProjectionController.start()
     }
-
-
 
     fun stopProjection() {
-
-        projectionServer?.stop()
-
-        projectionServer = null
-
-        isProjectionActive = false
-
-        isProjectionPaused = false
-
-        projectionMode = "sync"
-
-        projectionUrl = ""
-
-        projectionClientCount = 0
-
-        projectionViewports = emptyList()
-
+        liveProjectionController.stop()
     }
-
-
-
-    /**
-
-     * Renders all canvas layers using the current viewport zoom/pan off-screen to the client's screen AR.
-
-     * Called ~15fps from the capture loop.
-
-     */
 
     fun renderAndSendSyncFrame(
-
         livePoints: List<StrokePoint>?,
-
         livePath: android.graphics.Path?,
-
         committedPath: android.graphics.Path?,
-
         liveFillPath: android.graphics.Path?,
-
         liveRadius: Float
-
     ) {
-
-        val server = projectionServer ?: return
-
-        val clients = server.clients
-
-        val isPaused = isProjectionPaused
-
-        if (clients.isEmpty() || isPaused) return
-
-
-
-        // Take a snapshot of layers and component library on the main thread first
-
-        val layersSnapshot = layers.map { layer ->
-
-            layer.copy(elements = layer.elements.toMutableStateList())
-
-        }
-
-        val compLibSnapshot = HashMap(componentLibrary)
-
-        val bgCol = backgroundColor
-
-        val cameraMatrixValuesSnapshot = cameraMatrixValues.clone()
-
-        val phoneW = lastViewportWidth
-
-        val phoneH = lastViewportHeight
-
-
-
-        val strokeColorVal = strokeColor.value
-
-        val fillColorVal = fillColor.value
-
-        val isStrokeActiveVal = isStrokeActive.value
-
-        val isFillActiveVal = isFillActive.value
-
-
-
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
-
-            try {
-
-                val jpegByClient = mutableMapOf<Int, ByteArray>()
-
-                for (client in clients) {
-
-                    val outW = client.clientWidth.coerceAtLeast(320)
-
-                    val outH = client.clientHeight.coerceAtLeast(240)
-
-
-
-                    val bitmap = android.graphics.Bitmap.createBitmap(outW, outH, android.graphics.Bitmap.Config.ARGB_8888)
-
-                    val canvas = android.graphics.Canvas(bitmap)
-
-                    canvas.drawColor(bgCol)
-
-
-
-                    val fitMatrix = android.graphics.Matrix()
-
-                    val pW = phoneW.coerceAtLeast(1f)
-
-                    val pH = phoneH.coerceAtLeast(1f)
-
-                    val phoneAR = pW / pH
-
-                    val clientAR = outW.toFloat() / outH.toFloat()
-
-
-
-                    val scale: Float
-
-                    val tx: Float
-
-                    val ty: Float
-
-                    if (clientAR > phoneAR) {
-
-                        scale = outW.toFloat() / pW
-
-                        tx = 0f
-
-                        ty = (outH - pH * scale) / 2f
-
-                    } else {
-
-                        scale = outH.toFloat() / pH
-
-                        tx = (outW - pW * scale) / 2f
-
-                        ty = 0f
-
-                    }
-
-
-
-                    val phoneCameraMatrix = android.graphics.Matrix()
-
-                    phoneCameraMatrix.setValues(cameraMatrixValuesSnapshot)
-
-
-
-                    fitMatrix.set(phoneCameraMatrix)
-
-                    fitMatrix.postScale(scale, scale)
-
-                    fitMatrix.postTranslate(tx, ty)
-
-
-
-                    val renderEngine = RenderEngine()
-
-                    renderEngine.canvasBackgroundColor = bgCol
-
-                    renderEngine.drawLayers(
-
-                        canvas = canvas,
-
-                        layers = layersSnapshot,
-
-                        viewMatrix = fitMatrix,
-
-                        componentLibrary = compLibSnapshot,
-
-                        selectedElements = null,
-
-                        isTransformActive = false,
-
-                        drawGrid = false,
-
-                        clientMode = true
-
-                    )
-
-
-
-                    // Render active live stroke if it's currently in progress
-
-                    // Draw committed head first (underneath), then live tail on top — same order as main canvas
-
-                    if (committedPath != null && isStrokeActiveVal) {
-
-                        canvas.save()
-
-                        canvas.concat(fitMatrix)
-
-                        renderEngine.drawCommittedPreview(canvas, committedPath, strokeColorVal)
-
-                        canvas.restore()
-
-                    }
-
-                    if (livePath != null || livePoints != null) {
-
-                        renderEngine.drawLiveStroke(
-
-                            canvas = canvas,
-
-                            previewPoints = livePoints,
-
-                            previewPath = livePath,
-
-                            previewColor = strokeColorVal,
-
-                            fillPath = liveFillPath,
-
-                            fillColor = fillColorVal,
-
-                            isFillActive = isFillActiveVal,
-
-                            isStrokeActive = isStrokeActiveVal,
-
-                            currentLiveGeneratedRadius = liveRadius,
-
-                            viewMatrix = fitMatrix,
-
-                            isDrawing = true
-
-                        )
-
-                    }
-
-
-
-                    val out = ByteArrayOutputStream()
-
-                    bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 75, out)
-
-                    bitmap.recycle()
-
-                    jpegByClient[client.id] = out.toByteArray()
-
-                }
-
-                if (jpegByClient.isNotEmpty()) {
-
-                    server.broadcastSyncFrames(jpegByClient)
-
-                }
-
-            } catch (e: Exception) {
-
-                android.util.Log.e("Projection", "Error rendering sync frame", e)
-
-            }
-
-        }
-
+        liveProjectionController.renderAndSendSyncFrame(
+            layers = layers,
+            componentLibrary = componentLibrary,
+            backgroundColor = backgroundColor,
+            cameraMatrixValues = cameraMatrixValues,
+            strokeColor = strokeColor.value,
+            fillColor = fillColor.value,
+            isStrokeActive = isStrokeActive.value,
+            isFillActive = isFillActive.value,
+            livePoints = livePoints,
+            livePath = livePath,
+            committedPath = committedPath,
+            liveFillPath = liveFillPath,
+            liveRadius = liveRadius
+        )
     }
-
-
-
-    /**
-
-     * Renders all canvas layers to a bitmap fitted to each fixed-mode client's AR.
-
-     * Called ~2fps from the capture loop.
-
-     */
 
     fun renderAndSendFixedSnapshot(
-
         livePoints: List<StrokePoint>?,
-
         livePath: android.graphics.Path?,
-
         committedPath: android.graphics.Path?,
-
         liveFillPath: android.graphics.Path?,
-
         liveRadius: Float
-
     ) {
-
-        val server = projectionServer ?: return
-
-        val clients = server.clients
-
-        val isPaused = isProjectionPaused
-
-        if (clients.isEmpty() || isPaused) return
-
-
-
-        val client = clients.firstOrNull() ?: return
-
-        val outW = client.clientWidth.coerceAtLeast(320)
-
-        val outH = client.clientHeight.coerceAtLeast(240)
-
-        
-
-        // Take a snapshot of layers and component library on the main thread first
-
-        val layersSnapshot = layers.map { layer ->
-
-            layer.copy(elements = layer.elements.toMutableStateList())
-
-        }
-
-        val compLibSnapshot = HashMap(componentLibrary)
-
-        val bgCol = backgroundColor
-
-        val zoomMode = fixedZoomMode
-
-        val homeMatrixValues = homeCameraMatrixValues.clone()
-
-        val phoneW = lastViewportWidth
-
-        val phoneH = lastViewportHeight
-
-
-
-        val strokeColorVal = strokeColor.value
-
-        val fillColorVal = fillColor.value
-
-        val isStrokeActiveVal = isStrokeActive.value
-
-        val isFillActiveVal = isFillActive.value
-
-
-
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
-
-            try {
-
-                val bitmap = android.graphics.Bitmap.createBitmap(outW, outH, android.graphics.Bitmap.Config.ARGB_8888)
-
-                val canvas = android.graphics.Canvas(bitmap)
-
-                canvas.drawColor(bgCol)
-
-
-
-                val fitMatrix = android.graphics.Matrix()
-
-                if (zoomMode == "home") {
-
-                    val homeMatrix = android.graphics.Matrix()
-
-                    homeMatrix.setValues(homeMatrixValues)
-
-                    
-
-                    val pW = phoneW.coerceAtLeast(1f)
-
-                    val pH = phoneH.coerceAtLeast(1f)
-
-                    val scale = minOf(outW.toFloat() / pW, outH.toFloat() / pH)
-
-                    
-
-                    fitMatrix.postTranslate(-pW / 2f, -pH / 2f)
-
-                    fitMatrix.postScale(scale, scale)
-
-                    fitMatrix.postTranslate(outW / 2f, outH / 2f)
-
-                    fitMatrix.preConcat(homeMatrix)
-
-                } else {
-
-                    // Compute zoom-to-fit matrix for all layers
-
-                    val allBounds = android.graphics.RectF()
-
-                    var first = true
-
-                    for (layer in layersSnapshot) {
-
-                        if (!layer.isVisible || !layer.isVisibleOnClient) continue
-
-                        for (element in layer.elements) {
-
-                            val b = element.getBoundingBox(compLibSnapshot)
-
-                            if (b.isEmpty) continue
-
-                            if (first) { allBounds.set(b); first = false } else allBounds.union(b)
-
-                        }
-
-                    }
-
-
-
-                    if (!allBounds.isEmpty) {
-
-                        val scaleX = outW / allBounds.width()
-
-                        val scaleY = outH / allBounds.height()
-
-                        val scale = minOf(scaleX, scaleY) * 0.9f
-
-                        val tx = (outW - allBounds.width() * scale) / 2f - allBounds.left * scale
-
-                        val ty = (outH - allBounds.height() * scale) / 2f - allBounds.top * scale
-
-                        fitMatrix.setScale(scale, scale)
-
-                        fitMatrix.postTranslate(tx, ty)
-
-                    }
-
-                }
-
-
-
-                val renderEngine = RenderEngine()
-
-                renderEngine.canvasBackgroundColor = bgCol
-
-                renderEngine.drawLayers(
-
-                    canvas = canvas,
-
-                    layers = layersSnapshot,
-
-                    viewMatrix = fitMatrix,
-
-                    componentLibrary = compLibSnapshot,
-
-                    selectedElements = null,
-
-                    isTransformActive = false,
-
-                    drawGrid = false,
-
-                    clientMode = true
-
-                )
-
-
-
-                // Render active live stroke if it's currently in progress
-
-                // Draw committed head first (underneath), then live tail on top
-
-                if (committedPath != null && isStrokeActiveVal) {
-
-                    canvas.save()
-
-                    canvas.concat(fitMatrix)
-
-                    renderEngine.drawCommittedPreview(canvas, committedPath, strokeColorVal)
-
-                    canvas.restore()
-
-                }
-
-                if (livePath != null || livePoints != null) {
-
-                    renderEngine.drawLiveStroke(
-
-                        canvas = canvas,
-
-                        previewPoints = livePoints,
-
-                        previewPath = livePath,
-
-                        previewColor = strokeColorVal,
-
-                        fillPath = liveFillPath,
-
-                        fillColor = fillColorVal,
-
-                        isFillActive = isFillActiveVal,
-
-                        isStrokeActive = isStrokeActiveVal,
-
-                        currentLiveGeneratedRadius = liveRadius,
-
-                        viewMatrix = fitMatrix,
-
-                        isDrawing = true
-
-                    )
-
-                }
-
-
-
-                val out = ByteArrayOutputStream()
-
-                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
-
-                bitmap.recycle()
-
-                server.broadcastFixedSnapshot(out.toByteArray())
-
-            } catch (e: Exception) {
-
-                android.util.Log.e("Projection", "Error rendering fixed snapshot", e)
-
-            }
-
-        }
-
+        liveProjectionController.renderAndSendFixedSnapshot(
+            layers = layers,
+            componentLibrary = componentLibrary,
+            backgroundColor = backgroundColor,
+            homeCameraMatrixValues = homeCameraMatrixValues,
+            strokeColor = strokeColor.value,
+            fillColor = fillColor.value,
+            isStrokeActive = isStrokeActive.value,
+            isFillActive = isFillActive.value,
+            livePoints = livePoints,
+            livePath = livePath,
+            committedPath = committedPath,
+            liveFillPath = liveFillPath,
+            liveRadius = liveRadius
+        )
     }
-
-
-
-
-
-
-
-    /** Recalculates the on-canvas viewport rectangles for the projection indicator overlay. */
-
-    private fun updateProjectionViewports() {
-
-        val server = projectionServer ?: run { projectionViewports = emptyList(); return }
-
-        if (isProjectionPaused || projectionMode == "fixed" || server.clients.isEmpty()) {
-
-            projectionViewports = emptyList()
-
-            return
-
-        }
-
-        val vW = lastViewportWidth
-
-        val vH = lastViewportHeight
-
-        if (vW <= 0 || vH <= 0) return
-
-
-
-        val vAR = vW / vH
-
-        val newViewports = mutableListOf<ProjectionViewport>()
-
-        server.clients.forEachIndexed { index, client ->
-
-            val color = viewportColors[index % viewportColors.size]
-
-            val label = "Cliente ${index + 1}"
-
-            val clientAR = client.clientWidth.toFloat() / client.clientHeight.toFloat()
-
-
-
-            val (rL, rT, rR, rB) = if (kotlin.math.abs(clientAR - vAR) < 0.05f) {
-
-                // Nearly same AR — full viewport
-
-                listOf(0f, 0f, vW, vH)
-
-            } else if (clientAR > vAR) {
-
-                // Client wider: full width, centered height strip
-
-                val h = vW / clientAR
-
-                val top = (vH - h) / 2f
-
-                listOf(0f, top, vW, top + h)
-
-            } else {
-
-                // Client taller: full height, centered width strip
-
-                val w = vH * clientAR
-
-                val left = (vW - w) / 2f
-
-                listOf(left, 0f, left + w, vH)
-
-            }
-
-            newViewports.add(ProjectionViewport(rL, rT, rR, rB, color, label))
-
-        }
-
-        projectionViewports = newViewports
-
-    }
-
-
-
-    private fun getLocalIpAddress(): String? {
-
-        try {
-
-            val interfaces = java.util.Collections.list(NetworkInterface.getNetworkInterfaces())
-
-            // 1. Try to find WiFi/Wlan interface first
-
-            for (intf in interfaces) {
-
-                val name = intf.name.lowercase()
-
-                if (name.contains("wlan") || name.contains("wifi") || name.contains("ap")) {
-
-                    for (addr in intf.inetAddresses) {
-
-                        if (!addr.isLoopbackAddress && addr is Inet4Address) {
-
-                            return addr.hostAddress
-
-                        }
-
-                    }
-
-                }
-
-            }
-
-            // 2. Fallback to any other non-cellular interface
-
-            for (intf in interfaces) {
-
-                val name = intf.name.lowercase()
-
-                if (name.contains("rmnet") || name.contains("ccmni") || name.contains("p2p") || name.contains("dummy")) continue
-
-                for (addr in intf.inetAddresses) {
-
-                    if (!addr.isLoopbackAddress && addr is Inet4Address) {
-
-                        val ip = addr.hostAddress ?: continue
-
-                        if (!ip.startsWith("10.0.2") && !ip.startsWith("127.")) {
-
-                            return ip
-
-                        }
-
-                    }
-
-                }
-
-            }
-
-        } catch (e: Exception) {
-
-            android.util.Log.e("Projection", "getLocalIpAddress failed", e)
-
-        }
-
-        return null
-
-    }
-
-
 
     override fun onCleared() {
 

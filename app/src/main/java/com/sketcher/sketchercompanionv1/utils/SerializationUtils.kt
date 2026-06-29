@@ -251,19 +251,16 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     val isCumul = this.isCumulative
     val settings = FreehandSettings(size = this.maxWidth, isComplete = true, simulatePressure = false)
     
-    // If it's a flattened polygon, points are the perimeter, so we shouldn't pass it through generator
+    val strokeTypeVal = this.strokeType ?: StrokeType.FREEHAND
+    val isCad = (this.isCadGeometry ?: false) || (strokeTypeVal != StrokeType.FREEHAND && strokeTypeVal != StrokeType.PEN)
+    
     val resultPath = if (this.isFlattened) {
-        val path = android.graphics.Path()
-        if (pts.isNotEmpty()) {
-            path.moveTo(pts[0].x, pts[0].y)
-            for (i in 1 until pts.size) {
-                path.lineTo(pts[i].x, pts[i].y)
-            }
-            path.close()
-        }
-        path
-    } else if (this.isCadGeometry) {
-        com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(this.strokeType, pts)
+        val rawPath = PerfectFreehandGenerator.generate(pts, settings).path
+        val cleanPath = android.graphics.Path()
+        cleanPath.op(rawPath, rawPath, android.graphics.Path.Op.UNION)
+        cleanPath
+    } else if (isCad) {
+        com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(strokeTypeVal, pts)
     } else {
         PerfectFreehandGenerator.generate(
             rawPoints = pts, 
@@ -271,7 +268,7 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         ).path
     }
     
-    val chunkPaths = if (isCumul && this.strokeType == StrokeType.FREEHAND && !this.isFlattened) {
+    val chunkPaths = if (isCumul && strokeTypeVal == StrokeType.FREEHAND && !this.isFlattened) {
         PerfectFreehandGenerator.generateCumulativeChunks(pts, settings, 1.0f)
     } else {
         emptyList()
@@ -283,13 +280,17 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     val fEnabled = this.isFillEnabled ?: false
 
     var fPath: android.graphics.Path? = null
-    if (fEnabled && pts.size >= 3) {
-        fPath = android.graphics.Path()
-        fPath.moveTo(pts[0].x, pts[0].y)
-        for (i in 1 until pts.size) {
-            fPath.lineTo(pts[i].x, pts[i].y)
+    if (fEnabled) {
+        if (isCad) {
+            fPath = android.graphics.Path(resultPath)
+        } else if (pts.size >= 3) {
+            fPath = android.graphics.Path()
+            fPath.moveTo(pts[0].x, pts[0].y)
+            for (i in 1 until pts.size) {
+                fPath.lineTo(pts[i].x, pts[i].y)
+            }
+            fPath.close()
         }
-        fPath.close()
     }
     
     return VectorStroke(
@@ -302,13 +303,13 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         path = resultPath,
         fillPath = fPath,
         brushType = this.brushType,
-        strokeType = this.strokeType,
+        strokeType = strokeTypeVal,
         leftPoints = emptyList(), // Not perfectly restorable, but usually ok
         rightPoints = emptyList(),
         paths = chunkPaths,
         isFlattened = this.isFlattened,
         lineStyle = this.lineStyle ?: "SOLID",
-        isCadGeometry = this.isCadGeometry ?: false,
+        isCadGeometry = isCad,
         isScreenSpaceWidth = this.isScreenSpaceWidth ?: false
     )
 }

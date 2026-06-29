@@ -109,6 +109,7 @@ class ToolManager(context: Context) {
             val settings = when(type) {
                 ToolType.FREEHAND -> savedFreehand
                 ToolType.PEN -> savedPen
+                ToolType.PAINT -> savedFreehand
                 else -> FreehandSettings()
             }
             return ToolConfig(size = s, opacity = o, freehandSettings = settings)
@@ -116,6 +117,7 @@ class ToolManager(context: Context) {
 
         put(ToolType.FREEHAND, loadConfig(ToolType.FREEHAND, 2f, 1f))
         put(ToolType.PEN, loadConfig(ToolType.PEN, 2f, 1f))
+        put(ToolType.PAINT, loadConfig(ToolType.PAINT, 10f, 1f))
         put(ToolType.FILL, loadConfig(ToolType.FILL, 1f, 1.0f))
         put(ToolType.ERASER, loadConfig(ToolType.ERASER, 10f, 1f))
         put(ToolType.SELECTION, loadConfig(ToolType.SELECTION, 1f, 1f))
@@ -150,6 +152,14 @@ class ToolManager(context: Context) {
         currentFreehandSettings = config.freehandSettings
         if (config.freehandSettings.isCumulativeOpacity) {
             isFlattenedOuterStrokeEnabled = false
+        }
+
+        if (type == ToolType.PAINT) {
+            _isStrokeActive.value = false
+            _isFillActive.value = true
+        } else if (type == ToolType.FREEHAND || type == ToolType.PEN) {
+            _isStrokeActive.value = true
+            _isFillActive.value = false
         }
     }
 
@@ -278,6 +288,7 @@ class ToolManager(context: Context) {
         when (currentTool) {
             ToolType.PEN -> savePenSettings(settings)
             ToolType.FREEHAND -> saveFreehandSettings(settings)
+            ToolType.PAINT -> saveFreehandSettings(settings)
             else -> {}
         }
     }
@@ -371,6 +382,7 @@ class ToolManager(context: Context) {
             val settings = when(type) {
                 ToolType.FREEHAND -> savedFreehand
                 ToolType.PEN -> savedPen
+                ToolType.PAINT -> savedFreehand
                 else -> FreehandSettings()
             }
             return ToolConfig(size = s, opacity = o, freehandSettings = settings)
@@ -378,6 +390,7 @@ class ToolManager(context: Context) {
 
         toolConfigs[ToolType.FREEHAND] = loadConfig(ToolType.FREEHAND, 2f, 1f)
         toolConfigs[ToolType.PEN] = loadConfig(ToolType.PEN, 2f, 1f)
+        toolConfigs[ToolType.PAINT] = loadConfig(ToolType.PAINT, 10f, 1f)
         toolConfigs[ToolType.FILL] = loadConfig(ToolType.FILL, 1f, 1.0f)
         toolConfigs[ToolType.ERASER] = loadConfig(ToolType.ERASER, 10f, 1f)
         toolConfigs[ToolType.SELECTION] = loadConfig(ToolType.SELECTION, 1f, 1f)

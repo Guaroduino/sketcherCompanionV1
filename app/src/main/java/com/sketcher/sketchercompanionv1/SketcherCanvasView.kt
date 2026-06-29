@@ -66,6 +66,8 @@ class SketcherCanvasView(context: Context) : View(context) {
     private val cachedBitmapMatrix = Matrix()
     private val drawTransformMatrix = Matrix() // Persistent matrix for onDraw scaling
     private val matrixValuesBuffer = FloatArray(9) // Reuse for equality check
+    private val cameraEqualCurrentBuffer = FloatArray(9)
+    private val cameraEqualOtherBuffer = FloatArray(9)
     private var isDrawing: Boolean = false
     
     // Pre-allocated objects for onDraw to avoid GC churn
@@ -284,12 +286,10 @@ class SketcherCanvasView(context: Context) : View(context) {
      * Prevents feedback loops in Compose AndroidView updates.
      */
     fun isCameraEqual(other: Matrix): Boolean {
-        val currentValues = FloatArray(9)
-        val otherValues = FloatArray(9)
-        viewMatrix.getValues(currentValues)
-        other.getValues(otherValues)
+        viewMatrix.getValues(cameraEqualCurrentBuffer)
+        other.getValues(cameraEqualOtherBuffer)
         for (i in 0 until 9) {
-            if (kotlin.math.abs(currentValues[i] - otherValues[i]) > 0.0001f) return false
+            if (kotlin.math.abs(cameraEqualCurrentBuffer[i] - cameraEqualOtherBuffer[i]) > 0.0001f) return false
         }
         return true
     }
@@ -772,6 +772,10 @@ class SketcherCanvasView(context: Context) : View(context) {
     }
     private val tempStrokeBounds = RectF()
     private val tempScreenBounds = RectF()
+    private val drawCombinedMatrix = Matrix()
+    private val liveFillPaint = Paint().apply {
+        style = Paint.Style.FILL
+    }
     
 
 
@@ -859,18 +863,18 @@ class SketcherCanvasView(context: Context) : View(context) {
         }
 
         // Combine view matrix and editing container matrix for drawing transient/live strokes in relative coordinate space
-        val combined = Matrix(viewMatrix)
-        editingContainerMatrix?.let { combined.preConcat(it) }
+        drawCombinedMatrix.set(viewMatrix)
+        editingContainerMatrix?.let { drawCombinedMatrix.preConcat(it) }
 
         // Draw Transient Strokes manually while background rendering finishes
         canvas.save()
-        canvas.concat(combined)
+        canvas.concat(drawCombinedMatrix)
         val activeLayerOpacity = layers.getOrNull(activeLayerIndex)?.opacity ?: 1f
         for (fill in transientFills) {
-            renderEngine.drawElementRecursive(canvas, fill, componentLibrary, combined, activeLayerOpacity)
+            renderEngine.drawElementRecursive(canvas, fill, componentLibrary, drawCombinedMatrix, activeLayerOpacity)
         }
         for (stroke in transientStrokes) {
-            renderEngine.drawElementRecursive(canvas, stroke, componentLibrary, combined, activeLayerOpacity)
+            renderEngine.drawElementRecursive(canvas, stroke, componentLibrary, drawCombinedMatrix, activeLayerOpacity)
         }
         canvas.restore()
 
@@ -883,15 +887,12 @@ class SketcherCanvasView(context: Context) : View(context) {
                 // Pass 1: Draw Live Fill (always directly on canvas, using its own activeFillColor with alpha, multiplied by activeLayerOpacity)
                 if (isFillActive && currentFillPath != null) {
                     val fillAlpha = (android.graphics.Color.alpha(activeFillColor) / 255f)
-                    val fillPaint = Paint().apply {
-                        style = Paint.Style.FILL
-                        val origColor = activeFillColor
-                        val newAlpha = (fillAlpha * activeLayerOpacity * 255).toInt().coerceIn(0, 255)
-                        color = (origColor and 0x00FFFFFF) or (newAlpha shl 24)
-                    }
+                    val origColor = activeFillColor
+                    val newAlpha = (fillAlpha * activeLayerOpacity * 255).toInt().coerceIn(0, 255)
+                    liveFillPaint.color = (origColor and 0x00FFFFFF) or (newAlpha shl 24)
                     canvas.save()
-                    canvas.concat(combined)
-                    canvas.drawPath(currentFillPath!!, fillPaint)
+                    canvas.concat(drawCombinedMatrix)
+                    canvas.drawPath(currentFillPath!!, liveFillPaint)
                     canvas.restore()
                 }
 
@@ -908,7 +909,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                         val bounds = currentStrokeBounds
                         val saveCount = if (bounds != null && !bounds.isEmpty) {
                             tempStrokeBounds.set(bounds)
-                            combined.mapRect(tempScreenBounds, tempStrokeBounds)
+                            drawCombinedMatrix.mapRect(tempScreenBounds, tempStrokeBounds)
                             tempScreenBounds.inset(-4f, -4f)
                             canvas.saveLayer(tempScreenBounds, saveLayerPaint)
                         } else {
@@ -919,7 +920,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                         
                         currentCommittedPreviewPath?.let { committed ->
                             canvas.save()
-                            canvas.concat(combined)
+                            canvas.concat(drawCombinedMatrix)
                             renderEngine.drawCommittedPreview(canvas, committed, opaqueColor)
                             canvas.restore()
                         }
@@ -934,7 +935,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                             isFillActive = false,
                             isStrokeActive = true,
                             currentLiveGeneratedRadius = currentLiveGeneratedRadius,
-                            viewMatrix = combined,
+                            viewMatrix = drawCombinedMatrix,
                             isDrawing = isDrawing,
                             isCad = isCadDraw
                         )
@@ -944,7 +945,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                         // Cumulative or fully opaque: draw directly onto canvas
                         currentCommittedPreviewPath?.let { committed ->
                             canvas.save()
-                            canvas.concat(combined)
+                            canvas.concat(drawCombinedMatrix)
                             renderEngine.drawCommittedPreview(canvas, committed, activeStrokeColor)
                             canvas.restore()
                         }
@@ -959,7 +960,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                             isFillActive = false,
                             isStrokeActive = true,
                             currentLiveGeneratedRadius = currentLiveGeneratedRadius,
-                            viewMatrix = combined,
+                            viewMatrix = drawCombinedMatrix,
                             isDrawing = isDrawing,
                             isCad = isCadDraw
                         )
@@ -968,7 +969,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                     // Draw live cumulative intersections on top with transparent paint
                     if (isCumulative && currentLiveIntersections.isNotEmpty()) {
                         canvas.save()
-                        canvas.concat(combined)
+                        canvas.concat(drawCombinedMatrix)
                         liveIntersectionPaint.color = activeStrokeColor
                         for (p in currentLiveIntersections) {
                             canvas.drawPath(p, liveIntersectionPaint)
@@ -1174,7 +1175,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                 emptyList()
             }
 
-            val isDrawTool = currentTool == ToolType.FREEHAND || currentTool == ToolType.PEN
+            val isDrawTool = currentTool == ToolType.FREEHAND || currentTool == ToolType.PEN || currentTool == ToolType.PAINT
             if (isElementSnappingEnabled && isSnapEndpointEnabled && isDrawTool) {
                 val pts = floatArrayOf(event.x, event.y)
                 inverseMatrix.mapPoints(pts)
@@ -1345,96 +1346,157 @@ class SketcherCanvasView(context: Context) : View(context) {
                     val origPts = originalStrokePoints ?: return true
                     val idx = activeDraggedPointIndex
                     
+                    val ptsList = stroke.points.toMutableList()
+
                     if (stroke.strokeType == StrokeType.CIRCLE || stroke.strokeType == StrokeType.ELLIPSE) {
+
                         if (idx == 0) {
+
                             // Translate whole shape if center dragged
+
                             val dx = worldX - origPts[0].x
+
                             val dy = worldY - origPts[0].y
-                            for (i in stroke.points.indices) {
-                                stroke.points[i].x = origPts[i].x + dx
-                                stroke.points[i].y = origPts[i].y + dy
+
+                            for (i in ptsList.indices) {
+
+                                ptsList[i] = ptsList[i].copy(x = origPts[i].x + dx, y = origPts[i].y + dy)
+
                             }
+
                         } else {
-                            stroke.points[idx].x = worldX
-                            stroke.points[idx].y = worldY
+
+                            ptsList[idx] = ptsList[idx].copy(x = worldX, y = worldY)
+
                         }
+
                     } else if (stroke.strokeType == StrokeType.BEZIER) {
-                        val size = stroke.points.size
-                        val isClosed = (stroke.points.first().x == stroke.points.last().x && stroke.points.first().y == stroke.points.last().y)
+
+                        val size = ptsList.size
+
+                        val isClosed = (ptsList.first().x == ptsList.last().x && ptsList.first().y == ptsList.last().y)
+
                         
+
                         if (idx % 3 == 0) {
+
                             // Anchor point: translate it and its tangent handles together
+
                             val dx = worldX - origPts[idx].x
+
                             val dy = worldY - origPts[idx].y
-                            stroke.points[idx].x = worldX
-                            stroke.points[idx].y = worldY
+
+                            ptsList[idx] = ptsList[idx].copy(x = worldX, y = worldY)
+
                             
+
                             if (isClosed) {
+
                                 if (idx == 0) {
-                                    stroke.points[size - 1].x = worldX
-                                    stroke.points[size - 1].y = worldY
+
+                                    ptsList[size - 1] = ptsList[size - 1].copy(x = worldX, y = worldY)
+
                                 } else if (idx == size - 1) {
-                                    stroke.points[0].x = worldX
-                                    stroke.points[0].y = worldY
+
+                                    ptsList[0] = ptsList[0].copy(x = worldX, y = worldY)
+
                                 }
+
                             }
+
                             
+
                             if (idx + 1 < size) {
-                                stroke.points[idx + 1].x = origPts[idx + 1].x + dx
-                                stroke.points[idx + 1].y = origPts[idx + 1].y + dy
+
+                                ptsList[idx + 1] = ptsList[idx + 1].copy(x = origPts[idx + 1].x + dx, y = origPts[idx + 1].y + dy)
+
                             } else if (isClosed && idx == size - 1) {
-                                stroke.points[1].x = origPts[1].x + dx
-                                stroke.points[1].y = origPts[1].y + dy
+
+                                ptsList[1] = ptsList[1].copy(x = origPts[1].x + dx, y = origPts[1].y + dy)
+
                             }
+
                             
+
                             if (idx - 1 >= 0) {
-                                stroke.points[idx - 1].x = origPts[idx - 1].x + dx
-                                stroke.points[idx - 1].y = origPts[idx - 1].y + dy
+
+                                ptsList[idx - 1] = ptsList[idx - 1].copy(x = origPts[idx - 1].x + dx, y = origPts[idx - 1].y + dy)
+
                             } else if (isClosed && idx == 0) {
-                                stroke.points[size - 2].x = origPts[size - 2].x + dx
-                                stroke.points[size - 2].y = origPts[size - 2].y + dy
+
+                                ptsList[size - 2] = ptsList[size - 2].copy(x = origPts[size - 2].x + dx, y = origPts[size - 2].y + dy)
+
                             }
+
                         } else if (idx % 3 == 1) {
+
                             // Out-tangent handle
-                            stroke.points[idx].x = worldX
-                            stroke.points[idx].y = worldY
+
+                            ptsList[idx] = ptsList[idx].copy(x = worldX, y = worldY)
+
                             val anchorIdx = idx - 1
+
                             if (anchorIdx >= 0) {
-                                val anchor = stroke.points[anchorIdx]
+
+                                val anchor = ptsList[anchorIdx]
+
                                 val dx = worldX - anchor.x
+
                                 val dy = worldY - anchor.y
+
                                 val oppIdx = anchorIdx - 1
+
                                 if (oppIdx >= 0 && oppIdx < size) {
-                                    stroke.points[oppIdx].x = anchor.x - dx
-                                    stroke.points[oppIdx].y = anchor.y - dy
+
+                                    ptsList[oppIdx] = ptsList[oppIdx].copy(x = anchor.x - dx, y = anchor.y - dy)
+
                                 } else if (isClosed && anchorIdx == 0) {
-                                    stroke.points[size - 2].x = anchor.x - dx
-                                    stroke.points[size - 2].y = anchor.y - dy
+
+                                    ptsList[size - 2] = ptsList[size - 2].copy(x = anchor.x - dx, y = anchor.y - dy)
+
                                 }
+
                             }
+
                         } else if (idx % 3 == 2) {
+
                             // In-tangent handle
-                            stroke.points[idx].x = worldX
-                            stroke.points[idx].y = worldY
+
+                            ptsList[idx] = ptsList[idx].copy(x = worldX, y = worldY)
+
                             val anchorIdx = idx + 1
+
                             if (anchorIdx < size) {
-                                val anchor = stroke.points[anchorIdx]
+
+                                val anchor = ptsList[anchorIdx]
+
                                 val dx = worldX - anchor.x
+
                                 val dy = worldY - anchor.y
+
                                 val oppIdx = anchorIdx + 1
+
                                 if (oppIdx < size) {
-                                    stroke.points[oppIdx].x = anchor.x - dx
-                                    stroke.points[oppIdx].y = anchor.y - dy
+
+                                    ptsList[oppIdx] = ptsList[oppIdx].copy(x = anchor.x - dx, y = anchor.y - dy)
+
                                 } else if (isClosed && anchorIdx == size - 1) {
-                                    stroke.points[1].x = anchor.x - dx
-                                    stroke.points[1].y = anchor.y - dy
+
+                                    ptsList[1] = ptsList[1].copy(x = anchor.x - dx, y = anchor.y - dy)
+
                                 }
+
                             }
+
                         }
+
                     } else {
-                        stroke.points[idx].x = worldX
-                        stroke.points[idx].y = worldY
+
+                        ptsList[idx] = ptsList[idx].copy(x = worldX, y = worldY)
+
                     }
+
+                    stroke.points = ptsList
                     
                     val newPath = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(stroke.strokeType, stroke.points)
                     stroke.path.rewind()
@@ -1458,10 +1520,11 @@ class SketcherCanvasView(context: Context) : View(context) {
                         val newPoints = stroke.points.map { it.copy() }
                         
                         // Temporarily restore original points so undo/redo command acts properly
-                        for (i in stroke.points.indices) {
-                            stroke.points[i].x = origPts[i].x
-                            stroke.points[i].y = origPts[i].y
+                        val restoredPts = stroke.points.toMutableList()
+                        for (i in restoredPts.indices) {
+                            restoredPts[i] = restoredPts[i].copy(x = origPts[i].x, y = origPts[i].y)
                         }
+                        stroke.points = restoredPts
                         stroke.path.rewind()
                         stroke.path.set(com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(stroke.strokeType, stroke.points))
                         if (stroke.isFillEnabled && stroke.points.size >= 3) {

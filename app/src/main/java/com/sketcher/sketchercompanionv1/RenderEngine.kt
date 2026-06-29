@@ -122,6 +122,26 @@ class RenderEngine {
         isAntiAlias = true
     }
 
+    private val gripLinePaint = Paint().apply {
+        color = Color.parseColor("#FF007AFF")
+        style = Paint.Style.STROKE
+        isAntiAlias = true
+    }
+
+    private val gripHandlePaint = Paint().apply {
+        color = Color.parseColor("#FF007AFF")
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+
+    private val gripHandleBorderPaint = Paint().apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        isAntiAlias = true
+    }
+
+    private val snapTrianglePath = Path()
+
     // --- PUBLIC DRAWING METHODS ---
 
 
@@ -195,7 +215,6 @@ class RenderEngine {
             canvas.drawColor(canvasBackgroundColor)
             
             if (drawGrid) {
-                canvas.save()
                 canvas.save()
                 canvas.concat(viewMatrix)
                 drawGrid(canvas, viewMatrix, false, null)
@@ -406,22 +425,8 @@ class RenderEngine {
             val sizeHandle = 4f * density
             val anchorPts = FloatArray(2)
             
-            val linePaint = Paint().apply {
-                color = android.graphics.Color.parseColor("#FF007AFF")
-                strokeWidth = 1.5f * density
-                style = Paint.Style.STROKE
-            }
-            
-            val handlePaint = Paint().apply {
-                color = android.graphics.Color.parseColor("#FF007AFF")
-                style = Paint.Style.FILL
-            }
-            
-            val handleBorderPaint = Paint().apply {
-                color = android.graphics.Color.WHITE
-                strokeWidth = 1f * density
-                style = Paint.Style.STROKE
-            }
+            gripLinePaint.strokeWidth = 1.5f * density
+            gripHandleBorderPaint.strokeWidth = 1f * density
             
             val N = stroke.points.size
             val numNodes = (N + 2) / 3
@@ -446,9 +451,9 @@ class RenderEngine {
                     viewMatrix.mapPoints(pts)
                     val ox = pts[0]
                     val oy = pts[1]
-                    canvas.drawLine(ax, ay, ox, oy, linePaint)
-                    canvas.drawCircle(ox, oy, sizeHandle, handlePaint)
-                    canvas.drawCircle(ox, oy, sizeHandle, handleBorderPaint)
+                    canvas.drawLine(ax, ay, ox, oy, gripLinePaint)
+                    canvas.drawCircle(ox, oy, sizeHandle, gripHandlePaint)
+                    canvas.drawCircle(ox, oy, sizeHandle, gripHandleBorderPaint)
                 }
                 
                 val inIdx = anchorIdx - 1
@@ -459,9 +464,9 @@ class RenderEngine {
                     viewMatrix.mapPoints(pts)
                     val ix = pts[0]
                     val iy = pts[1]
-                    canvas.drawLine(ax, ay, ix, iy, linePaint)
-                    canvas.drawCircle(ix, iy, sizeHandle, handlePaint)
-                    canvas.drawCircle(ix, iy, sizeHandle, handleBorderPaint)
+                    canvas.drawLine(ax, ay, ix, iy, gripLinePaint)
+                    canvas.drawCircle(ix, iy, sizeHandle, gripHandlePaint)
+                    canvas.drawCircle(ix, iy, sizeHandle, gripHandleBorderPaint)
                 }
             }
             
@@ -837,13 +842,12 @@ class RenderEngine {
             }
             SnapType.MIDPOINT -> {
                 // Triangle
-                val path = Path().apply {
-                    moveTo(sx, sy - size)
-                    lineTo(sx + size, sy + size)
-                    lineTo(sx - size, sy + size)
-                    close()
-                }
-                canvas.drawPath(path, snapPaint)
+                snapTrianglePath.reset()
+                snapTrianglePath.moveTo(sx, sy - size)
+                snapTrianglePath.lineTo(sx + size, sy + size)
+                snapTrianglePath.lineTo(sx - size, sy + size)
+                snapTrianglePath.close()
+                canvas.drawPath(snapTrianglePath, snapPaint)
             }
             SnapType.CENTER -> {
                 // Circle

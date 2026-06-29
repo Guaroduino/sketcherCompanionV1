@@ -245,8 +245,8 @@ class StrokePipeline(
     }
 
     private fun updateGeometricPoints(action: Int, worldP: StrokePoint) {
-         when (activeStrokeType) {
-            StrokeType.FREEHAND, StrokeType.PEN -> {
+          when (activeStrokeType) {
+            StrokeType.FREEHAND, StrokeType.PEN, StrokeType.PAINT -> {
                 currentStrokePoints.add(worldP)
             }
             StrokeType.LINE, StrokeType.CIRCLE -> {
@@ -371,7 +371,7 @@ class StrokePipeline(
 
         if (livePoints.isEmpty()) return
 
-        val isCad = activeStrokeType != StrokeType.FREEHAND
+        val isCad = activeStrokeType != StrokeType.FREEHAND && activeStrokeType != StrokeType.PEN && activeStrokeType != StrokeType.PAINT
         if (isCad) {
             val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(activeStrokeType, livePoints)
             val totalBounds = RectF()
@@ -385,7 +385,7 @@ class StrokePipeline(
                 centerPoints = livePoints.map { android.graphics.PointF(it.x, it.y) },
                 outlinePoints = emptyList(),
                 lastRadius = activeSize / 2f,
-                fillPath = if (isFillActive && livePoints.size >= 3) centerline else null,
+                fillPath = if (isFillActive) centerline else null,
                 fillColor = if (isFillActive) activeFillColor else 0,
                 committedPreviewPath = null,
                 intersections = emptyList(),
@@ -414,7 +414,7 @@ class StrokePipeline(
         val result: PerfectFreehandGenerator.FreehandResult
         var committedPathToSend: Path? = null
 
-        if (activeStrokeType == StrokeType.FREEHAND &&
+        if ((activeStrokeType == StrokeType.FREEHAND || activeStrokeType == StrokeType.PAINT) &&
             livePoints.size >= INCREMENTAL_MIN_POINTS) {
 
             // -- Bake head if we have enough new points since last commit --
@@ -602,7 +602,7 @@ class StrokePipeline(
              return
         }
 
-        val isCad = activeStrokeType != StrokeType.FREEHAND
+        val isCad = activeStrokeType != StrokeType.FREEHAND && activeStrokeType != StrokeType.PEN && activeStrokeType != StrokeType.PAINT
         if (isCad) {
             val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(activeStrokeType, finalPointsRaw)
             val stroke = VectorStroke(
@@ -613,12 +613,12 @@ class StrokePipeline(
                 isFillEnabled = isFillActive,
                 maxWidth = activeSize,
                 path = centerline,
-                fillPath = if (isFillActive && finalPointsRaw.size >= 3) centerline else null,
+                fillPath = if (isFillActive) centerline else null,
                 brushType = "CAD",
                 strokeType = activeStrokeType,
                 isCadGeometry = true
             )
-            val fill = if (isFillActive && finalPointsRaw.size >= 3) FillData(centerline, activeFillColor) else null
+            val fill = if (isFillActive) FillData(centerline, activeFillColor) else null
             onStrokeCompleted(stroke, fill)
             reset()
             return
@@ -648,6 +648,83 @@ class StrokePipeline(
             currentZoom
         )
         val rawPath = Path(genResult.path)
+
+        if (activeStrokeType == StrokeType.PAINT) {
+            val activeStrokeColorSnap = activeStrokeColor
+            val activeFillColorSnap = activeFillColor
+            val isStrokeActiveSnap = isStrokeActive
+            val isFillActiveSnap = isFillActive
+            val activeSizeSnap = activeSize
+            val strokeIdSnap = currentStrokeId
+
+            // Generate temporary fill path for preview during async processing
+            val finalPointsSnap = finalPoints.toList()
+            var fillPath: Path? = null
+            if (isFillActiveSnap && finalPointsSnap.size >= 3) {
+                fillPath = Path().apply {
+                    moveTo(finalPointsSnap[0].x, finalPointsSnap[0].y)
+                    for (i in 1 until finalPointsSnap.size) {
+                        lineTo(finalPointsSnap[i].x, finalPointsSnap[i].y)
+                    }
+                    close()
+                }
+            }
+
+            val finalBounds = RectF()
+            rawPath.computeBounds(finalBounds, true)
+            val pad = (activeSizeSnap * 2f).coerceAtLeast(10f)
+            finalBounds.inset(-pad, -pad)
+
+            // Immediately show the finalized stroke preview
+            onUpdate(PipelineUpdate(
+                previewPath = Path(rawPath),
+                previewPoints = finalPointsSnap,
+                centerPoints = genResult.center,
+                outlinePoints = genResult.left + genResult.right,
+                lastRadius = genResult.lastRadius,
+                fillPath = fillPath,
+                fillColor = if (isFillActiveSnap) activeFillColorSnap else 0,
+                committedPreviewPath = null,
+                bounds = finalBounds,
+                isMultiStepInProgress = isMultiStepInProgress
+            ))
+
+            pipelineScope.launch {
+                consolidationMutex.withLock {
+                    val path = flattenOuterStroke(rawPath)
+                    
+                    val outlinePointsPointF = com.sketcher.sketchercompanionv1.utils.GeometryUtils.flattenPath(path, step = 8f / currentZoom)
+                    val outlineStrokePoints = outlinePointsPointF.map { pt -> StrokePoint(pt.x, pt.y, 0.5f) }
+                    val simplifiedPoints = if (outlineStrokePoints.size > 2) {
+                        com.sketcher.sketchercompanionv1.utils.StrokeSimplifier.simplify(outlineStrokePoints, 1.5f / currentZoom, 20f)
+                    } else {
+                        outlineStrokePoints
+                    }
+
+                    val stroke = VectorStroke(
+                        points = simplifiedPoints,
+                        strokeColor = activeStrokeColorSnap,
+                        fillColor = activeFillColorSnap,
+                        isStrokeEnabled = isStrokeActiveSnap,
+                        isFillEnabled = isFillActiveSnap,
+                        maxWidth = activeSizeSnap,
+                        path = path,
+                        fillPath = if (isFillActiveSnap) path else null,
+                        brushType = "PAINT",
+                        strokeType = StrokeType.PAINT,
+                        isFlattened = false
+                    )
+
+                    withContext(Dispatchers.Main) {
+                        onStrokeCompleted(stroke, null)
+                        if (currentStrokeId == strokeIdSnap) {
+                            reset()
+                        }
+                    }
+                }
+            }
+            return
+        }
 
         if (isFlattenedOuterStrokeEnabled && activeStrokeType == StrokeType.FREEHAND && !activeFreehandSettings.isCumulativeOpacity) {
             val activeStrokeTypeSnap = activeStrokeType
@@ -695,9 +772,9 @@ class StrokePipeline(
 
             pipelineScope.launch {
                 consolidationMutex.withLock {
-                    val (path, strokePoints) = flattenOuterStroke(rawPath, finalPointsSnap)
+                    val path = flattenOuterStroke(rawPath)
                     
-                    // Committed fill path should connect center points (finalPointsSnap) instead of perimeter (strokePoints)
+                    // Committed fill path should connect center points (finalPointsSnap) instead of perimeter
                     var fPath: Path? = null
                     if (isFillActiveSnap && finalPointsSnap.size >= 3) {
                          fPath = Path()
@@ -709,7 +786,7 @@ class StrokePipeline(
                     }
 
                     val stroke = VectorStroke(
-                        points = strokePoints,
+                        points = finalPointsSnap,
                         strokeColor = activeStrokeColorSnap,
                         fillColor = activeFillColorSnap,
                         isStrokeEnabled = isStrokeActiveSnap,
@@ -729,9 +806,9 @@ class StrokePipeline(
                          val fillPathToUse = fPath ?: Path().apply {
                              moveTo(finalPointsSnap[0].x, finalPointsSnap[0].y)
                              for (i in 1 until finalPointsSnap.size) {
-                                 lineTo(finalPointsSnap[i].x, finalPointsSnap[i].y)
+                                 this.lineTo(finalPointsSnap[i].x, finalPointsSnap[i].y)
                              }
-                             close()
+                             this.close()
                          }
                          fill = FillData(fillPathToUse, activeFillColorSnap)
                     }
@@ -809,7 +886,7 @@ class StrokePipeline(
             return
         }
         
-        val isCad = activeStrokeType != StrokeType.FREEHAND
+        val isCad = activeStrokeType != StrokeType.FREEHAND && activeStrokeType != StrokeType.PEN && activeStrokeType != StrokeType.PAINT
         if (isCad) {
             val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(activeStrokeType, finalPointsRaw)
             val stroke = VectorStroke(
@@ -820,12 +897,12 @@ class StrokePipeline(
                 isFillEnabled = isFillActive,
                 maxWidth = activeSize,
                 path = centerline,
-                fillPath = if (isFillActive && finalPointsRaw.size >= 3) centerline else null,
+                fillPath = if (isFillActive) centerline else null,
                 brushType = "CAD",
                 strokeType = activeStrokeType,
                 isCadGeometry = true
             )
-            val fill = if (isFillActive && finalPointsRaw.size >= 3) FillData(centerline, activeFillColor) else null
+            val fill = if (isFillActive) FillData(centerline, activeFillColor) else null
             onStrokeCompleted(stroke, fill)
             reset()
             return
@@ -912,7 +989,7 @@ class StrokePipeline(
         if (currentStrokePoints.isEmpty()) return
         
         when (activeStrokeType) {
-            StrokeType.FREEHAND, StrokeType.PEN -> {}
+            StrokeType.FREEHAND, StrokeType.PEN, StrokeType.PAINT -> {}
             StrokeType.LINE, StrokeType.CIRCLE -> {
                 reset()
             }
@@ -962,7 +1039,7 @@ class StrokePipeline(
 
     private fun getInterpolatedPoints(isFinal: Boolean): List<StrokePoint> {
         return when (activeStrokeType) {
-            StrokeType.FREEHAND, StrokeType.PEN -> {
+            StrokeType.FREEHAND, StrokeType.PEN, StrokeType.PAINT -> {
                 if (!isFinal) {
                     val latencyMs = activeFreehandSettings.predictionLatency.toLong()
                     val predictedPt = predictor.getPredictedPoint(
@@ -1118,28 +1195,11 @@ class StrokePipeline(
         }
     }
 
-    private fun flattenOuterStroke(outlinePath: Path, originalPoints: List<StrokePoint>): Pair<Path, List<StrokePoint>> {
+    private fun flattenOuterStroke(outlinePath: Path): Path {
         // Union to collapse self-intersections into clean filled blob
         val cleanPath = Path()
         cleanPath.op(outlinePath, outlinePath, Path.Op.UNION)
-        
-        // Resample perimeter into StrokePoints via PathMeasure
-        val pm = android.graphics.PathMeasure(cleanPath, false)
-        val totalLength = pm.length
-        if (totalLength < 1f) return outlinePath to originalPoints
-        
-        val avgPressure = originalPoints.map { it.pressure }.average().toFloat()
-        val baseTime = originalPoints.firstOrNull()?.timestamp ?: 0L
-        val sampleCount = (totalLength / (activeSize * 0.5f)).toInt().coerceIn(8, 512)
-        val newPoints = mutableListOf<StrokePoint>()
-        val pos = FloatArray(2)
-        val tan = FloatArray(2)
-        for (i in 0..sampleCount) {
-            val dist = (i.toFloat() / sampleCount) * totalLength
-            pm.getPosTan(dist, pos, tan)
-            newPoints.add(StrokePoint(pos[0], pos[1], avgPressure, baseTime + i))
-        }
-        return cleanPath to newPoints
+        return cleanPath
     }
 
     private fun simulatePressureOnPoints(points: List<StrokePoint>, size: Float): List<StrokePoint> {

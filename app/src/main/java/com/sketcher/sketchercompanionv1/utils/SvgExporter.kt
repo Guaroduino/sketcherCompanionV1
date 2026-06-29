@@ -66,11 +66,6 @@ object SvgExporter {
                     is VectorStroke -> exportVectorStroke(sb, element)
                     is ImageElement -> exportImage(sb, element)
                     is SvgElement -> exportSvgElement(sb, element)
-                    is FillData -> exportFill(sb, element)
-                    is VectorStroke -> exportVectorStroke(sb, element)
-                    is ImageElement -> exportImage(sb, element)
-                    is SvgElement -> exportSvgElement(sb, element)
-                    // is AndroidInkElement -> exportInk(sb, element) // Removed
                     is GroupElement -> exportGroup(sb, element)
                     is ComponentInstance -> exportComponentInstance(sb, element, projectData.componentLibrary)
                     else -> {}
@@ -108,9 +103,6 @@ object SvgExporter {
                 is VectorStroke -> exportVectorStroke(sb, child)
                 is ImageElement -> exportImage(sb, child)
                 is SvgElement -> exportSvgElement(sb, child)
-                is SvgElement -> exportSvgElement(sb, child)
-                // is AndroidInkElement -> exportInk(sb, child) // Removed
-                is GroupElement -> exportGroup(sb, child)
                 is GroupElement -> exportGroup(sb, child)
                 is ComponentInstance -> exportComponentInstance(sb, child, emptyMap()) // Definition elements usually don't have nested instances that need a library passed down if they are already resolved or flat
                 else -> {}
