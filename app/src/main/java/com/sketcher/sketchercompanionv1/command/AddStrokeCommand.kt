@@ -1,23 +1,23 @@
 package com.sketcher.sketchercompanionv1.command
 
-import com.sketcher.sketchercompanionv1.Layer
+import com.sketcher.sketchercompanionv1.LayerElement
 import com.sketcher.sketchercompanionv1.VectorStroke
 
 /**
- * Command to add a [VectorStroke] to a specific [Layer].
+ * Command to add a [VectorStroke] to a specific container.
  * Refined Phase 3 implementation.
  */
 class AddStrokeCommand(
-    private val targetLayer: Layer,
+    private val targetContainer: MutableList<LayerElement>,
     private val strokeToAdd: VectorStroke
 ) : UndoCommand {
 
     override fun execute() {
-        targetLayer.elements.add(strokeToAdd)
+        targetContainer.add(strokeToAdd)
     }
 
     override fun undo() {
-        targetLayer.elements.remove(strokeToAdd)
+        targetContainer.remove(strokeToAdd)
     }
 
     override fun getLabel(): String = "Añadir Trazo"

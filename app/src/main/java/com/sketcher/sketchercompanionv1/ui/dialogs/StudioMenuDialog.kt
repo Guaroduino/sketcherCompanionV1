@@ -126,13 +126,7 @@ fun StudioMenuDialog(
 
                     item { Spacer(modifier = Modifier.height(8.dp)) }
                     item { MenuSectionHeader("EXPORT", theme.iconColor) }
-                    item {
-                        MenuItem(Icons.Default.Share, "Export PNG / SVG / PDF", theme.iconColor) { 
-                             // We'll show a sub-choice or just trigger the flags
-                             // For simplicity in one menu, we could separate them or launch a sub-flow.
-                             // But let's follow legacy: items for each.
-                        }
-                    }
+
                     // Legacy has sub-dialogs for export. Let's make them direct items here.
                     item {
                         MenuItem(Icons.Default.Image, "Export PNG", theme.iconColor) { 
@@ -325,7 +319,7 @@ fun ProjectionControlItem(
                 Button(
                     onClick = { viewModel.toggleProjectionPause() },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isPaused) Color(0xFFE65100) else theme.buttonColor.copy(alpha = 0.8f),
+                        containerColor = if (isPaused) Color(0xFFE65100) else theme.menuButtonColor.copy(alpha = 0.8f),
                         contentColor = theme.iconColor
                     ),
                     contentPadding = PaddingValues(horizontal = 8.dp),
@@ -348,7 +342,7 @@ fun ProjectionControlItem(
                         viewModel.updateProjectionMode(newMode)
                     },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = theme.buttonColor.copy(alpha = 0.8f),
+                        containerColor = theme.menuButtonColor.copy(alpha = 0.8f),
                         contentColor = theme.iconColor
                     ),
                     contentPadding = PaddingValues(horizontal = 8.dp),
@@ -379,7 +373,7 @@ fun ProjectionControlItem(
                     Button(
                         onClick = { viewModel.fixedZoomMode = "fit" },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isExtents) theme.buttonColor else theme.buttonColor.copy(alpha = 0.4f),
+                            containerColor = if (isExtents) theme.menuButtonColor else theme.menuButtonColor.copy(alpha = 0.4f),
                             contentColor = theme.iconColor
                         ),
                         border = if (isExtents) BorderStroke(1.dp, theme.iconColor) else null,
@@ -401,7 +395,7 @@ fun ProjectionControlItem(
                     Button(
                         onClick = { viewModel.fixedZoomMode = "home" },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isHome) theme.buttonColor else theme.buttonColor.copy(alpha = 0.4f),
+                            containerColor = if (isHome) theme.menuButtonColor else theme.menuButtonColor.copy(alpha = 0.4f),
                             contentColor = theme.iconColor
                         ),
                         border = if (isHome) BorderStroke(1.dp, theme.iconColor) else null,

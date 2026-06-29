@@ -1,0 +1,323 @@
+        
+    }
+
+    // --- COMPONENTS & ISOLATION ---
+    val 
+    
+    var editingContext by 
+        private set
+
+    val activeContainer: 
+        get() = editingContext ?: layerManager.activeElements()
+
+    var 
+        private set
+
+    var editingParent 
+        private set
+
+    private var editingBackupElements: 
+
+    var lastExportPngConfig by 
+ 
+    var dxfExportConfig by mutableStateOf(DxfExportConfig(\"\", false))
+
+    
+    val currentTool: ToolType get() = 
+    val currentStrokeType: StrokeType get() = toolManager.currentStrokeType
+    
+    val brushSize: StateFlow<Float> = toolManager.brushSize
+    val brushOpacity: StateFlow<Float> = 
+    val currentSize: Float get() = toolManager.currentSize
+    val 
+    val currentFreehandSettings: FreehandSettings get() 
+
+    val strokeColor: StateFlow<Int> = 
+    val fillColor: StateFlow<Int> = toolManager.fillColor
+    val isStrokeActive: 
+    val isFillActive: StateFlow<Boolean> = 
+
+    var isGeometricStrokeInProgress by mutableStateOf(false)
+        
+
+    fun updateGeometricStrokeInProgress(inProgress: Boolean) {
+        
+    }
+
+    fun updateBrushSize(newSize: Float) = 
+    fun updateBrushOpacity(newAlpha: Float) = 
+    fun updateFillOpacity(opacity: Float) = 
+    fun updateStrokeType(type: StrokeType) = 
+    
+    fun setStrokeColor(color: Int) = 
+    fun setFillColor(color: Int) = toolManager.setFillColor(color)
+    
+    fun toggleFill(enabled: Boolean) = 
+    
+    fun selectTool(type: ToolType) {
+        if (currentTool == 
+            if (currentSelectionMode == 
+                confirmTransform()
+            }
+        }
+     
+    }
+    val brushPresets: StateFlow<List<BrushPreset>> = 
+    val selectedPresetIndex: StateFlow<Int?> = toolManager.selectedPresetIndex
+   
+    fun selectBrushPreset(index: Int) = 
+    fun isPresetModified(index: Int): Boolean = 
+
+    // legacy methods removed...
+    
+    // --- EXPOSED 
+    var fingerModeActive by mutableStateOf(false)
+        private set
+    var 
+        private set
+    var fingerOffsetYValue by 
+        private set
+
+    var hasPreferencesBackup by 
+        private set
+
+    init {
+        hasPreferencesBackup = 
+        
+        
+        // Try to load saved layout
+        val loaded = 
+        if (loaded != null) {
+            _assignedTools.value = 
+            _assignedToolColors.value = loaded.toolColors
+            
+           
+                list.map { tool -> 
+            }
+            _toolbarState.value = toolsWithActions
+            
+            val contextualWithActions = loaded.contextualTools.map { tool ->
+                
+                    getActionForTool(tool.registryId).invoke()
+                
+            }
+            _contextualToolbar.value = contextualWithActions
+        } else 
+            initToolbarState()
+        }
+    }
+
+    fun 
+        _contextualToolbar.value = newList
+        
+    }
+
+    // --- GLOBAL OFFSET SETTERS ---
+    fun 
+        fingerModeActive = enabled
+        
+    }
+
+    fun setFingerOffset(x: Float, y: Float) {
+       
+        fingerOffsetYValue = y
+        toolManager.setFingerOffset(x, y)
+    
+
+
+    // --- SELECTION STATE ---
+    enum class SelectionMode { RECTANGLE, FREEHAND, 
+    enum class SelectionScope { CURRENT_LAYER, ALL_LAYERS }
+    var 
+    var selectionScope by 
+    var isSelectionAspectRatioLocked by 
+
+    val isGroupSelected: Boolean
+        get() = 
+
+    val canEnterEditMode: Boolean
+        get() = 
+
+    val isSelectionEmpty: Boolean get() = 
+    val hasSelection: Boolean get() = 
+    val selectionCount: Int get() = 
+
+    fun clearSelection() {
+        if (currentSelectionMode 
+            confirmTransform()
+        }
+        
+    }
+
+    fun deleteSelection() {
+        if 
+            confirmTransform()
+        }
+    
+        if (selected.isEmpty()) return
+      
+        performSnapshotAction(\"Borrar Selección\") {
+            if (editingContext != null) {
+  
+            } else {
+                val currentLayers = 
+                currentLayers.forEachIndexed { index, layer ->
+                    
+                    if (remaining.size != 
+                        currentLayers[index] = layer.copy(elements = 
+                    }
+                }
+                
+            }
+            
+        }
+    }
+
+    fun duplicateSelection() {
+       
+            confirmTransform()
+        
+        val selected = selectionManager.selectedElements.toList()
+        if (selected.isEmpty()) 
+        
+        performSnapshotAction(\"Duplicar Selección\") {
+            val offsetMatrix 
+            val duplicatedElements = selected.map { 
+         
+                copy.transform(offsetMatrix)
+                
+            }
+            
+            activeContainer.addAll(duplicatedElements)
+        
+            if (editingContext == null) {
+                val currentLayers = 
+                val activeLayer = currentLayers[activeLayerIndex]
+                
+                    elements = (activeLayer.elements + 
+                )
+                
+            } else {
+                
+            }
+            
+            
+            
+            
+            
+        }
+        enterTransformMode()
+    
+
+    fun flipHorizontal() {
+        if (selectionManager.selectedElements.isEmpty()) return
+ 
+            enterTransformMode()
+        
+        selectionManager.flipHorizontal()
+        notifyLayersChanged()
+    }
+
+    fun 
+        if (selectionManager.selectedElements.isEmpty()) return
+        if 
+            enterTransformMode()
+        }
+  
+        notifyLayersChanged()
+    }
+
+    private var 
+
+    fun enterTransformMode() {
+        if 
+        selectTool(ToolType.SELECTION)
+        
+        selectionManager.backupOriginalElements()
+  
+    }
+
+    fun confirmTransform() {
+  
+        if (layers.isNotEmpty() && activeIndex in layers.indices) 
+            selectionManager.commitTransformSession(layers[activeIndex], componentLibrary)
+        
+        val before = layersSnapshotBeforeTransform
+        if (before != null) {
+            val 
+            val after = createLayersSnapshot()
+            
+        }
+        
+        selectionManager.clearBackup()
+        currentSelectionMode = 
+    }
+
+    fun cancelTransform() {
+        val activeIndex = 
+        if (layers.isNotEmpty() && activeIndex in layers.indices) {
+            val 
+            selectionManager.cancelTransformSession(activeLayer, 
+        }
+        layersSnapshotBeforeTransform = null
+        
+        currentSelectionMode = SelectionMode.FREEHAND
+        
+    }
+
+    // --- RESTORED LOGIC ---
+
+    fun makeComponent() 
+        if (selectionManager.selectedElements.isEmpty()) return
+        
+        
+            val elementsToComponent = 
+            val defId = \"comp_${UUID.randomUUID()}\"
+          
+     
+            
+            // Remove from current container and 
+            activeContainer.removeAll(elementsToComponent)
+            val instance = 
+                id = \"inst_${UUID.randomUUID()}\",
+                definitionId = 
+            )
+            activeContainer.add(instance)
+            
+            
+            if (editingContext == null) {
+                val newList = 
+                newList[activeLayerIndex] = newList[activeLayerIndex].copy()
+       
+            }
+        }
+    
+
+    fun enterEditMode() {
+        if (selectionManager.selectedElements.size != 1) return
+  
+        
+        if (selected is 
+            editingContext = selected.elements as? MutableList<LayerElement>
+            
+            editingParent = selected
+   
+            selectionManager.clearSelection()
+   
+        } else if (selected is ComponentInstance) {
+            val 
+            if (definition != null) {
+                
+                editingBackupElements = definition.elements.map { 
+                editingParent = selected
+                editingContainerMatrix = 
+                selectionManager.clearSelection()
+                
+            }
+        }
+    }
+
+    fun exitEditMode() { 
+    
+        editingParent = null
+        editingContainerMatrix = null

@@ -35,6 +35,7 @@ class ThemeRepository(context: Context) {
     private data class ThemeDto(
         val barBackgroundColor: Int,
         val buttonColor: Int,
+        val menuButtonColor: Int? = null,
         val iconColor: Int,
         val highlightColor: Int,
         val barElevation: Float,
@@ -51,6 +52,7 @@ class ThemeRepository(context: Context) {
         return ThemeDto(
             barBackgroundColor = this.barBackgroundColor.toArgb(),
             buttonColor = this.buttonColor.toArgb(),
+            menuButtonColor = this.menuButtonColor.toArgb(),
             iconColor = this.iconColor.toArgb(),
             highlightColor = this.highlightColor.toArgb(),
             barElevation = this.barElevation.value,
@@ -68,6 +70,7 @@ class ThemeRepository(context: Context) {
         return UiThemeConfig(
             barBackgroundColor = Color(this.barBackgroundColor),
             buttonColor = Color(this.buttonColor),
+            menuButtonColor = if (this.menuButtonColor != null) Color(this.menuButtonColor) else Color(this.buttonColor),
             iconColor = Color(this.iconColor),
             highlightColor = Color(this.highlightColor),
             barElevation = this.barElevation.dp,

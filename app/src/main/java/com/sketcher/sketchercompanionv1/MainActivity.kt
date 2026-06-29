@@ -82,6 +82,7 @@ class MainActivity : ComponentActivity() {
             
             // HOISTED STATE
             var uiCollapsed by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(true) }
+            val theme by sketchViewModel.themeConfig.collectAsState()
             
             // SWAP STATES (now backed by ViewModel with persistence)
             val swapVertical = sketchViewModel.swapVertical
@@ -203,9 +204,8 @@ class MainActivity : ComponentActivity() {
                         // 3. COMMON DIALOGS
                         if (showSettingsPopup) {
                             SettingsDialog(
+                                theme = theme,
                                 onDismiss = { showSettingsPopup = false },
-                                isRotationLocked = sketchViewModel.isRotationLocked,
-                                onToggleRotationLock = { sketchViewModel.toggleRotationLock() },
                                 isPalmRejectionEnabled = sketchViewModel.isPalmRejectionEnabled,
                                 onTogglePalmRejection = { sketchViewModel.togglePalmRejection() },
                                 interfaceScale = sketchViewModel.interfaceScale,
@@ -218,14 +218,6 @@ class MainActivity : ComponentActivity() {
                                 onUpdateProjectConfig = { unit, resolution -> 
                                     sketchViewModel.updateScaleConfig(unit, resolution)
                                 },
-                                toolbarBackgroundColor = sketchViewModel.toolbarBackgroundColor,
-                                onToolbarBackgroundColorChanged = { color -> sketchViewModel.updateToolbarBackgroundColor(color) },
-                                toolbarAlpha = sketchViewModel.toolbarAlpha,
-                                onToolbarAlphaChanged = { alpha -> sketchViewModel.updateToolbarAlpha(alpha) },
-                                isToolbarBlurEnabled = sketchViewModel.isToolbarBlurEnabled,
-                                onToggleToolbarBlur = { sketchViewModel.toggleToolbarBlur() },
-                                showTooltips = sketchViewModel.showTooltips,
-                                onToggleTooltips = { sketchViewModel.toggleTooltips() },
                                 onBackupPreferences = { sketchViewModel.backupPreferences() },
                                 onRestorePreferences = { sketchViewModel.restorePreferences() },
                                 onResetPreferences = { sketchViewModel.resetPreferencesToDefault() },
@@ -248,6 +240,7 @@ class MainActivity : ComponentActivity() {
 
                         if (showGridSettings) {
                             GridSettingsDialog(
+                                theme = theme,
                                 currentGridConfig = sketchViewModel.gridConfig,
                                 isSnapEnabled = sketchViewModel.isSnapToGridEnabled,
                                 currentUnit = sketchViewModel.currentUnit,

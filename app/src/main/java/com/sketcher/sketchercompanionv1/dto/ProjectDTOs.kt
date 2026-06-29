@@ -229,3 +229,16 @@ data class ImageEditState(
     val initialFlipVertical: Boolean = false
 )
 
+data class LibraryStateJson(
+    val items: List<LibraryItemJson>
+)
+
+data class LibraryItemJson(
+    val type: String, // "FOLDER" or "COMPONENT"
+    val id: String,
+    val name: String,
+    val parentId: String?,
+    val componentDefinition: ComponentDefinitionJson? = null,
+    val thumbnailFileName: String? = null
+)
+

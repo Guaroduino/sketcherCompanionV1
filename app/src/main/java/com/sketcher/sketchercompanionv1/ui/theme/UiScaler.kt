@@ -2,6 +2,7 @@ package com.sketcher.sketchercompanionv1.ui.theme
 
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.Composable
 
 data class UiScaler(
@@ -46,3 +47,12 @@ val Int.sdp: Dp
 val Double.sdp: Dp
     @Composable
     get() = with(LocalUiScaler.current) { this@sdp.dp * scaleFactor }
+
+val Int.ssp: androidx.compose.ui.unit.TextUnit
+    @Composable
+    get() = with(LocalUiScaler.current) { this@ssp.sp * scaleFactor }
+
+val Double.ssp: androidx.compose.ui.unit.TextUnit
+    @Composable
+    get() = with(LocalUiScaler.current) { this@ssp.sp * scaleFactor }
+

@@ -402,6 +402,7 @@ class SketcherCanvasView(context: Context) : View(context) {
         val librarySnapshot = componentLibrary
         val strokesBaking = transientStrokes.toList()
         val fillsBaking = transientFills.toList()
+        val editingParentSnapshot = editingParent
         
         val startTime = System.currentTimeMillis()
         val backBuffer = obtainBitmapBuffer(currentWidth, currentHeight, backingBitmap)
@@ -418,6 +419,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                     librarySnapshot, 
                     selectedElementsSnapshot, 
                     isTransformModeActive,
+                    editingParent = editingParentSnapshot,
                     isCancelled = { job?.isCancelled == true }
                 )
                 backBuffer
@@ -627,7 +629,12 @@ class SketcherCanvasView(context: Context) : View(context) {
     private val layers = mutableListOf<Layer>()
     private var componentLibrary: Map<String, ComponentDefinition> = emptyMap()
     private var editingContext: List<LayerElement>? = null
+    private var editingParent: LayerElement? = null
+    private var editingContainerMatrix: Matrix? = null
     private var activeLayerIndex: Int = 0
+
+    private val activeContainer: List<LayerElement>
+        get() = editingContext ?: layers.getOrNull(activeLayerIndex)?.elements ?: emptyList()
 
     private var lastUpdateTrigger: Int = -1
 
@@ -635,6 +642,8 @@ class SketcherCanvasView(context: Context) : View(context) {
         newLayers: List<Layer>, 
         library: Map<String, ComponentDefinition>, 
         editingCtx: List<LayerElement>?, 
+        editingParentEl: LayerElement?,
+        editingMatrix: Matrix?,
         updateTrigger: Int,
         activeIndex: Int = 0
     ) {
@@ -647,6 +656,8 @@ class SketcherCanvasView(context: Context) : View(context) {
             layers == newLayers && 
             componentLibrary === library && 
             editingContext === editingCtx && 
+            editingParent === editingParentEl &&
+            editingContainerMatrix === editingMatrix &&
             activeLayerIndex == activeIndex) {
             return
         }
@@ -657,6 +668,8 @@ class SketcherCanvasView(context: Context) : View(context) {
             layers.addAll(newLayers)
             componentLibrary = library
             editingContext = editingCtx
+            editingParent = editingParentEl
+            editingContainerMatrix = editingMatrix
             activeLayerIndex = activeIndex
             lastBakedElement = null // Reset after skipping redraw
             return
@@ -666,6 +679,8 @@ class SketcherCanvasView(context: Context) : View(context) {
         layers.addAll(newLayers)
         componentLibrary = library
         editingContext = editingCtx
+        editingParent = editingParentEl
+        editingContainerMatrix = editingMatrix
         activeLayerIndex = activeIndex
         redrawAllCache()
     }
@@ -772,7 +787,9 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     fun setCameraMatrix(matrix: Matrix, isIntermediate: Boolean = false) {
         viewMatrix.set(matrix)
-        viewMatrix.invert(inverseMatrix)
+        val combined = Matrix(viewMatrix)
+        editingContainerMatrix?.let { combined.preConcat(it) }
+        combined.invert(inverseMatrix)
         
         if (isIntermediate) {
             // Immediate feedback via bitmap scaling in onDraw
@@ -841,15 +858,19 @@ class SketcherCanvasView(context: Context) : View(context) {
              canvas.drawColor(canvasBackgroundColor)
         }
 
+        // Combine view matrix and editing container matrix for drawing transient/live strokes in relative coordinate space
+        val combined = Matrix(viewMatrix)
+        editingContainerMatrix?.let { combined.preConcat(it) }
+
         // Draw Transient Strokes manually while background rendering finishes
         canvas.save()
-        canvas.concat(viewMatrix)
+        canvas.concat(combined)
         val activeLayerOpacity = layers.getOrNull(activeLayerIndex)?.opacity ?: 1f
         for (fill in transientFills) {
-            renderEngine.drawElementRecursive(canvas, fill, componentLibrary, viewMatrix, activeLayerOpacity)
+            renderEngine.drawElementRecursive(canvas, fill, componentLibrary, combined, activeLayerOpacity)
         }
         for (stroke in transientStrokes) {
-            renderEngine.drawElementRecursive(canvas, stroke, componentLibrary, viewMatrix, activeLayerOpacity)
+            renderEngine.drawElementRecursive(canvas, stroke, componentLibrary, combined, activeLayerOpacity)
         }
         canvas.restore()
 
@@ -869,7 +890,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                         color = (origColor and 0x00FFFFFF) or (newAlpha shl 24)
                     }
                     canvas.save()
-                    canvas.concat(viewMatrix)
+                    canvas.concat(combined)
                     canvas.drawPath(currentFillPath!!, fillPaint)
                     canvas.restore()
                 }
@@ -887,7 +908,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                         val bounds = currentStrokeBounds
                         val saveCount = if (bounds != null && !bounds.isEmpty) {
                             tempStrokeBounds.set(bounds)
-                            viewMatrix.mapRect(tempScreenBounds, tempStrokeBounds)
+                            combined.mapRect(tempScreenBounds, tempStrokeBounds)
                             tempScreenBounds.inset(-4f, -4f)
                             canvas.saveLayer(tempScreenBounds, saveLayerPaint)
                         } else {
@@ -898,7 +919,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                         
                         currentCommittedPreviewPath?.let { committed ->
                             canvas.save()
-                            canvas.concat(viewMatrix)
+                            canvas.concat(combined)
                             renderEngine.drawCommittedPreview(canvas, committed, opaqueColor)
                             canvas.restore()
                         }
@@ -913,7 +934,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                             isFillActive = false,
                             isStrokeActive = true,
                             currentLiveGeneratedRadius = currentLiveGeneratedRadius,
-                            viewMatrix = viewMatrix,
+                            viewMatrix = combined,
                             isDrawing = isDrawing,
                             isCad = isCadDraw
                         )
@@ -923,7 +944,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                         // Cumulative or fully opaque: draw directly onto canvas
                         currentCommittedPreviewPath?.let { committed ->
                             canvas.save()
-                            canvas.concat(viewMatrix)
+                            canvas.concat(combined)
                             renderEngine.drawCommittedPreview(canvas, committed, activeStrokeColor)
                             canvas.restore()
                         }
@@ -938,7 +959,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                             isFillActive = false,
                             isStrokeActive = true,
                             currentLiveGeneratedRadius = currentLiveGeneratedRadius,
-                            viewMatrix = viewMatrix,
+                            viewMatrix = combined,
                             isDrawing = isDrawing,
                             isCad = isCadDraw
                         )
@@ -947,7 +968,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                     // Draw live cumulative intersections on top with transparent paint
                     if (isCumulative && currentLiveIntersections.isNotEmpty()) {
                         canvas.save()
-                        canvas.concat(viewMatrix)
+                        canvas.concat(combined)
                         liveIntersectionPaint.color = activeStrokeColor
                         for (p in currentLiveIntersections) {
                             canvas.drawPath(p, liveIntersectionPaint)
@@ -1211,7 +1232,9 @@ class SketcherCanvasView(context: Context) : View(context) {
             return true // Consume event to keep stream alive for gestures, but don't draw
         }
 
-        strokePipeline.canvasViewMatrix.set(viewMatrix)
+        val combined = Matrix(viewMatrix)
+        editingContainerMatrix?.let { combined.preConcat(it) }
+        strokePipeline.canvasViewMatrix.set(combined)
         
         // Calculate current zoom factor
         val zoom = getMatrixScale(viewMatrix)
@@ -1290,7 +1313,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                     
                     val layerIndex = activeLayerIndex
                     if (layerIndex in layers.indices) {
-                        val didSelect = manager.selectSingleAt(worldX, worldY, layers[layerIndex], componentLibrary, addToSelection = false)
+                        val didSelect = manager.selectSingleAt(worldX, worldY, activeContainer, componentLibrary, addToSelection = false)
                         if (didSelect) {
                             invalidate()
                             return true
@@ -1542,7 +1565,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                         MotionEvent.ACTION_MOVE -> manager.updateSelection(worldX, worldY)
                         MotionEvent.ACTION_UP -> {
                             if (layers.isNotEmpty() && activeLayerIndex in layers.indices) {
-                                manager.finalizeSelection(layers[activeLayerIndex], componentLibrary)
+                                manager.finalizeSelection(activeContainer, componentLibrary)
                             }
                         }
                     }

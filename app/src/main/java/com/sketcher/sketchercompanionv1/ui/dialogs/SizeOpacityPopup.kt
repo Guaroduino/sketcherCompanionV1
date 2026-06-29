@@ -126,7 +126,7 @@ fun SizeOpacityPopup(
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = theme.highlightColor,
                                     contentColor = theme.barBackgroundColor,
-                                    disabledContainerColor = theme.buttonColor.copy(alpha = 0.3f),
+                                    disabledContainerColor = theme.menuButtonColor.copy(alpha = 0.3f),
                                     disabledContentColor = theme.iconColor.copy(alpha = 0.4f)
                                 )
                             ) {

@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoFixNormal
@@ -35,6 +37,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.sketcher.sketchercompanionv1.ui.model.ToolLocation
 import com.sketcher.sketchercompanionv1.ui.model.StudioTool
 import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
@@ -208,29 +211,31 @@ fun AssignableToolButton(
             DropdownMenu(
                 expanded = showSubMenu,
                 onDismissRequest = { showSubMenu = false },
-                offset = DpOffset(x = 0.dp, y = 8.dp),
+                offset = DpOffset(x = 0.dp, y = 8.dp * scaleFactor),
                 modifier = Modifier.background(theme?.barBackgroundColor ?: Color.DarkGray)
             ) {
                 subTools.forEach { subTool ->
                     if (subTool.registryId == "divider") {
                         androidx.compose.material3.HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 4.dp),
+                            modifier = Modifier.padding(vertical = 4.dp * scaleFactor),
                             color = (theme?.iconColor ?: Color.White).copy(alpha = 0.2f)
                         )
                     } else {
                         DropdownMenuItem(
-                            text = { Text(subTool.contentDescription, color = theme?.iconColor ?: Color.White) },
+                            text = { Text(subTool.contentDescription, color = theme?.iconColor ?: Color.White, fontSize = (14 * scaleFactor).sp) },
                             leadingIcon = { 
                                 if (theme != null) {
-                                    ToolIcon(tool = subTool, theme = theme, tint = theme.iconColor, iconSize = 24.dp)
+                                    ToolIcon(tool = subTool, theme = theme, tint = theme.iconColor, iconSize = 24.dp * scaleFactor)
                                 } else {
-                                    Icon(subTool.icon, contentDescription = null, tint = Color.White)
+                                    Icon(subTool.icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp * scaleFactor))
                                 }
                             },
                             onClick = {
                                 showSubMenu = false
                                 onSubToolClick?.invoke(subTool)
-                            }
+                            },
+                            modifier = Modifier.height(48.dp * scaleFactor),
+                            contentPadding = PaddingValues(horizontal = 16.dp * scaleFactor, vertical = 0.dp)
                         )
                     }
                 }

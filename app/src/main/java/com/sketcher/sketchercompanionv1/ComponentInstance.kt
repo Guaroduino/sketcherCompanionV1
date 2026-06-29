@@ -12,6 +12,10 @@ data class ComponentInstance(
     @Transient
     private var cachedBounds: RectF? = null
 
+    override fun invalidateCache() {
+        cachedBounds = null
+    }
+
     override fun transform(tMatrix: Matrix) {
         matrix.postConcat(tMatrix)
         cachedBounds = null
@@ -22,7 +26,7 @@ data class ComponentInstance(
         val definition = library[definitionId] ?: return RectF()
         val rect = RectF()
         for (element in definition.elements) {
-            val childBounds = (element as? Transformable)?.getBoundingBox(library) ?: RectF()
+            val childBounds = element.getBoundingBox(library)
             if (rect.isEmpty) rect.set(childBounds)
             else rect.union(childBounds)
         }
@@ -32,7 +36,7 @@ data class ComponentInstance(
     }
 
     override fun copyElement(): LayerElement {
-        return ComponentInstance(id, definitionId, Matrix(matrix))
+        return ComponentInstance(java.util.UUID.randomUUID().toString(), definitionId, Matrix(matrix))
     }
 }
 

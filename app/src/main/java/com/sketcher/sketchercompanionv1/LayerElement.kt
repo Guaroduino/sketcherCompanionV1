@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1
+package com.sketcher.sketchercompanionv1
 
 import android.graphics.Path
 import android.graphics.Matrix
@@ -6,6 +6,7 @@ import android.graphics.RectF
 
 sealed interface LayerElement : Transformable {
     fun copyElement(): LayerElement
+    fun invalidateCache() {}
 }
 
 interface Transformable {

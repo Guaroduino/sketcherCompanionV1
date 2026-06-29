@@ -22,6 +22,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.sketcher.sketchercompanionv1.dto.*
+import com.sketcher.sketchercompanionv1.ui.theme.sdp
+import com.sketcher.sketchercompanionv1.ui.theme.ssp
 
 @Composable
 fun PaperSizeDialog(
@@ -44,33 +46,33 @@ fun PaperSizeDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Tamaño de Lienzo") },
+        title = { Text("Tamaño de Lienzo", fontSize = 22.ssp) },
         text = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(490.dp)
+                    .height(490.sdp)
             ) {
                 // Tabs
                 TabRow(selectedTabIndex = selectedTab) {
                     Tab(
                         selected = selectedTab == 0,
                         onClick = { selectedTab = 0 },
-                        text = { Text("Infinito") }
+                        text = { Text("Infinito", fontSize = 14.ssp) }
                     )
                     Tab(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
-                        text = { Text("Predeterminado") }
+                        text = { Text("Predeterminado", fontSize = 14.ssp) }
                     )
                     Tab(
                         selected = selectedTab == 2,
                         onClick = { selectedTab = 2 },
-                        text = { Text("Personalizado") }
+                        text = { Text("Personalizado", fontSize = 14.ssp) }
                     )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.sdp))
 
                 // Content based on selected tab
                 when (selectedTab) {
@@ -78,8 +80,8 @@ fun PaperSizeDialog(
                         // Infinite canvas
                         Text(
                             "El lienzo será infinito sin límites.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(16.dp)
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp),
+                            modifier = Modifier.padding(16.sdp)
                         )
                     }
                     1 -> {
@@ -93,40 +95,40 @@ fun PaperSizeDialog(
                                 FilterChip(
                                     selected = selectedOrientation == PaperOrientation.PORTRAIT,
                                     onClick = { selectedOrientation = PaperOrientation.PORTRAIT },
-                                    label = { Text("Vertical") },
+                                    label = { Text("Vertical", fontSize = 14.ssp) },
                                     leadingIcon = if (selectedOrientation == PaperOrientation.PORTRAIT) {
-                                        { Icon(Icons.Default.Check, null, modifier = Modifier.size(18.dp)) }
+                                        { Icon(Icons.Default.Check, null, modifier = Modifier.size(18.sdp)) }
                                     } else null
                                 )
                                 FilterChip(
                                     selected = selectedOrientation == PaperOrientation.LANDSCAPE,
                                     onClick = { selectedOrientation = PaperOrientation.LANDSCAPE },
-                                    label = { Text("Horizontal") },
+                                    label = { Text("Horizontal", fontSize = 14.ssp) },
                                     leadingIcon = if (selectedOrientation == PaperOrientation.LANDSCAPE) {
-                                        { Icon(Icons.Default.Check, null, modifier = Modifier.size(18.dp)) }
+                                        { Icon(Icons.Default.Check, null, modifier = Modifier.size(18.sdp)) }
                                     } else null
                                 )
                             }
 
-                            Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(16.sdp))
 
                             // Origin Selector
-                            Text("Origen de Coordenadas:", style = MaterialTheme.typography.bodyMedium)
+                            Text("Origen de Coordenadas:", style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 RadioButton(
                                     selected = selectedOrigin == CoordinateOrigin.TOP_LEFT,
                                     onClick = { selectedOrigin = CoordinateOrigin.TOP_LEFT }
                                 )
-                                Text("Superior Izquierda", modifier = Modifier.clickable { selectedOrigin = CoordinateOrigin.TOP_LEFT })
-                                Spacer(modifier = Modifier.width(16.dp))
+                                Text("Superior Izquierda", modifier = Modifier.clickable { selectedOrigin = CoordinateOrigin.TOP_LEFT }, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp))
+                                Spacer(modifier = Modifier.width(16.sdp))
                                 RadioButton(
                                     selected = selectedOrigin == CoordinateOrigin.CENTER,
                                     onClick = { selectedOrigin = CoordinateOrigin.CENTER }
                                 )
-                                Text("Centro", modifier = Modifier.clickable { selectedOrigin = CoordinateOrigin.CENTER })
+                                Text("Centro", modifier = Modifier.clickable { selectedOrigin = CoordinateOrigin.CENTER }, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp))
                             }
                             
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(8.sdp))
 
                             // List of presets
                             LazyColumn(
@@ -143,19 +145,19 @@ fun PaperSizeDialog(
                                             .background(
                                                 if (isSelected) MaterialTheme.colorScheme.primaryContainer
                                                 else Color.Transparent,
-                                                RoundedCornerShape(8.dp)
+                                                RoundedCornerShape(8.sdp)
                                             )
-                                            .padding(12.dp),
+                                            .padding(12.sdp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(
                                                 preset.displayName,
-                                                style = MaterialTheme.typography.bodyLarge
+                                                style = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.ssp)
                                             )
                                             Text(
                                                 "${width.toInt()} × ${height.toInt()} mm",
-                                                style = MaterialTheme.typography.bodySmall,
+                                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.ssp),
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
@@ -163,7 +165,8 @@ fun PaperSizeDialog(
                                             Icon(
                                                 Icons.Default.Check,
                                                 contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(24.sdp)
                                             )
                                         }
                                     }
@@ -175,17 +178,17 @@ fun PaperSizeDialog(
                         // Custom size
                         Column(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                            verticalArrangement = Arrangement.spacedBy(12.sdp)
                         ) {
                             Text(
                                 "Dimensiones personalizadas en píxeles:",
-                                style = MaterialTheme.typography.bodyMedium
+                                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp)
                             )
 
                             OutlinedTextField(
                                 value = customWidth,
                                 onValueChange = { customWidth = it.filter { c -> c.isDigit() } },
-                                label = { Text("Ancho (px)") },
+                                label = { Text("Ancho (px)", fontSize = 14.ssp) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -193,35 +196,35 @@ fun PaperSizeDialog(
                             OutlinedTextField(
                                 value = customHeight,
                                 onValueChange = { customHeight = it.filter { c -> c.isDigit() } },
-                                label = { Text("Alto (px)") },
+                                label = { Text("Alto (px)", fontSize = 14.ssp) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier.fillMaxWidth()
                             )
 
                             Text(
                                 "Nota: 300 DPI es calidad de impresión estándar",
-                                style = MaterialTheme.typography.bodySmall,
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.ssp),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.sdp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(12.sdp))
 
                 Text(
                     text = "Color del Papel:",
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp),
                     color = MaterialTheme.colorScheme.onSurface
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(8.sdp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.sdp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     val paperPresets = listOf(
@@ -238,11 +241,11 @@ fun PaperSizeDialog(
                         val isSelected = selectedColor == color
                         Box(
                             modifier = Modifier
-                                .size(36.dp)
+                                .size(36.sdp)
                                 .clip(CircleShape)
                                 .background(color)
                                 .border(
-                                    width = if (isSelected) 2.dp else 1.dp,
+                                    width = if (isSelected) 2.sdp else 1.sdp,
                                     color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
                                     shape = CircleShape
                                 )
@@ -254,7 +257,7 @@ fun PaperSizeDialog(
                                     imageVector = Icons.Default.Check,
                                     contentDescription = null,
                                     tint = if (color == Color.White || color == Color(0xFFFFFDF6) || color == Color(0xFFF5F5F5) || color == Color(0xFFE8F5E9)) Color.Black else Color.White,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(18.sdp)
                                 )
                             }
                         }
@@ -265,11 +268,11 @@ fun PaperSizeDialog(
 
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(36.sdp)
                             .clip(CircleShape)
                             .background(Color.Transparent)
                             .border(
-                                width = 1.dp,
+                                width = 1.sdp,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                                 shape = CircleShape
                             )
@@ -280,7 +283,7 @@ fun PaperSizeDialog(
                             imageVector = Icons.Default.Palette,
                             contentDescription = "Color personalizado",
                             tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(20.sdp)
                         )
                     }
 
@@ -311,14 +314,18 @@ fun PaperSizeDialog(
                         else -> null
                     }
                     onConfirm(config, selectedColor.toArgb())
-                }
+                },
+                shape = RoundedCornerShape(8.sdp)
             ) {
-                Text("Aceptar")
+                Text("Aceptar", fontSize = 14.ssp)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancelar")
+            TextButton(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(8.sdp)
+            ) {
+                Text("Cancelar", fontSize = 14.ssp)
             }
         }
     )

@@ -555,7 +555,7 @@ fun IconEditorDialog(
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(
                                     if (isSelected) theme.highlightColor
-                                    else theme.buttonColor.copy(alpha = 0.3f)
+                                    else theme.menuButtonColor.copy(alpha = 0.3f)
                                 )
                                 .border(
                                     width = 1.dp,
@@ -612,7 +612,7 @@ fun IconEditorDialog(
                                     .clip(RoundedCornerShape(4.dp))
                                     .background(
                                         if (isSel) theme.iconColor
-                                        else theme.buttonColor.copy(alpha = 0.3f)
+                                        else theme.menuButtonColor.copy(alpha = 0.3f)
                                     )
                                     .clickable { gridSize = size }
                                     .padding(horizontal = 6.dp, vertical = 4.dp),
@@ -698,7 +698,7 @@ fun IconEditorDialog(
                                     .clip(RoundedCornerShape(4.dp))
                                     .background(
                                         if (isSel) theme.highlightColor
-                                        else theme.buttonColor.copy(alpha = 0.3f)
+                                        else theme.menuButtonColor.copy(alpha = 0.3f)
                                     )
                                     .clickable { drawMode = mode }
                                     .padding(horizontal = 8.dp, vertical = 4.dp),
@@ -743,7 +743,7 @@ fun IconEditorDialog(
                     modifier = Modifier
                         .size(240.sdp) // Scales with UI scale factor
                         .clip(RoundedCornerShape(12.dp))
-                        .background(theme.buttonColor.copy(alpha = 0.15f))
+                        .background(theme.menuButtonColor.copy(alpha = 0.15f))
                         .border(1.dp, theme.iconColor.copy(alpha = 0.2f), RoundedCornerShape(12.dp)),
                     contentAlignment = Alignment.Center
                 ) {
@@ -1227,7 +1227,7 @@ fun IconEditorDialog(
                         Button(
                             onClick = onDismiss,
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = theme.buttonColor.copy(alpha = 0.3f),
+                                containerColor = theme.menuButtonColor.copy(alpha = 0.3f),
                                 contentColor = theme.iconColor
                             )
                         ) {
@@ -1294,8 +1294,8 @@ fun IconEditorDialog(
                             unfocusedTextColor = theme.iconColor,
                             focusedBorderColor = theme.highlightColor,
                             unfocusedBorderColor = theme.iconColor.copy(alpha = 0.3f),
-                            focusedContainerColor = theme.buttonColor.copy(alpha = 0.2f),
-                            unfocusedContainerColor = theme.buttonColor.copy(alpha = 0.1f)
+                            focusedContainerColor = theme.menuButtonColor.copy(alpha = 0.2f),
+                            unfocusedContainerColor = theme.menuButtonColor.copy(alpha = 0.1f)
                         )
                     )
                     Spacer(modifier = Modifier.height(16.dp))
@@ -1307,7 +1307,7 @@ fun IconEditorDialog(
                         Button(
                             onClick = { showImportDialog = false },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = theme.buttonColor.copy(alpha = 0.3f),
+                                containerColor = theme.menuButtonColor.copy(alpha = 0.3f),
                                 contentColor = theme.iconColor
                             )
                         ) {

@@ -9,6 +9,7 @@ import androidx.compose.ui.unit.dp
 data class UiThemeConfig(
     val barBackgroundColor: Color = Color.White,
     val buttonColor: Color = Color.White,
+    val menuButtonColor: Color = Color.White,
     val iconColor: Color = Color(0xFF424242),
     val highlightColor: Color = Color(0xFFE0E0E0),
     val barElevation: androidx.compose.ui.unit.Dp = 8.dp,

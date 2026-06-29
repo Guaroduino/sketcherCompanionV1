@@ -8,26 +8,26 @@ import com.sketcher.sketchercompanionv1.LayerElement
  * Supports Undo by restoring it to its original position.
  */
 class EraseCommand(
-    private val targetLayer: Layer,
+    private val targetContainer: MutableList<LayerElement>,
     private val elementToRemove: LayerElement
 ) : UndoCommand {
 
     private var originalIndex: Int = -1
 
     override fun execute() {
-        val index = targetLayer.elements.indexOf(elementToRemove)
+        val index = targetContainer.indexOf(elementToRemove)
         if (index != -1) {
             originalIndex = index
-            targetLayer.elements.removeAt(index)
+            targetContainer.removeAt(index)
         }
     }
 
     override fun undo() {
         if (originalIndex != -1) {
-            if (originalIndex <= targetLayer.elements.size) {
-                targetLayer.elements.add(originalIndex, elementToRemove)
+            if (originalIndex <= targetContainer.size) {
+                targetContainer.add(originalIndex, elementToRemove)
             } else {
-                targetLayer.elements.add(elementToRemove)
+                targetContainer.add(elementToRemove)
             }
         }
     }

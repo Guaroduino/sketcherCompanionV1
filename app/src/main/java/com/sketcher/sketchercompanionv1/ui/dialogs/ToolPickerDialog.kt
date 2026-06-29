@@ -174,7 +174,7 @@ fun ToolPickerDialog(
                         Button(
                             onClick = { isAddingAdditional = !isAddingAdditional },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isAddingAdditional) theme.highlightColor else theme.buttonColor.copy(alpha = 0.5f),
+                                containerColor = if (isAddingAdditional) theme.highlightColor else theme.menuButtonColor.copy(alpha = 0.5f),
                                 contentColor = theme.iconColor
                             ),
                             shape = RoundedCornerShape(8.dp),
@@ -223,7 +223,7 @@ fun ToolPickerDialog(
                             },
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = theme.buttonColor.copy(alpha = 0.5f),
+                                containerColor = theme.menuButtonColor.copy(alpha = 0.5f),
                                 contentColor = theme.iconColor
                             ),
                             shape = RoundedCornerShape(8.dp)
@@ -237,7 +237,7 @@ fun ToolPickerDialog(
                             },
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = theme.buttonColor.copy(alpha = 0.5f),
+                                containerColor = theme.menuButtonColor.copy(alpha = 0.5f),
                                 contentColor = theme.iconColor
                             ),
                             shape = RoundedCornerShape(8.dp)

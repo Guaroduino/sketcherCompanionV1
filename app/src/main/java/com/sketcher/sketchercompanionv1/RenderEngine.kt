@@ -134,6 +134,7 @@ class RenderEngine {
         isTransformActive: Boolean,
         drawGrid: Boolean = true,
         clientMode: Boolean = false,
+        editingParent: LayerElement? = null,
         isCancelled: () -> Boolean = { false }
     ) {
         // Draw Background
@@ -253,7 +254,13 @@ class RenderEngine {
                       }
                   }
 
-                  drawElementRecursive(canvas, element, componentLibrary, viewMatrix, layer.opacity)
+                  val alphaMultiplier = if (editingParent != null) {
+                      if (element === editingParent) 1.0f else 0.3f
+                  } else {
+                      1.0f
+                  }
+
+                  drawElementRecursive(canvas, element, componentLibrary, viewMatrix, layer.opacity * alphaMultiplier)
              }
              
              canvas.restoreToCount(saveCount)

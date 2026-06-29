@@ -52,8 +52,8 @@ class SelectionManager {
     private var startLocalTouchX = 0f
     private var startLocalTouchY = 0f
     
-    fun selectSingleAt(x: Float, y: Float, layer: Layer, library: Map<String, ComponentDefinition>, addToSelection: Boolean = false): Boolean {
-        val iterator = layer.elements.listIterator(layer.elements.size)
+    fun selectSingleAt(x: Float, y: Float, elements: List<LayerElement>, library: Map<String, ComponentDefinition>, addToSelection: Boolean = false): Boolean {
+        val iterator = elements.listIterator(elements.size)
         while (iterator.hasPrevious()) {
             val element = iterator.previous()
             if (isHit(element, x, y, library)) {
@@ -147,7 +147,7 @@ class SelectionManager {
         }
     }
 
-    fun selectArea(selectionPath: Path, layer: Layer, library: Map<String, ComponentDefinition>, addToSelection: Boolean = false) {
+    fun selectArea(selectionPath: Path, elements: List<LayerElement>, library: Map<String, ComponentDefinition>, addToSelection: Boolean = false) {
         if (!addToSelection) {
             selectedElements.clear()
             selectionMatrix.reset()
@@ -164,7 +164,7 @@ class SelectionManager {
         )
         selectionRegion.setPath(selectionPath, android.graphics.Region(clipRect))
 
-        layer.elements.forEach { element ->
+        elements.forEach { element ->
             if (isElementInSelection(element, selectionPath, selectionRegion, library)) {
                 selectedElements.add(element)
             }
@@ -252,11 +252,11 @@ class SelectionManager {
         }
     }
 
-    fun finalizeSelection(activeLayer: Layer, library: Map<String, ComponentDefinition>) {
+    fun finalizeSelection(elements: List<LayerElement>, library: Map<String, ComponentDefinition>) {
         if (!isRectangleMode) {
             lassoPath.close()
         }
-        selectArea(lassoPath, activeLayer, library)
+        selectArea(lassoPath, elements, library)
         lassoPath.reset()
     }
 

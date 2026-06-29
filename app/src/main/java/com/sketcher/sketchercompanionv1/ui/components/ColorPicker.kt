@@ -21,6 +21,8 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import com.sketcher.sketchercompanionv1.ui.theme.sdp
+import com.sketcher.sketchercompanionv1.ui.theme.ssp
 import kotlin.math.max
 import kotlin.math.min
 
@@ -57,18 +59,18 @@ fun ColorPickerDialog(
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(16.sdp),
             color = MaterialTheme.colorScheme.surface,
             modifier = Modifier
-                .width(340.dp)
-                .padding(16.dp)
+                .width(340.sdp)
+                .padding(16.sdp)
         ) {
             Column(
-                modifier = Modifier.padding(16.dp),
+                modifier = Modifier.padding(16.sdp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("Pick a Color", style = MaterialTheme.typography.titleLarge)
-                Spacer(modifier = Modifier.height(16.dp))
+                Text("Pick a Color", style = MaterialTheme.typography.titleLarge.copy(fontSize = 22.ssp))
+                Spacer(modifier = Modifier.height(16.sdp))
 
                 // 2D Saturation/Value Box
                 SaturationValueBox(
@@ -82,7 +84,7 @@ fun ColorPickerDialog(
                     }
                 )
                 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.sdp))
 
                 // Hue Bar
                 HueBar(
@@ -93,7 +95,7 @@ fun ColorPickerDialog(
                     }
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.sdp))
 
                 // Preview & Current Params
                 Row(
@@ -102,36 +104,36 @@ fun ColorPickerDialog(
                 ) {
                    Box(
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(48.sdp)
                             .clip(CircleShape)
                             .background(currentColor)
-                            .border(1.dp, Color.Gray, CircleShape)
+                            .border(1.sdp, Color.Gray, CircleShape)
                     )
-                    Spacer(modifier = Modifier.width(16.dp))
+                    Spacer(modifier = Modifier.width(16.sdp))
                     Column {
-                        Text("H: ${hue.toInt()}°")
-                        Text("S: ${(saturation * 100).toInt()}%")
-                        Text("V: ${(value * 100).toInt()}%")
+                        Text("H: ${hue.toInt()}°", style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp))
+                        Text("S: ${(saturation * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp))
+                        Text("V: ${(value * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp))
                     }
                 }
                 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.sdp))
                 
                 // Recent Colors
                 if (recentColors.isNotEmpty()) {
-                    Text("Recent Colors", style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.Start))
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Recent Colors", style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.ssp), modifier = Modifier.align(Alignment.Start))
+                    Spacer(modifier = Modifier.height(8.sdp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.sdp)
                     ) {
                         recentColors.take(6).forEach { color ->
                             Box(
                                 modifier = Modifier
-                                    .size(32.dp)
+                                    .size(32.sdp)
                                     .clip(CircleShape)
                                     .background(color)
-                                    .border(1.dp, Color.Gray.copy(alpha=0.3f), CircleShape)
+                                    .border(1.sdp, Color.Gray.copy(alpha=0.3f), CircleShape)
                                     .clickable { 
                                          // Set internal state
                                          val hsv = FloatArray(3)
@@ -146,7 +148,7 @@ fun ColorPickerDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(24.sdp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -154,17 +156,20 @@ fun ColorPickerDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     TextButton(onClick = onDismiss) {
-                        Text("Cancel")
+                        Text("Cancel", fontSize = 14.ssp)
                     }
                     if (onDisable != null) {
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(8.sdp))
                         TextButton(onClick = { onDisable(); onDismiss() }) {
-                            Text("None")
+                            Text("None", fontSize = 14.ssp)
                         }
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(onClick = { onColorSelected(currentColor) }) {
-                        Text("Select")
+                    Spacer(modifier = Modifier.width(8.sdp))
+                    Button(
+                        onClick = { onColorSelected(currentColor) },
+                        shape = RoundedCornerShape(8.sdp)
+                    ) {
+                        Text("Select", fontSize = 14.ssp)
                     }
                 }
             }
@@ -181,12 +186,13 @@ fun SaturationValueBox(
 ) {
     val hsv = floatArrayOf(hue, 1f, 1f)
     val pureHueColor = Color(android.graphics.Color.HSVToColor(hsv))
+    val scaler = com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler.current
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(200.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .height(200.sdp)
+            .clip(RoundedCornerShape(8.sdp))
             .background(Color.Black) // Base is black (Value=0)
             .pointerInput(Unit) {
                 detectDragGestures(
@@ -249,15 +255,19 @@ fun SaturationValueBox(
             val px = saturation * size.width
             val py = (1f - value) * size.height
             
+            val outerRadius = (8.dp * scaler.scaleFactor).toPx()
+            val strokeThickness = (2.dp * scaler.scaleFactor).toPx()
+            val innerRadius = (6.dp * scaler.scaleFactor).toPx()
+
             drawCircle(
                 color = Color.White,
-                radius = 8.dp.toPx(),
+                radius = outerRadius,
                 center = Offset(px, py),
-                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeThickness)
             )
              drawCircle(
                 color = if (value > 0.5f) Color.Black else Color.White,
-                radius = 6.dp.toPx(),
+                radius = innerRadius,
                 center = Offset(px, py),
              )
         }
@@ -269,11 +279,12 @@ fun HueBar(
     hue: Float,
     onHueChanged: (Float) -> Unit
 ) {
+    val scaler = com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler.current
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(24.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .height(24.sdp)
+            .clip(RoundedCornerShape(12.sdp))
             .pointerInput(Unit) {
                 detectDragGestures(
                     onDragStart = { offset ->
@@ -299,11 +310,12 @@ fun HueBar(
             
             // Indicator
             val px = (hue / 360f) * size.width
+            val strokeThickness = (3.dp * scaler.scaleFactor).toPx()
             drawLine(
                 color = Color.White,
                 start = Offset(px, 0f),
                 end = Offset(px, size.height),
-                strokeWidth = 3.dp.toPx()
+                strokeWidth = strokeThickness
             )
         }
     }
@@ -320,16 +332,16 @@ fun ColorPreviewRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(vertical = 8.dp),
+            .padding(vertical = 8.sdp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = labelColor)
+        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp), color = labelColor)
         Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(40.sdp)
                 .clip(CircleShape)
                 .background(color)
-                .border(1.dp, Color.Gray, CircleShape)
+                .border(1.sdp, Color.Gray, CircleShape)
         )
     }
 }

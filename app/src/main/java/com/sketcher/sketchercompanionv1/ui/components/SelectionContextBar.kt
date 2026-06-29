@@ -7,6 +7,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material3.*
@@ -16,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
 import com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler
 
@@ -26,7 +28,8 @@ fun SelectionContextBar(
     theme: UiThemeConfig,
     onDeselect: () -> Unit,
     onDelete: () -> Unit,
-    onDuplicate: () -> Unit,
+    onCopy: () -> Unit,
+    onCut: () -> Unit,
     onFlipH: () -> Unit,
     onFlipV: () -> Unit,
     modifier: Modifier = Modifier
@@ -41,78 +44,110 @@ fun SelectionContextBar(
         Surface(
             modifier = Modifier
                 .wrapContentSize()
-                .padding(bottom = 16.dp),
-            shape = CircleShape,
+                .padding(bottom = scaler.margin),
+            shape = theme.floatingShape(),
             color = theme.barBackgroundColor.copy(alpha = 0.85f),
             shadowElevation = 8.dp
         ) {
             Row(
                 modifier = Modifier
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    .padding(horizontal = scaler.smallMargin, vertical = scaler.smallMargin / 2),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(scaler.smallButtonSpacing)
             ) {
                 // Deselect Action
-                IconButton(onClick = onDeselect) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Deselect",
-                        tint = theme.iconColor
-                    )
-                }
+                SketcherIconButton(
+                    onClick = onDeselect,
+                    icon = Icons.Default.Close,
+                    contentDescription = "Deselect",
+                    isActive = false,
+                    highlightColor = theme.highlightColor,
+                    buttonColor = Color.Transparent,
+                    iconColor = theme.iconColor,
+                    shape = theme.floatingShape(),
+                    iconSize = scaler.baseIconSize
+                )
                 
                 // Divider
                 Box(
                     modifier = Modifier
-                        .height(24.dp)
+                        .height(24.dp * scaler.scaleFactor)
                         .width(1.dp)
                         .background(theme.iconColor.copy(alpha = 0.2f))
                 )
 
                 // Delete Action
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete",
-                        tint = theme.iconColor
-                    )
-                }
+                SketcherIconButton(
+                    onClick = onDelete,
+                    icon = Icons.Default.Delete,
+                    contentDescription = "Delete",
+                    isActive = false,
+                    highlightColor = theme.highlightColor,
+                    buttonColor = Color.Transparent,
+                    iconColor = theme.iconColor,
+                    shape = theme.floatingShape(),
+                    iconSize = scaler.baseIconSize
+                )
 
-                // Duplicate Action
-                IconButton(onClick = onDuplicate) {
-                    Icon(
-                        imageVector = Icons.Default.ContentCopy,
-                        contentDescription = "Duplicate",
-                        tint = theme.iconColor
-                    )
-                }
+                // Copy Action
+                SketcherIconButton(
+                    onClick = onCopy,
+                    icon = Icons.Default.ContentCopy,
+                    contentDescription = "Copy",
+                    isActive = false,
+                    highlightColor = theme.highlightColor,
+                    buttonColor = Color.Transparent,
+                    iconColor = theme.iconColor,
+                    shape = theme.floatingShape(),
+                    iconSize = scaler.baseIconSize
+                )
+                
+                // Cut Action
+                SketcherIconButton(
+                    onClick = onCut,
+                    icon = Icons.Default.ContentCut,
+                    contentDescription = "Cut",
+                    isActive = false,
+                    highlightColor = theme.highlightColor,
+                    buttonColor = Color.Transparent,
+                    iconColor = theme.iconColor,
+                    shape = theme.floatingShape(),
+                    iconSize = scaler.baseIconSize
+                )
 
                 // Transform-specific Actions
                 if (isTransformMode) {
                     Box(
                         modifier = Modifier
-                            .height(24.dp)
+                            .height(24.dp * scaler.scaleFactor)
                             .width(1.dp)
                             .background(theme.iconColor.copy(alpha = 0.2f))
                     )
                     
-                    IconButton(onClick = onFlipH) {
-                        Icon(
-                            imageVector = Icons.Default.Flip, // Note: You might need a specific Flip Horizontal icon or rotate this one
-                            contentDescription = "Flip Horizontal",
-                            tint = theme.iconColor
-                        )
-                    }
+                    SketcherIconButton(
+                        onClick = onFlipH,
+                        icon = Icons.Default.Flip,
+                        contentDescription = "Flip Horizontal",
+                        isActive = false,
+                        highlightColor = theme.highlightColor,
+                        buttonColor = Color.Transparent,
+                        iconColor = theme.iconColor,
+                        shape = theme.floatingShape(),
+                        iconSize = scaler.baseIconSize
+                    )
                     
-                    IconButton(onClick = onFlipV) {
-                        // For Flip Vertical, we can just rotate the flip icon 90 degrees
-                        Icon(
-                            imageVector = Icons.Default.Flip,
-                            contentDescription = "Flip Vertical",
-                            tint = theme.iconColor,
-                            modifier = Modifier.rotate(90f)
-                        )
-                    }
+                    SketcherIconButton(
+                        onClick = onFlipV,
+                        icon = Icons.Default.Flip,
+                        contentDescription = "Flip Vertical",
+                        isActive = false,
+                        highlightColor = theme.highlightColor,
+                        buttonColor = Color.Transparent,
+                        iconColor = theme.iconColor,
+                        shape = theme.floatingShape(),
+                        iconSize = scaler.baseIconSize,
+                        iconModifier = Modifier.rotate(90f)
+                    )
                 }
             }
         }

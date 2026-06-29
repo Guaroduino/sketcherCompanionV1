@@ -48,6 +48,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.asImageBitmap
 import kotlinx.coroutines.launch
@@ -68,6 +69,8 @@ import com.sketcher.sketchercompanionv1.ui.FileMenu
 import com.sketcher.sketchercompanionv1.ui.dialogs.DxfImportDialog // Import
 import com.sketcher.sketchercompanionv1.ui.dialogs.DxfExportDialog // Import
 import com.sketcher.sketchercompanionv1.ui.theme.SketcherCompanionV1Theme
+import com.sketcher.sketchercompanionv1.ui.theme.sdp
+import com.sketcher.sketchercompanionv1.ui.theme.ssp
 import com.sketcher.sketchercompanionv1.GroupElement
 
 import androidx.compose.foundation.lazy.LazyColumn
@@ -168,9 +171,8 @@ fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeig
 
 @Composable
 fun SettingsDialog(
+    theme: UiThemeConfig,
     onDismiss: () -> Unit,
-    isRotationLocked: Boolean,
-    onToggleRotationLock: () -> Unit,
     isPalmRejectionEnabled: Boolean,
     onTogglePalmRejection: () -> Unit,
     interfaceScale: Float,
@@ -181,14 +183,6 @@ fun SettingsDialog(
     onTogglePerformanceStats: () -> Unit,
     currentScaleConfig: ScaleConfig,
     onUpdateProjectConfig: (String, Float) -> Unit,
-    toolbarBackgroundColor: Int,
-    onToolbarBackgroundColorChanged: (Int) -> Unit,
-    toolbarAlpha: Float,
-    onToolbarAlphaChanged: (Float) -> Unit,
-    isToolbarBlurEnabled: Boolean,
-    onToggleToolbarBlur: () -> Unit,
-    showTooltips: Boolean,
-    onToggleTooltips: () -> Unit,
     onBackupPreferences: () -> Unit,
     onRestorePreferences: () -> Unit,
     onResetPreferences: () -> Unit,
@@ -203,250 +197,297 @@ fun SettingsDialog(
     }
 
     Dialog(onDismissRequest = onDismiss) {
-        Column(
+        Surface(
             modifier = Modifier
-                .width(340.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color.White)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .width(340.sdp)
+                .clip(RoundedCornerShape(16.sdp)),
+            shape = RoundedCornerShape(16.sdp),
+            color = theme.barBackgroundColor.copy(alpha = 0.98f),
+            contentColor = theme.iconColor
         ) {
-            Text("${stringResource(R.string.settings_title)} & ${stringResource(R.string.project_settings)}", style = MaterialTheme.typography.titleLarge)
-            
-            // --- PROJECT CONFIGURATION ---
-            Text(stringResource(R.string.project_settings), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            
-            // Resolution
-            Column {
-                Text(stringResource(R.string.settings_base_resolution), style = MaterialTheme.typography.labelMedium)
-                OutlinedTextField(
-                    value = resolutionText,
-                    onValueChange = { resolutionText = it },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Text(stringResource(R.string.settings_resolution_hint), fontSize = 10.sp, color = Color.Gray)
-            }
-            
-            // Unit
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.sdp),
+                verticalArrangement = Arrangement.spacedBy(16.sdp)
             ) {
-                Text(stringResource(R.string.label_unit))
-                Row {
-                    DistanceUnit.entries.forEach { unit ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically, 
-                            modifier = Modifier
-                                .clickable { selectedUnit = unit }
-                                .padding(4.dp)
-                        ) {
-                            RadioButton(
-                                selected = (selectedUnit == unit),
-                                onClick = { selectedUnit = unit }
-                            )
-                            Text(text = unit.symbol, modifier = Modifier.padding(start = 2.dp))
+                Text(
+                    text = "${stringResource(R.string.settings_title)} & ${stringResource(R.string.project_settings)}",
+                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 22.ssp),
+                    color = theme.iconColor
+                )
+                
+                // --- PROJECT CONFIGURATION ---
+                Text(
+                    text = stringResource(R.string.project_settings),
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.ssp),
+                    color = theme.iconColor.copy(alpha = 0.8f)
+                )
+                
+                // Resolution
+                Column {
+                    Text(
+                        text = stringResource(R.string.settings_base_resolution),
+                        style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.ssp),
+                        color = theme.iconColor.copy(alpha = 0.7f)
+                    )
+                    OutlinedTextField(
+                        value = resolutionText,
+                        onValueChange = { resolutionText = it },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = theme.iconColor,
+                            unfocusedTextColor = theme.iconColor,
+                            focusedBorderColor = theme.highlightColor,
+                            unfocusedBorderColor = theme.iconColor.copy(alpha = 0.3f),
+                            focusedContainerColor = theme.menuButtonColor.copy(alpha = 0.2f),
+                            unfocusedContainerColor = theme.menuButtonColor.copy(alpha = 0.1f)
+                        )
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_resolution_hint),
+                        fontSize = 10.ssp,
+                        color = theme.iconColor.copy(alpha = 0.5f)
+                    )
+                }
+                
+                // Unit
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.label_unit),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp),
+                        color = theme.iconColor
+                    )
+                    Row {
+                        DistanceUnit.entries.forEach { unit ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically, 
+                                modifier = Modifier
+                                    .clickable { selectedUnit = unit }
+                                    .padding(4.sdp)
+                            ) {
+                                RadioButton(
+                                    selected = (selectedUnit == unit),
+                                    onClick = { selectedUnit = unit },
+                                    colors = RadioButtonDefaults.colors(
+                                        selectedColor = theme.highlightColor,
+                                        unselectedColor = theme.iconColor.copy(alpha = 0.6f)
+                                    )
+                                )
+                                Text(
+                                    text = unit.symbol,
+                                    modifier = Modifier.padding(start = 2.sdp),
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp),
+                                    color = theme.iconColor
+                                )
+                            }
                         }
                     }
                 }
-            }
-            
-            // Info Calculation
-            val resolution = resolutionText.toFloatOrNull() ?: 0f
-            if (resolution > 0) {
-                 val unitMm = selectedUnit.toMillimeters
-                 val pixels = unitMm * resolution
-                 Text(
-                     text = "1 ${selectedUnit.symbol} = ${pixels.toInt()} px",
-                     style = MaterialTheme.typography.bodySmall,
-                     fontWeight = FontWeight.Bold
-                 )
-            }
-            
-            HorizontalDivider()
-            
-            // --- APP SETTINGS ---
-            Text(stringResource(R.string.app_prefs), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(stringResource(R.string.settings_lock_rotation))
-                Switch(checked = isRotationLocked, onCheckedChange = { onToggleRotationLock() })
-            }
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(stringResource(R.string.settings_stylus_only))
-                Switch(checked = isPalmRejectionEnabled, onCheckedChange = { onTogglePalmRejection() })
-            }
-            
-            Column {
-                Text("${stringResource(R.string.settings_interface_scale)}: ${(interfaceScale * 100).toInt()}%")
-                Slider(
-                    value = interfaceScale,
-                    onValueChange = onInterfaceScaleChanged,
-                    valueRange = 0.5f..2.0f
+                
+                // Info Calculation
+                val resolution = resolutionText.toFloatOrNull() ?: 0f
+                if (resolution > 0) {
+                     val unitMm = selectedUnit.toMillimeters
+                     val pixels = unitMm * resolution
+                     Text(
+                         text = "1 ${selectedUnit.symbol} = ${pixels.toInt()} px",
+                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.ssp),
+                         fontWeight = FontWeight.Bold,
+                         color = theme.iconColor
+                     )
+                }
+                
+                HorizontalDivider()
+                
+                // --- APP SETTINGS ---
+                Text(
+                    text = stringResource(R.string.app_prefs),
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.ssp),
+                    color = theme.iconColor.copy(alpha = 0.8f)
                 )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Mostrar Ayudas (Tooltips)")
-                Switch(checked = showTooltips, onCheckedChange = { onToggleTooltips() })
-            }
-
-            HorizontalDivider()
-            
-            // --- TOOLBAR APPEARANCE ---
-            Text("Apariencia de Barras", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            
-            var showToolbarColorPicker by remember { mutableStateOf(false) }
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Color de Fondo")
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(Color(toolbarBackgroundColor))
-                        .border(1.dp, Color.Gray, CircleShape)
-                        .clickable { showToolbarColorPicker = true }
-                )
-            }
-            
-            if (showToolbarColorPicker) {
-                ColorPickerDialog(
-                    initialColor = toolbarBackgroundColor,
-                    onDismiss = { showToolbarColorPicker = false },
-                    onColorSelected = { 
-                        onToolbarBackgroundColorChanged(it)
-                        showToolbarColorPicker = false
-                    }
-                )
-            }
-            
-            Column {
-                Text("Transparencia: ${(toolbarAlpha * 100).toInt()}%")
-                Slider(
-                    value = toolbarAlpha,
-                    onValueChange = onToolbarAlphaChanged,
-                    valueRange = 0.0f..1.0f
-                )
-            }
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Efecto de Desenfoque (Blur)")
-                Switch(checked = isToolbarBlurEnabled, onCheckedChange = { onToggleToolbarBlur() })
-            }
-
-            HorizontalDivider()
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(stringResource(R.string.settings_debug_wireframe))
-                Switch(checked = isDebugWireframe, onCheckedChange = { onToggleDebugWireframe() })
-            }
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Estadísticas de Rendimiento")
-                Switch(checked = showPerformanceStats, onCheckedChange = { onTogglePerformanceStats() })
-            }
-            
-            HorizontalDivider()
-
-            // --- BACKUP & RESET ---
-            Text("Preferencias de la Aplicación", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Button(
-                    onClick = onBackupPreferences,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Guardar Copia", fontSize = 12.sp)
+                    Text(
+                        text = stringResource(R.string.settings_stylus_only),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp),
+                        color = theme.iconColor
+                    )
+                    Switch(
+                        checked = isPalmRejectionEnabled,
+                        onCheckedChange = { onTogglePalmRejection() },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = theme.barBackgroundColor,
+                            checkedTrackColor = theme.highlightColor,
+                            uncheckedThumbColor = theme.iconColor.copy(alpha = 0.4f),
+                            uncheckedTrackColor = theme.iconColor.copy(alpha = 0.1f)
+                        )
+                    )
+                }
+                
+                Column {
+                    Text(
+                        text = "${stringResource(R.string.settings_interface_scale)}: ${(interfaceScale * 100).toInt()}%",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp),
+                        color = theme.iconColor
+                    )
+                    Slider(
+                        value = interfaceScale,
+                        onValueChange = onInterfaceScaleChanged,
+                        valueRange = 0.5f..2.0f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = theme.highlightColor,
+                            activeTrackColor = theme.highlightColor,
+                            inactiveTrackColor = theme.iconColor.copy(alpha = 0.35f)
+                        )
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.settings_debug_wireframe),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp),
+                        color = theme.iconColor
+                    )
+                    Switch(
+                        checked = isDebugWireframe,
+                        onCheckedChange = { onToggleDebugWireframe() },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = theme.barBackgroundColor,
+                            checkedTrackColor = theme.highlightColor,
+                            uncheckedThumbColor = theme.iconColor.copy(alpha = 0.4f),
+                            uncheckedTrackColor = theme.iconColor.copy(alpha = 0.1f)
+                        )
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Estadísticas de Rendimiento",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp),
+                        color = theme.iconColor
+                    )
+                    Switch(
+                        checked = showPerformanceStats,
+                        onCheckedChange = { onTogglePerformanceStats() },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = theme.barBackgroundColor,
+                            checkedTrackColor = theme.highlightColor,
+                            uncheckedThumbColor = theme.iconColor.copy(alpha = 0.4f),
+                            uncheckedTrackColor = theme.iconColor.copy(alpha = 0.1f)
+                        )
+                    )
+                }
+
+                HorizontalDivider()
+                
+                // --- BACKUP & RESET ---
+                Text(
+                    text = "Preferencias de la Aplicación",
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.ssp),
+                    color = theme.iconColor.copy(alpha = 0.8f)
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.sdp)
+                ) {
+                    Button(
+                        onClick = onBackupPreferences,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = theme.menuButtonColor.copy(alpha = 0.6f),
+                            contentColor = theme.iconColor,
+                            disabledContainerColor = theme.menuButtonColor.copy(alpha = 0.2f),
+                            disabledContentColor = theme.iconColor.copy(alpha = 0.3f)
+                        ),
+                        shape = RoundedCornerShape(8.sdp)
+                    ) {
+                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.sdp))
+                        Spacer(modifier = Modifier.width(4.sdp))
+                        Text("Guardar Copia", fontSize = 12.ssp)
+                    }
+
+                    Button(
+                        onClick = onRestorePreferences,
+                        enabled = hasBackup,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = theme.menuButtonColor.copy(alpha = 0.6f),
+                            contentColor = theme.iconColor,
+                            disabledContainerColor = theme.menuButtonColor.copy(alpha = 0.2f),
+                            disabledContentColor = theme.iconColor.copy(alpha = 0.3f)
+                        ),
+                        shape = RoundedCornerShape(8.sdp)
+                    ) {
+                        Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(16.sdp))
+                        Spacer(modifier = Modifier.width(4.sdp))
+                        Text("Restaurar Copia", fontSize = 12.ssp)
+                    }
                 }
 
                 Button(
-                    onClick = onRestorePreferences,
-                    enabled = hasBackup,
-                    modifier = Modifier.weight(1f),
+                    onClick = onResetPreferences,
+                    modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
+                        containerColor = Color(0xFFC62828),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(8.sdp)
                 ) {
-                    Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Restaurar Copia", fontSize = 12.sp)
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.sdp))
+                    Spacer(modifier = Modifier.width(8.sdp))
+                    Text("Restablecer Valores por Defecto", fontSize = 12.ssp)
                 }
-            }
-
-            Button(
-                onClick = onResetPreferences,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer
-                )
-            ) {
-                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Restablecer Valores por Defecto", fontSize = 12.sp)
-            }
-            
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
-            ) {
-                Button(onClick = onDismiss, colors = ButtonDefaults.textButtonColors()) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Button(onClick = {
-                    val res = resolutionText.toFloatOrNull()
-                    if (res != null) {
-                        onUpdateProjectConfig(selectedUnit.symbol, res)
+                
+                Spacer(modifier = Modifier.height(8.sdp))
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(
+                        onClick = onDismiss,
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = theme.iconColor
+                        )
+                    ) {
+                        Text(stringResource(R.string.action_cancel), fontSize = 14.ssp)
                     }
-                    onDismiss()
-                }) {
-                    Text(stringResource(R.string.action_apply))
+                    Spacer(modifier = Modifier.width(8.sdp))
+                    Button(
+                        onClick = {
+                            val res = resolutionText.toFloatOrNull()
+                            if (res != null) {
+                                onUpdateProjectConfig(selectedUnit.symbol, res)
+                            }
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(8.sdp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = theme.menuButtonColor,
+                            contentColor = theme.iconColor
+                        )
+                    ) {
+                        Text(stringResource(R.string.action_apply), fontSize = 14.ssp)
+                    }
                 }
             }
         }
@@ -467,112 +508,123 @@ fun LayerManagerDialog(
     onDismiss: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
-        Column(
+        Surface(
             modifier = Modifier
-                .width(320.dp)
-                .heightIn(max = 500.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color.White)
-                .padding(16.dp)
+                .width(320.sdp)
+                .heightIn(max = 500.sdp)
+                .clip(RoundedCornerShape(16.sdp)),
+            shape = RoundedCornerShape(16.sdp),
+            color = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface
         ) {
-            // Header
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            Column(
+                modifier = Modifier.padding(16.sdp)
             ) {
-                Text(stringResource(R.string.layer_title), style = MaterialTheme.typography.titleLarge)
-                IconButton(onClick = onDismiss) {
-                    Text("X", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(stringResource(R.string.layer_title), style = MaterialTheme.typography.titleLarge.copy(fontSize = 22.ssp))
+                    IconButton(onClick = onDismiss) {
+                        Text("X", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, fontSize = 14.ssp)
+                    }
                 }
-            }
 
-            Divider()
+                HorizontalDivider()
 
-            // Layers List (Reversed visual order)
-            LazyColumn(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(vertical = 8.dp)
-            ) {
-                // Display in reverse order so top layer is at top of list
-                // We need to map index correctly back to original list
-                val reversedIndices = layers.indices.reversed().toList()
-                
-                itemsIndexed(reversedIndices) { _, originalIndex ->
-                    val layer = layers[originalIndex]
-                    val isActive = originalIndex == activeLayerIndex
+                // Layers List (Reversed visual order)
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(vertical = 8.sdp)
+                ) {
+                    // Display in reverse order so top layer is at top of list
+                    // We need to map index correctly back to original list
+                    val reversedIndices = layers.indices.reversed().toList()
                     
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (isActive) Color.LightGray.copy(alpha = 0.5f) else Color.Transparent)
-                            .clickable { onActiveLayerChanged(originalIndex) }
-                            .padding(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Visibility
-                        IconButton(
-                            onClick = { onToggleVisibility(originalIndex) },
-                            modifier = Modifier.size(24.dp)
-                        ) {
-                            Icon(
-                                if (layer.isVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                contentDescription = "Toggle Visibility",
-                                tint = if (layer.isVisible) Color.Black else Color.Gray
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        // Name
-                        Text(
-                            text = layer.id,
-                            modifier = Modifier.weight(1f),
-                            fontWeight = if (isActive) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal
-                        )
+                    itemsIndexed(reversedIndices) { _, originalIndex ->
+                        val layer = layers[originalIndex]
+                        val isActive = originalIndex == activeLayerIndex
                         
-                        // Opacity
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("${(layer.opacity * 100).toInt()}%", fontSize = 10.sp)
-                            Slider(
-                                value = layer.opacity,
-                                onValueChange = { onOpacityChanged(originalIndex, it) },
-                                valueRange = 0f..1f,
-                                modifier = Modifier.width(80.dp).height(20.dp)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.sdp)
+                                .clip(RoundedCornerShape(8.sdp))
+                                .background(if (isActive) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+                                .clickable { onActiveLayerChanged(originalIndex) }
+                                .padding(8.sdp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Visibility
+                            IconButton(
+                                onClick = { onToggleVisibility(originalIndex) },
+                                modifier = Modifier.size(24.sdp)
+                            ) {
+                                Icon(
+                                    if (layer.isVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                    contentDescription = "Toggle Visibility",
+                                    tint = if (layer.isVisible) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(8.sdp))
+
+                            // Name
+                            Text(
+                                text = layer.id,
+                                modifier = Modifier.weight(1f),
+                                fontWeight = if (isActive) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 16.ssp)
                             )
+                            
+                            // Opacity
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("${(layer.opacity * 100).toInt()}%", fontSize = 10.ssp)
+                                Slider(
+                                    value = layer.opacity,
+                                    onValueChange = { onOpacityChanged(originalIndex, it) },
+                                    valueRange = 0f..1f,
+                                    modifier = Modifier.width(80.sdp).height(20.sdp),
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = MaterialTheme.colorScheme.primary,
+                                        activeTrackColor = MaterialTheme.colorScheme.primary,
+                                        inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                                    )
+                                )
+                            }
                         }
                     }
                 }
-            }
 
-            Divider()
+                HorizontalDivider()
 
-            // Footer Controls
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                horizontalArrangement = Arrangement.SpaceAround
-            ) {
-                // Add
-                IconButton(onClick = onAddLayer) {
-                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.layer_add))
-                }
-                
-                // Move Up (Visual Up = Higher Index)
-                IconButton(onClick = onMoveUp) {
-                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move Up")
-                }
-                
-                // Move Down (Visual Down = Lower Index)
-                IconButton(onClick = onMoveDown) {
-                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move Down")
-                }
-                
-                // Delete
-                IconButton(onClick = onDeleteLayer) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete Active", tint = Color.Red)
+                // Footer Controls
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.sdp),
+                    horizontalArrangement = Arrangement.SpaceAround
+                ) {
+                    // Add
+                    IconButton(onClick = onAddLayer) {
+                        Icon(Icons.Default.Add, contentDescription = stringResource(R.string.layer_add))
+                    }
+                    
+                    // Move Up (Visual Up = Higher Index)
+                    IconButton(onClick = onMoveUp) {
+                        Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move Up")
+                    }
+                    
+                    // Move Down (Visual Down = Lower Index)
+                    IconButton(onClick = onMoveDown) {
+                        Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move Down")
+                    }
+                    
+                    // Delete
+                    IconButton(onClick = onDeleteLayer) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete Active", tint = Color.Red)
+                    }
                 }
             }
         }
@@ -583,6 +635,7 @@ fun LayerManagerDialog(
 
 @Composable
 fun GridSettingsDialog(
+    theme: UiThemeConfig,
     currentGridConfig: GridConfig,
     isSnapEnabled: Boolean,
     currentUnit: DistanceUnit,
@@ -646,161 +699,242 @@ fun GridSettingsDialog(
         )
     }
     Dialog(onDismissRequest = onDismiss) {
-        Column(
+        Surface(
             modifier = Modifier
-                .width(340.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color.White)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .width(340.sdp)
+                .clip(RoundedCornerShape(16.sdp)),
+            shape = RoundedCornerShape(16.sdp),
+            color = theme.barBackgroundColor.copy(alpha = 0.98f),
+            contentColor = theme.iconColor
         ) {
-            Text(stringResource(R.string.grid_title), style = MaterialTheme.typography.titleLarge)
-            
-            // Grid Toggle
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            Column(
+                modifier = Modifier
+                    .padding(16.sdp),
+                verticalArrangement = Arrangement.spacedBy(16.sdp)
             ) {
-                Text(stringResource(R.string.grid_show))
-                Switch(
-                    checked = isVisible, 
-                    onCheckedChange = { 
-                        isVisible = it
-                        updateConfig()
-                    }
+                Text(
+                    text = stringResource(R.string.grid_title),
+                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 22.ssp),
+                    color = theme.iconColor
                 )
-            }
+                
+                // Grid Toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.grid_show),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp),
+                        color = theme.iconColor
+                    )
+                    Switch(
+                        checked = isVisible, 
+                        onCheckedChange = { 
+                            isVisible = it
+                            updateConfig()
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = theme.barBackgroundColor,
+                            checkedTrackColor = theme.highlightColor,
+                            uncheckedThumbColor = theme.iconColor.copy(alpha = 0.4f),
+                            uncheckedTrackColor = theme.iconColor.copy(alpha = 0.1f)
+                        )
+                    )
+                }
 
-            // Snap Toggle
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(stringResource(R.string.grid_snap))
-                Switch(
-                    checked = isSnapEnabled, 
-                    onCheckedChange = { onUpdateSnap(it) }
-                )
-            }
-            
-            HorizontalDivider()
+                // Snap Toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.grid_snap),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp),
+                        color = theme.iconColor
+                    )
+                    Switch(
+                        checked = isSnapEnabled, 
+                        onCheckedChange = { onUpdateSnap(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = theme.barBackgroundColor,
+                            checkedTrackColor = theme.highlightColor,
+                            uncheckedThumbColor = theme.iconColor.copy(alpha = 0.4f),
+                            uncheckedTrackColor = theme.iconColor.copy(alpha = 0.1f)
+                        )
+                    )
+                }
+                
+                HorizontalDivider()
 
-            // Unit Selector
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(stringResource(R.string.label_unit))
-                Box {
-                    Button(onClick = { expandedUnit = true }) {
-                        Text(currentUnit.symbol)
-                    }
-                    DropdownMenu(expanded = expandedUnit, onDismissRequest = { expandedUnit = false }) {
-                        DistanceUnit.entries.forEach { unit ->
-                            DropdownMenuItem(
-                                text = { Text(unit.symbol) },
-                                onClick = {
-                                    onUpdateUnit(unit)
-                                    expandedUnit = false
-                                }
+                // Unit Selector
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.label_unit),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp),
+                        color = theme.iconColor
+                    )
+                    Box {
+                        Button(
+                            onClick = { expandedUnit = true },
+                            shape = RoundedCornerShape(8.sdp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = theme.menuButtonColor,
+                                contentColor = theme.iconColor
                             )
+                        ) {
+                            Text(currentUnit.symbol, fontSize = 14.ssp)
+                        }
+                        DropdownMenu(expanded = expandedUnit, onDismissRequest = { expandedUnit = false }) {
+                            DistanceUnit.entries.forEach { unit ->
+                                DropdownMenuItem(
+                                    text = { Text(unit.symbol, fontSize = 14.ssp) },
+                                    onClick = {
+                                        onUpdateUnit(unit)
+                                        expandedUnit = false
+                                    }
+                                )
+                            }
                         }
                     }
                 }
-            }
 
-            // Spacing Input
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("${stringResource(R.string.grid_spacing)} (${currentUnit.symbol})")
-                OutlinedTextField(
-                    value = spacingText,
-                    onValueChange = { 
-                        spacingText = it
-                        updateConfig()
-                    },
-                    modifier = Modifier.width(100.dp),
-                    singleLine = true
-                )
-            }
-            
-            HorizontalDivider()
-            
-            Text(stringResource(R.string.label_line_colors), style = MaterialTheme.typography.labelMedium)
-            
-            // Primary Color
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(stringResource(R.string.grid_primary))
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(Color(primaryColor))
-                        .border(1.dp, Color.Gray, CircleShape)
-                        .clickable { showPrimaryPicker = true }
-                )
-            }
-            
-            // Secondary Color
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(stringResource(R.string.grid_secondary))
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(Color(secondaryColor))
-                        .border(1.dp, Color.Gray, CircleShape)
-                        .clickable { showSecondaryPicker = true }
-                )
-            }
-            
-            // Tertiary Color
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(stringResource(R.string.grid_tertiary))
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(Color(tertiaryColor))
-                        .border(1.dp, Color.Gray, CircleShape)
-                        .clickable { showTertiaryPicker = true }
-                )
-            }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            // Footer
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
-            ) {
-                TextButton(onClick = onDismiss) {
-                    Text(stringResource(R.string.action_cancel))
+                // Spacing Input
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "${stringResource(R.string.grid_spacing)} (${currentUnit.symbol})",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp),
+                        color = theme.iconColor
+                    )
+                    OutlinedTextField(
+                        value = spacingText,
+                        onValueChange = { 
+                            spacingText = it
+                            updateConfig()
+                        },
+                        modifier = Modifier.width(100.sdp),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = theme.iconColor,
+                            unfocusedTextColor = theme.iconColor,
+                            focusedBorderColor = theme.highlightColor,
+                            unfocusedBorderColor = theme.iconColor.copy(alpha = 0.3f),
+                            focusedContainerColor = theme.menuButtonColor.copy(alpha = 0.2f),
+                            unfocusedContainerColor = theme.menuButtonColor.copy(alpha = 0.1f)
+                        )
+                    )
                 }
-                Spacer(modifier = Modifier.width(8.dp))
-                Button(onClick = {
-                    updateConfig()
-                    onDismiss()
-                }) {
-                    Text(stringResource(R.string.action_apply))
+                
+                HorizontalDivider()
+                
+                Text(
+                    text = stringResource(R.string.label_line_colors),
+                    style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.ssp),
+                    color = theme.iconColor.copy(alpha = 0.7f)
+                )
+                
+                // Primary Color
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.grid_primary),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp),
+                        color = theme.iconColor
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(40.sdp)
+                            .clip(CircleShape)
+                            .background(Color(primaryColor))
+                            .border(1.sdp, Color.Gray, CircleShape)
+                            .clickable { showPrimaryPicker = true }
+                    )
+                }
+                
+                // Secondary Color
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.grid_secondary),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp),
+                        color = theme.iconColor
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(40.sdp)
+                            .clip(CircleShape)
+                            .background(Color(secondaryColor))
+                            .border(1.sdp, Color.Gray, CircleShape)
+                            .clickable { showSecondaryPicker = true }
+                    )
+                }
+                
+                // Tertiary Color
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.grid_tertiary),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp),
+                        color = theme.iconColor
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(40.sdp)
+                            .clip(CircleShape)
+                            .background(Color(tertiaryColor))
+                            .border(1.sdp, Color.Gray, CircleShape)
+                            .clickable { showTertiaryPicker = true }
+                    )
+                }
+                
+                Spacer(modifier = Modifier.height(16.sdp))
+                
+                // Footer
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(
+                        onClick = onDismiss,
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = theme.iconColor
+                        )
+                    ) {
+                        Text(stringResource(R.string.action_cancel), fontSize = 14.ssp)
+                    }
+                    Spacer(modifier = Modifier.width(8.sdp))
+                    Button(
+                        onClick = {
+                            updateConfig()
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(8.sdp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = theme.menuButtonColor,
+                            contentColor = theme.iconColor
+                        )
+                    ) {
+                        Text(stringResource(R.string.action_apply), fontSize = 14.ssp)
+                    }
                 }
             }
         }

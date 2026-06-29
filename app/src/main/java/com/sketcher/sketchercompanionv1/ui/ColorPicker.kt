@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1.ui
+package com.sketcher.sketchercompanionv1.ui
 
 import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.Canvas
@@ -13,6 +13,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
+import androidx.compose.material3.Surface
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,6 +26,8 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import com.sketcher.sketchercompanionv1.ui.theme.sdp
+import com.sketcher.sketchercompanionv1.ui.theme.ssp
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
@@ -60,78 +64,84 @@ fun ColorPickerDialog(
     ) }
 
     Dialog(onDismissRequest = onDismiss) {
-        Column(
+        Surface(
             modifier = Modifier
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color.White)
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .clip(RoundedCornerShape(16.sdp)),
+            shape = RoundedCornerShape(16.sdp),
+            color = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface
         ) {
-            // REMOVED TITLE per request
-
-            // Current Color Preview
-            Box(
+            Column(
                 modifier = Modifier
-                    .size(60.dp)
-                    .clip(CircleShape)
-                    .background(currentColor)
-                    .border(2.dp, Color.Gray, CircleShape)
-            )
+                    .padding(16.sdp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.sdp)
+            ) {
+                // REMOVED TITLE per request
 
-            // Color Wheel (Hue + Saturation)
-            ColorWheel(
-                hue = hue,
-                saturation = saturation,
-                onColorChange = { h, s -> 
-                    hue = h
-                    saturation = s
+                // Current Color Preview
+                Box(
+                    modifier = Modifier
+                        .size(60.sdp)
+                        .clip(CircleShape)
+                        .background(currentColor)
+                        .border(2.sdp, Color.Gray, CircleShape)
+                )
+
+                // Color Wheel (Hue + Saturation)
+                ColorWheel(
+                    hue = hue,
+                    saturation = saturation,
+                    onColorChange = { h, s -> 
+                        hue = h
+                        saturation = s
+                    }
+                )
+                
+                // Saturation Slider
+                SaturationSlider(
+                    saturation = saturation,
+                    hue = hue,
+                    value = value,
+                    onSaturationChange = { saturation = it }
+                )
+
+                // Value Slider
+                ValueSlider(
+                    value = value,
+                    hue = hue,
+                    saturation = saturation,
+                    onValueChange = { value = it }
+                )
+
+                Text("Presets (Long press to Save)", style = androidx.compose.material3.MaterialTheme.typography.bodySmall.copy(fontSize = 12.ssp))
+                
+                // Presets Row
+                Row(horizontalArrangement = Arrangement.spacedBy(12.sdp)) {
+                    presets.forEachIndexed { index, color ->
+                        PresetCircle(
+                            color = color,
+                            onClick = { 
+                                val hsv = FloatArray(3)
+                                AndroidColor.colorToHSV(color.toArgb(), hsv)
+                                hue = hsv[0]
+                                saturation = hsv[1]
+                                value = hsv[2]
+                            },
+                            onLongClick = {
+                                presets[index] = currentColor
+                            }
+                        )
+                    }
                 }
-            )
-            
-            // Saturation Slider
-            SaturationSlider(
-                saturation = saturation,
-                hue = hue,
-                value = value,
-                onSaturationChange = { saturation = it }
-            )
 
-            // Value Slider
-            ValueSlider(
-                value = value,
-                hue = hue,
-                saturation = saturation,
-                onValueChange = { value = it }
-            )
-
-            Text("Presets (Long press to Save)", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
-            
-            // Presets Row
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                presets.forEachIndexed { index, color ->
-                    PresetCircle(
-                        color = color,
-                        onClick = { 
-                            val hsv = FloatArray(3)
-                            AndroidColor.colorToHSV(color.toArgb(), hsv)
-                            hue = hsv[0]
-                            saturation = hsv[1]
-                            value = hsv[2]
-                        },
-                        onLongClick = {
-                            presets[index] = currentColor
-                        }
-                    )
+                Row(horizontalArrangement = Arrangement.spacedBy(16.sdp)) {
+                    Button(onClick = onDismiss, shape = RoundedCornerShape(8.sdp)) { Text("Cancel", fontSize = 14.ssp) }
+                    if (onDisable != null) {
+                        Button(onClick = { onDisable(); onDismiss() }, shape = RoundedCornerShape(8.sdp)) { Text("None", fontSize = 14.ssp) }
+                    }
+                    Button(onClick = { onColorSelected(currentColor.toArgb()) }, shape = RoundedCornerShape(8.sdp)) { Text("Select", fontSize = 14.ssp) }
                 }
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Button(onClick = onDismiss) { Text("Cancel") }
-                if (onDisable != null) {
-                    Button(onClick = { onDisable(); onDismiss() }) { Text("None") }
-                }
-                Button(onClick = { onColorSelected(currentColor.toArgb()) }) { Text("Select") }
             }
         }
     }
@@ -143,7 +153,8 @@ fun ColorWheel(
     saturation: Float,
     onColorChange: (Float, Float) -> Unit
 ) {
-    val size = 200.dp
+    val size = 200.sdp
+    val scaler = com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler.current
     
     Box(modifier = Modifier.size(size)) {
         Canvas(modifier = Modifier
@@ -211,8 +222,12 @@ fun ColorWheel(
             val selectorX = center.x + selectorR * cos(thetaRad).toFloat()
             val selectorY = center.y + selectorR * sin(thetaRad).toFloat()
             
-            drawCircle(Color.Black, radius = 8.dp.toPx(), center = Offset(selectorX, selectorY), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
-            drawCircle(Color.White, radius = 6.dp.toPx(), center = Offset(selectorX, selectorY))
+            val outerRadius = (8.dp * scaler.scaleFactor).toPx()
+            val innerRadius = (6.dp * scaler.scaleFactor).toPx()
+            val strokeThickness = (2.dp * scaler.scaleFactor).toPx()
+
+            drawCircle(Color.Black, radius = outerRadius, center = Offset(selectorX, selectorY), style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeThickness))
+            drawCircle(Color.White, radius = innerRadius, center = Offset(selectorX, selectorY))
         }
     }
 }
@@ -225,8 +240,8 @@ fun ValueSlider(value: Float, hue: Float, saturation: Float, onValueChange: (Flo
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
-            .height(30.dp)
-            .clip(RoundedCornerShape(15.dp))
+            .height(30.sdp)
+            .clip(RoundedCornerShape(15.sdp))
             .background(
                 brush = Brush.horizontalGradient(
                     colors = listOf(Color.Black, endColor)
@@ -254,11 +269,11 @@ fun ValueSlider(value: Float, hue: Float, saturation: Float, onValueChange: (Flo
         // VISIBLE THUMB
         Box(
             modifier = Modifier
-                .offset(x = offsetX - 10.dp) // Center thumb (-10dp is half of 20dp)
-                .size(20.dp)
+                .offset(x = offsetX - 10.sdp) // Center thumb (-10sdp is half of 20sdp)
+                .size(20.sdp)
                 .clip(CircleShape)
                 .background(Color.White)
-                .border(2.dp, Color.Black, CircleShape)
+                .border(2.sdp, Color.Black, CircleShape)
         )
     }
 }
@@ -272,8 +287,8 @@ fun SaturationSlider(saturation: Float, hue: Float, value: Float, onSaturationCh
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
-            .height(30.dp)
-            .clip(RoundedCornerShape(15.dp))
+            .height(30.sdp)
+            .clip(RoundedCornerShape(15.sdp))
             .background(
                 brush = Brush.horizontalGradient(
                     colors = listOf(startColor, endColor)
@@ -301,11 +316,11 @@ fun SaturationSlider(saturation: Float, hue: Float, value: Float, onSaturationCh
         // VISIBLE THUMB
         Box(
             modifier = Modifier
-                .offset(x = offsetX - 10.dp)
-                .size(20.dp)
+                .offset(x = offsetX - 10.sdp)
+                .size(20.sdp)
                 .clip(CircleShape)
                 .background(Color.White)
-                .border(2.dp, Color.Black, CircleShape)
+                .border(2.sdp, Color.Black, CircleShape)
         )
     }
 }
@@ -315,10 +330,10 @@ fun SaturationSlider(saturation: Float, hue: Float, value: Float, onSaturationCh
 fun PresetCircle(color: Color, onClick: () -> Unit, onLongClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .size(40.dp)
+            .size(40.sdp)
             .clip(CircleShape)
             .background(color)
-            .border(1.dp, Color.Gray, CircleShape)
+            .border(1.sdp, Color.Gray, CircleShape)
             // Use combinedClickable for more reliable long press handling
             .combinedClickable(
                 onClick = onClick,

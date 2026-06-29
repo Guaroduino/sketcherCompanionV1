@@ -12,6 +12,10 @@ data class GroupElement(
     @Transient
     private var cachedBounds: RectF? = null
 
+    override fun invalidateCache() {
+        cachedBounds = null
+    }
+
     override fun transform(tMatrix: Matrix) {
         // Groups transform by updating their own matrix, not the children directly
         matrix.postConcat(tMatrix)
@@ -25,7 +29,7 @@ data class GroupElement(
         
         // 1. Calculate union of children
         elements.forEachIndexed { index, element ->
-            val childBounds = (element as? Transformable)?.getBoundingBox(library) ?: RectF()
+            val childBounds = element.getBoundingBox(library)
             if (index == 0) unionRect.set(childBounds)
             else unionRect.union(childBounds)
         }
@@ -40,7 +44,7 @@ data class GroupElement(
         // Deep copy of children and matrix
         val copiedElements = elements.map { it.copyElement() }.toMutableList()
         val copiedMatrix = Matrix(matrix)
-        return GroupElement(id, copiedElements, copiedMatrix)
+        return GroupElement(java.util.UUID.randomUUID().toString(), copiedElements, copiedMatrix)
     }
 }
 

@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.sp
 import com.sketcher.sketchercompanionv1.SketcherViewModel
 import com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler
 import com.sketcher.sketchercompanionv1.ui.theme.sdp
+import com.sketcher.sketchercompanionv1.ui.theme.ssp
 import com.sketcher.sketchercompanionv1.ui.components.BigTouchBox
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -159,7 +160,10 @@ fun OutlinerActionButton(
     }
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@OptIn(
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class
+)
 @Composable
 fun LayerItem(
     layer: com.sketcher.sketchercompanionv1.Layer,
@@ -182,12 +186,11 @@ fun LayerItem(
     onAddBelow: () -> Unit,
     onSaveToLibrary: () -> Unit
 ) {
-    // Red theme for active item as per mockup
-    val activeBgColor = Color(0xFFD32F2F) // Vibrant Red
+    val activeBgColor = theme.highlightColor
     val inactiveBgColor = Color.Transparent
     
     val currentBgColor = if (isActive) activeBgColor else inactiveBgColor
-    val contentColor = if (isActive) Color.White else theme.iconColor
+    val contentColor = theme.iconColor
 
     Column(
         modifier = Modifier
@@ -225,11 +228,7 @@ fun LayerItem(
                     Icon(
                         Icons.Default.Cast,
                         null,
-                        tint = if (layer.isVisibleOnClient) {
-                            if (isActive) Color.White else Color(0xFF4CAF50)
-                        } else {
-                            if (isActive) Color.White.copy(alpha = 0.3f) else contentColor.copy(alpha = 0.3f)
-                        },
+                        tint = if (layer.isVisibleOnClient) Color(0xFF4CAF50) else contentColor.copy(alpha = 0.3f),
                         modifier = Modifier.size(18.sdp)
                     )
                 }
@@ -247,7 +246,7 @@ fun LayerItem(
                     Icon(
                         Icons.Default.DeleteOutline,
                         null,
-                        tint = if (isActive) Color.White.copy(alpha = 0.8f) else Color.Red.copy(alpha = 0.6f),
+                        tint = if (isActive) contentColor.copy(alpha = 0.8f) else Color(0xFFD32F2F).copy(alpha = 0.6f),
                         modifier = Modifier.size(18.sdp)
                     )
                 }
@@ -264,25 +263,34 @@ fun LayerItem(
             ) {
                 Text(
                     "Opacidad",
-                    color = Color.White.copy(alpha = 0.8f),
-                    fontSize = 12.sp,
-                    modifier = Modifier.width(60.sdp)
+                    color = contentColor.copy(alpha = 0.8f),
+                    fontSize = 11.ssp,
+                    modifier = Modifier.width(52.sdp)
                 )
                 
                 Slider(
                     value = layer.opacity,
                     onValueChange = onOpacityChange,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(18.sdp),
                     colors = SliderDefaults.colors(
-                        thumbColor = Color.White,
-                        activeTrackColor = Color.White.copy(alpha = 0.4f),
-                        inactiveTrackColor = Color.Black.copy(alpha = 0.2f)
-                    )
+                        thumbColor = theme.iconColor,
+                        activeTrackColor = theme.iconColor.copy(alpha = 0.6f),
+                        inactiveTrackColor = theme.iconColor.copy(alpha = 0.2f)
+                    ),
+                    thumb = { _ ->
+                        Box(
+                            modifier = Modifier
+                                .size(10.sdp)
+                                .background(theme.iconColor, CircleShape)
+                        )
+                    }
                 )
             }
             
             Spacer(modifier = Modifier.height(8.sdp))
-            HorizontalDivider(color = Color.White.copy(alpha = 0.15f))
+            HorizontalDivider(color = theme.iconColor.copy(alpha = 0.15f))
             Spacer(modifier = Modifier.height(8.sdp))
             
             // ACTION BUTTONS ROW (Mirrors mockup)
@@ -291,8 +299,8 @@ fun LayerItem(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val btnBg = Color.Black.copy(alpha = 0.25f)
-                val iconTint = Color.White
+                val btnBg = theme.barBackgroundColor.copy(alpha = 0.6f)
+                val iconTint = theme.iconColor
                 
                 // Reorder
                 Row(horizontalArrangement = Arrangement.spacedBy(4.sdp)) {
@@ -300,25 +308,25 @@ fun LayerItem(
                     OutlinerCompactAction(Icons.Default.ArrowDownward, !isLast, btnBg, iconTint, onMoveDown)
                 }
                 
-                Box(modifier = Modifier.width(1.sdp).height(16.sdp).background(Color.White.copy(alpha = 0.15f)))
-
+                Box(modifier = Modifier.width(1.sdp).height(16.sdp).background(theme.iconColor.copy(alpha = 0.15f)))
+ 
                 // Merge (Placeholder icons for merge)
                 Row(horizontalArrangement = Arrangement.spacedBy(4.sdp)) {
                     OutlinerCompactAction(Icons.Default.VerticalAlignTop, !isFirst, btnBg, iconTint, onMergeUp)
                     OutlinerCompactAction(Icons.Default.VerticalAlignBottom, !isLast, btnBg, iconTint, onMergeDown)
                 }
-
-                Box(modifier = Modifier.width(1.sdp).height(16.sdp).background(Color.White.copy(alpha = 0.15f)))
-
+ 
+                Box(modifier = Modifier.width(1.sdp).height(16.sdp).background(theme.iconColor.copy(alpha = 0.15f)))
+ 
                 // Add Above/Below
                 Row(horizontalArrangement = Arrangement.spacedBy(4.sdp)) {
                     OutlinerCompactAction(Icons.Default.LibraryAdd, true, btnBg, iconTint, onAddAbove) // Should be "Add Above" icon
                     // Using a variation for Add Below
                     OutlinerCompactAction(Icons.Default.PostAdd, true, btnBg, iconTint, onAddBelow)
                 }
-
-                Box(modifier = Modifier.width(1.sdp).height(16.sdp).background(Color.White.copy(alpha = 0.15f)))
-
+ 
+                Box(modifier = Modifier.width(1.sdp).height(16.sdp).background(theme.iconColor.copy(alpha = 0.15f)))
+ 
                 // Save to Library
                 OutlinerCompactAction(Icons.Default.Collections, true, btnBg, iconTint, onSaveToLibrary)
             }
