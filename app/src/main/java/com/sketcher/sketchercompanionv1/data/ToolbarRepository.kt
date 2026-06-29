@@ -129,7 +129,7 @@ class ToolbarRepository(context: Context) {
         }
     }
 
-    private fun getDefaultContextualTools(): List<StudioTool> {
+    fun getDefaultContextualTools(): List<StudioTool> {
         return listOfNotNull(
             ToolRegistry.getToolById("context_edit"),
             ToolRegistry.getToolById("context_transform"),

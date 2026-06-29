@@ -113,12 +113,13 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
         if (selectedItem != null && selectedItem is LibraryComponent) {
             Button(
                 onClick = { viewModel.instantiateFromGlobalLibrary(selectedItem) },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = scaler.smallMargin, vertical = 4.sdp),
-                colors = ButtonDefaults.buttonColors(containerColor = theme.activeColor)
+                modifier = Modifier.fillMaxWidth().padding(horizontal = scaler.smallMargin, vertical = 4.sdp).height(32.sdp),
+                contentPadding = PaddingValues(horizontal = 8.sdp, vertical = 0.sdp),
+                colors = ButtonDefaults.buttonColors(containerColor = theme.highlightColor)
             ) {
-                Icon(Icons.Default.AddCircleOutline, null, modifier = Modifier.size(16.sdp))
-                Spacer(Modifier.width(8.dp))
-                Text("Insertar en Lienzo")
+                Icon(Icons.Default.AddCircleOutline, null, modifier = Modifier.size(14.sdp), tint = theme.barBackgroundColor)
+                Spacer(Modifier.width(4.sdp))
+                Text("Insertar", style = MaterialTheme.typography.labelSmall, color = theme.barBackgroundColor)
             }
         }
 
@@ -253,7 +254,7 @@ fun LibraryItemGridCell(
         modifier = Modifier
             .aspectRatio(1f)
             .clip(RoundedCornerShape(8.sdp))
-            .background(if (isSelected) theme.activeColor.copy(alpha = 0.2f) else theme.toolbarBg)
+            .background(if (isSelected) theme.highlightColor.copy(alpha = 0.2f) else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(4.sdp)
     ) {
@@ -349,7 +350,7 @@ fun LibraryItemListCell(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.sdp))
-            .background(if (isSelected) theme.activeColor.copy(alpha = 0.2f) else Color.Transparent)
+            .background(if (isSelected) theme.highlightColor.copy(alpha = 0.2f) else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(8.sdp),
         verticalAlignment = Alignment.CenterVertically

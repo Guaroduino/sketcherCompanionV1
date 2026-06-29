@@ -1691,6 +1691,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         }
 
+        val contextualWithActions = toolbarRepository.getDefaultContextualTools().map { tool ->
+            tool.copy(onClick = {
+                getActionForTool(tool.registryId).invoke()
+            })
+        }
+        _contextualToolbar.value = contextualWithActions
     }
 
 
@@ -6731,7 +6737,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     m.postScale(scale, scale)
                     m.postTranslate(dx, dy)
                     
-                    com.sketcher.sketchercompanionv1.RenderEngine.drawElementRecursive(
+                    canvas.drawColor(android.graphics.Color.WHITE)
+                    canvas.concat(m)
+                    
+                    com.sketcher.sketchercompanionv1.RenderEngine().drawElementRecursive(
                         canvas,
                         instance,
                         componentLibrary,
@@ -6826,12 +6835,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 definitionId = defId
             )
             
-            val newTransform = android.graphics.Matrix()
-            newTransform.setValues(instance.transform)
-            newTransform.postTranslate(dx, dy)
-            val newValues = FloatArray(9)
-            newTransform.getValues(newValues)
-            instance.transform = newValues
+            instance.matrix.postTranslate(dx, dy)
             
             activeContainer.add(instance)
             selectionManager.clearSelection()

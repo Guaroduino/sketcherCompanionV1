@@ -332,7 +332,7 @@ class RenderEngine {
         // Pass 2: STROKE (if enabled)
         if (stroke.isStrokeEnabled) {
             // For FREEHAND, the 'path' IS already the mesh (shape)
-            if (stroke.strokeType == StrokeType.FREEHAND) {
+            if (stroke.strokeType == StrokeType.FREEHAND || stroke.strokeType == StrokeType.PEN) {
                 vectorPaint.style = Paint.Style.FILL
                 val origColor = stroke.strokeColor
                 val origAlpha = Color.alpha(origColor)

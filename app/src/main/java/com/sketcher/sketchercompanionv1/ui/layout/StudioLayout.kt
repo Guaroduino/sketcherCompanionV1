@@ -5459,7 +5459,7 @@ fun StudioLayout(
                     modifier = Modifier
 
 
-                        .width(300.dp)
+                        .width(200.sdp)
 
 
                         .padding(16.dp)
@@ -5738,7 +5738,7 @@ fun StudioLayout(
                 border = androidx.compose.foundation.BorderStroke(1.dp, theme.iconColor.copy(alpha = 0.1f)),
 
 
-                modifier = Modifier.padding(16.dp).width(300.dp)
+                modifier = Modifier.padding(16.dp).width(200.sdp)
 
 
             ) {
@@ -6638,7 +6638,7 @@ fun PerformanceStatsOverlay(
         modifier = modifier
 
 
-            .width(180.dp)
+            .width(120.sdp)
 
 
             .shadow(6.dp, RoundedCornerShape(8.dp)),
