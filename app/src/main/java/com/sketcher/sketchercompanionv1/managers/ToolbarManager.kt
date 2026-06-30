@@ -51,9 +51,9 @@ class ToolbarManager(
 
     fun initLayout() {
         val loaded = toolbarRepository.loadLayout()
-        val layoutResetV6 = prefs.getInt("layout_reset_v6", 0)
+        val layoutResetV7 = prefs.getInt("layout_reset_v7", 0)
         
-        if (loaded != null && layoutResetV6 >= 1) {
+        if (loaded != null && layoutResetV7 >= 1) {
             _assignedTools.value = loaded.assignedMap
             _assignedToolColors.value = loaded.toolColors
             
@@ -65,7 +65,7 @@ class ToolbarManager(
         } else {
             initToolbarState()
             saveLayout()
-            prefs.edit().putInt("layout_reset_v6", 1).apply()
+            prefs.edit().putInt("layout_reset_v7", 1).apply()
         }
     }
 
@@ -489,15 +489,7 @@ class ToolbarManager(
             )
         ).mapValues { (_, list) ->
             list.map { tool ->
-                val toolId = tool.id
-                tool.copy(onClick = {
-                    val payload = _assignedTools.value[toolId]
-                    if (payload != null) {
-                        activateTool(payload, toolId)
-                    } else {
-                        getActionForTool(tool.registryId).invoke()
-                    }
-                })
+                bindToolActions(tool)
             }
         }
 
