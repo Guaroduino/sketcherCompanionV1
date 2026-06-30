@@ -353,7 +353,7 @@ fun StudioLayout(
         when {
 
 
-            payload == ToolPayload.PENCIL || tool.registryId == "pencil" || tool.registryId == "brush" -> {
+            payload == ToolPayload.PENCIL || tool.registryId == "pencil" -> {
 
 
                 currentTool == ToolType.FREEHAND && currentStrokeType == StrokeType.FREEHAND
@@ -1097,20 +1097,48 @@ fun StudioLayout(
 
                     onTrimRequested = { x, y ->
 
-
                         viewModel.trimElementAt(x, y)
-
 
                     }
 
 
                     onExtendRequested = { x, y ->
 
-
                         viewModel.extendElementAt(x, y)
 
+                    }
+
+                    onMirrorRequested = { p1, p2 ->
+
+                        viewModel.mirrorSelected(p1, p2)
 
                     }
+
+                    onTransformSelectedRequested = { matrix, label ->
+
+                        viewModel.transformSelectedElements(matrix, label)
+
+                    }
+
+                    onOffsetRequested = { stroke, dist, pt ->
+
+                        viewModel.offsetStroke(stroke, dist, pt)
+
+                    }
+
+                    onFilletRequested = { s1, s2, radius ->
+
+                        viewModel.filletStrokes(s1, s2, radius)
+
+                    }
+
+                    onChamferRequested = { s1, s2, d1, d2 ->
+
+                        viewModel.chamferStrokes(s1, s2, d1, d2)
+
+                    }
+
+                    isOrthoMode = viewModel.isOrthoModeActive.value
 
 
                     onGeometricProgressChanged = { inProgress ->
@@ -5433,9 +5461,14 @@ fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
 
 
         if (showFillColorPicker) {
+            val fillPresets by viewModel.fillPresets.collectAsState()
             FillStylePickerDialog(
                 initialStyle = fillStyleVal,
                 theme = theme,
+                presets = fillPresets,
+                onPresetOverwritten = { index, style ->
+                    viewModel.saveFillPreset(index, style)
+                },
                 onDismiss = { viewModel.setShowFillColorPicker(false) },
                 onStyleSelected = { style ->
                     viewModel.setFillStyle(style)

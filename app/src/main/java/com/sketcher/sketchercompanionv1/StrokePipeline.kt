@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1
+package com.sketcher.sketchercompanionv1
 
 import android.view.MotionEvent
 import android.graphics.Path
@@ -7,6 +7,7 @@ import android.graphics.PointF
 import android.graphics.RectF
 import com.sketcher.sketchercompanionv1.dto.*
 import com.sketcher.sketchercompanionv1.utils.StrokeSimplifier
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -46,6 +47,7 @@ class StrokePipeline(
     var isFingerMode: Boolean = false
     var fingerOffsetX: Float = 0f
     var fingerOffsetY: Float = 50f
+    var isOrthoMode: Boolean = false
 
     private val pipelineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val consolidationMutex = Mutex()
@@ -250,6 +252,16 @@ class StrokePipeline(
         return false
     }
 
+    private fun applyOrthoSnap(point: StrokePoint, prev: StrokePoint): StrokePoint {
+        val dx = kotlin.math.abs(point.x - prev.x)
+        val dy = kotlin.math.abs(point.y - prev.y)
+        return if (dx > dy) {
+            StrokePoint(point.x, prev.y, point.pressure, point.timestamp)
+        } else {
+            StrokePoint(prev.x, point.y, point.pressure, point.timestamp)
+        }
+    }
+
     private fun updateGeometricPoints(action: Int, worldP: StrokePoint) {
           when (activeStrokeType) {
             StrokeType.FREEHAND, StrokeType.PEN, StrokeType.PAINT, StrokeType.PLUMA -> {
@@ -262,9 +274,10 @@ class StrokePipeline(
                 } else if (action == MotionEvent.ACTION_MOVE || action == MotionEvent.ACTION_UP) {
                     if (currentStrokePoints.isNotEmpty()) {
                         val start = currentStrokePoints.first()
+                        val adjusted = if (isOrthoMode && activeStrokeType == StrokeType.LINE) applyOrthoSnap(worldP, start) else worldP
                         currentStrokePoints.clear()
                         currentStrokePoints.add(start)
-                        currentStrokePoints.add(worldP)
+                        currentStrokePoints.add(adjusted)
                     } else {
                         currentStrokePoints.add(worldP)
                     }
@@ -278,24 +291,32 @@ class StrokePipeline(
                         currentStrokePoints.add(worldP)
                         currentStrokePoints.add(worldP)
                     } else {
+                        val prev = currentStrokePoints.getOrNull(currentStrokePoints.size - 2)
+                        val adjusted = if (isOrthoMode && prev != null) applyOrthoSnap(worldP, prev) else worldP
+                        
                         // Check if we are snapping back to the start point to close/finish the shape!
                         val firstPt = currentStrokePoints.firstOrNull()
                         if (firstPt != null && currentStrokePoints.size > 2) {
-                            val dx = worldP.x - firstPt.x
-                            val dy = worldP.y - firstPt.y
+                            val dx = adjusted.x - firstPt.x
+                            val dy = adjusted.y - firstPt.y
                             val distSq = dx * dx + dy * dy
                             val threshold = 12f / currentZoom
                             if (distSq < threshold * threshold) {
-                                // Update the active preview point to close the shape
                                 currentStrokePoints[currentStrokePoints.size - 1] = firstPt
                                 forceFinishGeometric()
                                 return
                             }
                         }
-                        currentStrokePoints.add(worldP)
+                        
+                        currentStrokePoints[currentStrokePoints.size - 1] = adjusted
+                        currentStrokePoints.add(adjusted)
                     }
                 } else if (action == MotionEvent.ACTION_MOVE) {
-                    if (currentStrokePoints.isNotEmpty()) {
+                    if (currentStrokePoints.size >= 2) {
+                        val prev = currentStrokePoints[currentStrokePoints.size - 2]
+                        val adjusted = if (isOrthoMode) applyOrthoSnap(worldP, prev) else worldP
+                        currentStrokePoints[currentStrokePoints.size - 1] = adjusted
+                    } else if (currentStrokePoints.isNotEmpty()) {
                         currentStrokePoints[currentStrokePoints.size - 1] = worldP
                     }
                 }
@@ -308,10 +329,16 @@ class StrokePipeline(
                         currentStrokePoints.add(worldP)
                         currentStrokePoints.add(worldP)
                     } else {
-                        currentStrokePoints.add(worldP)
+                        val prev = currentStrokePoints.lastOrNull()
+                        val adjusted = if (isOrthoMode && prev != null) applyOrthoSnap(worldP, prev) else worldP
+                        currentStrokePoints.add(adjusted)
                     }
                 } else if (action == MotionEvent.ACTION_MOVE) {
-                    if (currentStrokePoints.isNotEmpty()) {
+                    if (currentStrokePoints.size >= 2) {
+                        val prev = currentStrokePoints[currentStrokePoints.size - 2]
+                        val adjusted = if (isOrthoMode) applyOrthoSnap(worldP, prev) else worldP
+                        currentStrokePoints[currentStrokePoints.size - 1] = adjusted
+                    } else if (currentStrokePoints.isNotEmpty()) {
                         currentStrokePoints[currentStrokePoints.size - 1] = worldP
                     }
                 }

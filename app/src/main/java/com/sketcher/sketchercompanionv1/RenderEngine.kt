@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1
+package com.sketcher.sketchercompanionv1
 
 import android.graphics.Canvas
 import android.graphics.Color
@@ -38,6 +38,8 @@ class RenderEngine {
     private fun releaseMatrix() {
         matrixStackPointer--
     }
+
+    private val tempShaderMatrix = Matrix()
 
     private val vectorPaint = Paint().apply {
         style = Paint.Style.STROKE // Default, changed dynamically
@@ -175,7 +177,8 @@ class RenderEngine {
                 val bitmap = SvgPatternCache.getOrCreate(style)
                 if (bitmap != null) {
                     val shader = BitmapShader(bitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
-                    val matrix = Matrix().apply {
+                    tempShaderMatrix.reset()
+                    val matrix = tempShaderMatrix.apply {
                         postScale(style.scaleX, style.scaleY)
                         postRotate(style.rotation)
                         postTranslate(style.offsetX, style.offsetY)
@@ -192,7 +195,8 @@ class RenderEngine {
                 val bitmap = MathTextureCache.getOrCreate(style)
                 if (bitmap != null) {
                     val shader = BitmapShader(bitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
-                    val matrix = Matrix().apply {
+                    tempShaderMatrix.reset()
+                    val matrix = tempShaderMatrix.apply {
                         postRotate(style.angle)
                     }
                     shader.setLocalMatrix(matrix)
@@ -207,7 +211,8 @@ class RenderEngine {
                 val bitmap = ImageTextureCache.getOrCreate(style.imagePath)
                 if (bitmap != null) {
                     val shader = BitmapShader(bitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
-                    val matrix = Matrix().apply {
+                    tempShaderMatrix.reset()
+                    val matrix = tempShaderMatrix.apply {
                         postScale(style.scaleX, style.scaleY)
                         postRotate(style.rotation)
                         postTranslate(style.offsetX, style.offsetY)
@@ -502,7 +507,7 @@ class RenderEngine {
 
         // Pass 3: DEBUG WIREFRAME (if enabled and stroke has points)
         if (isDebugWireframe && stroke.points.isNotEmpty()) {
-            drawDebugWireframe(canvas, stroke.points, viewMatrix)
+            drawDebugWireframe(canvas, stroke.points, viewMatrix, stroke.path, stroke.paths)
         }
     }
 
@@ -721,13 +726,19 @@ class RenderEngine {
          
          // Debug Wireframe
          if (isDebugWireframe && previewPoints != null) {
-             drawDebugWireframe(canvas, previewPoints, viewMatrix)
+             drawDebugWireframe(canvas, previewPoints, viewMatrix, previewPath)
          }
          
          canvas.restore()
     }
     
-    fun drawDebugWireframe(canvas: Canvas, points: List<StrokePoint>, viewMatrix: Matrix) {
+    fun drawDebugWireframe(
+        canvas: Canvas,
+        points: List<StrokePoint>,
+        viewMatrix: Matrix,
+        meshPath: Path? = null,
+        subPaths: List<Path> = emptyList()
+    ) {
         // Calculate zoom for consistent hairline
         viewMatrix.getValues(tempFloatArray)
         val zoom = kotlin.math.sqrt(tempFloatArray[Matrix.MSCALE_X] * tempFloatArray[Matrix.MSCALE_X] + tempFloatArray[Matrix.MSKEW_X] * tempFloatArray[Matrix.MSKEW_X])
@@ -735,6 +746,7 @@ class RenderEngine {
         debugPaint.strokeWidth = 2f / zoom
         val pRadius = 4f / zoom
         
+        // 1. Draw the spine (center line) and points
         debugPath.reset()
         if (points.isNotEmpty()) {
             debugPath.moveTo(points.first().x, points.first().y)
@@ -744,6 +756,14 @@ class RenderEngine {
             }
         }
         canvas.drawPath(debugPath, debugPaint)
+
+        // 2. Draw the mesh/path outline (if provided)
+        if (meshPath != null) {
+            canvas.drawPath(meshPath, debugPaint)
+        }
+        for (sub in subPaths) {
+            canvas.drawPath(sub, debugPaint)
+        }
     }
 
     fun drawGrid(

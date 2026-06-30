@@ -745,4 +745,260 @@ object GeometryUtils {
             else -> null
         }
     }
+
+    fun mirrorStroke(stroke: VectorStroke, p1: PointF, p2: PointF): VectorStroke {
+        val dx = p2.x - p1.x
+        val dy = p2.y - p1.y
+        val lenSq = dx * dx + dy * dy
+        if (lenSq < 1e-5f) return stroke
+
+        val newPoints = stroke.points.map { pt ->
+            val t = ((pt.x - p1.x) * dx + (pt.y - p1.y) * dy) / lenSq
+            val projX = p1.x + t * dx
+            val projY = p1.y + t * dy
+            val mirX = 2 * projX - pt.x
+            val mirY = 2 * projY - pt.y
+            StrokePoint(mirX, mirY, pt.pressure, pt.timestamp)
+        }
+        val newPath = buildCenterlinePath(stroke.strokeType, newPoints)
+        return stroke.copy(points = newPoints, path = newPath, fillPath = null)
+    }
+
+    fun offsetStroke(stroke: VectorStroke, distance: Float, directionPoint: PointF): VectorStroke? {
+        val pts = stroke.points
+        if (pts.isEmpty()) return null
+
+        return when (stroke.strokeType) {
+            StrokeType.LINE -> {
+                if (pts.size < 2) return null
+                val p1 = PointF(pts.first().x, pts.first().y)
+                val p2 = PointF(pts.last().x, pts.last().y)
+
+                val dx = p2.x - p1.x
+                val dy = p2.y - p1.y
+                val len = hypot(dx, dy)
+                if (len < 1e-4f) return null
+
+                val nx = -dy / len
+                val ny = dx / len
+
+                val d1x = nx * distance
+                val d1y = ny * distance
+
+                val off1x = p1.x + d1x
+                val off1y = p1.y + d1y
+                val off2x = p1.x - d1x
+                val off2y = p1.y - d1y
+
+                val dist1 = hypot(directionPoint.x - off1x, directionPoint.y - off1y)
+                val dist2 = hypot(directionPoint.x - off2x, directionPoint.y - off2y)
+
+                val (vx, vy) = if (dist1 < dist2) Pair(d1x, d1y) else Pair(-d1x, -d1y)
+
+                val newPoints = pts.map { pt ->
+                     StrokePoint(pt.x + vx, pt.y + vy, pt.pressure, pt.timestamp)
+                }
+                val newPath = buildCenterlinePath(StrokeType.LINE, newPoints)
+                stroke.copy(points = newPoints, path = newPath, fillPath = null)
+            }
+            StrokeType.CIRCLE -> {
+                if (pts.size < 2) return null
+                val center = PointF(pts[0].x, pts[0].y)
+                val edge = PointF(pts[1].x, pts[1].y)
+                val r = hypot(edge.x - center.x, edge.y - center.y)
+
+                val distToDir = hypot(directionPoint.x - center.x, directionPoint.y - center.y)
+                val newR = if (distToDir > r) {
+                    r + distance
+                } else {
+                    (r - distance).coerceAtLeast(1f)
+                }
+
+                val ex = edge.x - center.x
+                val ey = edge.y - center.y
+                val elen = hypot(ex, ey)
+                if (elen < 1e-4f) return null
+                val newEdge = StrokePoint(center.x + (ex / elen) * newR, center.y + (ey / elen) * newR, pts[1].pressure, pts[1].timestamp)
+
+                val newPoints = listOf(pts[0], newEdge)
+                val newPath = buildCenterlinePath(StrokeType.CIRCLE, newPoints)
+                stroke.copy(points = newPoints, path = newPath, fillPath = null)
+            }
+            else -> null
+        }
+    }
+
+    fun findInfiniteLineIntersection(
+        a: PointF, b: PointF, c: PointF, d: PointF
+    ): PointF? {
+        val dX1 = b.x - a.x
+        val dY1 = b.y - a.y
+        val dX2 = d.x - c.x
+        val dY2 = d.y - c.y
+
+        val det = dX1 * dY2 - dY1 * dX2
+        if (abs(det) < 1e-5f) return null // Parallel
+
+        val t = ((c.x - a.x) * dY2 - (c.y - a.y) * dX2) / det
+        return PointF(a.x + t * dX1, a.y + t * dY1)
+    }
+
+    fun applyFillet(s1: VectorStroke, s2: VectorStroke, radius: Float): Triple<VectorStroke, VectorStroke, VectorStroke>? {
+        if (s1.strokeType != StrokeType.LINE || s2.strokeType != StrokeType.LINE) return null
+        if (s1.points.size < 2 || s2.points.size < 2) return null
+
+        val a = PointF(s1.points.first().x, s1.points.first().y)
+        val b = PointF(s1.points.last().x, s1.points.last().y)
+        val c = PointF(s2.points.first().x, s2.points.first().y)
+        val d = PointF(s2.points.last().x, s2.points.last().y)
+
+        val intersection = findInfiniteLineIntersection(a, b, c, d) ?: return null
+
+        // Determine vectors pointing away from the intersection along the lines
+        val distA = hypot(a.x - intersection.x, a.y - intersection.y)
+        val distB = hypot(b.x - intersection.x, b.y - intersection.y)
+        val pFar1 = if (distA > distB) a else b
+
+        val distC = hypot(c.x - intersection.x, c.y - intersection.y)
+        val distD = hypot(d.x - intersection.x, d.y - intersection.y)
+        val pFar2 = if (distC > distD) c else d
+
+        val v1x = pFar1.x - intersection.x
+        val v1y = pFar1.y - intersection.y
+        val len1 = hypot(v1x, v1y)
+        if (len1 < 1e-4f) return null
+        val u1x = v1x / len1
+        val u1y = v1y / len1
+
+        val v2x = pFar2.x - intersection.x
+        val v2y = pFar2.y - intersection.y
+        val len2 = hypot(v2x, v2y)
+        if (len2 < 1e-4f) return null
+        val u2x = v2x / len2
+        val u2y = v2y / len2
+
+        // Bisector vector
+        val bx = u1x + u2x
+        val by = u1y + u2y
+        val blen = hypot(bx, by)
+        if (blen < 1e-4f) return null
+        val ubx = bx / blen
+        val uby = by / blen
+
+        // Angle between lines
+        val dot = u1x * u2x + u1y * u2y
+        val angle = acos(dot.coerceIn(-1.0f, 1.0f))
+        if (abs(sin(angle)) < 1e-4f) return null // Collinear or parallel
+
+        // Tangent distance
+        val tDist = radius / tan(angle / 2.0).toFloat()
+
+        // Tangent points
+        val t1 = PointF(intersection.x + u1x * tDist, intersection.y + u1y * tDist)
+        val t2 = PointF(intersection.x + u2x * tDist, intersection.y + u2y * tDist)
+
+        // Fillet center
+        val cDist = radius / sin(angle / 2.0).toFloat()
+        val center = PointF(intersection.x + ubx * cDist, intersection.y + uby * cDist)
+
+        // Midpoint of arc facing the intersection
+        val midArc = PointF(center.x - ubx * radius, center.y - uby * radius)
+
+        // Construct modified lines
+        val newS1Points = listOf(
+            StrokePoint(pFar1.x, pFar1.y, s1.points.first().pressure),
+            StrokePoint(t1.x, t1.y, s1.points.last().pressure)
+        )
+        val newS1 = s1.copy(points = newS1Points, path = buildCenterlinePath(StrokeType.LINE, newS1Points), fillPath = null)
+
+        val newS2Points = listOf(
+            StrokePoint(pFar2.x, pFar2.y, s2.points.first().pressure),
+            StrokePoint(t2.x, t2.y, s2.points.last().pressure)
+        )
+        val newS2 = s2.copy(points = newS2Points, path = buildCenterlinePath(StrokeType.LINE, newS2Points), fillPath = null)
+
+        // Construct fillet arc
+        val arcPoints = listOf(
+            StrokePoint(t1.x, t1.y, 1f),
+            StrokePoint(midArc.x, midArc.y, 1f),
+            StrokePoint(t2.x, t2.y, 1f)
+        )
+        val filletArc = VectorStroke(
+            points = arcPoints,
+            strokeColor = s1.strokeColor,
+            maxWidth = s1.maxWidth,
+            path = buildCenterlinePath(StrokeType.ARC, arcPoints),
+            strokeType = StrokeType.ARC,
+            isCadGeometry = true
+        )
+
+        return Triple(newS1, newS2, filletArc)
+    }
+
+    fun applyChamfer(s1: VectorStroke, s2: VectorStroke, d1: Float, d2: Float): Triple<VectorStroke, VectorStroke, VectorStroke>? {
+        if (s1.strokeType != StrokeType.LINE || s2.strokeType != StrokeType.LINE) return null
+        if (s1.points.size < 2 || s2.points.size < 2) return null
+
+        val a = PointF(s1.points.first().x, s1.points.first().y)
+        val b = PointF(s1.points.last().x, s1.points.last().y)
+        val c = PointF(s2.points.first().x, s2.points.first().y)
+        val d = PointF(s2.points.last().x, s2.points.last().y)
+
+        val intersection = findInfiniteLineIntersection(a, b, c, d) ?: return null
+
+        val distA = hypot(a.x - intersection.x, a.y - intersection.y)
+        val distB = hypot(b.x - intersection.x, b.y - intersection.y)
+        val pFar1 = if (distA > distB) a else b
+
+        val distC = hypot(c.x - intersection.x, c.y - intersection.y)
+        val distD = hypot(d.x - intersection.x, d.y - intersection.y)
+        val pFar2 = if (distC > distD) c else d
+
+        val v1x = pFar1.x - intersection.x
+        val v1y = pFar1.y - intersection.y
+        val len1 = hypot(v1x, v1y)
+        if (len1 < 1e-4f) return null
+        val u1x = v1x / len1
+        val u1y = v1y / len1
+
+        val v2x = pFar2.x - intersection.x
+        val v2y = pFar2.y - intersection.y
+        val len2 = hypot(v2x, v2y)
+        if (len2 < 1e-4f) return null
+        val u2x = v2x / len2
+        val u2y = v2y / len2
+
+        // Chamfer points
+        val t1 = PointF(intersection.x + u1x * d1, intersection.y + u1y * d1)
+        val t2 = PointF(intersection.x + u2x * d2, intersection.y + u2y * d2)
+
+        // Construct modified lines
+        val newS1Points = listOf(
+            StrokePoint(pFar1.x, pFar1.y, s1.points.first().pressure),
+            StrokePoint(t1.x, t1.y, s1.points.last().pressure)
+        )
+        val newS1 = s1.copy(points = newS1Points, path = buildCenterlinePath(StrokeType.LINE, newS1Points), fillPath = null)
+
+        val newS2Points = listOf(
+            StrokePoint(pFar2.x, pFar2.y, s2.points.first().pressure),
+            StrokePoint(t2.x, t2.y, s2.points.last().pressure)
+        )
+        val newS2 = s2.copy(points = newS2Points, path = buildCenterlinePath(StrokeType.LINE, newS2Points), fillPath = null)
+
+        // Construct chamfer line
+        val chamferPoints = listOf(
+            StrokePoint(t1.x, t1.y, 1f),
+            StrokePoint(t2.x, t2.y, 1f)
+        )
+        val chamferLine = VectorStroke(
+            points = chamferPoints,
+            strokeColor = s1.strokeColor,
+            maxWidth = s1.maxWidth,
+            path = buildCenterlinePath(StrokeType.LINE, chamferPoints),
+            strokeType = StrokeType.LINE,
+            isCadGeometry = true
+        )
+
+        return Triple(newS1, newS2, chamferLine)
+    }
 }

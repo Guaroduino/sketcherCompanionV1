@@ -8,6 +8,8 @@ import com.sketcher.sketchercompanionv1.dto.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONObject
+import org.json.JSONArray
 
 class ToolManager(context: Context) {
     private val prefs = context.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE)
@@ -47,6 +49,9 @@ class ToolManager(context: Context) {
 
     private val _brushPresets = MutableStateFlow<List<BrushPreset>>(emptyList())
     val brushPresets = _brushPresets.asStateFlow()
+
+    private val _fillPresets = MutableStateFlow<List<FillStyle>>(emptyList())
+    val fillPresets = _fillPresets.asStateFlow()
 
     private val _selectedPresetIndex = MutableStateFlow<Int?>(null)
     val selectedPresetIndex = _selectedPresetIndex.asStateFlow()
@@ -139,6 +144,7 @@ class ToolManager(context: Context) {
         fingerOffsetXValue = freehandConfig.fingerOffsetX
         fingerOffsetYValue = freehandConfig.fingerOffsetY
         _brushPresets.value = loadBrushPresetsForTool(currentTool)
+        _fillPresets.value = loadFillPresets()
         selectTool(currentTool)
     }
 
@@ -412,20 +418,20 @@ class ToolManager(context: Context) {
 
     fun setFingerMode(enabled: Boolean) {
         fingerModeActive = enabled
-        val currentConfigs = toolConfigs.toMap()
-        toolConfigs.clear()
-        currentConfigs.forEach { (type, config) ->
-            toolConfigs[type] = config.copy(isFingerMode = enabled)
+        toolConfigs.keys.toList().forEach { type ->
+            toolConfigs[type]?.let { config ->
+                toolConfigs[type] = config.copy(isFingerMode = enabled)
+            }
         }
     }
 
     fun setFingerOffset(x: Float, y: Float) {
         fingerOffsetXValue = x
         fingerOffsetYValue = y
-        val currentConfigs = toolConfigs.toMap()
-        toolConfigs.clear()
-        currentConfigs.forEach { (type, config) ->
-             toolConfigs[type] = config.copy(fingerOffsetX = x, fingerOffsetY = y)
+        toolConfigs.keys.toList().forEach { type ->
+            toolConfigs[type]?.let { config ->
+                toolConfigs[type] = config.copy(fingerOffsetX = x, fingerOffsetY = y)
+            }
         }
     }
 
@@ -545,5 +551,172 @@ class ToolManager(context: Context) {
         fingerOffsetYValue = freehandConfig.fingerOffsetY
         
         selectTool(currentTool)
+    }
+
+    // --- FILL STYLE PRESETS ---
+
+    fun saveFillPreset(index: Int, style: FillStyle) {
+        val currentList = _fillPresets.value.toMutableList()
+        if (index in 0 until currentList.size) {
+            currentList[index] = style
+            _fillPresets.value = currentList
+            
+            try {
+                val array = JSONArray()
+                for (preset in currentList) {
+                    array.put(fillStyleToJson(preset))
+                }
+                prefs.edit().putString("fill_presets_v1", array.toString()).apply()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private fun loadFillPresets(): List<FillStyle> {
+        val json = prefs.getString("fill_presets_v1", null)
+        if (json != null) {
+            try {
+                val array = JSONArray(json)
+                val list = mutableListOf<FillStyle>()
+                for (i in 0 until array.length()) {
+                    val itemStr = array.getString(i)
+                    jsonToFillStyle(itemStr)?.let { list.add(it) }
+                }
+                if (list.size >= 5) {
+                    return list
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        return getDefaultFillPresets()
+    }
+
+    private fun getDefaultFillPresets(): List<FillStyle> {
+        val builtinSvgs = listOf(
+            "<svg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'><circle cx='20' cy='20' r='6' fill='black'/></svg>",
+            "<svg width='52' height='60' viewBox='0 0 52 60' xmlns='http://www.w3.org/2000/svg'><path d='M26 0 L52 15 L52 45 L26 60 L0 45 L0 15 Z M26 10 L43 20 L43 40 L26 50 L9 40 L9 20 Z' fill='none' stroke='black' stroke-width='2'/></svg>",
+            "<svg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'><path d='M0 10 Q 15 20, 30 10 T 60 10 M0 30 Q 15 40, 30 30 T 60 30 M0 50 Q 15 60, 30 50 T 60 50' fill='none' stroke='black' stroke-width='2'/></svg>",
+            "<svg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'><path d='M0 0 L40 40 M40 0 L0 40' fill='none' stroke='black' stroke-width='2'/></svg>"
+        )
+        return listOf(
+            FillStyle.Solid(AndroidColor.rgb(255, 111, 97)),
+            FillStyle.MathTexture(
+                patternName = "GRID",
+                primaryColor = AndroidColor.rgb(63, 81, 181),
+                secondaryColor = AndroidColor.TRANSPARENT,
+                spacing = 30f,
+                thickness = 2f,
+                angle = 0f
+            ),
+            FillStyle.MathTexture(
+                patternName = "CHECKERBOARD",
+                primaryColor = AndroidColor.rgb(180, 180, 180),
+                secondaryColor = AndroidColor.WHITE,
+                spacing = 24f,
+                thickness = 1f,
+                angle = 0f
+            ),
+            FillStyle.SvgPattern(
+                svgContent = builtinSvgs[1],
+                scaleX = 1f,
+                scaleY = 1f,
+                rotation = 0f,
+                offsetX = 0f,
+                offsetY = 0f
+            ),
+            FillStyle.SvgPattern(
+                svgContent = builtinSvgs[2],
+                scaleX = 1.2f,
+                scaleY = 1.2f,
+                rotation = 45f,
+                offsetX = 0f,
+                offsetY = 0f
+            )
+        )
+    }
+
+    private fun fillStyleToJson(style: FillStyle): String {
+        val obj = JSONObject()
+        obj.put("type", style.type.name)
+        when (style) {
+            is FillStyle.Solid -> {
+                obj.put("color", style.color)
+            }
+            is FillStyle.SvgPattern -> {
+                obj.put("svgContent", style.svgContent)
+                obj.put("scaleX", style.scaleX.toDouble())
+                obj.put("scaleY", style.scaleY.toDouble())
+                obj.put("rotation", style.rotation.toDouble())
+                obj.put("offsetX", style.offsetX.toDouble())
+                obj.put("offsetY", style.offsetY.toDouble())
+            }
+            is FillStyle.MathTexture -> {
+                obj.put("patternName", style.patternName)
+                obj.put("primaryColor", style.primaryColor)
+                obj.put("secondaryColor", style.secondaryColor)
+                obj.put("spacing", style.spacing.toDouble())
+                obj.put("thickness", style.thickness.toDouble())
+                obj.put("angle", style.angle.toDouble())
+            }
+            is FillStyle.ImageTexture -> {
+                obj.put("imagePath", style.imagePath)
+                obj.put("scaleX", style.scaleX.toDouble())
+                obj.put("scaleY", style.scaleY.toDouble())
+                obj.put("rotation", style.rotation.toDouble())
+                obj.put("offsetX", style.offsetX.toDouble())
+                obj.put("offsetY", style.offsetY.toDouble())
+                obj.put("opacity", style.opacity.toDouble())
+            }
+        }
+        return obj.toString()
+    }
+
+    private fun jsonToFillStyle(jsonStr: String): FillStyle? {
+        try {
+            val obj = JSONObject(jsonStr)
+            val typeStr = obj.getString("type")
+            val type = FillType.valueOf(typeStr)
+            return when (type) {
+                FillType.SOLID -> {
+                    FillStyle.Solid(color = obj.getInt("color"))
+                }
+                FillType.SVG_PATTERN -> {
+                    FillStyle.SvgPattern(
+                        svgContent = obj.getString("svgContent"),
+                        scaleX = obj.optDouble("scaleX", 1.0).toFloat(),
+                        scaleY = obj.optDouble("scaleY", 1.0).toFloat(),
+                        rotation = obj.optDouble("rotation", 0.0).toFloat(),
+                        offsetX = obj.optDouble("offsetX", 0.0).toFloat(),
+                        offsetY = obj.optDouble("offsetY", 0.0).toFloat()
+                    )
+                }
+                FillType.MATH_TEXTURE -> {
+                    FillStyle.MathTexture(
+                        patternName = obj.getString("patternName"),
+                        primaryColor = obj.optInt("primaryColor", AndroidColor.BLACK),
+                        secondaryColor = obj.optInt("secondaryColor", AndroidColor.TRANSPARENT),
+                        spacing = obj.optDouble("spacing", 20.0).toFloat(),
+                        thickness = obj.optDouble("thickness", 2.0).toFloat(),
+                        angle = obj.optDouble("angle", 0.0).toFloat()
+                    )
+                }
+                FillType.IMAGE_TEXTURE -> {
+                    FillStyle.ImageTexture(
+                        imagePath = obj.getString("imagePath"),
+                        scaleX = obj.optDouble("scaleX", 1.0).toFloat(),
+                        scaleY = obj.optDouble("scaleY", 1.0).toFloat(),
+                        rotation = obj.optDouble("rotation", 0.0).toFloat(),
+                        offsetX = obj.optDouble("offsetX", 0.0).toFloat(),
+                        offsetY = obj.optDouble("offsetY", 0.0).toFloat(),
+                        opacity = obj.optDouble("opacity", 1.0).toFloat()
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return null
+        }
     }
 }

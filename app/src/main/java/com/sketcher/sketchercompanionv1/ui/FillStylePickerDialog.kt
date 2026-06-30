@@ -18,6 +18,10 @@ import androidx.compose.foundation.border
 
 import androidx.compose.foundation.clickable
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+
+import androidx.compose.foundation.combinedClickable
+
 import androidx.compose.foundation.layout.*
 
 import androidx.compose.foundation.rememberScrollState
@@ -45,6 +49,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+
+import androidx.compose.ui.graphics.drawscope.rotate
 
 import androidx.compose.ui.graphics.nativeCanvas
 
@@ -81,6 +87,10 @@ fun FillStylePickerDialog(
     initialStyle: FillStyle,
 
     theme: UiThemeConfig,
+
+    presets: List<FillStyle>,
+
+    onPresetOverwritten: (Int, FillStyle) -> Unit,
 
     onDismiss: () -> Unit,
 
@@ -358,6 +368,62 @@ fun FillStylePickerDialog(
 
                 )
 
+                // Presets Title & Row
+                Text("Presets (Long press to Save)", fontSize = 10.ssp, color = theme.iconColor.copy(alpha = 0.7f))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.sdp),
+                    horizontalArrangement = Arrangement.spacedBy(12.sdp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    presets.forEachIndexed { index, preset ->
+                        val isSelected = (currentPreviewStyle == preset)
+                        CirclePresetPreview(
+                            style = preset,
+                            isSelected = isSelected,
+                            onClick = {
+                                selectedTab = preset.type
+                                when (preset) {
+                                    is FillStyle.Solid -> {
+                                        solidColor = preset.color
+                                    }
+                                    is FillStyle.SvgPattern -> {
+                                        svgContent = preset.svgContent
+                                        svgScaleX = preset.scaleX
+                                        svgScaleY = preset.scaleY
+                                        svgRotation = preset.rotation
+                                        svgOffsetX = preset.offsetX
+                                        svgOffsetY = preset.offsetY
+                                    }
+                                    is FillStyle.MathTexture -> {
+                                        mathPatternName = preset.patternName
+                                        mathPrimaryColor = preset.primaryColor
+                                        mathSecondaryColor = preset.secondaryColor
+                                        mathSpacing = preset.spacing
+                                        mathThickness = preset.thickness
+                                        mathAngle = preset.angle
+                                    }
+                                    is FillStyle.ImageTexture -> {
+                                        imagePath = preset.imagePath
+                                        imgScaleX = preset.scaleX
+                                        imgScaleY = preset.scaleY
+                                        imgRotation = preset.rotation
+                                        imgOffsetX = preset.offsetX
+                                        imgOffsetY = preset.offsetY
+                                        imgOpacity = preset.opacity
+                                    }
+                                }
+                            },
+                            onLongClick = {
+                                onPresetOverwritten(index, currentPreviewStyle)
+                            },
+                            theme = theme
+                        )
+                    }
+                }
+
                 // Tab System
 
                 TabRow(
@@ -370,13 +436,20 @@ fun FillStylePickerDialog(
 
                     FillType.entries.forEach { type ->
 
+                        val tabName = when (type) {
+                            FillType.SOLID -> "Solid"
+                            FillType.SVG_PATTERN -> "Pattern"
+                            FillType.MATH_TEXTURE -> "Math Tex"
+                            FillType.IMAGE_TEXTURE -> "Img Tex"
+                        }
+
                         Tab(
 
                             selected = selectedTab == type,
 
                             onClick = { selectedTab = type },
 
-                            text = { Text(type.name, fontSize = 10.ssp) }
+                            text = { Text(tabName, fontSize = 10.ssp) }
 
                         )
 
@@ -1287,56 +1360,62 @@ fun LargeFillStylePreview(
                     val spacingPx = style.spacing * scale
                     val thicknessPx = style.thickness * scale
                     
-                    when (style.patternName.uppercase()) {
-                        "GRID" -> {
-                            val cols = (size.width / spacingPx).toInt() + 1
-                            val rows = (size.height / spacingPx).toInt() + 1
-                            for (i in 0..cols) {
-                                val x = i * spacingPx
-                                drawLine(primary, start = Offset(x, 0f), end = Offset(x, size.height), strokeWidth = thicknessPx)
+                    rotate(degrees = style.angle) {
+                        when (style.patternName.uppercase()) {
+                            "GRID" -> {
+                                val maxDim = kotlin.math.max(size.width, size.height) * 2f
+                                val cols = (maxDim / spacingPx).toInt() + 1
+                                val rows = (maxDim / spacingPx).toInt() + 1
+                                for (i in -cols..cols) {
+                                    val x = i * spacingPx
+                                    drawLine(primary, start = Offset(x, -maxDim), end = Offset(x, maxDim), strokeWidth = thicknessPx)
+                                }
+                                for (j in -rows..rows) {
+                                    val y = j * spacingPx
+                                    drawLine(primary, start = Offset(-maxDim, y), end = Offset(maxDim, y), strokeWidth = thicknessPx)
+                                }
                             }
-                            for (j in 0..rows) {
-                                val y = j * spacingPx
-                                drawLine(primary, start = Offset(0f, y), end = Offset(size.width, y), strokeWidth = thicknessPx)
-                            }
-                        }
-                        "CHECKERBOARD" -> {
-                            val cols = (size.width / spacingPx).toInt() + 1
-                            val rows = (size.height / spacingPx).toInt() + 1
-                            for (i in 0..cols) {
-                                for (j in 0..rows) {
-                                    if ((i + j) % 2 == 0) {
-                                        drawRect(
-                                            color = primary,
-                                            topLeft = Offset(i * spacingPx, j * spacingPx),
-                                            size = androidx.compose.ui.geometry.Size(spacingPx, spacingPx)
-                                        )
+                            "CHECKERBOARD" -> {
+                                val maxDim = kotlin.math.max(size.width, size.height) * 2f
+                                val cols = (maxDim / spacingPx).toInt() + 1
+                                val rows = (maxDim / spacingPx).toInt() + 1
+                                for (i in -cols..cols) {
+                                    for (j in -rows..rows) {
+                                        if ((i + j) % 2 == 0) {
+                                            drawRect(
+                                                color = primary,
+                                                topLeft = Offset(i * spacingPx, j * spacingPx),
+                                                size = androidx.compose.ui.geometry.Size(spacingPx, spacingPx)
+                                            )
+                                        }
                                     }
                                 }
                             }
-                        }
-                        "STRIPES" -> {
-                            val cols = (size.width / spacingPx).toInt() + 1
-                            val rows = (size.height / spacingPx).toInt() + 1
-                            for (i in -rows..cols) {
-                                drawLine(
-                                    color = primary,
-                                    start = Offset(i * spacingPx, 0f),
-                                    end = Offset((i + rows) * spacingPx, size.height),
-                                    strokeWidth = thicknessPx
-                                )
-                            }
-                        }
-                        "DOTS" -> {
-                            val cols = (size.width / spacingPx).toInt() + 1
-                            val rows = (size.height / spacingPx).toInt() + 1
-                            for (i in 0..cols) {
-                                for (j in 0..rows) {
-                                    drawCircle(
+                            "STRIPES" -> {
+                                val maxDim = kotlin.math.max(size.width, size.height) * 2f
+                                val cols = (maxDim / spacingPx).toInt() + 1
+                                val rows = (maxDim / spacingPx).toInt() + 1
+                                for (i in -rows * 2..cols * 2) {
+                                    drawLine(
                                         color = primary,
-                                        radius = thicknessPx,
-                                        center = Offset(i * spacingPx, j * spacingPx)
+                                        start = Offset(i * spacingPx, -maxDim),
+                                        end = Offset((i + rows * 2) * spacingPx, maxDim),
+                                        strokeWidth = thicknessPx
                                     )
+                                }
+                            }
+                            "DOTS" -> {
+                                val maxDim = kotlin.math.max(size.width, size.height) * 2f
+                                val cols = (maxDim / spacingPx).toInt() + 1
+                                val rows = (maxDim / spacingPx).toInt() + 1
+                                for (i in -cols..cols) {
+                                    for (j in -rows..rows) {
+                                        drawCircle(
+                                            color = primary,
+                                            radius = thicknessPx,
+                                            center = Offset(i * spacingPx, j * spacingPx)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1379,6 +1458,163 @@ fun LargeFillStylePreview(
                 is FillStyle.ImageTexture -> {
                     drawPreviewCheckerboard()
                     // Draw image texture details
+                    drawRect(Color(0x331E88E5))
+                    val paintColor = Color(0xFF1E88E5)
+                    drawCircle(paintColor.copy(alpha=0.3f), radius = size.minDimension / 3.5f, center = Offset(size.width / 2f, size.height / 2f))
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun CirclePresetPreview(
+    style: FillStyle,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    theme: UiThemeConfig,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .size(36.sdp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .border(
+                width = if (isSelected) 2.sdp else 1.sdp,
+                color = if (isSelected) theme.iconColor else Color.LightGray,
+                shape = CircleShape
+            )
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            // Helper to draw transparency background grid
+            fun drawPreviewCheckerboard() {
+                val cellSize = 5.dp.toPx()
+                val cols = (size.width / cellSize).toInt() + 1
+                val rows = (size.height / cellSize).toInt() + 1
+                for (c in 0..cols) {
+                    for (r in 0..rows) {
+                        val checkerColor = if ((c + r) % 2 == 0) Color(0xFFE5E5E5) else Color(0xFFF2F2F2)
+                        drawRect(checkerColor, topLeft = Offset(c * cellSize, r * cellSize), size = androidx.compose.ui.geometry.Size(cellSize, cellSize))
+                    }
+                }
+            }
+
+            when (style) {
+                is FillStyle.Solid -> {
+                    drawRect(Color(style.color))
+                }
+                is FillStyle.MathTexture -> {
+                    val primary = Color(style.primaryColor)
+                    val secondary = if (style.secondaryColor == AndroidColor.TRANSPARENT) Color.Transparent else Color(style.secondaryColor)
+                    
+                    drawPreviewCheckerboard()
+                    drawRect(secondary)
+                    
+                    val scale = 0.2f
+                    val spacingPx = style.spacing * scale
+                    val thicknessPx = style.thickness * scale
+                    
+                    rotate(degrees = style.angle) {
+                        when (style.patternName.uppercase()) {
+                            "GRID" -> {
+                                val maxDim = kotlin.math.max(size.width, size.height) * 2f
+                                val cols = (maxDim / spacingPx).toInt() + 1
+                                val rows = (maxDim / spacingPx).toInt() + 1
+                                for (i in -cols..cols) {
+                                    val x = i * spacingPx
+                                    drawLine(primary, start = Offset(x, -maxDim), end = Offset(x, maxDim), strokeWidth = thicknessPx)
+                                }
+                                for (j in -rows..rows) {
+                                    val y = j * spacingPx
+                                    drawLine(primary, start = Offset(-maxDim, y), end = Offset(maxDim, y), strokeWidth = thicknessPx)
+                                }
+                            }
+                            "CHECKERBOARD" -> {
+                                val maxDim = kotlin.math.max(size.width, size.height) * 2f
+                                val cols = (maxDim / spacingPx).toInt() + 1
+                                val rows = (maxDim / spacingPx).toInt() + 1
+                                for (i in -cols..cols) {
+                                    for (j in -rows..rows) {
+                                        if ((i + j) % 2 == 0) {
+                                            drawRect(
+                                                color = primary,
+                                                topLeft = Offset(i * spacingPx, j * spacingPx),
+                                                size = androidx.compose.ui.geometry.Size(spacingPx, spacingPx)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            "STRIPES" -> {
+                                val maxDim = kotlin.math.max(size.width, size.height) * 2f
+                                val cols = (maxDim / spacingPx).toInt() + 1
+                                val rows = (maxDim / spacingPx).toInt() + 1
+                                for (i in -rows * 2..cols * 2) {
+                                    drawLine(
+                                        color = primary,
+                                        start = Offset(i * spacingPx, -maxDim),
+                                        end = Offset((i + rows * 2) * spacingPx, maxDim),
+                                        strokeWidth = thicknessPx
+                                    )
+                                }
+                            }
+                            "DOTS" -> {
+                                val maxDim = kotlin.math.max(size.width, size.height) * 2f
+                                val cols = (maxDim / spacingPx).toInt() + 1
+                                val rows = (maxDim / spacingPx).toInt() + 1
+                                for (i in -cols..cols) {
+                                    for (j in -rows..rows) {
+                                        drawCircle(
+                                            color = primary,
+                                            radius = thicknessPx,
+                                            center = Offset(i * spacingPx, j * spacingPx)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                is FillStyle.SvgPattern -> {
+                    drawPreviewCheckerboard()
+                    if (style.svgContent.isNotEmpty()) {
+                        try {
+                            val svgObj = com.caverock.androidsvg.SVG.getFromString(style.svgContent)
+                            drawIntoCanvas { canvas ->
+                                val nativeCanvas = canvas.nativeCanvas
+                                nativeCanvas.save()
+                                
+                                nativeCanvas.scale(style.scaleX * 0.35f, style.scaleY * 0.35f)
+                                nativeCanvas.rotate(style.rotation)
+                                nativeCanvas.translate(style.offsetX, style.offsetY)
+                                
+                                svgObj.documentWidth = size.width
+                                svgObj.documentHeight = size.height
+                                svgObj.renderToCanvas(nativeCanvas)
+                                nativeCanvas.restore()
+                            }
+                        } catch (e: Exception) {
+                            val cols = 4
+                            val rows = 4
+                            val cellWidth = size.width / cols
+                            val cellHeight = size.height / rows
+                            for (i in 0..cols) {
+                                for (j in 0..rows) {
+                                    drawCircle(Color.LightGray, radius = 2.dp.toPx(), center = Offset(i * cellWidth, j * cellHeight))
+                                }
+                            }
+                        }
+                    }
+                }
+                is FillStyle.ImageTexture -> {
+                    drawPreviewCheckerboard()
                     drawRect(Color(0x331E88E5))
                     val paintColor = Color(0xFF1E88E5)
                     drawCircle(paintColor.copy(alpha=0.3f), radius = size.minDimension / 3.5f, center = Offset(size.width / 2f, size.height / 2f))

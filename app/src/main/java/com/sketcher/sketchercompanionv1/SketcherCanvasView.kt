@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1
+package com.sketcher.sketchercompanionv1
 
 
 
@@ -195,6 +195,19 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     }
 
+    private val cadGuidePaint = Paint().apply {
+        color = Color.RED
+        style = Paint.Style.STROKE
+        pathEffect = dashPathEffect
+        isAntiAlias = true
+    }
+
+    private val cadMarkerPaint = Paint().apply {
+        color = Color.CYAN
+        style = Paint.Style.FILL_AND_STROKE
+        isAntiAlias = true
+    }
+
     private val tempViewportRect = RectF()
 
     private val tempLabelRect = RectF()
@@ -292,6 +305,44 @@ class SketcherCanvasView(context: Context) : View(context) {
     var onTrimRequested: ((Float, Float) -> Unit)? = null
 
     var onExtendRequested: ((Float, Float) -> Unit)? = null
+
+    var onMirrorRequested: ((PointF, PointF) -> Unit)? = null
+
+    var onTransformSelectedRequested: ((android.graphics.Matrix, String) -> Unit)? = null
+
+    var onOffsetRequested: ((VectorStroke, Float, PointF) -> Unit)? = null
+
+    var onFilletRequested: ((VectorStroke, VectorStroke, Float) -> Unit)? = null
+
+    var onChamferRequested: ((VectorStroke, VectorStroke, Float, Float) -> Unit)? = null
+
+    var isOrthoMode: Boolean = false
+
+    private var startSelectionDragWorldX = 0f
+    private var startSelectionDragWorldY = 0f
+
+    private var mirrorStep = 0
+    private var mirrorP1 = PointF()
+    private var mirrorP2 = PointF()
+
+    private var movePtPtStep = 0
+    private var movePtPtSrc = PointF()
+    private var movePtPtTgt = PointF()
+
+    private var alignStep = 0
+    private var alignSrc1 = PointF()
+    private var alignTgt1 = PointF()
+    private var alignSrc2 = PointF()
+    private var alignTgt2 = PointF()
+
+    private var offsetStep = 0
+    private var offsetTargetStroke: VectorStroke? = null
+
+    private var filletStep = 0
+    private var filletStroke1: VectorStroke? = null
+
+    private var chamferStep = 0
+    private var chamferStroke1: VectorStroke? = null
 
 
 
@@ -1915,7 +1966,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
                             
 
-                            val combinedPath = android.graphics.Path()
+                            val combinedPath = reusableCombinedPath.apply { rewind() }
 
                             if (currentCommittedPreviewPath != null && currentVectorPreviewPath != null) {
 
@@ -1966,9 +2017,12 @@ class SketcherCanvasView(context: Context) : View(context) {
                             
 
                             if (isDebugWireframe && currentVectorPreviewPoints != null) {
-
-                                renderEngine.drawDebugWireframe(canvas, currentVectorPreviewPoints!!, drawCombinedMatrix)
-
+                                renderEngine.drawDebugWireframe(
+                                    canvas,
+                                    currentVectorPreviewPoints!!,
+                                    drawCombinedMatrix,
+                                    currentVectorPreviewPath
+                                )
                             }
 
                             canvas.restore()
@@ -2055,7 +2109,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
                             
 
-                            val combinedPath = android.graphics.Path()
+                            val combinedPath = reusableCombinedPath.apply { rewind() }
 
                             if (currentCommittedPreviewPath != null && currentVectorPreviewPath != null) {
 
@@ -2106,9 +2160,12 @@ class SketcherCanvasView(context: Context) : View(context) {
                             
 
                             if (isDebugWireframe && currentVectorPreviewPoints != null) {
-
-                                renderEngine.drawDebugWireframe(canvas, currentVectorPreviewPoints!!, drawCombinedMatrix)
-
+                                renderEngine.drawDebugWireframe(
+                                    canvas,
+                                    currentVectorPreviewPoints!!,
+                                    drawCombinedMatrix,
+                                    currentVectorPreviewPath
+                                )
                             }
 
                             canvas.restore()
@@ -2447,7 +2504,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
         }
 
-        
+        drawCadVisualGuides(canvas)
 
         onDrawAction?.invoke()
 
@@ -2776,6 +2833,18 @@ class SketcherCanvasView(context: Context) : View(context) {
             }
 
             ToolType.EDIT_POINTS -> handleEditPointsInput(event)
+
+            ToolType.MIRROR -> handleMirrorInput(event)
+
+            ToolType.MOVE_PT_PT -> handleMovePtPtInput(event)
+
+            ToolType.ALIGN_2_PT -> handleAlign2PtInput(event)
+
+            ToolType.OFFSET -> handleOffsetInput(event)
+
+            ToolType.FILLET -> handleFilletInput(event)
+
+            ToolType.CHAMFER -> handleChamferInput(event)
 
             else -> strokePipeline.onTouchEvent(event)
 
@@ -3521,9 +3590,28 @@ class SketcherCanvasView(context: Context) : View(context) {
 
                     when (event.actionMasked) {
 
-                        MotionEvent.ACTION_DOWN -> manager.handleTransformDown(worldX, worldY, event.x, event.y, viewMatrix)
+                        MotionEvent.ACTION_DOWN -> {
+                            manager.handleTransformDown(worldX, worldY, event.x, event.y, viewMatrix)
+                            if (manager.currentDragMode == SelectionManager.DragMode.TRANSLATE) {
+                                startSelectionDragWorldX = worldX
+                                startSelectionDragWorldY = worldY
+                            }
+                        }
 
-                        MotionEvent.ACTION_MOVE -> manager.handleTransformMove(worldX, worldY)
+                        MotionEvent.ACTION_MOVE -> {
+                            var targetWorldX = worldX
+                            var targetWorldY = worldY
+                            if (isOrthoMode && manager.currentDragMode == SelectionManager.DragMode.TRANSLATE) {
+                                val dx = kotlin.math.abs(worldX - startSelectionDragWorldX)
+                                val dy = kotlin.math.abs(worldY - startSelectionDragWorldY)
+                                if (dx > dy) {
+                                    targetWorldY = startSelectionDragWorldY
+                                } else {
+                                    targetWorldX = startSelectionDragWorldX
+                                }
+                            }
+                            manager.handleTransformMove(targetWorldX, targetWorldY)
+                        }
 
                         MotionEvent.ACTION_UP -> manager.handleTransformUp()
 
@@ -3547,7 +3635,298 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     }
 
+    private fun resolveTouchSnap(x: Float, y: Float): PointF {
+        val pts = floatArrayOf(x, y)
+        inverseMatrix.mapPoints(pts)
+        val worldX = pts[0]
+        val worldY = pts[1]
 
+        val zoom = getMatrixScale(viewMatrix)
+        val snapPoints = if (isElementSnappingEnabled) {
+            com.sketcher.sketchercompanionv1.managers.SnapEngine.getSnapPoints(layers)
+        } else {
+            emptyList()
+        }
+        val resolvedSnap = com.sketcher.sketchercompanionv1.managers.SnapEngine.resolveSnap(worldX, worldY, snapPoints, zoom)
+        return if (resolvedSnap != null) {
+            PointF(resolvedSnap.point.x, resolvedSnap.point.y)
+        } else {
+            PointF(worldX, worldY)
+        }
+    }
+
+    private fun handleMirrorInput(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            val snapped = resolveTouchSnap(event.x, event.y)
+            if (mirrorStep == 0) {
+                mirrorP1.set(snapped.x, snapped.y)
+                mirrorP2.set(snapped.x, snapped.y)
+                mirrorStep = 1
+            } else {
+                mirrorP2.set(snapped.x, snapped.y)
+                onMirrorRequested?.invoke(PointF(mirrorP1.x, mirrorP1.y), PointF(mirrorP2.x, mirrorP2.y))
+                mirrorStep = 0
+            }
+            invalidate()
+        } else if (event.actionMasked == MotionEvent.ACTION_MOVE) {
+            if (mirrorStep == 1) {
+                val snapped = resolveTouchSnap(event.x, event.y)
+                mirrorP2.set(snapped.x, snapped.y)
+                invalidate()
+            }
+        }
+        return true
+    }
+
+    private fun handleMovePtPtInput(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            val snapped = resolveTouchSnap(event.x, event.y)
+            if (movePtPtStep == 0) {
+                movePtPtSrc.set(snapped.x, snapped.y)
+                movePtPtTgt.set(snapped.x, snapped.y)
+                movePtPtStep = 1
+            } else {
+                movePtPtTgt.set(snapped.x, snapped.y)
+                val dx = movePtPtTgt.x - movePtPtSrc.x
+                val dy = movePtPtTgt.y - movePtPtSrc.y
+                val matrix = android.graphics.Matrix().apply { postTranslate(dx, dy) }
+                onTransformSelectedRequested?.invoke(matrix, "Mover Punto a Punto")
+                movePtPtStep = 0
+            }
+            invalidate()
+        } else if (event.actionMasked == MotionEvent.ACTION_MOVE) {
+            if (movePtPtStep == 1) {
+                val snapped = resolveTouchSnap(event.x, event.y)
+                movePtPtTgt.set(snapped.x, snapped.y)
+                invalidate()
+            }
+        }
+        return true
+    }
+
+    private fun handleAlign2PtInput(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            val snapped = resolveTouchSnap(event.x, event.y)
+            when (alignStep) {
+                0 -> {
+                    alignSrc1.set(snapped.x, snapped.y)
+                    alignStep = 1
+                }
+                1 -> {
+                    alignTgt1.set(snapped.x, snapped.y)
+                    alignStep = 2
+                }
+                2 -> {
+                    alignSrc2.set(snapped.x, snapped.y)
+                    alignStep = 3
+                }
+                3 -> {
+                    alignTgt2.set(snapped.x, snapped.y)
+                    val v1x = alignSrc2.x - alignSrc1.x
+                    val v1y = alignSrc2.y - alignSrc1.y
+                    val v2x = alignTgt2.x - alignTgt1.x
+                    val v2y = alignTgt2.y - alignTgt1.y
+                    val angleRad = kotlin.math.atan2(v2y, v2x) - kotlin.math.atan2(v1y, v1x)
+                    val scale = kotlin.math.hypot(v2x, v2y) / kotlin.math.hypot(v1x, v1y).coerceAtLeast(0.001f)
+                    val matrix = android.graphics.Matrix().apply {
+                        postTranslate(-alignSrc1.x, -alignSrc1.y)
+                        postScale(scale, scale)
+                        postRotate(Math.toDegrees(angleRad.toDouble()).toFloat())
+                        postTranslate(alignTgt1.x, alignTgt1.y)
+                    }
+                    onTransformSelectedRequested?.invoke(matrix, "Alinear a 2 Puntos")
+                    alignStep = 0
+                }
+            }
+            invalidate()
+        }
+        return true
+    }
+
+    private fun handleOffsetInput(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            val pts = floatArrayOf(event.x, event.y)
+            inverseMatrix.mapPoints(pts)
+            val worldX = pts[0]
+            val worldY = pts[1]
+            
+            if (offsetStep == 0) {
+                val activeLayer = layers.getOrNull(activeLayerIndex) ?: return true
+                val visibleStrokes = activeContainer.filterIsInstance<VectorStroke>()
+                var hitStroke: VectorStroke? = null
+                val manager = selectionManager ?: return true
+                for (stroke in visibleStrokes.asReversed()) {
+                    if (manager.isHit(stroke, worldX, worldY, componentLibrary)) {
+                        hitStroke = stroke
+                        break
+                    }
+                }
+                if (hitStroke != null) {
+                    offsetTargetStroke = hitStroke
+                    offsetStep = 1
+                }
+            } else {
+                val targetStroke = offsetTargetStroke
+                if (targetStroke != null) {
+                    var minDistance = Float.MAX_VALUE
+                    val targetPts = targetStroke.points
+                    if (targetPts.size >= 2) {
+                        for (i in 0 until targetPts.size - 1) {
+                            val p1 = targetPts[i]
+                            val p2 = targetPts[i + 1]
+                            val d = com.sketcher.sketchercompanionv1.utils.GeometryUtils.distanceToSegment(PointF(worldX, worldY), PointF(p1.x, p1.y), PointF(p2.x, p2.y))
+                            if (d < minDistance) {
+                                minDistance = d
+                            }
+                        }
+                    } else if (targetPts.isNotEmpty()) {
+                        minDistance = kotlin.math.hypot(worldX - targetPts[0].x, worldY - targetPts[0].y)
+                    }
+                    onOffsetRequested?.invoke(targetStroke, minDistance.coerceAtLeast(1f), PointF(worldX, worldY))
+                }
+                offsetStep = 0
+                offsetTargetStroke = null
+            }
+            invalidate()
+        }
+        return true
+    }
+
+    private fun handleFilletInput(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            val pts = floatArrayOf(event.x, event.y)
+            inverseMatrix.mapPoints(pts)
+            val worldX = pts[0]
+            val worldY = pts[1]
+            
+            val activeLayer = layers.getOrNull(activeLayerIndex) ?: return true
+            val visibleStrokes = activeContainer.filterIsInstance<VectorStroke>()
+            var hitStroke: VectorStroke? = null
+            val manager = selectionManager ?: return true
+            for (stroke in visibleStrokes.asReversed()) {
+                if (stroke.strokeType == StrokeType.LINE && manager.isHit(stroke, worldX, worldY, componentLibrary)) {
+                    hitStroke = stroke
+                    break
+                }
+            }
+            if (hitStroke != null) {
+                if (filletStep == 0) {
+                    filletStroke1 = hitStroke
+                    filletStep = 1
+                } else {
+                    val s1 = filletStroke1
+                    if (s1 != null && s1 !== hitStroke) {
+                        val radius = 30f
+                        onFilletRequested?.invoke(s1, hitStroke, radius)
+                    }
+                    filletStep = 0
+                    filletStroke1 = null
+                }
+            }
+            invalidate()
+        }
+        return true
+    }
+
+    private fun handleChamferInput(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            val pts = floatArrayOf(event.x, event.y)
+            inverseMatrix.mapPoints(pts)
+            val worldX = pts[0]
+            val worldY = pts[1]
+            
+            val activeLayer = layers.getOrNull(activeLayerIndex) ?: return true
+            val visibleStrokes = activeContainer.filterIsInstance<VectorStroke>()
+            var hitStroke: VectorStroke? = null
+            val manager = selectionManager ?: return true
+            for (stroke in visibleStrokes.asReversed()) {
+                if (stroke.strokeType == StrokeType.LINE && manager.isHit(stroke, worldX, worldY, componentLibrary)) {
+                    hitStroke = stroke
+                    break
+                }
+            }
+            if (hitStroke != null) {
+                if (chamferStep == 0) {
+                    chamferStroke1 = hitStroke
+                    chamferStep = 1
+                } else {
+                    val s1 = chamferStroke1
+                    if (s1 != null && s1 !== hitStroke) {
+                        val d1 = 20f
+                        val d2 = 20f
+                        onChamferRequested?.invoke(s1, hitStroke, d1, d2)
+                    }
+                    chamferStep = 0
+                    chamferStroke1 = null
+                }
+            }
+            invalidate()
+        }
+        return true
+    }
+
+    private fun drawCadVisualGuides(canvas: Canvas) {
+        canvas.save()
+        canvas.concat(viewMatrix)
+        cadGuidePaint.strokeWidth = 2f / getMatrixScale(viewMatrix)
+        
+        when (currentTool) {
+            ToolType.MIRROR -> {
+                if (mirrorStep == 1) {
+                    canvas.drawLine(mirrorP1.x, mirrorP1.y, mirrorP2.x, mirrorP2.y, cadGuidePaint)
+                    canvas.drawCircle(mirrorP1.x, mirrorP1.y, 6f / getMatrixScale(viewMatrix), cadMarkerPaint)
+                }
+            }
+            ToolType.MOVE_PT_PT -> {
+                if (movePtPtStep == 1) {
+                    canvas.drawLine(movePtPtSrc.x, movePtPtSrc.y, movePtPtTgt.x, movePtPtTgt.y, cadGuidePaint)
+                    canvas.drawCircle(movePtPtSrc.x, movePtPtSrc.y, 6f / getMatrixScale(viewMatrix), cadMarkerPaint)
+                }
+            }
+            ToolType.ALIGN_2_PT -> {
+                if (alignStep >= 1) {
+                    canvas.drawCircle(alignSrc1.x, alignSrc1.y, 6f / getMatrixScale(viewMatrix), cadMarkerPaint)
+                }
+                if (alignStep >= 2) {
+                    canvas.drawCircle(alignTgt1.x, alignTgt1.y, 6f / getMatrixScale(viewMatrix), cadMarkerPaint)
+                    canvas.drawLine(alignSrc1.x, alignSrc1.y, alignTgt1.x, alignTgt1.y, cadGuidePaint)
+                }
+                if (alignStep >= 3) {
+                    canvas.drawCircle(alignSrc2.x, alignSrc2.y, 6f / getMatrixScale(viewMatrix), cadMarkerPaint)
+                }
+                if (alignStep >= 4) {
+                    canvas.drawCircle(alignTgt2.x, alignTgt2.y, 6f / getMatrixScale(viewMatrix), cadMarkerPaint)
+                    canvas.drawLine(alignSrc2.x, alignSrc2.y, alignTgt2.x, alignTgt2.y, cadGuidePaint)
+                }
+            }
+            ToolType.OFFSET -> {
+                if (offsetStep == 1 && offsetTargetStroke != null) {
+                    val pts = offsetTargetStroke!!.points
+                    if (pts.isNotEmpty()) {
+                        canvas.drawCircle(pts[0].x, pts[0].y, 8f / getMatrixScale(viewMatrix), cadMarkerPaint)
+                    }
+                }
+            }
+            ToolType.FILLET -> {
+                if (filletStep == 1 && filletStroke1 != null) {
+                    val pts = filletStroke1!!.points
+                    if (pts.isNotEmpty()) {
+                        canvas.drawCircle(pts[0].x, pts[0].y, 8f / getMatrixScale(viewMatrix), cadMarkerPaint)
+                    }
+                }
+            }
+            ToolType.CHAMFER -> {
+                if (chamferStep == 1 && chamferStroke1 != null) {
+                    val pts = chamferStroke1!!.points
+                    if (pts.isNotEmpty()) {
+                        canvas.drawCircle(pts[0].x, pts[0].y, 8f / getMatrixScale(viewMatrix), cadMarkerPaint)
+                    }
+                }
+            }
+            else -> {}
+        }
+        canvas.restore()
+    }
 
 }
 

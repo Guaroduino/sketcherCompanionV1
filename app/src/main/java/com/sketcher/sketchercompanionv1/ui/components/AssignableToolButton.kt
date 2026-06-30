@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.BorderColor
 import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.Brush
+import androidx.compose.material.icons.filled.Check
 import android.util.Log
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -230,13 +231,23 @@ fun AssignableToolButton(
                 offset = DpOffset(x = 0.dp, y = 8.dp * scaleFactor),
                 modifier = Modifier.background(theme?.barBackgroundColor ?: Color.DarkGray)
             ) {
-                subTools.forEach { subTool ->
+                // Show all tools in the dropdown, including the active tool
+                val dropdownTools = if (tool != null && subTools.none { it.id == tool.id }) {
+                    listOf(tool) + subTools
+                } else {
+                    subTools
+                }
+
+                dropdownTools.forEach { subTool ->
                     if (subTool.registryId == "divider") {
                         androidx.compose.material3.HorizontalDivider(
                             modifier = Modifier.padding(vertical = 4.dp * scaleFactor),
                             color = (theme?.iconColor ?: Color.White).copy(alpha = 0.2f)
                         )
                     } else {
+                        val isCurrentActive = subTool.id == tool?.id || (tool != null && subTool.registryId == tool.registryId)
+                        val itemBgColor = if (isCurrentActive) (theme?.highlightColor ?: Color.LightGray) else Color.Transparent
+
                         DropdownMenuItem(
                             text = { Text(subTool.contentDescription, color = theme?.iconColor ?: Color.White, fontSize = (14 * scaleFactor).sp) },
                             leadingIcon = { 
@@ -246,11 +257,25 @@ fun AssignableToolButton(
                                     Icon(subTool.icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp * scaleFactor))
                                 }
                             },
+                            trailingIcon = {
+                                if (isCurrentActive) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "Active",
+                                        tint = theme?.iconColor ?: Color.White,
+                                        modifier = Modifier.size(18.dp * scaleFactor)
+                                    )
+                                }
+                            },
                             onClick = {
                                 showSubMenu = false
-                                onSubToolClick?.invoke(subTool)
+                                if (!isCurrentActive) {
+                                    onSubToolClick?.invoke(subTool)
+                                }
                             },
-                            modifier = Modifier.height(48.dp * scaleFactor),
+                            modifier = Modifier
+                                .height(48.dp * scaleFactor)
+                                .background(itemBgColor),
                             contentPadding = PaddingValues(horizontal = 16.dp * scaleFactor, vertical = 0.dp)
                         )
                     }

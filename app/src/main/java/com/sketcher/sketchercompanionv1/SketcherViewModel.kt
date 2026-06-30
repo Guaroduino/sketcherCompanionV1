@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1
+package com.sketcher.sketchercompanionv1
 
 
 
@@ -541,15 +541,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             }
 
             ToolPayload.FILL_COLOR -> {
-
-                toolId?.let { id ->
-
-                    assignedToolColors.value[id]?.let { setFillColor(it) }
-
-                }
-
-                // Do NOT open picker on activation anymore
-
+                // Toggle fill active state without resetting to solid color
+                toggleFill(!isFillActive.value)
             }
 
         }
@@ -717,6 +710,20 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         "trim" -> ({ selectTool(ToolType.TRIM) })
 
         "extend" -> ({ selectTool(ToolType.EXTEND) })
+
+        "orto" -> ({ toggleOrthoMode() })
+
+        "mirror" -> ({ selectTool(ToolType.MIRROR) })
+
+        "mover_pt_pt" -> ({ selectTool(ToolType.MOVE_PT_PT) })
+
+        "align_2_pt" -> ({ selectTool(ToolType.ALIGN_2_PT) })
+
+        "offset" -> ({ selectTool(ToolType.OFFSET) })
+
+        "fillet" -> ({ selectTool(ToolType.FILLET) })
+
+        "chamfer" -> ({ selectTool(ToolType.CHAMFER) })
 
         "edit_points" -> ({ selectTool(ToolType.EDIT_POINTS) })
 
@@ -1155,6 +1162,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun saveBrushPreset(index: Int) = toolManager.saveBrushPreset(index)
     fun selectBrushPreset(index: Int) = toolManager.selectBrushPreset(index)
     fun isPresetModified(index: Int): Boolean = toolManager.isPresetModified(index)
+    val fillPresets = toolManager.fillPresets
+    fun saveFillPreset(index: Int, style: FillStyle) = toolManager.saveFillPreset(index, style)
 
     // --- EXPOSED CONFIGS ---
     var fingerModeActive by mutableStateOf(false)
@@ -2181,6 +2190,86 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
      * Performs an Undo operation. Must be called from the Main thread.
 
      */
+
+    var isOrthoModeActive = androidx.compose.runtime.mutableStateOf(false)
+        private set
+
+    fun toggleOrthoMode() {
+        isOrthoModeActive.value = !isOrthoModeActive.value
+    }
+
+    fun mirrorSelected(p1: android.graphics.PointF, p2: android.graphics.PointF) {
+        if (selectionManager.selectedElements.isEmpty()) return
+        val mirrored = selectionManager.selectedElements.map { element ->
+            if (element is VectorStroke) {
+                com.sketcher.sketchercompanionv1.utils.GeometryUtils.mirrorStroke(element, p1, p2)
+            } else {
+                element.copyElement()
+            }
+        }
+        val cmd = com.sketcher.sketchercompanionv1.command.ModifyElementsCommand(
+            targetContainer = activeContainer,
+            elementsToRemove = emptyList(),
+            elementsToAdd = mirrored,
+            label = "Espejo Simetría"
+        )
+        performAction(cmd)
+        selectionManager.clearSelection()
+        selectionManager.selectedElements.addAll(mirrored)
+        selectionManager.recalculateBaseBounds(componentLibrary)
+    }
+
+    fun transformSelectedElements(matrix: android.graphics.Matrix, label: String) {
+        if (selectionManager.selectedElements.isEmpty()) return
+        val transformed = selectionManager.selectedElements.map { element ->
+            val copy = element.copyElement()
+            copy.transform(matrix)
+            copy
+        }
+        val cmd = com.sketcher.sketchercompanionv1.command.ModifyElementsCommand(
+            targetContainer = activeContainer,
+            elementsToRemove = selectionManager.selectedElements.toList(),
+            elementsToAdd = transformed,
+            label = label
+        )
+        performAction(cmd)
+        selectionManager.clearSelection()
+        selectionManager.selectedElements.addAll(transformed)
+        selectionManager.recalculateBaseBounds(componentLibrary)
+    }
+
+    fun offsetStroke(target: VectorStroke, distance: Float, directionPoint: android.graphics.PointF) {
+        val offsetted = com.sketcher.sketchercompanionv1.utils.GeometryUtils.offsetStroke(target, distance, directionPoint) ?: return
+        val cmd = com.sketcher.sketchercompanionv1.command.ModifyElementsCommand(
+            targetContainer = activeContainer,
+            elementsToRemove = emptyList(),
+            elementsToAdd = listOf(offsetted),
+            label = "Desfase"
+        )
+        performAction(cmd)
+    }
+
+    fun filletStrokes(s1: VectorStroke, s2: VectorStroke, radius: Float) {
+        val result = com.sketcher.sketchercompanionv1.utils.GeometryUtils.applyFillet(s1, s2, radius) ?: return
+        val cmd = com.sketcher.sketchercompanionv1.command.ModifyElementsCommand(
+            targetContainer = activeContainer,
+            elementsToRemove = listOf(s1, s2),
+            elementsToAdd = listOf(result.first, result.second, result.third),
+            label = "Empalme"
+        )
+        performAction(cmd)
+    }
+
+    fun chamferStrokes(s1: VectorStroke, s2: VectorStroke, d1: Float, d2: Float) {
+        val result = com.sketcher.sketchercompanionv1.utils.GeometryUtils.applyChamfer(s1, s2, d1, d2) ?: return
+        val cmd = com.sketcher.sketchercompanionv1.command.ModifyElementsCommand(
+            targetContainer = activeContainer,
+            elementsToRemove = listOf(s1, s2),
+            elementsToAdd = listOf(result.first, result.second, result.third),
+            label = "Chaflán"
+        )
+        performAction(cmd)
+    }
 
     @MainThread
 
