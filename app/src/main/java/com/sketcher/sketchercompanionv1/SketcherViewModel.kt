@@ -524,6 +524,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 updateStrokeType(StrokeType.PAINT)
                 selectTool(ToolType.PAINT)
             }
+            ToolPayload.PLUMA -> {
+                updateStrokeType(StrokeType.PLUMA)
+                selectTool(ToolType.PLUMA)
+            }
             ToolPayload.ERASER -> selectTool(ToolType.ERASER)
 
             ToolPayload.STROKE_COLOR -> {
@@ -642,6 +646,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         "paint" -> ({ 
              updateStrokeType(StrokeType.PAINT)
              selectTool(ToolType.PAINT) 
+        })
+
+        "pluma" -> ({ 
+             updateStrokeType(StrokeType.PLUMA)
+             selectTool(ToolType.PLUMA) 
         })
 
         "pen" -> ({ 
@@ -3227,55 +3236,76 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         if (targetLayer.isLocked) return
 
         if (stroke.strokeType == StrokeType.PAINT) {
-            val sameColorPaintStrokes = activeContainer.filterIsInstance<VectorStroke>().filter { existing ->
-                existing.strokeType == StrokeType.PAINT &&
-                existing.strokeColor == stroke.strokeColor &&
-                existing.fillColor == stroke.fillColor &&
-                existing.isFillEnabled == stroke.isFillEnabled &&
-                existing.isStrokeEnabled == stroke.isStrokeEnabled
-            }
-            
-            val overlappingStrokes = sameColorPaintStrokes.filter { existing ->
-                android.graphics.RectF.intersects(existing.getBoundingBox(), stroke.getBoundingBox())
-            }
-            
-            if (overlappingStrokes.isNotEmpty()) {
-                val mergedPath = android.graphics.Path(stroke.path)
-                for (existing in overlappingStrokes) {
-                    val unionPath = android.graphics.Path()
-                    unionPath.op(mergedPath, existing.path, android.graphics.Path.Op.UNION)
-                    mergedPath.set(unionPath)
+            val containerSnapshot = synchronized(activeContainer) { activeContainer.toList() }
+            viewModelScope.launch {
+                val mergedResult = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    val sameColorPaintStrokes = containerSnapshot.filterIsInstance<VectorStroke>().filter { existing ->
+                        existing.strokeType == StrokeType.PAINT &&
+                        existing.strokeColor == stroke.strokeColor &&
+                        existing.fillColor == stroke.fillColor &&
+                        existing.isFillEnabled == stroke.isFillEnabled &&
+                        existing.isStrokeEnabled == stroke.isStrokeEnabled
+                    }
+                    
+                    val overlappingStrokes = sameColorPaintStrokes.filter { existing ->
+                        if (android.graphics.RectF.intersects(existing.getBoundingBox(), stroke.getBoundingBox())) {
+                            val intersectPath = android.graphics.Path()
+                            intersectPath.op(existing.path, stroke.path, android.graphics.Path.Op.INTERSECT)
+                            !intersectPath.isEmpty
+                        } else {
+                            false
+                        }
+                    }
+                    
+                    if (overlappingStrokes.isNotEmpty()) {
+                        val mergedPath = android.graphics.Path(stroke.path).apply { fillType = android.graphics.Path.FillType.EVEN_ODD }
+                        for (existing in overlappingStrokes) {
+                            val existingPath = android.graphics.Path(existing.path).apply { fillType = android.graphics.Path.FillType.EVEN_ODD }
+                            val unionPath = android.graphics.Path().apply { fillType = android.graphics.Path.FillType.EVEN_ODD }
+                            unionPath.op(mergedPath, existingPath, android.graphics.Path.Op.UNION)
+                            mergedPath.set(unionPath)
+                        }
+                        
+                        val zoom = run {
+                            val vals = FloatArray(9)
+                            _cameraMatrix.value.getValues(vals)
+                            val scale = kotlin.math.sqrt(vals[android.graphics.Matrix.MSCALE_X] * vals[android.graphics.Matrix.MSCALE_X] + vals[android.graphics.Matrix.MSKEW_X] * vals[android.graphics.Matrix.MSKEW_X])
+                            if (scale > 0.001f) scale else 1.0f
+                        }
+                        
+                        val step = (8f / zoom).coerceAtLeast(1.0f)
+                        val epsilon = (1.5f / zoom).coerceAtLeast(0.2f)
+                        val outlinePointsPointF = com.sketcher.sketchercompanionv1.utils.GeometryUtils.flattenPath(mergedPath, step = step)
+                        val outlineStrokePoints = outlinePointsPointF.map { pt -> StrokePoint(pt.x, pt.y, 0.5f) }
+                        val simplifiedPoints = if (outlineStrokePoints.size > 2) {
+                            com.sketcher.sketchercompanionv1.utils.StrokeSimplifier.simplify(outlineStrokePoints, epsilon, 20f)
+                        } else {
+                            outlineStrokePoints
+                        }
+
+                        val mergedStroke = stroke.copy(
+                            points = simplifiedPoints,
+                            path = mergedPath,
+                            fillPath = if (stroke.isFillEnabled) mergedPath else null
+                        )
+                        Pair(overlappingStrokes, mergedStroke)
+                    } else {
+                        null
+                    }
                 }
                 
-                val zoom = run {
-                    val vals = FloatArray(9)
-                    _cameraMatrix.value.getValues(vals)
-                    val scale = kotlin.math.sqrt(vals[android.graphics.Matrix.MSCALE_X] * vals[android.graphics.Matrix.MSCALE_X] + vals[android.graphics.Matrix.MSKEW_X] * vals[android.graphics.Matrix.MSKEW_X])
-                    if (scale > 0.001f) scale else 1.0f
-                }
-                
-                val outlinePointsPointF = com.sketcher.sketchercompanionv1.utils.GeometryUtils.flattenPath(mergedPath, step = 8f / zoom)
-                val outlineStrokePoints = outlinePointsPointF.map { pt -> StrokePoint(pt.x, pt.y, 0.5f) }
-                val simplifiedPoints = if (outlineStrokePoints.size > 2) {
-                    com.sketcher.sketchercompanionv1.utils.StrokeSimplifier.simplify(outlineStrokePoints, 1.5f / zoom, 20f)
+                if (mergedResult != null) {
+                    performAction(com.sketcher.sketchercompanionv1.command.MergePaintStrokesCommand(
+                        activeContainer, 
+                        mergedResult.first, 
+                        stroke, 
+                        mergedResult.second
+                    ))
                 } else {
-                    outlineStrokePoints
+                    performAction(AddHybridStrokeCommand(activeContainer, stroke, fill))
                 }
-
-                val mergedStroke = stroke.copy(
-                    points = simplifiedPoints,
-                    path = mergedPath,
-                    fillPath = if (stroke.isFillEnabled) mergedPath else null
-                )
-
-                performAction(com.sketcher.sketchercompanionv1.command.MergePaintStrokesCommand(
-                    activeContainer, 
-                    overlappingStrokes, 
-                    stroke, 
-                    mergedStroke
-                ))
-                return
             }
+            return
         }
 
         performAction(AddHybridStrokeCommand(activeContainer, stroke, fill))

@@ -397,17 +397,21 @@ object GeometryUtils {
 
     fun flattenPath(path: Path, step: Float = 5f): List<PointF> {
         val pm = android.graphics.PathMeasure(path, false)
-        val length = pm.length
         val points = mutableListOf<PointF>()
         val coords = floatArrayOf(0f, 0f)
-        var distance = 0f
-        while (distance < length) {
-            pm.getPosTan(distance, coords, null)
-            points.add(PointF(coords[0], coords[1]))
-            distance += step
-        }
-        pm.getPosTan(length, coords, null)
-        points.add(PointF(coords[0], coords[1]))
+        do {
+            val length = pm.length
+            var distance = 0f
+            while (distance < length) {
+                pm.getPosTan(distance, coords, null)
+                points.add(PointF(coords[0], coords[1]))
+                distance += step
+            }
+            if (length > 0f) {
+                pm.getPosTan(length, coords, null)
+                points.add(PointF(coords[0], coords[1]))
+            }
+        } while (pm.nextContour())
         return points
     }
 

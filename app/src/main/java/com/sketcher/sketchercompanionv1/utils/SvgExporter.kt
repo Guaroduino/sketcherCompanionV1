@@ -165,10 +165,10 @@ object SvgExporter {
         val alpha = (Color.alpha(stroke.strokeColor) / 255f)
         val strokeOpacity = if (alpha < 1f) "stroke-opacity=\"$alpha\"" else ""
         
-        if (stroke.strokeType == StrokeType.FREEHAND) {
+        if (stroke.strokeType == StrokeType.FREEHAND || stroke.strokeType == StrokeType.PLUMA) {
             sb.append("    <path d=\"$d\" fill=\"$colorHex\" stroke=\"none\" $strokeOpacity />\n")
         } else {
-            val strokeWidth = stroke.maxWidth
+            val strokeWidth = if (stroke.strokeType == StrokeType.PAINT) stroke.paintOutlineWidth else stroke.maxWidth
             val fillHex = if (stroke.isFillEnabled) colorToHex(stroke.fillColor) else "none"
             val fillOpacity = if (stroke.isFillEnabled) {
                 val fAlpha = (Color.alpha(stroke.fillColor) / 255f)

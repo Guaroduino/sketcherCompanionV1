@@ -368,36 +368,6 @@ class SketcherCanvasView(context: Context) : View(context) {
             
             if (!isDrawing) {
                 liveMergedExistingStrokes.clear()
-            } else if (activeStrokeType == StrokeType.PAINT && update.bounds != null) {
-                val activeLayer = layers.getOrNull(activeLayerIndex)
-                if (activeLayer != null && !activeLayer.isLocked) {
-                    val bounds = update.bounds
-                    val sameColorStrokes = activeLayer.elements
-                        .filter { e ->
-                            val existing = e as? VectorStroke
-                            existing != null &&
-                            existing.strokeType == StrokeType.PAINT &&
-                            existing.strokeColor == activeStrokeColor &&
-                            existing.fillColor == activeFillColor &&
-                            existing.isFillEnabled == isFillActive &&
-                            existing.isStrokeEnabled == isStrokeActive &&
-                            existing !in liveMergedExistingStrokes
-                        }
-                    val overlapping = sameColorStrokes.filter { e ->
-                        val existing = e as? VectorStroke ?: return@filter false
-                        android.graphics.RectF.intersects(existing.getBoundingBox(), bounds)
-                    }
-                    android.util.Log.i("PaintMerge", "sameColorStrokes count: ${sameColorStrokes.size}, overlapping count: ${overlapping.size}")
-                    if (overlapping.isNotEmpty()) {
-                        for (element in overlapping) {
-                            val stroke = element as VectorStroke
-                            liveMergedExistingStrokes.add(stroke)
-                            strokePipeline.mergePath(stroke.path)
-                        }
-                        strokePipeline.triggerUpdatePreview()
-                        redrawAllCache()
-                    }
-                }
             }
             
             onGeometricProgressChanged?.invoke(update.isMultiStepInProgress)
@@ -953,7 +923,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                     val relativeFillAlpha = if (primaryAlpha > 0f) (fillAlpha / primaryAlpha).coerceIn(0f, 1f) else 0f
                     val effectiveStrokeOpacity = primaryAlpha * activeLayerOpacity
                     val isCumulative = activeFreehandSettings.isCumulativeOpacity
-                    val isCadDraw = activeStrokeType != StrokeType.FREEHAND
+                    val isCadDraw = activeStrokeType != StrokeType.FREEHAND && activeStrokeType != StrokeType.PAINT && activeStrokeType != StrokeType.PLUMA
                     
                     if (effectiveStrokeOpacity < 1f && !isCumulative) {
                         // Non-cumulative semi-transparent stroke: use saveLayer to avoid connection seams
@@ -972,30 +942,35 @@ class SketcherCanvasView(context: Context) : View(context) {
                         val opaqueFillColor = (activeFillColor and 0x00FFFFFF) or ((relativeFillAlpha * 255).toInt().coerceIn(0, 255) shl 24)
                         
                         if (activeStrokeType == StrokeType.PAINT) {
-                            val combinedPath = reusableCombinedPath.apply { rewind() }
-                            currentCommittedPreviewPath?.let { combinedPath.addPath(it) }
-                            currentVectorPreviewPath?.let { combinedPath.addPath(it) }
-                            
-                            val flattenedPath = reusableFlattenedPath.apply { rewind() }
-                            try {
-                                flattenedPath.op(combinedPath, combinedPath, android.graphics.Path.Op.UNION)
-                            } catch (e: Exception) {
-                                flattenedPath.addPath(combinedPath)
-                            }
-                            
                             canvas.save()
                             canvas.concat(drawCombinedMatrix)
+                            
+                            val combinedPath = android.graphics.Path()
+                            if (currentCommittedPreviewPath != null && currentVectorPreviewPath != null) {
+                                combinedPath.op(currentCommittedPreviewPath!!, currentVectorPreviewPath!!, android.graphics.Path.Op.UNION)
+                            } else {
+                                currentCommittedPreviewPath?.let { combinedPath.set(it) }
+                                currentVectorPreviewPath?.let { combinedPath.set(it) }
+                            }
+
+                            // 1. Draw fills (underneath)
                             if (isFillActive) {
                                 liveFillPaint.style = android.graphics.Paint.Style.FILL
                                 liveFillPaint.color = opaqueFillColor
-                                canvas.drawPath(flattenedPath, liveFillPaint)
+                                canvas.drawPath(combinedPath, liveFillPaint)
                             }
+
+                            // 2. Draw borders (on top)
                             if (isStrokeActive) {
                                 liveFillPaint.style = android.graphics.Paint.Style.STROKE
-                                liveFillPaint.strokeWidth = 2f
+                                liveFillPaint.strokeWidth = activeFreehandSettings.paintOutlineWidth
                                 liveFillPaint.pathEffect = null
                                 liveFillPaint.color = opaqueColor
-                                canvas.drawPath(flattenedPath, liveFillPaint)
+                                canvas.drawPath(combinedPath, liveFillPaint)
+                            }
+                            
+                            if (isDebugWireframe && currentVectorPreviewPoints != null) {
+                                renderEngine.drawDebugWireframe(canvas, currentVectorPreviewPoints!!, drawCombinedMatrix)
                             }
                             canvas.restore()
                         } else {
@@ -1035,30 +1010,35 @@ class SketcherCanvasView(context: Context) : View(context) {
                     } else {
                         // Cumulative or fully opaque: draw directly onto canvas
                         if (activeStrokeType == StrokeType.PAINT) {
-                            val combinedPath = reusableCombinedPath.apply { rewind() }
-                            currentCommittedPreviewPath?.let { combinedPath.addPath(it) }
-                            currentVectorPreviewPath?.let { combinedPath.addPath(it) }
-                            
-                            val flattenedPath = reusableFlattenedPath.apply { rewind() }
-                            try {
-                                flattenedPath.op(combinedPath, combinedPath, android.graphics.Path.Op.UNION)
-                            } catch (e: Exception) {
-                                flattenedPath.addPath(combinedPath)
-                            }
-                            
                             canvas.save()
                             canvas.concat(drawCombinedMatrix)
+                            
+                            val combinedPath = android.graphics.Path()
+                            if (currentCommittedPreviewPath != null && currentVectorPreviewPath != null) {
+                                combinedPath.op(currentCommittedPreviewPath!!, currentVectorPreviewPath!!, android.graphics.Path.Op.UNION)
+                            } else {
+                                currentCommittedPreviewPath?.let { combinedPath.set(it) }
+                                currentVectorPreviewPath?.let { combinedPath.set(it) }
+                            }
+
+                            // 1. Draw fills (underneath)
                             if (isFillActive) {
                                 liveFillPaint.style = android.graphics.Paint.Style.FILL
                                 liveFillPaint.color = activeFillColor
-                                canvas.drawPath(flattenedPath, liveFillPaint)
+                                canvas.drawPath(combinedPath, liveFillPaint)
                             }
+
+                            // 2. Draw borders (on top)
                             if (isStrokeActive) {
                                 liveFillPaint.style = android.graphics.Paint.Style.STROKE
-                                liveFillPaint.strokeWidth = 2f
+                                liveFillPaint.strokeWidth = activeFreehandSettings.paintOutlineWidth
                                 liveFillPaint.pathEffect = null
                                 liveFillPaint.color = activeStrokeColor
-                                canvas.drawPath(flattenedPath, liveFillPaint)
+                                canvas.drawPath(combinedPath, liveFillPaint)
+                            }
+                            
+                            if (isDebugWireframe && currentVectorPreviewPoints != null) {
+                                renderEngine.drawDebugWireframe(canvas, currentVectorPreviewPoints!!, drawCombinedMatrix)
                             }
                             canvas.restore()
                         } else {

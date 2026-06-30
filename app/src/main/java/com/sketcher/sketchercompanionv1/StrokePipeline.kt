@@ -55,8 +55,8 @@ class StrokePipeline(
     var currentZoom: Float = 1.0f
 
     // --- Object Pooling & Caching ---
-    private val reusablePreviewPath = Path()
-    private val reusableFillPath = Path()
+    private val reusablePreviewPath = Path().apply { fillType = Path.FillType.EVEN_ODD }
+    private val reusableFillPath = Path().apply { fillType = Path.FillType.EVEN_ODD }
     private var liveSettingsCache = FreehandSettings()
     private var lastBaseSettings: FreehandSettings? = null
 
@@ -77,7 +77,8 @@ class StrokePipeline(
         // Minimum stroke points before we activate incremental mode
         const val INCREMENTAL_MIN_POINTS = BAKE_CHUNK_SIZE + INCREMENTAL_TAIL_SIZE + 10
     }
-    private val committedPath = Path()       // Baked head of the stroke
+    private val committedPath = Path().apply { fillType = Path.FillType.EVEN_ODD }       // Baked head of the stroke
+    private val mergedPaths = mutableListOf<Path>()
     private var commitHeadCount = 0          // How many points are baked into committedPath
     private var committedLastRadius = 0f     // Radius at the end of the last committed bake
     private val combinedPreviewPath = Path() // (unused after seam fix, kept for safety)
@@ -246,7 +247,7 @@ class StrokePipeline(
 
     private fun updateGeometricPoints(action: Int, worldP: StrokePoint) {
           when (activeStrokeType) {
-            StrokeType.FREEHAND, StrokeType.PEN, StrokeType.PAINT -> {
+            StrokeType.FREEHAND, StrokeType.PEN, StrokeType.PAINT, StrokeType.PLUMA -> {
                 currentStrokePoints.add(worldP)
             }
             StrokeType.LINE, StrokeType.CIRCLE -> {
@@ -371,7 +372,7 @@ class StrokePipeline(
 
         if (livePoints.isEmpty()) return
 
-        val isCad = activeStrokeType != StrokeType.FREEHAND && activeStrokeType != StrokeType.PEN && activeStrokeType != StrokeType.PAINT
+        val isCad = activeStrokeType != StrokeType.FREEHAND && activeStrokeType != StrokeType.PAINT && activeStrokeType != StrokeType.PLUMA
         if (isCad) {
             val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(activeStrokeType, livePoints)
             val totalBounds = RectF()
@@ -412,9 +413,9 @@ class StrokePipeline(
 
         // 2. Incremental preview for FREEHAND only when stroke is long enough
         val result: PerfectFreehandGenerator.FreehandResult
-        var committedPathToSend: Path? = null
+        var committedPathToSend: Path? = if (activeStrokeType == StrokeType.PAINT) committedPath else null
 
-        if ((activeStrokeType == StrokeType.FREEHAND || activeStrokeType == StrokeType.PAINT) &&
+        if ((activeStrokeType == StrokeType.FREEHAND || activeStrokeType == StrokeType.PAINT || activeStrokeType == StrokeType.PLUMA) &&
             livePoints.size >= INCREMENTAL_MIN_POINTS) {
 
             // -- Bake head if we have enough new points since last commit --
@@ -462,6 +463,9 @@ class StrokePipeline(
                     currentZoom,
                     committedPath // rewind+fill in-place
                 )
+                for (p in mergedPaths) {
+                    committedPath.addPath(p)
+                }
                 committedPath.computeBounds(committedPathBounds, true)
                 commitHeadCount = newHeadEnd
                 // Capture the radius the committed head ended at — the tail must start at this width
@@ -504,14 +508,11 @@ class StrokePipeline(
                 currentZoom,
                 reusablePreviewPath
             )
-            if (activeStrokeType == StrokeType.PAINT) {
-                committedPathToSend = committedPath
-            }
         }
 
         // 3. Fill Preview
         var fillPath: Path? = null
-        if (isFillActive && livePoints.size >= 3 && activeStrokeType != StrokeType.PAINT) {
+        if (isFillActive && livePoints.size >= 3 && activeStrokeType != StrokeType.PAINT && activeStrokeType != StrokeType.PLUMA) {
             fillPath = reusableFillPath.apply { rewind() }
             fillPath.moveTo(livePoints[0].x, livePoints[0].y)
             for (i in 1 until livePoints.size) {
@@ -616,7 +617,7 @@ class StrokePipeline(
              return
         }
 
-        val isCad = activeStrokeType != StrokeType.FREEHAND && activeStrokeType != StrokeType.PEN && activeStrokeType != StrokeType.PAINT
+        val isCad = activeStrokeType != StrokeType.FREEHAND && activeStrokeType != StrokeType.PAINT && activeStrokeType != StrokeType.PLUMA
         if (isCad) {
             val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(activeStrokeType, finalPointsRaw)
             val stroke = VectorStroke(
@@ -670,10 +671,12 @@ class StrokePipeline(
             }
             val path = flattenOuterStroke(combinedFinal)
             
-            val outlinePointsPointF = com.sketcher.sketchercompanionv1.utils.GeometryUtils.flattenPath(path, step = 8f / currentZoom)
+            val step = (8f / currentZoom).coerceAtLeast(1.0f)
+            val epsilon = (1.5f / currentZoom).coerceAtLeast(0.2f)
+            val outlinePointsPointF = com.sketcher.sketchercompanionv1.utils.GeometryUtils.flattenPath(path, step = step)
             val outlineStrokePoints = outlinePointsPointF.map { pt -> StrokePoint(pt.x, pt.y, 0.5f) }
             val simplifiedPoints = if (outlineStrokePoints.size > 2) {
-                com.sketcher.sketchercompanionv1.utils.StrokeSimplifier.simplify(outlineStrokePoints, 1.5f / currentZoom, 20f)
+                com.sketcher.sketchercompanionv1.utils.StrokeSimplifier.simplify(outlineStrokePoints, epsilon, 20f)
             } else {
                 outlineStrokePoints
             }
@@ -689,7 +692,8 @@ class StrokePipeline(
                 fillPath = if (isFillActive) path else null,
                 brushType = "PAINT",
                 strokeType = StrokeType.PAINT,
-                isFlattened = false
+                isFlattened = false,
+                paintOutlineWidth = activeFreehandSettings.paintOutlineWidth
             )
 
             onStrokeCompleted(stroke, null)
@@ -857,7 +861,7 @@ class StrokePipeline(
             return
         }
         
-        val isCad = activeStrokeType != StrokeType.FREEHAND && activeStrokeType != StrokeType.PEN && activeStrokeType != StrokeType.PAINT
+        val isCad = activeStrokeType != StrokeType.FREEHAND && activeStrokeType != StrokeType.PAINT && activeStrokeType != StrokeType.PLUMA
         if (isCad) {
             val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(activeStrokeType, finalPointsRaw)
             val stroke = VectorStroke(
@@ -960,7 +964,7 @@ class StrokePipeline(
         if (currentStrokePoints.isEmpty()) return
         
         when (activeStrokeType) {
-            StrokeType.FREEHAND, StrokeType.PEN, StrokeType.PAINT -> {}
+            StrokeType.FREEHAND, StrokeType.PEN, StrokeType.PAINT, StrokeType.PLUMA -> {}
             StrokeType.LINE, StrokeType.CIRCLE -> {
                 reset()
             }
@@ -994,6 +998,7 @@ class StrokePipeline(
     }
 
     fun mergePath(externalPath: Path) {
+        mergedPaths.add(Path(externalPath))
         committedPath.addPath(externalPath)
         committedPathBounds.setEmpty()
         committedPath.computeBounds(committedPathBounds, true)
@@ -1013,6 +1018,7 @@ class StrokePipeline(
         committedChunks.clear()
         committedChunkBounds.clear()
         committedIntersections.clear()
+        mergedPaths.clear()
         isDrawing = false
         isMultiStepInProgress = false
         onUpdate(PipelineUpdate(null, null, null, null, 0f, null, 0))
@@ -1020,7 +1026,7 @@ class StrokePipeline(
 
     private fun getInterpolatedPoints(isFinal: Boolean): List<StrokePoint> {
         return when (activeStrokeType) {
-            StrokeType.FREEHAND, StrokeType.PEN, StrokeType.PAINT -> {
+            StrokeType.FREEHAND, StrokeType.PEN, StrokeType.PAINT, StrokeType.PLUMA -> {
                 if (!isFinal) {
                     val latencyMs = activeFreehandSettings.predictionLatency.toLong()
                     val predictedPt = predictor.getPredictedPoint(

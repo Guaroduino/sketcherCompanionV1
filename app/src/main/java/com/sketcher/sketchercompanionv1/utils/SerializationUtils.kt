@@ -223,7 +223,8 @@ fun VectorStroke.toVectorStrokeJson(): VectorStrokeJson {
         isFlattened = this.isFlattened,
         lineStyle = this.lineStyle,
         isCadGeometry = this.isCadGeometry,
-        isScreenSpaceWidth = this.isScreenSpaceWidth
+        isScreenSpaceWidth = this.isScreenSpaceWidth,
+        paintOutlineWidth = this.paintOutlineWidth
     )
 }
 
@@ -252,7 +253,7 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     val settings = FreehandSettings(size = this.maxWidth, isComplete = true, simulatePressure = false)
     
     val strokeTypeVal = this.strokeType ?: StrokeType.FREEHAND
-    val isCad = (this.isCadGeometry ?: false) || (strokeTypeVal != StrokeType.FREEHAND && strokeTypeVal != StrokeType.PEN)
+    val isCad = (this.isCadGeometry ?: false) || (strokeTypeVal != StrokeType.FREEHAND && strokeTypeVal != StrokeType.PAINT && strokeTypeVal != StrokeType.PLUMA)
     
     val resultPath = if (this.isFlattened) {
         val rawPath = PerfectFreehandGenerator.generate(pts, settings).path
@@ -310,7 +311,8 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         isFlattened = this.isFlattened,
         lineStyle = this.lineStyle ?: "SOLID",
         isCadGeometry = isCad,
-        isScreenSpaceWidth = this.isScreenSpaceWidth ?: false
+        isScreenSpaceWidth = this.isScreenSpaceWidth ?: false,
+        paintOutlineWidth = this.paintOutlineWidth ?: 2.0f
     )
 }
 

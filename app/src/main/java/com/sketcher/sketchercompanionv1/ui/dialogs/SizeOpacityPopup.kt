@@ -75,8 +75,15 @@ fun SizeOpacityPopup(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        val dialogTitle = when (viewModel.currentTool) {
+                            ToolType.FREEHAND -> "Pencil Settings"
+                            ToolType.PAINT -> "Paint Settings"
+                            ToolType.PEN -> "Pen Settings"
+                            ToolType.PLUMA -> "Pluma Settings"
+                            else -> "Brush Settings"
+                        }
                         Text(
-                            text = "Brush Settings",
+                            text = dialogTitle,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -163,6 +170,25 @@ fun SizeOpacityPopup(
                         )
                     }
 
+                    // Border Stroke Thickness (ONLY for PAINT, above Stroke Opacity)
+                    if (viewModel.currentTool == ToolType.PAINT) {
+                        val freehandSettings = viewModel.currentFreehandSettings
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Border Stroke Thickness", style = MaterialTheme.typography.bodyMedium)
+                                Text(String.format("%.1f px", freehandSettings.paintOutlineWidth), style = MaterialTheme.typography.bodySmall)
+                            }
+                            Slider(
+                                value = freehandSettings.paintOutlineWidth,
+                                onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(paintOutlineWidth = it)) },
+                                valueRange = 0.5f..15f
+                            )
+                        }
+                    }
+
                     // Stroke Opacity Slider
                     Column {
                         Row(
@@ -217,31 +243,33 @@ fun SizeOpacityPopup(
                         }
                     }
 
-                    // Cumulative Opacity Toggle
+                    // Cumulative Opacity Toggle (ONLY for FREEHAND)
                     val freehandSettings = viewModel.currentFreehandSettings
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                            Text("Cumulative Opacity", style = MaterialTheme.typography.bodyMedium)
-                            Text(
-                                "Darkens overlaps on self-crossings",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = theme.iconColor.copy(alpha = 0.6f)
+                    if (viewModel.currentTool == ToolType.FREEHAND) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                Text("Cumulative Opacity", style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    "Darkens overlaps on self-crossings",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = theme.iconColor.copy(alpha = 0.6f)
+                                )
+                            }
+                            Switch(
+                                checked = freehandSettings.isCumulativeOpacity,
+                                onCheckedChange = { isChecked ->
+                                    viewModel.updateFreehandSettings(freehandSettings.copy(isCumulativeOpacity = isChecked))
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = theme.highlightColor,
+                                    checkedTrackColor = theme.highlightColor.copy(alpha = 0.5f)
+                                )
                             )
                         }
-                        Switch(
-                            checked = freehandSettings.isCumulativeOpacity,
-                            onCheckedChange = { isChecked ->
-                                viewModel.updateFreehandSettings(freehandSettings.copy(isCumulativeOpacity = isChecked))
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = theme.highlightColor,
-                                checkedTrackColor = theme.highlightColor.copy(alpha = 0.5f)
-                            )
-                        )
                     }
 
                     // Tool Settings Collapsible Section
@@ -256,8 +284,15 @@ fun SizeOpacityPopup(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            val settingsTitle = when (viewModel.currentTool) {
+                                ToolType.FREEHAND -> "Pencil Settings"
+                                ToolType.PAINT -> "Paint Settings"
+                                ToolType.PEN -> "Pen Settings"
+                                ToolType.PLUMA -> "Pluma Settings"
+                                else -> "Tool Settings"
+                            }
                             Text(
-                                text = "Tool Settings",
+                                text = settingsTitle,
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = theme.highlightColor
@@ -281,7 +316,11 @@ fun SizeOpacityPopup(
                                             currentSettings = viewModel.currentFreehandSettings,
                                             onSettingsChanged = { viewModel.updateFreehandSettings(it) },
                                             isFlattenedOuterStrokeEnabled = viewModel.toolManager.isFlattenedOuterStrokeEnabled,
-                                            onToggleFlattenedOuterStroke = { viewModel.toolManager.toggleFlattenedOuterStroke() }
+                                            onToggleFlattenedOuterStroke = { viewModel.toolManager.toggleFlattenedOuterStroke() },
+                                            showFlatStrokeOption = false,
+                                            showCapsOption = true,
+                                            showPolygonOption = true,
+                                            title = "Ajustes de Lápiz"
                                         )
                                     }
                                     ToolType.PAINT -> {
@@ -289,16 +328,23 @@ fun SizeOpacityPopup(
                                             currentSettings = viewModel.currentFreehandSettings,
                                             onSettingsChanged = { viewModel.updateFreehandSettings(it) },
                                             isFlattenedOuterStrokeEnabled = viewModel.toolManager.isFlattenedOuterStrokeEnabled,
-                                            onToggleFlattenedOuterStroke = { viewModel.toolManager.toggleFlattenedOuterStroke() }
+                                            onToggleFlattenedOuterStroke = { viewModel.toolManager.toggleFlattenedOuterStroke() },
+                                            showFlatStrokeOption = false,
+                                            showCapsOption = false,
+                                            showPolygonOption = false,
+                                            title = "Ajustes de Pintura"
                                         )
                                     }
-                                    ToolType.PEN -> {
+                                    ToolType.PLUMA -> {
                                         FreehandSettingsContent(
                                             currentSettings = viewModel.currentFreehandSettings,
                                             onSettingsChanged = { viewModel.updateFreehandSettings(it) },
                                             isFlattenedOuterStrokeEnabled = false,
                                             onToggleFlattenedOuterStroke = {},
-                                            showFlatStrokeOption = false
+                                            showFlatStrokeOption = false,
+                                            showCapsOption = true,
+                                            showPolygonOption = true,
+                                            title = "Pluma Settings"
                                         )
                                     }
                                     ToolType.ERASER -> {

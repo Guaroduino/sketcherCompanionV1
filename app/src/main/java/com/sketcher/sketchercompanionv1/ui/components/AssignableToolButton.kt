@@ -51,7 +51,8 @@ enum class ToolPayload(val label: String, val icon: ImageVector) {
     ERASER("Eraser", Icons.Default.AutoFixNormal),
     STROKE_COLOR("Stroke Color", Icons.Default.BorderColor),
     FILL_COLOR("Fill Color", Icons.Default.FormatColorFill),
-    PAINT("Paint", Icons.Default.Brush)
+    PAINT("Paint", Icons.Default.Brush),
+    PLUMA("Pluma", Icons.Default.Gesture)
 }
 
 @OptIn(ExperimentalFoundationApi::class)

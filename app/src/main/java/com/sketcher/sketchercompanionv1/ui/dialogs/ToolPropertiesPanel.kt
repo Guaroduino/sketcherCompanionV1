@@ -75,8 +75,15 @@ fun ToolPropertiesPanel(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    val settingsTitle = when (viewModel.currentTool) {
+                        ToolType.FREEHAND -> "Pencil Settings"
+                        ToolType.PAINT -> "Paint Settings"
+                        ToolType.PEN -> "Pen Settings"
+                        ToolType.PLUMA -> "Pluma Settings"
+                        else -> "Tool Settings"
+                    }
                     Text(
-                        text = "Tool Settings",
+                        text = settingsTitle,
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary // Use highlight color for title
@@ -108,7 +115,11 @@ fun ToolPropertiesPanel(
                                 currentSettings = viewModel.currentFreehandSettings,
                                 onSettingsChanged = { viewModel.updateFreehandSettings(it) },
                                 isFlattenedOuterStrokeEnabled = viewModel.toolManager.isFlattenedOuterStrokeEnabled,
-                                onToggleFlattenedOuterStroke = { viewModel.toolManager.toggleFlattenedOuterStroke() }
+                                onToggleFlattenedOuterStroke = { viewModel.toolManager.toggleFlattenedOuterStroke() },
+                                showFlatStrokeOption = false,
+                                showCapsOption = true,
+                                showPolygonOption = true,
+                                title = "Ajustes de Lápiz"
                             )
                         }
                         ToolType.PAINT -> {
@@ -116,16 +127,23 @@ fun ToolPropertiesPanel(
                                 currentSettings = viewModel.currentFreehandSettings,
                                 onSettingsChanged = { viewModel.updateFreehandSettings(it) },
                                 isFlattenedOuterStrokeEnabled = viewModel.toolManager.isFlattenedOuterStrokeEnabled,
-                                onToggleFlattenedOuterStroke = { viewModel.toolManager.toggleFlattenedOuterStroke() }
+                                onToggleFlattenedOuterStroke = { viewModel.toolManager.toggleFlattenedOuterStroke() },
+                                showFlatStrokeOption = false,
+                                showCapsOption = false,
+                                showPolygonOption = false,
+                                title = "Ajustes de Pintura"
                             )
                         }
-                        ToolType.PEN -> {
+                        ToolType.PLUMA -> {
                             FreehandSettingsContent(
                                 currentSettings = viewModel.currentFreehandSettings,
                                 onSettingsChanged = { viewModel.updateFreehandSettings(it) },
                                 isFlattenedOuterStrokeEnabled = false,
                                 onToggleFlattenedOuterStroke = {},
-                                showFlatStrokeOption = false
+                                showFlatStrokeOption = false,
+                                showCapsOption = true,
+                                showPolygonOption = true,
+                                title = "Pluma Settings"
                             )
                         }
                         ToolType.ERASER -> {

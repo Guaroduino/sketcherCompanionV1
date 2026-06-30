@@ -351,7 +351,7 @@ class RenderEngine {
         // Pass 2: STROKE (if enabled)
         if (stroke.isStrokeEnabled) {
             // For FREEHAND, the 'path' IS already the mesh (shape)
-            if (stroke.strokeType == StrokeType.FREEHAND || stroke.strokeType == StrokeType.PEN) {
+            if (stroke.strokeType == StrokeType.FREEHAND || stroke.strokeType == StrokeType.PLUMA) {
                 vectorPaint.style = Paint.Style.FILL
                 val origColor = stroke.strokeColor
                 val origAlpha = Color.alpha(origColor)
@@ -369,7 +369,7 @@ class RenderEngine {
                 val origAlpha = Color.alpha(origColor)
                 val newAlpha = (origAlpha * alphaMultiplier).toInt().coerceIn(0, 255)
                 vectorPaint.color = (origColor and 0x00FFFFFF) or (newAlpha shl 24)
-                vectorPaint.strokeWidth = 2f
+                vectorPaint.strokeWidth = stroke.paintOutlineWidth
                 vectorPaint.pathEffect = null
                 canvas.drawPath(stroke.path, vectorPaint)
             } else {
@@ -635,7 +635,7 @@ class RenderEngine {
          canvas.restore()
     }
     
-    private fun drawDebugWireframe(canvas: Canvas, points: List<StrokePoint>, viewMatrix: Matrix) {
+    fun drawDebugWireframe(canvas: Canvas, points: List<StrokePoint>, viewMatrix: Matrix) {
         // Calculate zoom for consistent hairline
         viewMatrix.getValues(tempFloatArray)
         val zoom = kotlin.math.sqrt(tempFloatArray[Matrix.MSCALE_X] * tempFloatArray[Matrix.MSCALE_X] + tempFloatArray[Matrix.MSKEW_X] * tempFloatArray[Matrix.MSKEW_X])

@@ -359,6 +359,33 @@ fun StudioLayout(
             }
 
 
+            payload == ToolPayload.PAINT || tool.registryId == "paint" -> {
+
+
+                currentTool == ToolType.PAINT
+
+
+            }
+
+
+            payload == ToolPayload.PLUMA || tool.registryId == "pluma" -> {
+
+
+                currentTool == ToolType.PLUMA
+
+
+            }
+
+
+            payload == ToolPayload.PEN || tool.registryId == "pen" -> {
+
+
+                currentTool == ToolType.PEN
+
+
+            }
+
+
             tool.registryId == "line" -> {
 
 

@@ -103,6 +103,7 @@ class ToolManager(context: Context) {
         val savedFreehand = loadFreehandSettings()
         val savedPen = loadPenSettings()
         val savedPaint = loadPaintSettings()
+        val savedPluma = loadPlumaSettings()
         
         fun loadConfig(type: ToolType, defSize: Float, defOpacity: Float): ToolConfig {
             val s = prefs.getFloat("tool_size_${type.name}", defSize)
@@ -111,6 +112,7 @@ class ToolManager(context: Context) {
                 ToolType.FREEHAND -> savedFreehand
                 ToolType.PEN -> savedPen
                 ToolType.PAINT -> savedPaint
+                ToolType.PLUMA -> savedPluma
                 else -> FreehandSettings()
             }
             return ToolConfig(size = s, opacity = o, freehandSettings = settings)
@@ -119,6 +121,7 @@ class ToolManager(context: Context) {
         put(ToolType.FREEHAND, loadConfig(ToolType.FREEHAND, 2f, 1f))
         put(ToolType.PEN, loadConfig(ToolType.PEN, 2f, 1f))
         put(ToolType.PAINT, loadConfig(ToolType.PAINT, 10f, 1f))
+        put(ToolType.PLUMA, loadConfig(ToolType.PLUMA, 2.5f, 1f))
         put(ToolType.FILL, loadConfig(ToolType.FILL, 1f, 1.0f))
         put(ToolType.ERASER, loadConfig(ToolType.ERASER, 10f, 1f))
         put(ToolType.SELECTION, loadConfig(ToolType.SELECTION, 1f, 1f))
@@ -132,7 +135,7 @@ class ToolManager(context: Context) {
         fingerModeActive = freehandConfig.isFingerMode
         fingerOffsetXValue = freehandConfig.fingerOffsetX
         fingerOffsetYValue = freehandConfig.fingerOffsetY
-        _brushPresets.value = loadBrushPresets()
+        _brushPresets.value = loadBrushPresetsForTool(currentTool)
         selectTool(currentTool)
     }
 
@@ -146,19 +149,53 @@ class ToolManager(context: Context) {
         prefs.edit().putString("current_tool", type.name).apply()
         
         val config = toolConfigs[type] ?: toolConfigs[ToolType.FREEHAND]!!
+        var settings = config.freehandSettings
+        
+        // Enforce tool-specific constraints
+        when (type) {
+            ToolType.FREEHAND -> {
+                isFlattenedOuterStrokeEnabled = true
+                settings = settings.copy(isCumulativeOpacity = false)
+            }
+            ToolType.PAINT -> {
+                isFlattenedOuterStrokeEnabled = true
+                settings = settings.copy(
+                    capStart = true,
+                    capEnd = true,
+                    useCurveForPolygon = true,
+                    isCumulativeOpacity = false
+                )
+            }
+            ToolType.PEN -> {
+                isFlattenedOuterStrokeEnabled = false
+                settings = settings.copy(isCumulativeOpacity = false)
+            }
+            ToolType.PLUMA -> {
+                isFlattenedOuterStrokeEnabled = false
+                settings = settings.copy(isCumulativeOpacity = false)
+            }
+            else -> {}
+        }
+        
         currentSize = config.size
         _brushSize.value = config.size
         currentOpacity = config.opacity
         _brushOpacity.value = config.opacity
-        currentFreehandSettings = config.freehandSettings
-        if (config.freehandSettings.isCumulativeOpacity) {
+        currentFreehandSettings = settings
+        toolConfigs[type] = config.copy(freehandSettings = settings)
+        
+        if (settings.isCumulativeOpacity) {
             isFlattenedOuterStrokeEnabled = false
         }
+
+        // Load presets for this specific tool
+        _brushPresets.value = loadBrushPresetsForTool(type)
+        _selectedPresetIndex.value = null
 
         if (type == ToolType.PAINT) {
             _isStrokeActive.value = true
             _isFillActive.value = true
-        } else if (type == ToolType.FREEHAND || type == ToolType.PEN) {
+        } else if (type == ToolType.FREEHAND || type == ToolType.PEN || type == ToolType.PLUMA) {
             _isStrokeActive.value = true
             _isFillActive.value = false
         }
@@ -189,12 +226,19 @@ class ToolManager(context: Context) {
         _fillColor.value = (current and 0x00FFFFFF) or (alpha shl 24)
     }
 
-    private fun loadBrushPresets(): List<BrushPreset> {
-        val json = prefs.getString("brush_presets_v1", null)
+    private fun loadBrushPresetsForTool(type: ToolType): List<BrushPreset> {
+        val prefKey = when(type) {
+            ToolType.FREEHAND -> "pencil_presets_v1"
+            ToolType.PEN -> "pen_presets_v1"
+            ToolType.PAINT -> "paint_presets_v1"
+            ToolType.PLUMA -> "pluma_presets_v1"
+            else -> "brush_presets_v1"
+        }
+        val json = prefs.getString(prefKey, null)
         if (json != null) {
             try {
-                val type = object : com.google.gson.reflect.TypeToken<List<BrushPreset>>() {}.type
-                val loaded: List<BrushPreset> = gson.fromJson(json, type)
+                val tokenType = object : com.google.gson.reflect.TypeToken<List<BrushPreset>>() {}.type
+                val loaded: List<BrushPreset> = gson.fromJson(json, tokenType)
                 if (loaded.size >= 5) {
                     return loaded
                 }
@@ -202,13 +246,52 @@ class ToolManager(context: Context) {
                 e.printStackTrace()
             }
         }
-        return listOf(
-            BrushPreset(size = 2f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.4f, smoothing = 0.3f)),
-            BrushPreset(size = 5f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.5f, smoothing = 0.4f)),
-            BrushPreset(size = 12f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.6f, smoothing = 0.5f)),
-            BrushPreset(size = 20f, opacity = 0.8f, freehandSettings = FreehandSettings(thinning = 0.7f, smoothing = 0.6f, simulatePressure = true, taperStart = 20f, taperEnd = 20f)),
-            BrushPreset(size = 35f, opacity = 0.4f, freehandSettings = FreehandSettings(thinning = 0f, smoothing = 0.4f, isCumulativeOpacity = true))
-        )
+        return getDefaultPresetsForTool(type)
+    }
+
+    private fun saveBrushPresetsForTool(type: ToolType, list: List<BrushPreset>) {
+        val prefKey = when(type) {
+            ToolType.FREEHAND -> "pencil_presets_v1"
+            ToolType.PEN -> "pen_presets_v1"
+            ToolType.PAINT -> "paint_presets_v1"
+            ToolType.PLUMA -> "pluma_presets_v1"
+            else -> "brush_presets_v1"
+        }
+        val json = gson.toJson(list)
+        prefs.edit().putString(prefKey, json).apply()
+    }
+
+    private fun getDefaultPresetsForTool(type: ToolType): List<BrushPreset> {
+        return when(type) {
+            ToolType.PEN -> listOf(
+                BrushPreset(size = 1f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0f, smoothing = 0f)),
+                BrushPreset(size = 2f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0f, smoothing = 0f)),
+                BrushPreset(size = 4f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0f, smoothing = 0f)),
+                BrushPreset(size = 8f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0f, smoothing = 0f)),
+                BrushPreset(size = 15f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0f, smoothing = 0f))
+            )
+            ToolType.PLUMA -> listOf(
+                BrushPreset(size = 1.5f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.1f, smoothing = 0.5f)),
+                BrushPreset(size = 3f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.2f, smoothing = 0.5f)),
+                BrushPreset(size = 6f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.3f, smoothing = 0.5f)),
+                BrushPreset(size = 10f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.4f, smoothing = 0.5f)),
+                BrushPreset(size = 18f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.5f, smoothing = 0.5f))
+            )
+            ToolType.PAINT -> listOf(
+                BrushPreset(size = 8f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 1.5f)),
+                BrushPreset(size = 15f, opacity = 0.8f, freehandSettings = FreehandSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 2.0f)),
+                BrushPreset(size = 25f, opacity = 0.6f, freehandSettings = FreehandSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 3.0f)),
+                BrushPreset(size = 40f, opacity = 0.4f, freehandSettings = FreehandSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 4.0f)),
+                BrushPreset(size = 60f, opacity = 0.2f, freehandSettings = FreehandSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 5.0f))
+            )
+            else -> listOf(
+                BrushPreset(size = 2f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.4f, smoothing = 0.3f)),
+                BrushPreset(size = 5f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.5f, smoothing = 0.4f)),
+                BrushPreset(size = 12f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.6f, smoothing = 0.5f)),
+                BrushPreset(size = 20f, opacity = 0.8f, freehandSettings = FreehandSettings(thinning = 0.7f, smoothing = 0.6f, simulatePressure = true, taperStart = 20f, taperEnd = 20f)),
+                BrushPreset(size = 35f, opacity = 0.4f, freehandSettings = FreehandSettings(thinning = 0f, smoothing = 0.4f))
+            )
+        }
     }
 
     fun saveBrushPreset(index: Int) {
@@ -221,8 +304,7 @@ class ToolManager(context: Context) {
         if (index in 0 until currentList.size) {
             currentList[index] = currentPreset
             _brushPresets.value = currentList
-            val json = gson.toJson(currentList)
-            prefs.edit().putString("brush_presets_v1", json).apply()
+            saveBrushPresetsForTool(currentTool, currentList)
             _selectedPresetIndex.value = index
         }
     }
@@ -231,7 +313,6 @@ class ToolManager(context: Context) {
         val list = _brushPresets.value
         if (index in list.indices) {
             val preset = list[index]
-            selectTool(ToolType.FREEHAND)
             setToolSize(preset.size)
             setToolOpacity(preset.opacity)
             updateFreehandSettings(preset.freehandSettings)
@@ -243,8 +324,7 @@ class ToolManager(context: Context) {
         val list = _brushPresets.value
         if (index !in list.indices) return false
         val preset = list[index]
-        return currentTool != ToolType.FREEHAND ||
-               _brushSize.value != preset.size ||
+        return _brushSize.value != preset.size ||
                _brushOpacity.value != preset.opacity ||
                currentFreehandSettings != preset.freehandSettings
     }
@@ -280,8 +360,29 @@ class ToolManager(context: Context) {
 
     fun updateFreehandSettings(newSettings: FreehandSettings) {
         var settings = newSettings
-        if (settings.isCumulativeOpacity) {
-            isFlattenedOuterStrokeEnabled = false
+        when (currentTool) {
+            ToolType.FREEHAND -> {
+                isFlattenedOuterStrokeEnabled = true
+                settings = settings.copy(isCumulativeOpacity = false)
+            }
+            ToolType.PAINT -> {
+                isFlattenedOuterStrokeEnabled = true
+                settings = settings.copy(
+                    capStart = true,
+                    capEnd = true,
+                    useCurveForPolygon = true,
+                    isCumulativeOpacity = false
+                )
+            }
+            ToolType.PEN -> {
+                isFlattenedOuterStrokeEnabled = false
+                settings = settings.copy(isCumulativeOpacity = false)
+            }
+            ToolType.PLUMA -> {
+                isFlattenedOuterStrokeEnabled = false
+                settings = settings.copy(isCumulativeOpacity = false)
+            }
+            else -> {}
         }
         currentFreehandSettings = settings
         val config = toolConfigs[currentTool]!!
@@ -290,6 +391,7 @@ class ToolManager(context: Context) {
             ToolType.PEN -> savePenSettings(settings)
             ToolType.FREEHAND -> saveFreehandSettings(settings)
             ToolType.PAINT -> savePaintSettings(settings)
+            ToolType.PLUMA -> savePlumaSettings(settings)
             else -> {}
         }
     }
@@ -334,13 +436,23 @@ class ToolManager(context: Context) {
     }
 
     private fun loadPenSettings(): FreehandSettings {
-        val json = prefs.getString("pen_settings_v3", null) ?: return FreehandSettings()
+        val json = prefs.getString("pen_settings_v3", null) ?: return FreehandSettings(thinning = 0f, smoothing = 0f, simulatePressure = false)
         return try { gson.fromJson(json, FreehandSettings::class.java) } catch (e: Exception) { FreehandSettings() }
     }
 
     private fun savePenSettings(settings: FreehandSettings) {
         val json = gson.toJson(settings)
         prefs.edit().putString("pen_settings_v3", json).apply()
+    }
+
+    private fun loadPlumaSettings(): FreehandSettings {
+        val json = prefs.getString("pluma_settings_v3", null) ?: return FreehandSettings()
+        return try { gson.fromJson(json, FreehandSettings::class.java) } catch (e: Exception) { FreehandSettings() }
+    }
+
+    private fun savePlumaSettings(settings: FreehandSettings) {
+        val json = gson.toJson(settings)
+        prefs.edit().putString("pluma_settings_v3", json).apply()
     }
 
     fun getToolConfigMap(): Map<ToolType, ToolConfig> = toolConfigs.toMap()
@@ -387,6 +499,7 @@ class ToolManager(context: Context) {
         val savedFreehand = loadFreehandSettings()
         val savedPen = loadPenSettings()
         val savedPaint = loadPaintSettings()
+        val savedPluma = loadPlumaSettings()
         
         fun loadConfig(type: ToolType, defSize: Float, defOpacity: Float): ToolConfig {
             val s = prefs.getFloat("tool_size_${type.name}", defSize)
@@ -395,6 +508,7 @@ class ToolManager(context: Context) {
                 ToolType.FREEHAND -> savedFreehand
                 ToolType.PEN -> savedPen
                 ToolType.PAINT -> savedPaint
+                ToolType.PLUMA -> savedPluma
                 else -> FreehandSettings()
             }
             return ToolConfig(size = s, opacity = o, freehandSettings = settings)
@@ -403,6 +517,7 @@ class ToolManager(context: Context) {
         toolConfigs[ToolType.FREEHAND] = loadConfig(ToolType.FREEHAND, 2f, 1f)
         toolConfigs[ToolType.PEN] = loadConfig(ToolType.PEN, 2f, 1f)
         toolConfigs[ToolType.PAINT] = loadConfig(ToolType.PAINT, 10f, 1f)
+        toolConfigs[ToolType.PLUMA] = loadConfig(ToolType.PLUMA, 2.5f, 1f)
         toolConfigs[ToolType.FILL] = loadConfig(ToolType.FILL, 1f, 1.0f)
         toolConfigs[ToolType.ERASER] = loadConfig(ToolType.ERASER, 10f, 1f)
         toolConfigs[ToolType.SELECTION] = loadConfig(ToolType.SELECTION, 1f, 1f)

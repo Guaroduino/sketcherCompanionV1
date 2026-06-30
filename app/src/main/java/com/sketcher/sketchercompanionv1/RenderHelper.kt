@@ -5,6 +5,7 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
+import com.sketcher.sketchercompanionv1.dto.StrokeType
 
 
 object RenderHelper {
@@ -83,7 +84,7 @@ object RenderHelper {
         // Pass 2: STROKE (if enabled)
         if (vStroke.isStrokeEnabled) {
             if (vStroke.strokeType == com.sketcher.sketchercompanionv1.dto.StrokeType.FREEHAND || 
-                vStroke.strokeType == com.sketcher.sketchercompanionv1.dto.StrokeType.PEN) {
+                vStroke.strokeType == com.sketcher.sketchercompanionv1.dto.StrokeType.PLUMA) {
                 vectorPaint.style = Paint.Style.FILL
                 vectorPaint.color = vStroke.strokeColor
                 canvas.drawPath(vStroke.path, vectorPaint)
@@ -95,7 +96,7 @@ object RenderHelper {
             } else {
                 vectorPaint.style = Paint.Style.STROKE
                 vectorPaint.color = vStroke.strokeColor
-                val width = if (vStroke.maxWidth > 0) vStroke.maxWidth else 0f
+                val width = if (vStroke.strokeType == StrokeType.PAINT) vStroke.paintOutlineWidth else (if (vStroke.maxWidth > 0) vStroke.maxWidth else 0f)
                 vectorPaint.strokeWidth = width
 
                 // Apply dash path effect for CAD styles

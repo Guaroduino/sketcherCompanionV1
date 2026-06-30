@@ -26,7 +26,8 @@ data class VectorStroke(
     val isFlattened: Boolean = false,
     val lineStyle: String = "SOLID",
     val isCadGeometry: Boolean = false,
-    val isScreenSpaceWidth: Boolean = false
+    val isScreenSpaceWidth: Boolean = false,
+    val paintOutlineWidth: Float = 2.0f
 ) : LayerElement {
     private val cachedBounds = RectF().apply { path.computeBounds(this, true) }
 
@@ -65,7 +66,8 @@ data class VectorStroke(
             isFlattened = isFlattened,
             lineStyle = lineStyle,
             isCadGeometry = isCadGeometry,
-            isScreenSpaceWidth = isScreenSpaceWidth
+            isScreenSpaceWidth = isScreenSpaceWidth,
+            paintOutlineWidth = paintOutlineWidth
         )
     }
 }

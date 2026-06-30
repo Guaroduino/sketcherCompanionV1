@@ -90,13 +90,17 @@ fun FreehandSettingsContent(
     onSettingsChanged: (FreehandSettings) -> Unit,
     isFlattenedOuterStrokeEnabled: Boolean,
     onToggleFlattenedOuterStroke: () -> Unit,
-    showFlatStrokeOption: Boolean = true
+    showFlatStrokeOption: Boolean = true,
+    showPaintOutlineOption: Boolean = false,
+    showCapsOption: Boolean = true,
+    showPolygonOption: Boolean = true,
+    title: String = "Ajustes de Pincel"
 ) {
-    Text("Ajustes de Pincel (Perfect Freehand)", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+    Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
 
     // 1. Thinning
     SettingSlider(
-        label = "Adelgazamiento (PresiÃ³n): ${(currentSettings.thinning * 100).toInt()}%",
+        label = "Adelgazamiento (Presión): ${(currentSettings.thinning * 100).toInt()}%",
         value = currentSettings.thinning,
         onValueChange = { onSettingsChanged(currentSettings.copy(thinning = it)) }
     )
@@ -124,7 +128,7 @@ fun FreehandSettingsContent(
     
     // Min Width
     SettingSlider(
-        label = "Grosor MÃ­nimo: ${(currentSettings.minWidthRatio * 100).toInt()}%",
+        label = "Grosor Mínimo: ${(currentSettings.minWidthRatio * 100).toInt()}%",
         value = currentSettings.minWidthRatio,
         valueRange = 0f..1.0f,
         onValueChange = { onSettingsChanged(currentSettings.copy(minWidthRatio = it)) }
@@ -136,13 +140,23 @@ fun FreehandSettingsContent(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("Simular PresiÃ³n (Velocidad)")
+        Text("Simular Presión (Velocidad)")
         Switch(
             checked = currentSettings.simulatePressure,
             onCheckedChange = { onSettingsChanged(currentSettings.copy(simulatePressure = it)) }
         )
     }
     
+    if (showPaintOutlineOption) {
+        HorizontalDivider()
+        Text("Contorno de Pintura", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+        SettingSlider(
+            label = "Grosor del Contorno: ${String.format("%.1f", currentSettings.paintOutlineWidth)} px",
+            value = currentSettings.paintOutlineWidth,
+            valueRange = 0.5f..15f,
+            onValueChange = { onSettingsChanged(currentSettings.copy(paintOutlineWidth = it)) }
+        )
+    }
 
     HorizontalDivider()
     
@@ -163,41 +177,45 @@ fun FreehandSettingsContent(
         onValueChange = { onSettingsChanged(currentSettings.copy(taperEnd = it)) }
     )
 
-    // Caps
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text("Punta Redonda (Inicio)")
-        Switch(
-            checked = currentSettings.capStart,
-            onCheckedChange = { onSettingsChanged(currentSettings.copy(capStart = it)) }
-        )
-    }
-    
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text("Punta Redonda (Fin)")
-        Switch(
-            checked = currentSettings.capEnd,
-            onCheckedChange = { onSettingsChanged(currentSettings.copy(capEnd = it)) }
-        )
+    if (showCapsOption) {
+        // Caps
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Punta Redonda (Inicio)")
+            Switch(
+                checked = currentSettings.capStart,
+                onCheckedChange = { onSettingsChanged(currentSettings.copy(capStart = it)) }
+            )
+        }
+        
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Punta Redonda (Fin)")
+            Switch(
+                checked = currentSettings.capEnd,
+                onCheckedChange = { onSettingsChanged(currentSettings.copy(capEnd = it)) }
+            )
+        }
     }
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text("Curvas Poligonales")
-        Switch(
-            checked = currentSettings.useCurveForPolygon,
-            onCheckedChange = { onSettingsChanged(currentSettings.copy(useCurveForPolygon = it)) }
-        )
+    if (showPolygonOption) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Curvas Poligonales")
+            Switch(
+                checked = currentSettings.useCurveForPolygon,
+                onCheckedChange = { onSettingsChanged(currentSettings.copy(useCurveForPolygon = it)) }
+            )
+        }
     }
 
     HorizontalDivider()
