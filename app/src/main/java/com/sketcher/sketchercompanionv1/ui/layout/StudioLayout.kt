@@ -3108,7 +3108,7 @@ fun StudioLayout(
                                                   val p = assignedToolsMap[tool.id]
 
 
-                                                  if (p != null) viewModel.editTool(p)
+                                                  if (p != null) viewModel.editTool(p, tool.id)
 
 
                                               }
@@ -3169,6 +3169,9 @@ fun StudioLayout(
 
 
                                       },
+fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
+    if (tool.id == viewModel.lastActiveColorToolId || (viewModel.lastActiveColorToolId == null && isFillActiveVal)) fillStyleVal else null
+} else null,
 
 
                                       isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && isStrokeActiveVal) ||
@@ -3525,7 +3528,7 @@ fun StudioLayout(
                                                   val p = assignedToolsMap[tool.id]
 
 
-                                                  if (p != null) viewModel.editTool(p)
+                                                  if (p != null) viewModel.editTool(p, tool.id)
 
 
                                               }
@@ -3586,6 +3589,9 @@ fun StudioLayout(
 
 
                                        },
+fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
+    if (tool.id == viewModel.lastActiveColorToolId || (viewModel.lastActiveColorToolId == null && isFillActiveVal)) fillStyleVal else null
+} else null,
 
 
                                        isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && isStrokeActiveVal) ||
@@ -3945,7 +3951,7 @@ fun StudioLayout(
                                                   val p = assignedToolsMap[tool.id]
 
 
-                                                  if (p != null) viewModel.editTool(p)
+                                                  if (p != null) viewModel.editTool(p, tool.id)
 
 
                                               }
@@ -4006,6 +4012,9 @@ fun StudioLayout(
 
 
                                        },
+fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
+    if (tool.id == viewModel.lastActiveColorToolId || (viewModel.lastActiveColorToolId == null && isFillActiveVal)) fillStyleVal else null
+} else null,
 
 
                                        isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && isStrokeActiveVal) ||
@@ -4365,7 +4374,7 @@ fun StudioLayout(
                                                   val p = assignedToolsMap[tool.id]
 
 
-                                                  if (p != null) viewModel.editTool(p)
+                                                  if (p != null) viewModel.editTool(p, tool.id)
 
 
                                               }
@@ -4426,6 +4435,9 @@ fun StudioLayout(
 
 
                                       },
+fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
+    if (tool.id == viewModel.lastActiveColorToolId || (viewModel.lastActiveColorToolId == null && isFillActiveVal)) fillStyleVal else null
+} else null,
 
 
                                       isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && isStrokeActiveVal) ||

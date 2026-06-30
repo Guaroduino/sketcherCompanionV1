@@ -9,6 +9,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -353,7 +355,7 @@ fun SolidColorSelector(
     }
 
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(8.sdp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -396,7 +398,7 @@ fun SvgPatternPanel(
     onImportClick: () -> Unit
 ) {
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(8.sdp)
     ) {
         Text("Builtin Patterns", fontSize = 11.ssp)
@@ -435,7 +437,7 @@ fun SvgPatternPanel(
             Text("Import custom SVG file", fontSize = 11.ssp)
         }
 
-        Divider()
+        HorizontalDivider()
 
         Text("Transformations", fontSize = 11.ssp)
         SliderRow(label = "Scale X", value = scaleX, range = 0.2f..5.0f, onValueChange = onScaleXChanged)
@@ -465,7 +467,7 @@ fun MathTexturePanel(
     val patterns = listOf("GRID", "CHECKERBOARD", "STRIPES", "DOTS")
 
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(8.sdp)
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
@@ -535,7 +537,7 @@ fun MathTexturePanel(
             }
         }
 
-        Divider()
+        HorizontalDivider()
 
         SliderRow(label = "Spacing", value = spacing, range = 8f..150f, onValueChange = onSpacingChanged)
         SliderRow(label = "Thickness", value = thickness, range = 1f..spacing / 2f, onValueChange = onThicknessChanged)
@@ -561,7 +563,7 @@ fun ImageTexturePanel(
     onChooseImage: () -> Unit
 ) {
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(8.sdp)
     ) {
         OutlinedButton(
@@ -579,7 +581,7 @@ fun ImageTexturePanel(
             Text("No texture selected", fontSize = 10.ssp, color = Color.Gray)
         }
 
-        Divider()
+        HorizontalDivider()
 
         Text("Image Transformations", fontSize = 11.ssp)
         SliderRow(label = "Scale X", value = scaleX, range = 0.1f..4.0f, onValueChange = onScaleXChanged)

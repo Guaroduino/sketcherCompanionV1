@@ -19,6 +19,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.sketcher.sketchercompanionv1.ui.theme.sdp
@@ -63,92 +65,102 @@ fun ColorPickerDialog(
             color = MaterialTheme.colorScheme.surface,
             modifier = Modifier
                 .width(340.sdp)
-                .padding(16.sdp)
+                .heightIn(max = 500.sdp)
+                .clip(RoundedCornerShape(16.sdp))
         ) {
             Column(
-                modifier = Modifier.padding(16.sdp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.sdp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text("Pick a Color", style = MaterialTheme.typography.titleLarge.copy(fontSize = 22.ssp))
-                Spacer(modifier = Modifier.height(16.sdp))
+                Spacer(modifier = Modifier.height(12.sdp))
 
-                // 2D Saturation/Value Box
-                SaturationValueBox(
-                    hue = hue,
-                    saturation = saturation,
-                    value = value,
-                    onSaturationValueChanged = { s, v ->
-                        saturation = s
-                        value = v
-                        updateColor()
-                    }
-                )
-                
-                Spacer(modifier = Modifier.height(16.sdp))
-
-                // Hue Bar
-                HueBar(
-                    hue = hue,
-                    onHueChanged = { h ->
-                        hue = h
-                        updateColor()
-                    }
-                )
-
-                Spacer(modifier = Modifier.height(16.sdp))
-
-                // Preview & Current Params
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                   Box(
-                        modifier = Modifier
-                            .size(48.sdp)
-                            .clip(CircleShape)
-                            .background(currentColor)
-                            .border(1.sdp, Color.Gray, CircleShape)
+                    // 2D Saturation/Value Box
+                    SaturationValueBox(
+                        hue = hue,
+                        saturation = saturation,
+                        value = value,
+                        onSaturationValueChanged = { s, v ->
+                            saturation = s
+                            value = v
+                            updateColor()
+                        }
                     )
-                    Spacer(modifier = Modifier.width(16.sdp))
-                    Column {
-                        Text("H: ${hue.toInt()}°", style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp))
-                        Text("S: ${(saturation * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp))
-                        Text("V: ${(value * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp))
-                    }
-                }
-                
-                Spacer(modifier = Modifier.height(16.sdp))
-                
-                // Recent Colors
-                if (recentColors.isNotEmpty()) {
-                    Text("Recent Colors", style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.ssp), modifier = Modifier.align(Alignment.Start))
-                    Spacer(modifier = Modifier.height(8.sdp))
+                    
+                    Spacer(modifier = Modifier.height(12.sdp))
+
+                    // Hue Bar
+                    HueBar(
+                        hue = hue,
+                        onHueChanged = { h ->
+                            hue = h
+                            updateColor()
+                        }
+                    )
+
+                    Spacer(modifier = Modifier.height(12.sdp))
+
+                    // Preview & Current Params
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.sdp)
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        recentColors.take(6).forEach { color ->
-                            Box(
-                                modifier = Modifier
-                                    .size(32.sdp)
-                                    .clip(CircleShape)
-                                    .background(color)
-                                    .border(1.sdp, Color.Gray.copy(alpha=0.3f), CircleShape)
-                                    .clickable { 
-                                         // Set internal state
-                                         val hsv = FloatArray(3)
-                                         android.graphics.Color.colorToHSV(color.toArgb(), hsv)
-                                         hue = hsv[0]
-                                         saturation = hsv[1]
-                                         value = hsv[2]
-                                         updateColor()
-                                    }
-                            )
+                        Box(
+                            modifier = Modifier
+                                .size(48.sdp)
+                                .clip(CircleShape)
+                                .background(currentColor)
+                                .border(1.sdp, Color.Gray, CircleShape)
+                        )
+                        Spacer(modifier = Modifier.width(16.sdp))
+                        Column {
+                            Text("H: ${hue.toInt()}°", style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp))
+                            Text("S: ${(saturation * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp))
+                            Text("V: ${(value * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp))
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(12.sdp))
+                    
+                    // Recent Colors
+                    if (recentColors.isNotEmpty()) {
+                        Text("Recent Colors", style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.ssp), modifier = Modifier.align(Alignment.Start))
+                        Spacer(modifier = Modifier.height(8.sdp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.sdp)
+                        ) {
+                            recentColors.take(6).forEach { color ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.sdp)
+                                        .clip(CircleShape)
+                                        .background(color)
+                                        .border(1.sdp, Color.Gray.copy(alpha=0.3f), CircleShape)
+                                        .clickable { 
+                                             // Set internal state
+                                             val hsv = FloatArray(3)
+                                             android.graphics.Color.colorToHSV(color.toArgb(), hsv)
+                                             hue = hsv[0]
+                                             saturation = hsv[1]
+                                             value = hsv[2]
+                                             updateColor()
+                                        }
+                                )
+                            }
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.sdp))
+                Spacer(modifier = Modifier.height(16.sdp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),

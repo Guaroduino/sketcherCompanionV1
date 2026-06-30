@@ -11,6 +11,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.material3.Surface
@@ -25,6 +26,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.window.Dialog
 import com.sketcher.sketchercompanionv1.ui.theme.sdp
 import com.sketcher.sketchercompanionv1.ui.theme.ssp
@@ -66,6 +69,8 @@ fun ColorPickerDialog(
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             modifier = Modifier
+                .width(320.sdp)
+                .heightIn(max = 500.sdp)
                 .clip(RoundedCornerShape(16.sdp)),
             shape = RoundedCornerShape(16.sdp),
             color = MaterialTheme.colorScheme.surface,
@@ -73,74 +78,92 @@ fun ColorPickerDialog(
         ) {
             Column(
                 modifier = Modifier
+                    .fillMaxSize()
                     .padding(16.sdp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.sdp)
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // REMOVED TITLE per request
-
-                // Current Color Preview
-                Box(
+                Column(
                     modifier = Modifier
-                        .size(60.sdp)
-                        .clip(CircleShape)
-                        .background(currentColor)
-                        .border(2.sdp, Color.Gray, CircleShape)
-                )
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.sdp)
+                ) {
+                    // Current Color Preview
+                    Box(
+                        modifier = Modifier
+                            .size(50.sdp)
+                            .clip(CircleShape)
+                            .background(currentColor)
+                            .border(2.sdp, Color.Gray, CircleShape)
+                    )
 
-                // Color Wheel (Hue + Saturation)
-                ColorWheel(
-                    hue = hue,
-                    saturation = saturation,
-                    onColorChange = { h, s -> 
-                        hue = h
-                        saturation = s
-                    }
-                )
-                
-                // Saturation Slider
-                SaturationSlider(
-                    saturation = saturation,
-                    hue = hue,
-                    value = value,
-                    onSaturationChange = { saturation = it }
-                )
+                    // Color Wheel (Hue + Saturation)
+                    ColorWheel(
+                        hue = hue,
+                        saturation = saturation,
+                        onColorChange = { h, s -> 
+                            hue = h
+                            saturation = s
+                        }
+                    )
+                    
+                    // Saturation Slider
+                    SaturationSlider(
+                        saturation = saturation,
+                        hue = hue,
+                        value = value,
+                        onSaturationChange = { saturation = it }
+                    )
 
-                // Value Slider
-                ValueSlider(
-                    value = value,
-                    hue = hue,
-                    saturation = saturation,
-                    onValueChange = { value = it }
-                )
+                    // Value Slider
+                    ValueSlider(
+                        value = value,
+                        hue = hue,
+                        saturation = saturation,
+                        onValueChange = { value = it }
+                    )
 
-                Text("Presets (Long press to Save)", style = androidx.compose.material3.MaterialTheme.typography.bodySmall.copy(fontSize = 12.ssp))
-                
-                // Presets Row
-                Row(horizontalArrangement = Arrangement.spacedBy(12.sdp)) {
-                    presets.forEachIndexed { index, color ->
-                        PresetCircle(
-                            color = color,
-                            onClick = { 
-                                val hsv = FloatArray(3)
-                                AndroidColor.colorToHSV(color.toArgb(), hsv)
-                                hue = hsv[0]
-                                saturation = hsv[1]
-                                value = hsv[2]
-                            },
-                            onLongClick = {
-                                presets[index] = currentColor
-                            }
-                        )
+                    Text("Presets (Long press to Save)", style = androidx.compose.material3.MaterialTheme.typography.bodySmall.copy(fontSize = 11.ssp))
+                    
+                    // Presets Row
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.sdp)) {
+                        presets.forEachIndexed { index, color ->
+                            PresetCircle(
+                                color = color,
+                                onClick = { 
+                                    val hsv = FloatArray(3)
+                                    AndroidColor.colorToHSV(color.toArgb(), hsv)
+                                    hue = hsv[0]
+                                    saturation = hsv[1]
+                                    value = hsv[2]
+                                },
+                                onLongClick = {
+                                    presets[index] = currentColor
+                                }
+                            )
+                        }
                     }
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(16.sdp)) {
-                    Button(onClick = onDismiss, shape = RoundedCornerShape(8.sdp)) { Text("Cancel", fontSize = 14.ssp) }
+                Spacer(modifier = Modifier.height(16.sdp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.sdp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel", fontSize = 13.ssp) }
                     if (onDisable != null) {
-                        Button(onClick = { onDisable(); onDismiss() }, shape = RoundedCornerShape(8.sdp)) { Text("None", fontSize = 14.ssp) }
+                        TextButton(onClick = { onDisable(); onDismiss() }, modifier = Modifier.weight(1f)) { Text("None", fontSize = 13.ssp) }
                     }
-                    Button(onClick = { onColorSelected(currentColor.toArgb()) }, shape = RoundedCornerShape(8.sdp)) { Text("Select", fontSize = 14.ssp) }
+                    Button(
+                        onClick = { onColorSelected(currentColor.toArgb()) },
+                        shape = RoundedCornerShape(8.sdp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Select", fontSize = 13.ssp)
+                    }
                 }
             }
         }

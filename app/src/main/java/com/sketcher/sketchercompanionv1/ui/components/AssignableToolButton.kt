@@ -1,11 +1,15 @@
 package com.sketcher.sketchercompanionv1.ui.components
 
+import com.sketcher.sketchercompanionv1.dto.FillStyle
+import android.graphics.Color as AndroidColor
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -72,6 +76,7 @@ fun AssignableToolButton(
     location: ToolLocation? = null,
     theme: UiThemeConfig? = null,
     colorPreview: Color? = null,
+    fillStylePreview: FillStyle? = null,
     payload: ToolPayload? = null,
     isSelected: Boolean = false,
     isNone: Boolean = false,
@@ -151,22 +156,30 @@ fun AssignableToolButton(
                         cap = StrokeCap.Round
                     )
                 }
-            } else if (colorPreview != null) {
+            } else if (colorPreview != null || fillStylePreview != null) {
                 if (payload == ToolPayload.STROKE_COLOR) {
                     // Hollow circle for Stroke
                     Box(
                         modifier = Modifier
                             .size(24.dp * scaleFactor)
-                            .border(width = 3.dp * scaleFactor, color = colorPreview, shape = CircleShape)
+                            .border(width = 3.dp * scaleFactor, color = colorPreview ?: Color.Black, shape = CircleShape)
                     )
                 } else {
-                    // Solid circle for Fill
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp * scaleFactor)
-                            .clip(CircleShape)
-                            .background(colorPreview)
-                    )
+                    // FillStyle or Color preview for Fill
+                    if (fillStylePreview != null) {
+                        FillStylePreviewBox(
+                            style = fillStylePreview,
+                            modifier = Modifier.size(24.dp * scaleFactor)
+                        )
+                    } else {
+                        // Solid circle fallback
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp * scaleFactor)
+                                .clip(CircleShape)
+                                .background(colorPreview ?: Color.Transparent)
+                        )
+                    }
                 }
             } else {
                 if (tool != null && theme != null) {
@@ -241,6 +254,76 @@ fun AssignableToolButton(
                             contentPadding = PaddingValues(horizontal = 16.dp * scaleFactor, vertical = 0.dp)
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun FillStylePreviewBox(
+    style: FillStyle,
+    modifier: Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(CircleShape)
+            .border(1.dp, Color.Gray, CircleShape)
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            when (style) {
+                is FillStyle.Solid -> {
+                    drawCircle(Color(style.color))
+                }
+                is FillStyle.MathTexture -> {
+                    val primary = Color(style.primaryColor)
+                    val secondary = if (style.secondaryColor == AndroidColor.TRANSPARENT) Color.Transparent else Color(style.secondaryColor)
+                    drawRect(secondary)
+                    
+                    when (style.patternName.uppercase()) {
+                        "GRID" -> {
+                            val strokeWidth = 2.dp.toPx()
+                            drawLine(primary, start = androidx.compose.ui.geometry.Offset(size.width / 2f, 0f), end = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height), strokeWidth = strokeWidth)
+                            drawLine(primary, start = androidx.compose.ui.geometry.Offset(0f, size.height / 2f), end = androidx.compose.ui.geometry.Offset(size.width, size.height / 2f), strokeWidth = strokeWidth)
+                        }
+                        "CHECKERBOARD" -> {
+                            drawRect(primary, size = androidx.compose.ui.geometry.Size(size.width / 2f, size.height / 2f))
+                            drawRect(primary, 
+                                topLeft = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f),
+                                size = androidx.compose.ui.geometry.Size(size.width / 2f, size.height / 2f)
+                            )
+                        }
+                        "STRIPES" -> {
+                            val strokeWidth = 3.dp.toPx()
+                            drawLine(primary, start = androidx.compose.ui.geometry.Offset(0f, size.height), end = androidx.compose.ui.geometry.Offset(size.width, 0f), strokeWidth = strokeWidth)
+                            drawLine(primary, start = androidx.compose.ui.geometry.Offset(0f, size.height / 2f), end = androidx.compose.ui.geometry.Offset(size.width / 2f, 0f), strokeWidth = strokeWidth)
+                            drawLine(primary, start = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height), end = androidx.compose.ui.geometry.Offset(size.width, size.height / 2f), strokeWidth = strokeWidth)
+                        }
+                        "DOTS" -> {
+                            drawCircle(primary, radius = size.minDimension / 4f)
+                        }
+                    }
+                }
+                is FillStyle.SvgPattern -> {
+                    drawCircle(Color.LightGray)
+                    val strokeWidth = 1.5.dp.toPx()
+                    drawLine(Color.DarkGray, start = androidx.compose.ui.geometry.Offset(0f, 0f), end = androidx.compose.ui.geometry.Offset(size.width, size.height), strokeWidth = strokeWidth)
+                    drawLine(Color.DarkGray, start = androidx.compose.ui.geometry.Offset(size.width, 0f), end = androidx.compose.ui.geometry.Offset(0f, size.height), strokeWidth = strokeWidth)
+                }
+                is FillStyle.ImageTexture -> {
+                    drawCircle(Color(0xFFE0E0E0))
+                    val paintColor = Color.Gray
+                    val strokeWidth = 1.dp.toPx()
+                    drawCircle(paintColor, radius = size.minDimension / 6f, center = androidx.compose.ui.geometry.Offset(size.width * 0.35f, size.height * 0.35f))
+                    val path = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(0f, size.height)
+                        lineTo(size.width * 0.4f, size.height * 0.5f)
+                        lineTo(size.width * 0.7f, size.height * 0.8f)
+                        lineTo(size.width * 0.8f, size.height * 0.7f)
+                        lineTo(size.width, size.height)
+                        close()
+                    }
+                    drawPath(path, paintColor)
                 }
             }
         }

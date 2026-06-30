@@ -560,18 +560,15 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
 
 
-    fun editTool(payload: ToolPayload) {
-
-         when(payload) {
-
-             ToolPayload.STROKE_COLOR -> _showStrokeColorPicker.value = true
-
-             ToolPayload.FILL_COLOR -> _showFillColorPicker.value = true
-
-             else -> {} // Other tools might not have edit dialogs yet
-
-         }
-
+    fun editTool(payload: ToolPayload, toolId: String? = null) {
+        if (payload == ToolPayload.STROKE_COLOR || payload == ToolPayload.FILL_COLOR) {
+            lastActiveColorToolId = toolId
+        }
+        when(payload) {
+            ToolPayload.STROKE_COLOR -> _showStrokeColorPicker.value = true
+            ToolPayload.FILL_COLOR -> _showFillColorPicker.value = true
+            else -> {} // Other tools might not have edit dialogs yet
+        }
     }
 
 
