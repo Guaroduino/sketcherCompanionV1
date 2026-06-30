@@ -1,4 +1,4 @@
-package com.sketcher.sketchercompanionv1
+﻿package com.sketcher.sketchercompanionv1
 
 import android.graphics.Path
 import android.graphics.PointF
@@ -39,6 +39,11 @@ object PerfectFreehandGenerator {
     private const val START_CAP_SEGMENTS = 12
     private const val END_CAP_SEGMENTS = 12
     private const val CORNER_CAP_SEGMENTS = 12
+
+    private val strokePointsLocal = ThreadLocal.withInitial { ArrayList<StrokePointInternal>() }
+    private val leftPtsLocal = ThreadLocal.withInitial { ArrayList<Vec2>() }
+    private val rightPtsLocal = ThreadLocal.withInitial { ArrayList<Vec2>() }
+    private val velocitiesLocal = ThreadLocal.withInitial { ArrayList<Float>() }
 
     // Internal data structure for processed points
     private data class StrokePointInternal(
@@ -160,7 +165,7 @@ object PerfectFreehandGenerator {
         // PRE-CALCULATE VELOCITIES (Raw Input Dynamics)
         val velocities = computeSmoothedVelocities(pts)
 
-        val strokePoints = ArrayList<StrokePointInternal>()
+        val strokePoints = strokePointsLocal.get().apply { clear() }
         
         // First point
         val p0 = pts[0]
@@ -228,7 +233,7 @@ object PerfectFreehandGenerator {
     }
 
     private fun computeSmoothedVelocities(points: List<StrokePoint>): List<Float> {
-        val vels = ArrayList<Float>()
+        val vels = velocitiesLocal.get().apply { clear() }
         var lastVel = 0f
         
         // Loop over the list
@@ -289,8 +294,8 @@ object PerfectFreehandGenerator {
         val minDistance = (size * smoothing).pow(2)
         val minWidth = size * minWidthRatio
         
-        val leftPts = ArrayList<Vec2>()
-        val rightPts = ArrayList<Vec2>()
+        val leftPts = leftPtsLocal.get().apply { clear() }
+        val rightPts = rightPtsLocal.get().apply { clear() }
         
         var prevPressure = computeInitialPressure(points, simulatePressure, size)
         

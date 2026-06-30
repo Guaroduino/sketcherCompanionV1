@@ -1,4 +1,4 @@
-package com.sketcher.sketchercompanionv1
+﻿package com.sketcher.sketchercompanionv1
 
 import android.graphics.Canvas
 import android.graphics.Color
@@ -24,6 +24,21 @@ import com.sketcher.sketchercompanionv1.managers.SnapType
 class RenderEngine {
 
     // --- PAINTS ---
+    private val svgAlphaPaint = Paint()
+    private val matrixStack = ArrayList<Matrix>().apply {
+        repeat(16) { add(Matrix()) }
+    }
+    private var matrixStackPointer = 0
+    private fun obtainMatrix(): Matrix {
+        if (matrixStackPointer >= matrixStack.size) {
+            matrixStack.add(Matrix())
+        }
+        return matrixStack[matrixStackPointer++]
+    }
+    private fun releaseMatrix() {
+        matrixStackPointer--
+    }
+
     private val vectorPaint = Paint().apply {
         style = Paint.Style.STROKE // Default, changed dynamically
         isAntiAlias = true
@@ -366,9 +381,10 @@ class RenderEngine {
              is GroupElement -> {
                  canvas.save()
                  canvas.concat(element.matrix)
-                 val nextMatrix = Matrix(viewMatrix)
+                 val nextMatrix = obtainMatrix().apply { set(viewMatrix) }
                  nextMatrix.postConcat(element.matrix)
                  element.elements.forEach { drawElementRecursive(canvas, it, library, nextMatrix, alphaMultiplier) }
+                 releaseMatrix()
                  canvas.restore()
              }
              is ComponentInstance -> {
@@ -376,9 +392,10 @@ class RenderEngine {
                  if (def != null) {
                      canvas.save()
                      canvas.concat(element.matrix)
-                     val nextMatrix = Matrix(viewMatrix)
+                     val nextMatrix = obtainMatrix().apply { set(viewMatrix) }
                      nextMatrix.postConcat(element.matrix)
                      def.elements.forEach { drawElementRecursive(canvas, it, library, nextMatrix, alphaMultiplier) }
+                     releaseMatrix()
                      canvas.restore()
                  }
              }
@@ -392,7 +409,7 @@ class RenderEngine {
              is SvgElement -> {
                  if (alphaMultiplier < 1f) {
                      val bounds = element.getBoundingBox(library)
-                     val saveCount = canvas.saveLayer(bounds, Paint().apply { alpha = (alphaMultiplier * 255).toInt().coerceIn(0, 255) })
+                     val saveCount = canvas.saveLayer(bounds, svgAlphaPaint.apply { alpha = (alphaMultiplier * 255).toInt().coerceIn(0, 255) })
                      element.render(canvas)
                      canvas.restoreToCount(saveCount)
                  } else {

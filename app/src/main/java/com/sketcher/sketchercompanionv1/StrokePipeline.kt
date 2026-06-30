@@ -1,4 +1,4 @@
-package com.sketcher.sketchercompanionv1
+﻿package com.sketcher.sketchercompanionv1
 
 import android.view.MotionEvent
 import android.graphics.Path
@@ -85,6 +85,7 @@ class StrokePipeline(
     private val combinedPreviewPath = Path() // (unused after seam fix, kept for safety)
 
 
+    private val stabilizedPoints = ArrayList<StrokePoint>()
     private val currentStrokePoints = mutableListOf<StrokePoint>()
     val currentStrokePointsList: List<StrokePoint> get() = currentStrokePoints
     private var isDrawing: Boolean = false
@@ -133,7 +134,7 @@ class StrokePipeline(
 
         // 1. Process Event -> Raw Points
         val rawEventPoints = inputHandler.processEvent(event)
-        val stabilizedPoints = mutableListOf<StrokePoint>()
+        stabilizedPoints.clear()
 
         if (action == MotionEvent.ACTION_DOWN) {
            isDrawing = true
@@ -198,11 +199,14 @@ class StrokePipeline(
             reusablePointBuffer[0] = snapX
             reusablePointBuffer[1] = snapY
             reusableInverseMatrix.mapPoints(reusablePointBuffer)
-            val worldP = StrokePoint(reusablePointBuffer[0], reusablePointBuffer[1], p.pressure, p.timestamp)
+            val worldX = reusablePointBuffer[0]
+            val worldY = reusablePointBuffer[1]
+            val worldPressure = p.pressure
+            val worldTime = p.timestamp
 
             // 2.5 Filter in World Space (Fixed world distance instead of screen pixels)
-            val dx = worldP.x - lastRecordedX
-            val dy = worldP.y - lastRecordedY
+            val dx = worldX - lastRecordedX
+            val dy = worldY - lastRecordedY
             val distSq = dx * dx + dy * dy
 
             // 0.5 world units (0.1mm at 5px/mm) is a good stable threshold for most zooms
@@ -211,16 +215,16 @@ class StrokePipeline(
             val isStart = (action == MotionEvent.ACTION_DOWN && stabilizedPoints.isEmpty())
 
             if (distSq > minDistSq || isStart) {
-                var sanitizedTime = p.timestamp
+                var sanitizedTime = worldTime
                 if (sanitizedTime <= lastPointTimestamp) {
                     sanitizedTime = lastPointTimestamp + 1
                 }
                 lastPointTimestamp = sanitizedTime
 
-                val stabilizedWorldPoint = StrokePoint(worldP.x, worldP.y, p.pressure, sanitizedTime)
+                val stabilizedWorldPoint = StrokePoint(worldX, worldY, worldPressure, sanitizedTime)
                 stabilizedPoints.add(stabilizedWorldPoint)
-                lastRecordedX = worldP.x
-                lastRecordedY = worldP.y
+                lastRecordedX = worldX
+                lastRecordedY = worldY
             }
         }
 
@@ -1014,6 +1018,10 @@ class StrokePipeline(
 
     fun triggerUpdatePreview() {
         updatePreview()
+    }
+
+    fun cancel() {
+        pipelineScope.cancel()
     }
 
     fun reset() {

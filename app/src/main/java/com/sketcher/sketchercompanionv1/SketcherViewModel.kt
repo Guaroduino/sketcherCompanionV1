@@ -1,4 +1,4 @@
-package com.sketcher.sketchercompanionv1
+﻿package com.sketcher.sketchercompanionv1
 
 
 
@@ -186,15 +186,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
 
 
-    val strokeCount: Int
+    val strokeCount: Int by androidx.compose.runtime.derivedStateOf {
+        layers.sumOf { layer -> layer.elements.count { it is VectorStroke } }
+    }
 
-        get() = layers.sumOf { layer -> layer.elements.count { it is VectorStroke } }
-
-
-
-    val pointCount: Int
-
-        get() = layers.sumOf { layer -> layer.elements.sumOf { el -> if (el is VectorStroke) el.points.size else 0 } }
+    val pointCount: Int by androidx.compose.runtime.derivedStateOf {
+        layers.sumOf { layer -> layer.elements.sumOf { el -> if (el is VectorStroke) el.points.size else 0 } }
+    }
 
 
 
