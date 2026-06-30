@@ -504,11 +504,14 @@ class StrokePipeline(
                 currentZoom,
                 reusablePreviewPath
             )
+            if (activeStrokeType == StrokeType.PAINT) {
+                committedPathToSend = committedPath
+            }
         }
 
         // 3. Fill Preview
         var fillPath: Path? = null
-        if (isFillActive && livePoints.size >= 3) {
+        if (isFillActive && livePoints.size >= 3 && activeStrokeType != StrokeType.PAINT) {
             fillPath = reusableFillPath.apply { rewind() }
             fillPath.moveTo(livePoints[0].x, livePoints[0].y)
             for (i in 1 until livePoints.size) {
@@ -553,11 +556,22 @@ class StrokePipeline(
         }
         val tailPath = result.path
         tailPath.computeBounds(tempBounds1, true)
-        if (hasBounds) {
-            totalBounds.union(tempBounds1)
-        } else {
-            totalBounds.set(tempBounds1)
-            hasBounds = true
+        if (!tempBounds1.isEmpty) {
+            if (hasBounds) {
+                totalBounds.union(tempBounds1)
+            } else {
+                totalBounds.set(tempBounds1)
+                hasBounds = true
+            }
+        } else if (livePoints.isNotEmpty()) {
+            val firstPoint = livePoints.first()
+            val pointRect = RectF(firstPoint.x, firstPoint.y, firstPoint.x, firstPoint.y)
+            if (hasBounds) {
+                totalBounds.union(pointRect)
+            } else {
+                totalBounds.set(pointRect)
+                hasBounds = true
+            }
         }
         if (hasBounds) {
             val pad = (activeSize * 2f).coerceAtLeast(10f)
@@ -650,79 +664,36 @@ class StrokePipeline(
         val rawPath = Path(genResult.path)
 
         if (activeStrokeType == StrokeType.PAINT) {
-            val activeStrokeColorSnap = activeStrokeColor
-            val activeFillColorSnap = activeFillColor
-            val isStrokeActiveSnap = isStrokeActive
-            val isFillActiveSnap = isFillActive
-            val activeSizeSnap = activeSize
-            val strokeIdSnap = currentStrokeId
-
-            // Generate temporary fill path for preview during async processing
-            val finalPointsSnap = finalPoints.toList()
-            var fillPath: Path? = null
-            if (isFillActiveSnap && finalPointsSnap.size >= 3) {
-                fillPath = Path().apply {
-                    moveTo(finalPointsSnap[0].x, finalPointsSnap[0].y)
-                    for (i in 1 until finalPointsSnap.size) {
-                        lineTo(finalPointsSnap[i].x, finalPointsSnap[i].y)
-                    }
-                    close()
-                }
+            val combinedFinal = Path(rawPath)
+            if (!committedPath.isEmpty) {
+                combinedFinal.addPath(committedPath)
+            }
+            val path = flattenOuterStroke(combinedFinal)
+            
+            val outlinePointsPointF = com.sketcher.sketchercompanionv1.utils.GeometryUtils.flattenPath(path, step = 8f / currentZoom)
+            val outlineStrokePoints = outlinePointsPointF.map { pt -> StrokePoint(pt.x, pt.y, 0.5f) }
+            val simplifiedPoints = if (outlineStrokePoints.size > 2) {
+                com.sketcher.sketchercompanionv1.utils.StrokeSimplifier.simplify(outlineStrokePoints, 1.5f / currentZoom, 20f)
+            } else {
+                outlineStrokePoints
             }
 
-            val finalBounds = RectF()
-            rawPath.computeBounds(finalBounds, true)
-            val pad = (activeSizeSnap * 2f).coerceAtLeast(10f)
-            finalBounds.inset(-pad, -pad)
+            val stroke = VectorStroke(
+                points = simplifiedPoints,
+                strokeColor = activeStrokeColor,
+                fillColor = activeFillColor,
+                isStrokeEnabled = isStrokeActive,
+                isFillEnabled = isFillActive,
+                maxWidth = activeSize,
+                path = path,
+                fillPath = if (isFillActive) path else null,
+                brushType = "PAINT",
+                strokeType = StrokeType.PAINT,
+                isFlattened = false
+            )
 
-            // Immediately show the finalized stroke preview
-            onUpdate(PipelineUpdate(
-                previewPath = Path(rawPath),
-                previewPoints = finalPointsSnap,
-                centerPoints = genResult.center,
-                outlinePoints = genResult.left + genResult.right,
-                lastRadius = genResult.lastRadius,
-                fillPath = fillPath,
-                fillColor = if (isFillActiveSnap) activeFillColorSnap else 0,
-                committedPreviewPath = null,
-                bounds = finalBounds,
-                isMultiStepInProgress = isMultiStepInProgress
-            ))
-
-            pipelineScope.launch {
-                consolidationMutex.withLock {
-                    val path = flattenOuterStroke(rawPath)
-                    
-                    val outlinePointsPointF = com.sketcher.sketchercompanionv1.utils.GeometryUtils.flattenPath(path, step = 8f / currentZoom)
-                    val outlineStrokePoints = outlinePointsPointF.map { pt -> StrokePoint(pt.x, pt.y, 0.5f) }
-                    val simplifiedPoints = if (outlineStrokePoints.size > 2) {
-                        com.sketcher.sketchercompanionv1.utils.StrokeSimplifier.simplify(outlineStrokePoints, 1.5f / currentZoom, 20f)
-                    } else {
-                        outlineStrokePoints
-                    }
-
-                    val stroke = VectorStroke(
-                        points = simplifiedPoints,
-                        strokeColor = activeStrokeColorSnap,
-                        fillColor = activeFillColorSnap,
-                        isStrokeEnabled = isStrokeActiveSnap,
-                        isFillEnabled = isFillActiveSnap,
-                        maxWidth = activeSizeSnap,
-                        path = path,
-                        fillPath = if (isFillActiveSnap) path else null,
-                        brushType = "PAINT",
-                        strokeType = StrokeType.PAINT,
-                        isFlattened = false
-                    )
-
-                    withContext(Dispatchers.Main) {
-                        onStrokeCompleted(stroke, null)
-                        if (currentStrokeId == strokeIdSnap) {
-                            reset()
-                        }
-                    }
-                }
-            }
+            onStrokeCompleted(stroke, null)
+            reset()
             return
         }
 
@@ -1020,6 +991,16 @@ class StrokePipeline(
                 }
             }
         }
+    }
+
+    fun mergePath(externalPath: Path) {
+        committedPath.addPath(externalPath)
+        committedPathBounds.setEmpty()
+        committedPath.computeBounds(committedPathBounds, true)
+    }
+
+    fun triggerUpdatePreview() {
+        updatePreview()
     }
 
     fun reset() {

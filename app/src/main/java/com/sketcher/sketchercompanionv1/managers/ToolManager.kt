@@ -102,6 +102,7 @@ class ToolManager(context: Context) {
     private val toolConfigs: MutableMap<ToolType, ToolConfig> = mutableStateMapOf<ToolType, ToolConfig>().apply {
         val savedFreehand = loadFreehandSettings()
         val savedPen = loadPenSettings()
+        val savedPaint = loadPaintSettings()
         
         fun loadConfig(type: ToolType, defSize: Float, defOpacity: Float): ToolConfig {
             val s = prefs.getFloat("tool_size_${type.name}", defSize)
@@ -109,7 +110,7 @@ class ToolManager(context: Context) {
             val settings = when(type) {
                 ToolType.FREEHAND -> savedFreehand
                 ToolType.PEN -> savedPen
-                ToolType.PAINT -> savedFreehand
+                ToolType.PAINT -> savedPaint
                 else -> FreehandSettings()
             }
             return ToolConfig(size = s, opacity = o, freehandSettings = settings)
@@ -155,7 +156,7 @@ class ToolManager(context: Context) {
         }
 
         if (type == ToolType.PAINT) {
-            _isStrokeActive.value = false
+            _isStrokeActive.value = true
             _isFillActive.value = true
         } else if (type == ToolType.FREEHAND || type == ToolType.PEN) {
             _isStrokeActive.value = true
@@ -288,7 +289,7 @@ class ToolManager(context: Context) {
         when (currentTool) {
             ToolType.PEN -> savePenSettings(settings)
             ToolType.FREEHAND -> saveFreehandSettings(settings)
-            ToolType.PAINT -> saveFreehandSettings(settings)
+            ToolType.PAINT -> savePaintSettings(settings)
             else -> {}
         }
     }
@@ -320,6 +321,16 @@ class ToolManager(context: Context) {
     private fun saveFreehandSettings(settings: FreehandSettings) {
         val json = gson.toJson(settings)
         prefs.edit().putString("freehand_settings_v3", json).apply()
+    }
+
+    private fun loadPaintSettings(): FreehandSettings {
+        val json = prefs.getString("paint_settings_v3", null) ?: return FreehandSettings(thinning = 0.5f, smoothing = 0.5f, simulatePressure = true)
+        return try { gson.fromJson(json, FreehandSettings::class.java) } catch (e: Exception) { FreehandSettings() }
+    }
+
+    private fun savePaintSettings(settings: FreehandSettings) {
+        val json = gson.toJson(settings)
+        prefs.edit().putString("paint_settings_v3", json).apply()
     }
 
     private fun loadPenSettings(): FreehandSettings {
@@ -375,6 +386,7 @@ class ToolManager(context: Context) {
 
         val savedFreehand = loadFreehandSettings()
         val savedPen = loadPenSettings()
+        val savedPaint = loadPaintSettings()
         
         fun loadConfig(type: ToolType, defSize: Float, defOpacity: Float): ToolConfig {
             val s = prefs.getFloat("tool_size_${type.name}", defSize)
@@ -382,7 +394,7 @@ class ToolManager(context: Context) {
             val settings = when(type) {
                 ToolType.FREEHAND -> savedFreehand
                 ToolType.PEN -> savedPen
-                ToolType.PAINT -> savedFreehand
+                ToolType.PAINT -> savedPaint
                 else -> FreehandSettings()
             }
             return ToolConfig(size = s, opacity = o, freehandSettings = settings)

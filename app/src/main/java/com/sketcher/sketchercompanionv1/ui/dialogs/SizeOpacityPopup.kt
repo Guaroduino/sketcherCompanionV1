@@ -284,6 +284,14 @@ fun SizeOpacityPopup(
                                             onToggleFlattenedOuterStroke = { viewModel.toolManager.toggleFlattenedOuterStroke() }
                                         )
                                     }
+                                    ToolType.PAINT -> {
+                                        FreehandSettingsContent(
+                                            currentSettings = viewModel.currentFreehandSettings,
+                                            onSettingsChanged = { viewModel.updateFreehandSettings(it) },
+                                            isFlattenedOuterStrokeEnabled = viewModel.toolManager.isFlattenedOuterStrokeEnabled,
+                                            onToggleFlattenedOuterStroke = { viewModel.toolManager.toggleFlattenedOuterStroke() }
+                                        )
+                                    }
                                     ToolType.PEN -> {
                                         FreehandSettingsContent(
                                             currentSettings = viewModel.currentFreehandSettings,

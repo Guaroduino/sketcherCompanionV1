@@ -363,6 +363,15 @@ class RenderEngine {
                         canvas.drawPath(p, vectorPaint)
                     }
                 }
+            } else if (stroke.strokeType == StrokeType.PAINT) {
+                vectorPaint.style = Paint.Style.STROKE
+                val origColor = stroke.strokeColor
+                val origAlpha = Color.alpha(origColor)
+                val newAlpha = (origAlpha * alphaMultiplier).toInt().coerceIn(0, 255)
+                vectorPaint.color = (origColor and 0x00FFFFFF) or (newAlpha shl 24)
+                vectorPaint.strokeWidth = 2f
+                vectorPaint.pathEffect = null
+                canvas.drawPath(stroke.path, vectorPaint)
             } else {
                 // For others, it's a line
                 vectorPaint.style = Paint.Style.STROKE
@@ -510,10 +519,33 @@ class RenderEngine {
      * Called before drawLiveStroke so the live tail is rendered on top,
      * covering the end cap of the committed polygon and hiding any seam.
      */
-    fun drawCommittedPreview(canvas: Canvas, committedPath: Path, color: Int) {
-        vectorPaint.color = color
-        vectorPaint.style = Paint.Style.FILL
-        canvas.drawPath(committedPath, vectorPaint)
+    fun drawCommittedPreview(
+        canvas: Canvas, 
+        committedPath: Path, 
+        strokeColor: Int, 
+        fillColor: Int = 0, 
+        isStrokeActive: Boolean = true, 
+        isFillActive: Boolean = false, 
+        strokeType: StrokeType = StrokeType.FREEHAND
+    ) {
+        if (strokeType == StrokeType.PAINT) {
+            if (isFillActive) {
+                vectorPaint.color = fillColor
+                vectorPaint.style = Paint.Style.FILL
+                canvas.drawPath(committedPath, vectorPaint)
+            }
+            if (isStrokeActive) {
+                vectorPaint.color = strokeColor
+                vectorPaint.style = Paint.Style.STROKE
+                vectorPaint.strokeWidth = 2f
+                vectorPaint.pathEffect = null
+                canvas.drawPath(committedPath, vectorPaint)
+            }
+        } else {
+            vectorPaint.color = strokeColor
+            vectorPaint.style = Paint.Style.FILL
+            canvas.drawPath(committedPath, vectorPaint)
+        }
     }
 
     fun drawLiveStroke(
@@ -529,54 +561,70 @@ class RenderEngine {
         viewMatrix: Matrix,
         isDrawing: Boolean,
         isCad: Boolean = false,
-        lineStyle: String = "SOLID"
+        lineStyle: String = "SOLID",
+        strokeType: StrokeType = StrokeType.FREEHAND
     ) {
          if (!isDrawing) return
          
          canvas.save()
          canvas.concat(viewMatrix)
     
-         // Pass 1: FILL
-         if (isFillActive && fillPath != null) {
-             vectorPaint.style = Paint.Style.FILL
-             vectorPaint.color = fillColor
-             canvas.drawPath(fillPath, vectorPaint)
-         }
-    
-         // Pass 2: STROKE
-         if (isStrokeActive && previewPath != null) {
-             vectorPaint.color = previewColor
-             val width = if (isCad || previewPoints == null) currentLiveGeneratedRadius * 2 else 0f
-             
-             if (isCad) {
+         if (strokeType == StrokeType.PAINT) {
+             if (isFillActive && previewPath != null) {
+                 vectorPaint.style = Paint.Style.FILL
+                 vectorPaint.color = fillColor
+                 canvas.drawPath(previewPath, vectorPaint)
+             }
+             if (isStrokeActive && previewPath != null) {
                  vectorPaint.style = Paint.Style.STROKE
-                 vectorPaint.strokeWidth = width
+                 vectorPaint.strokeWidth = 2f
+                 vectorPaint.color = previewColor
+                 vectorPaint.pathEffect = null
+                 canvas.drawPath(previewPath, vectorPaint)
+             }
+         } else {
+             // Pass 1: FILL
+             if (isFillActive && fillPath != null) {
+                 vectorPaint.style = Paint.Style.FILL
+                 vectorPaint.color = fillColor
+                 canvas.drawPath(fillPath, vectorPaint)
+             }
+        
+             // Pass 2: STROKE
+             if (isStrokeActive && previewPath != null) {
+                 vectorPaint.color = previewColor
+                 val width = if (isCad || previewPoints == null) currentLiveGeneratedRadius * 2 else 0f
                  
-                 when (lineStyle.uppercase()) {
-                     "DASHED" -> {
-                         val interval = kotlin.math.max(1f, width)
-                         vectorPaint.pathEffect = android.graphics.DashPathEffect(
-                             floatArrayOf(4f * interval, 2f * interval), 0f
-                         )
+                 if (isCad) {
+                     vectorPaint.style = Paint.Style.STROKE
+                     vectorPaint.strokeWidth = width
+                     
+                     when (lineStyle.uppercase()) {
+                         "DASHED" -> {
+                             val interval = kotlin.math.max(1f, width)
+                             vectorPaint.pathEffect = android.graphics.DashPathEffect(
+                                 floatArrayOf(4f * interval, 2f * interval), 0f
+                             )
+                         }
+                         "DOTTED" -> {
+                             val interval = kotlin.math.max(1f, width)
+                             vectorPaint.pathEffect = android.graphics.DashPathEffect(
+                                 floatArrayOf(0f, 2f * interval), 0f
+                             )
+                         }
+                         else -> {
+                             vectorPaint.pathEffect = null
+                         }
                      }
-                     "DOTTED" -> {
-                         val interval = kotlin.math.max(1f, width)
-                         vectorPaint.pathEffect = android.graphics.DashPathEffect(
-                             floatArrayOf(0f, 2f * interval), 0f
-                         )
-                     }
-                     else -> {
-                         vectorPaint.pathEffect = null
-                     }
+                 } else {
+                     vectorPaint.style = if (previewPoints != null) Paint.Style.FILL else Paint.Style.STROKE
+                     vectorPaint.strokeWidth = width
+                     vectorPaint.pathEffect = null
                  }
-             } else {
-                 vectorPaint.style = if (previewPoints != null) Paint.Style.FILL else Paint.Style.STROKE
-                 vectorPaint.strokeWidth = width
+                 
+                 canvas.drawPath(previewPath, vectorPaint)
                  vectorPaint.pathEffect = null
              }
-             
-             canvas.drawPath(previewPath, vectorPaint)
-             vectorPaint.pathEffect = null
          }
          
          // Debug Wireframe
