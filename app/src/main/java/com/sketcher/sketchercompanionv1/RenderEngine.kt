@@ -7,8 +7,13 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PointF
 import android.graphics.RectF
+import android.graphics.BitmapShader
+import android.graphics.Shader
 import com.sketcher.sketchercompanionv1.dto.*
 import com.sketcher.sketchercompanionv1.utils.UnitUtils
+import com.sketcher.sketchercompanionv1.utils.SvgPatternCache
+import com.sketcher.sketchercompanionv1.utils.MathTextureCache
+import com.sketcher.sketchercompanionv1.utils.ImageTextureCache
 import com.sketcher.sketchercompanionv1.managers.SnapPoint
 import com.sketcher.sketchercompanionv1.managers.SnapType
 
@@ -141,6 +146,67 @@ class RenderEngine {
     }
 
     private val snapTrianglePath = Path()
+
+    fun applyFillStyle(paint: Paint, style: FillStyle, alphaMultiplier: Float = 1f) {
+        paint.shader = null // Clear previous shader
+        when (style) {
+            is FillStyle.Solid -> {
+                val origColor = style.color
+                val origAlpha = Color.alpha(origColor)
+                val newAlpha = (origAlpha * alphaMultiplier).toInt().coerceIn(0, 255)
+                paint.color = (origColor and 0x00FFFFFF) or (newAlpha shl 24)
+            }
+            is FillStyle.SvgPattern -> {
+                val bitmap = SvgPatternCache.getOrCreate(style)
+                if (bitmap != null) {
+                    val shader = BitmapShader(bitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+                    val matrix = Matrix().apply {
+                        postScale(style.scaleX, style.scaleY)
+                        postRotate(style.rotation)
+                        postTranslate(style.offsetX, style.offsetY)
+                    }
+                    shader.setLocalMatrix(matrix)
+                    paint.shader = shader
+                    val finalAlpha = (alphaMultiplier * 255).toInt().coerceIn(0, 255)
+                    paint.color = Color.argb(finalAlpha, 255, 255, 255)
+                } else {
+                    paint.color = Color.TRANSPARENT
+                }
+            }
+            is FillStyle.MathTexture -> {
+                val bitmap = MathTextureCache.getOrCreate(style)
+                if (bitmap != null) {
+                    val shader = BitmapShader(bitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+                    val matrix = Matrix().apply {
+                        postRotate(style.angle)
+                    }
+                    shader.setLocalMatrix(matrix)
+                    paint.shader = shader
+                    val finalAlpha = (alphaMultiplier * 255).toInt().coerceIn(0, 255)
+                    paint.color = Color.argb(finalAlpha, 255, 255, 255)
+                } else {
+                    paint.color = Color.TRANSPARENT
+                }
+            }
+            is FillStyle.ImageTexture -> {
+                val bitmap = ImageTextureCache.getOrCreate(style.imagePath)
+                if (bitmap != null) {
+                    val shader = BitmapShader(bitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+                    val matrix = Matrix().apply {
+                        postScale(style.scaleX, style.scaleY)
+                        postRotate(style.rotation)
+                        postTranslate(style.offsetX, style.offsetY)
+                    }
+                    shader.setLocalMatrix(matrix)
+                    paint.shader = shader
+                    val finalAlpha = (style.opacity * alphaMultiplier * 255).toInt().coerceIn(0, 255)
+                    paint.color = Color.argb(finalAlpha, 255, 255, 255)
+                } else {
+                    paint.color = Color.TRANSPARENT
+                }
+            }
+        }
+    }
 
     // --- PUBLIC DRAWING METHODS ---
 
@@ -341,11 +407,9 @@ class RenderEngine {
         // Pass 1: FILL (if enabled)
         if (stroke.isFillEnabled && stroke.fillPath != null) {
             vectorPaint.style = Paint.Style.FILL
-            val origColor = stroke.fillColor
-            val origAlpha = Color.alpha(origColor)
-            val newAlpha = (origAlpha * alphaMultiplier).toInt().coerceIn(0, 255)
-            vectorPaint.color = (origColor and 0x00FFFFFF) or (newAlpha shl 24)
+            applyFillStyle(vectorPaint, stroke.fillStyle, alphaMultiplier)
             canvas.drawPath(stroke.fillPath, vectorPaint)
+            vectorPaint.shader = null
         }
 
         // Pass 2: STROKE (if enabled)
@@ -507,11 +571,9 @@ class RenderEngine {
 
     
     fun drawFill(canvas: Canvas, fill: FillData, alphaMultiplier: Float = 1f) {
-        val origColor = fill.color
-        val origAlpha = Color.alpha(origColor)
-        val newAlpha = (origAlpha * alphaMultiplier).toInt().coerceIn(0, 255)
-        fillPaint.color = (origColor and 0x00FFFFFF) or (newAlpha shl 24)
+        applyFillStyle(fillPaint, fill.fillStyle, alphaMultiplier)
         canvas.drawPath(fill.path, fillPaint)
+        fillPaint.shader = null
     }
 
     /**
@@ -562,7 +624,8 @@ class RenderEngine {
         isDrawing: Boolean,
         isCad: Boolean = false,
         lineStyle: String = "SOLID",
-        strokeType: StrokeType = StrokeType.FREEHAND
+        strokeType: StrokeType = StrokeType.FREEHAND,
+        fillStyle: FillStyle? = null
     ) {
          if (!isDrawing) return
          
@@ -572,8 +635,14 @@ class RenderEngine {
          if (strokeType == StrokeType.PAINT) {
              if (isFillActive && previewPath != null) {
                  vectorPaint.style = Paint.Style.FILL
-                 vectorPaint.color = fillColor
+                 if (fillStyle != null) {
+                     applyFillStyle(vectorPaint, fillStyle)
+                 } else {
+                     vectorPaint.shader = null
+                     vectorPaint.color = fillColor
+                 }
                  canvas.drawPath(previewPath, vectorPaint)
+                 vectorPaint.shader = null
              }
              if (isStrokeActive && previewPath != null) {
                  vectorPaint.style = Paint.Style.STROKE
@@ -586,8 +655,14 @@ class RenderEngine {
              // Pass 1: FILL
              if (isFillActive && fillPath != null) {
                  vectorPaint.style = Paint.Style.FILL
-                 vectorPaint.color = fillColor
+                 if (fillStyle != null) {
+                     applyFillStyle(vectorPaint, fillStyle)
+                 } else {
+                     vectorPaint.shader = null
+                     vectorPaint.color = fillColor
+                 }
                  canvas.drawPath(fillPath, vectorPaint)
+                 vectorPaint.shader = null
              }
         
              // Pass 2: STROKE

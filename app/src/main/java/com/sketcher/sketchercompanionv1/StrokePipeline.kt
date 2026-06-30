@@ -36,6 +36,7 @@ class StrokePipeline(
     var activeColor: Int = Color.BLACK
     var activeStrokeColor: Int = Color.BLACK
     var activeFillColor: Int = Color.TRANSPARENT
+    var activeFillStyle: FillStyle = FillStyle.Solid(Color.TRANSPARENT)
     var isStrokeActive: Boolean = true
     var isFillActive: Boolean = false
     var isFlattenedOuterStrokeEnabled: Boolean = true
@@ -631,9 +632,10 @@ class StrokePipeline(
                 fillPath = if (isFillActive) centerline else null,
                 brushType = "CAD",
                 strokeType = activeStrokeType,
-                isCadGeometry = true
+                isCadGeometry = true,
+                fillStyle = activeFillStyle
             )
-            val fill = if (isFillActive) FillData(centerline, activeFillColor) else null
+            val fill = if (isFillActive) FillData(centerline, activeFillStyle) else null
             onStrokeCompleted(stroke, fill)
             reset()
             return
@@ -693,7 +695,8 @@ class StrokePipeline(
                 brushType = "PAINT",
                 strokeType = StrokeType.PAINT,
                 isFlattened = false,
-                paintOutlineWidth = activeFreehandSettings.paintOutlineWidth
+                paintOutlineWidth = activeFreehandSettings.paintOutlineWidth,
+                fillStyle = activeFillStyle
             )
 
             onStrokeCompleted(stroke, null)
@@ -705,6 +708,7 @@ class StrokePipeline(
             val activeStrokeTypeSnap = activeStrokeType
             val activeStrokeColorSnap = activeStrokeColor
             val activeFillColorSnap = activeFillColor
+            val activeFillStyleSnap = activeFillStyle
             val isStrokeActiveSnap = isStrokeActive
             val isFillActiveSnap = isFillActive
             val activeSizeSnap = activeSize
@@ -773,7 +777,8 @@ class StrokePipeline(
                         strokeType = activeStrokeTypeSnap,
                         leftPoints = genResultLeftSnap,
                         rightPoints = genResultRightSnap,
-                        isFlattened = true
+                        isFlattened = true,
+                        fillStyle = activeFillStyleSnap
                     )
 
                     var fill: FillData? = null
@@ -785,7 +790,7 @@ class StrokePipeline(
                              }
                              this.close()
                          }
-                         fill = FillData(fillPathToUse, activeFillColorSnap)
+                         fill = FillData(fillPathToUse, activeFillStyleSnap)
                     }
 
                     withContext(Dispatchers.Main) {
@@ -832,7 +837,8 @@ class StrokePipeline(
                 strokeType = activeStrokeType,
                 leftPoints = genResult.left,
                 rightPoints = genResult.right,
-                paths = chunkPaths
+                paths = chunkPaths,
+                fillStyle = activeFillStyle
             )
 
             var fill: FillData? = null
@@ -844,7 +850,7 @@ class StrokePipeline(
                      }
                      close()
                  }
-                 fill = FillData(fillPathToUse, activeFillColor)
+                 fill = FillData(fillPathToUse, activeFillStyle)
             }
 
             onStrokeCompleted(stroke, fill)
@@ -875,9 +881,10 @@ class StrokePipeline(
                 fillPath = if (isFillActive) centerline else null,
                 brushType = "CAD",
                 strokeType = activeStrokeType,
-                isCadGeometry = true
+                isCadGeometry = true,
+                fillStyle = activeFillStyle
             )
-            val fill = if (isFillActive) FillData(centerline, activeFillColor) else null
+            val fill = if (isFillActive) FillData(centerline, activeFillStyle) else null
             onStrokeCompleted(stroke, fill)
             reset()
             return
@@ -941,7 +948,8 @@ class StrokePipeline(
              strokeType = activeStrokeType,
              leftPoints = genResult.left,
              rightPoints = genResult.right,
-             paths = chunkPaths
+             paths = chunkPaths,
+             fillStyle = activeFillStyle
         )
 
         var fill: FillData? = null
@@ -953,7 +961,7 @@ class StrokePipeline(
                  }
                  close()
              }
-             fill = FillData(fillPathToUse, activeFillColor)
+             fill = FillData(fillPathToUse, activeFillStyle)
         }
 
         onStrokeCompleted(stroke, fill)

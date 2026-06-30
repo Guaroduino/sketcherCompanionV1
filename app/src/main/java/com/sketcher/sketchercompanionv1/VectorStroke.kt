@@ -7,6 +7,8 @@ import android.graphics.RectF
 
 import com.sketcher.sketchercompanionv1.dto.StrokeType
 
+import com.sketcher.sketchercompanionv1.dto.FillStyle
+
 data class StrokePoint(val x: Float, val y: Float, val pressure: Float, val timestamp: Long = 0L)
 
 data class VectorStroke(
@@ -27,7 +29,8 @@ data class VectorStroke(
     val lineStyle: String = "SOLID",
     val isCadGeometry: Boolean = false,
     val isScreenSpaceWidth: Boolean = false,
-    val paintOutlineWidth: Float = 2.0f
+    val paintOutlineWidth: Float = 2.0f,
+    val fillStyle: FillStyle = FillStyle.Solid(fillColor)
 ) : LayerElement {
     private val cachedBounds = RectF().apply { path.computeBounds(this, true) }
 
@@ -67,7 +70,8 @@ data class VectorStroke(
             lineStyle = lineStyle,
             isCadGeometry = isCadGeometry,
             isScreenSpaceWidth = isScreenSpaceWidth,
-            paintOutlineWidth = paintOutlineWidth
+            paintOutlineWidth = paintOutlineWidth,
+            fillStyle = fillStyle
         )
     }
 }

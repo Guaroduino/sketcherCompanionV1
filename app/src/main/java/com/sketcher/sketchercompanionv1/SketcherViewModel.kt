@@ -1125,6 +1125,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     val strokeColor = toolManager.strokeColor
     val fillColor = toolManager.fillColor
+    val fillStyle = toolManager.fillStyle
     val isStrokeActive = toolManager.isStrokeActive
     val isFillActive = toolManager.isFillActive
 
@@ -1142,6 +1143,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     
     fun setStrokeColor(color: Int) = toolManager.setStrokeColor(color)
     fun setFillColor(color: Int) = toolManager.setFillColor(color)
+    fun setFillStyle(style: FillStyle) = toolManager.setFillStyle(style)
     fun toggleStroke(enabled: Boolean) = toolManager.toggleStroke(enabled)
     fun toggleFill(enabled: Boolean) = toolManager.toggleFill(enabled)
     

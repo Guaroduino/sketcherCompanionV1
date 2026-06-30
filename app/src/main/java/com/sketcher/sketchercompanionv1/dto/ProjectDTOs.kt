@@ -115,7 +115,8 @@ data class VectorStrokeJson(
     val lineStyle: String = "SOLID",
     val isCadGeometry: Boolean = false,
     val isScreenSpaceWidth: Boolean = false,
-    val paintOutlineWidth: Float? = null
+    val paintOutlineWidth: Float? = null,
+    val fillStyle: FillStyleJson? = null
 )
 
 data class StrokePointJson(
@@ -146,7 +147,27 @@ data class StrokeInputJson(
 data class FillJson(
     val color: Int,
     // Store as list of commands to support curves and moves
-    val commands: List<PathCommandJson>
+    val commands: List<PathCommandJson>,
+    val fillStyle: FillStyleJson? = null
+)
+
+data class FillStyleJson(
+    val type: String, // "SOLID", "SVG_PATTERN", "MATH_TEXTURE", "IMAGE_TEXTURE"
+    val color: Int? = null,
+    val svgContent: String? = null,
+    val patternName: String? = null,
+    val primaryColor: Int? = null,
+    val secondaryColor: Int? = null,
+    val spacing: Float? = null,
+    val thickness: Float? = null,
+    val angle: Float? = null,
+    val imagePath: String? = null,
+    val scaleX: Float? = null,
+    val scaleY: Float? = null,
+    val rotation: Float? = null,
+    val offsetX: Float? = null,
+    val offsetY: Float? = null,
+    val opacity: Float? = null
 )
 
 data class PathCommandJson(

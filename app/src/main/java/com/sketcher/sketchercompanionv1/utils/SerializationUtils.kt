@@ -224,7 +224,8 @@ fun VectorStroke.toVectorStrokeJson(): VectorStrokeJson {
         lineStyle = this.lineStyle,
         isCadGeometry = this.isCadGeometry,
         isScreenSpaceWidth = this.isScreenSpaceWidth,
-        paintOutlineWidth = this.paintOutlineWidth
+        paintOutlineWidth = this.paintOutlineWidth,
+        fillStyle = this.fillStyle.toFillStyleJson()
     )
 }
 
@@ -312,7 +313,8 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         lineStyle = this.lineStyle ?: "SOLID",
         isCadGeometry = isCad,
         isScreenSpaceWidth = this.isScreenSpaceWidth ?: false,
-        paintOutlineWidth = this.paintOutlineWidth ?: 2.0f
+        paintOutlineWidth = this.paintOutlineWidth ?: 2.0f,
+        fillStyle = this.fillStyle.toFillStyle(fColor)
     )
 }
 
@@ -360,7 +362,8 @@ fun FillData.toFillDataJson(): FillJson {
 
     return FillJson(
         color = this.color,
-        commands = commands
+        commands = commands,
+        fillStyle = this.fillStyle.toFillStyleJson()
     )
 }
 
@@ -383,7 +386,76 @@ fun FillJson.toFillData(): FillData {
             }
         }
     }
-    return FillData(path, this.color)
+    return FillData(path, this.fillStyle.toFillStyle(this.color))
+}
+
+// --- FILLSTYLE MAPPER HELPERS ---
+
+fun FillStyle.toFillStyleJson(): FillStyleJson {
+    return when (this) {
+        is FillStyle.Solid -> FillStyleJson(type = "SOLID", color = this.color)
+        is FillStyle.SvgPattern -> FillStyleJson(
+            type = "SVG_PATTERN",
+            svgContent = this.svgContent,
+            scaleX = this.scaleX,
+            scaleY = this.scaleY,
+            rotation = this.rotation,
+            offsetX = this.offsetX,
+            offsetY = this.offsetY
+        )
+        is FillStyle.MathTexture -> FillStyleJson(
+            type = "MATH_TEXTURE",
+            patternName = this.patternName,
+            primaryColor = this.primaryColor,
+            secondaryColor = this.secondaryColor,
+            spacing = this.spacing,
+            thickness = this.thickness,
+            angle = this.angle
+        )
+        is FillStyle.ImageTexture -> FillStyleJson(
+            type = "IMAGE_TEXTURE",
+            imagePath = this.imagePath,
+            scaleX = this.scaleX,
+            scaleY = this.scaleY,
+            rotation = this.rotation,
+            offsetX = this.offsetX,
+            offsetY = this.offsetY,
+            opacity = this.opacity
+        )
+    }
+}
+
+fun FillStyleJson?.toFillStyle(fallbackColor: Int): FillStyle {
+    if (this == null) return FillStyle.Solid(fallbackColor)
+    return when (this.type) {
+        "SOLID" -> FillStyle.Solid(this.color ?: fallbackColor)
+        "SVG_PATTERN" -> FillStyle.SvgPattern(
+            svgContent = this.svgContent ?: "",
+            scaleX = this.scaleX ?: 1f,
+            scaleY = this.scaleY ?: 1f,
+            rotation = this.rotation ?: 0f,
+            offsetX = this.offsetX ?: 0f,
+            offsetY = this.offsetY ?: 0f
+        )
+        "MATH_TEXTURE" -> FillStyle.MathTexture(
+            patternName = this.patternName ?: "GRID",
+            primaryColor = this.primaryColor ?: android.graphics.Color.BLACK,
+            secondaryColor = this.secondaryColor ?: android.graphics.Color.TRANSPARENT,
+            spacing = this.spacing ?: 20f,
+            thickness = this.thickness ?: 2f,
+            angle = this.angle ?: 0f
+        )
+        "IMAGE_TEXTURE" -> FillStyle.ImageTexture(
+            imagePath = this.imagePath ?: "",
+            scaleX = this.scaleX ?: 1f,
+            scaleY = this.scaleY ?: 1f,
+            rotation = this.rotation ?: 0f,
+            offsetX = this.offsetX ?: 0f,
+            offsetY = this.offsetY ?: 0f,
+            opacity = this.opacity ?: 1f
+        )
+        else -> FillStyle.Solid(fallbackColor)
+    }
 }
 
 // Helper to flatten path (simplified version for context)

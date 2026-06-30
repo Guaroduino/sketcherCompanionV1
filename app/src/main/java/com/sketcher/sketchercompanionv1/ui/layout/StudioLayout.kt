@@ -185,6 +185,8 @@ import com.sketcher.sketchercompanionv1.ui.components.BigTouchBox
 
 
 import com.sketcher.sketchercompanionv1.ui.components.ColorPickerDialog
+import com.sketcher.sketchercompanionv1.ui.FillStylePickerDialog
+import com.sketcher.sketchercompanionv1.dto.FillStyle
 
 
 import com.sketcher.sketchercompanionv1.ui.components.ColorPreviewRow
@@ -726,6 +728,7 @@ fun StudioLayout(
 
 
     val fillColorVal by viewModel.fillColor.collectAsState()
+    val fillStyleVal by viewModel.fillStyle.collectAsState()
 
 
     val isStrokeActiveVal by viewModel.isStrokeActive.collectAsState()
@@ -1158,6 +1161,7 @@ fun StudioLayout(
 
 
                 view.activeFillColor = fillColorVal
+                view.activeFillStyle = fillStyleVal
 
 
                 view.isStrokeActive = isStrokeActiveVal
@@ -5421,41 +5425,18 @@ fun StudioLayout(
 
 
         if (showFillColorPicker) {
-
-
-            ColorPickerDialog(
-
-
-                initialColor = Color(fillColorVal),
-
-
-                recentColors = theme.recentColors,
-
-
-                onColorSelected = { 
-
-
-                    viewModel.setFillColor(it.toArgb())
-
-
-                    viewModel.updateLastActiveToolColor(it.toArgb())
-
-
-                    viewModel.setShowFillColorPicker(false) 
-
-
-                },
-
-
+            FillStylePickerDialog(
+                initialStyle = fillStyleVal,
                 onDismiss = { viewModel.setShowFillColorPicker(false) },
-
-
+                onStyleSelected = { style ->
+                    viewModel.setFillStyle(style)
+                    if (style is FillStyle.Solid) {
+                        viewModel.updateLastActiveToolColor(style.color)
+                    }
+                    viewModel.setShowFillColorPicker(false)
+                },
                 onDisable = { viewModel.toggleFill(false); viewModel.setShowFillColorPicker(false) }
-
-
             )
-
-
         }
 
 

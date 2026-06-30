@@ -63,6 +63,9 @@ class ToolManager(context: Context) {
     private val _fillColor = MutableStateFlow(AndroidColor.argb(128, 0, 0, 255))
     val fillColor = _fillColor.asStateFlow()
 
+    private val _fillStyle = MutableStateFlow<FillStyle>(FillStyle.Solid(AndroidColor.argb(128, 0, 0, 255)))
+    val fillStyle = _fillStyle.asStateFlow()
+
     private val _isStrokeActive = MutableStateFlow(true)
     val isStrokeActive = _isStrokeActive.asStateFlow()
 
@@ -341,7 +344,18 @@ class ToolManager(context: Context) {
 
     fun setFillColor(color: Int) {
         _fillColor.value = color
+        _fillStyle.value = FillStyle.Solid(color)
         _isFillActive.value = true
+    }
+
+    fun setFillStyle(style: FillStyle) {
+        _fillStyle.value = style
+        _isFillActive.value = true
+        _fillColor.value = when (style) {
+            is FillStyle.Solid -> style.color
+            is FillStyle.MathTexture -> style.primaryColor
+            else -> AndroidColor.TRANSPARENT
+        }
     }
 
     fun toggleStroke(enabled: Boolean) { _isStrokeActive.value = enabled }

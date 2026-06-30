@@ -732,6 +732,18 @@ class SketcherCanvasView(context: Context) : View(context) {
         set(value) { if (field == value) return; field = value; strokePipeline.activeStrokeColor = value }
     var activeFillColor: Int = android.graphics.Color.TRANSPARENT
         set(value) { if (field == value) return; field = value; strokePipeline.activeFillColor = value }
+    var activeFillStyle: FillStyle = FillStyle.Solid(android.graphics.Color.TRANSPARENT)
+        set(value) {
+            if (field == value) return
+            field = value
+            strokePipeline.activeFillStyle = value
+            // Sync fallback fillColor
+            activeFillColor = when (value) {
+                is FillStyle.Solid -> value.color
+                is FillStyle.MathTexture -> value.primaryColor
+                else -> android.graphics.Color.TRANSPARENT
+            }
+        }
     var isStrokeActive: Boolean = true
         set(value) { if (field == value) return; field = value; strokePipeline.isStrokeActive = value }
     var isFillActive: Boolean = false
@@ -1002,7 +1014,8 @@ class SketcherCanvasView(context: Context) : View(context) {
                                 viewMatrix = drawCombinedMatrix,
                                 isDrawing = isDrawing,
                                 isCad = isCadDraw,
-                                strokeType = activeStrokeType
+                                strokeType = activeStrokeType,
+                                fillStyle = activeFillStyle
                             )
                         }
                         
@@ -1024,8 +1037,9 @@ class SketcherCanvasView(context: Context) : View(context) {
                             // 1. Draw fills (underneath)
                             if (isFillActive) {
                                 liveFillPaint.style = android.graphics.Paint.Style.FILL
-                                liveFillPaint.color = activeFillColor
+                                renderEngine.applyFillStyle(liveFillPaint, activeFillStyle)
                                 canvas.drawPath(combinedPath, liveFillPaint)
+                                liveFillPaint.shader = null
                             }
 
                             // 2. Draw borders (on top)
@@ -1070,7 +1084,8 @@ class SketcherCanvasView(context: Context) : View(context) {
                                 viewMatrix = drawCombinedMatrix,
                                 isDrawing = isDrawing,
                                 isCad = isCadDraw,
-                                strokeType = activeStrokeType
+                                strokeType = activeStrokeType,
+                                fillStyle = activeFillStyle
                             )
                         }
                     }
