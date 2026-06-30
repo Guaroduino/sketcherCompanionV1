@@ -29,6 +29,8 @@ import com.sketcher.sketchercompanionv1.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.sketcher.sketchercompanionv1.ui.AppIconButton
+import com.sketcher.sketchercompanionv1.ui.SettingSlider
 
 @Composable
 fun PdfImportDialog(
@@ -186,42 +188,28 @@ fun PdfImportDialog(
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            IconButton(
+                            AppIconButton(
                                 onClick = { if (currentPage > 1) currentPage-- },
-                                enabled = currentPage > 1
-                            ) {
-                                Icon(Icons.Default.NavigateBefore, contentDescription = "Página anterior")
-                            }
+                                enabled = currentPage > 1,
+                                icon = Icons.Default.NavigateBefore,
+                                contentDescription = "Página anterior"
+                            )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "Página $currentPage de $pageCount",
                                 style = MaterialTheme.typography.bodyMedium
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            IconButton(
+                            AppIconButton(
                                 onClick = { if (currentPage < pageCount) currentPage++ },
-                                enabled = currentPage < pageCount
-                            ) {
-                                Icon(Icons.Default.NavigateNext, contentDescription = "Página siguiente")
-                            }
+                                enabled = currentPage < pageCount,
+                                icon = Icons.Default.NavigateNext,
+                                contentDescription = "Página siguiente"
+                            )
                         }
                     }
 
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-                    // Resolution (DPI) header
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Resolución (DPI):", style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            text = "$dpi DPI",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
 
                     // DPI Quick select buttons
                     Row(
@@ -249,12 +237,15 @@ fun PdfImportDialog(
                         }
                     }
 
-                    // DPI Slider
-                    Slider(
+                    // DPI Slider using SettingSlider
+                    SettingSlider(
+                        label = "Resolución (DPI):",
                         value = dpi.toFloat(),
                         onValueChange = { dpi = it.toInt() },
                         valueRange = 50f..400f,
-                        steps = 35 // 50 to 400 with step of 10
+                        steps = 35,
+                        showValueOnRight = true,
+                        valueFormatter = { "${it.toInt()} DPI" }
                     )
 
                     // Output image stats info

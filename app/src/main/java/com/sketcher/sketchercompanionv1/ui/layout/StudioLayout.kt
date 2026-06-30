@@ -186,6 +186,7 @@ import com.sketcher.sketchercompanionv1.ui.components.BigTouchBox
 
 import com.sketcher.sketchercompanionv1.ui.components.ColorPickerDialog
 import com.sketcher.sketchercompanionv1.ui.FillStylePickerDialog
+import com.sketcher.sketchercompanionv1.ui.SettingSlider
 import com.sketcher.sketchercompanionv1.dto.FillStyle
 
 
@@ -5398,15 +5399,10 @@ fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
 
 
         if (showStrokeColorPicker) {
-
-
             ColorPickerDialog(
-
-
                 initialColor = Color(strokeColorVal),
-
-
                 recentColors = theme.recentColors,
+                theme = theme,
 
 
                 onColorSelected = { 
@@ -5439,6 +5435,7 @@ fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
         if (showFillColorPicker) {
             FillStylePickerDialog(
                 initialStyle = fillStyleVal,
+                theme = theme,
                 onDismiss = { viewModel.setShowFillColorPicker(false) },
                 onStyleSelected = { style ->
                     viewModel.setFillStyle(style)
@@ -5870,32 +5867,17 @@ fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
 
 
                     // UI Scale Slider
-
-
                     var tempScale by remember { mutableStateOf(interfaceScale) }
-
-
-                    Text("UI Scale: ${String.format("%.1f", tempScale)}x", color = theme.iconColor, style = MaterialTheme.typography.labelMedium)
-
-
-                    Slider(
-
-
+                    SettingSlider(
+                        label = "UI Scale",
                         value = tempScale,
-
-
                         onValueChange = { tempScale = it },
-
-
                         onValueChangeFinished = { viewModel.updateInterfaceScale(tempScale) },
-
-
                         valueRange = 0.5f..1.5f,
-
-
-                        modifier = Modifier.fillMaxWidth()
-
-
+                        labelStyle = MaterialTheme.typography.labelMedium,
+                        labelColor = theme.iconColor,
+                        showValueOnRight = true,
+                        valueFormatter = { String.format("%.1f", it) + "x" }
                     )
 
 
@@ -5903,41 +5885,20 @@ fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
 
 
                     // Button Spacing Slider
-
-
                     var tempSpacing by remember { mutableStateOf(viewModel.buttonSpacingFactor) }
-
-
                     LaunchedEffect(viewModel.buttonSpacingFactor) {
-
-
                         tempSpacing = viewModel.buttonSpacingFactor
-
-
                     }
-
-
-                    Text("Button Spacing: ${(tempSpacing * 100).toInt()}%", color = theme.iconColor, style = MaterialTheme.typography.labelMedium)
-
-
-                    Slider(
-
-
+                    SettingSlider(
+                        label = "Button Spacing",
                         value = tempSpacing,
-
-
                         onValueChange = { tempSpacing = it },
-
-
                         onValueChangeFinished = { viewModel.updateButtonSpacingFactor(tempSpacing) },
-
-
                         valueRange = 0.15f..2.0f,
-
-
-                        modifier = Modifier.fillMaxWidth()
-
-
+                        labelStyle = MaterialTheme.typography.labelMedium,
+                        labelColor = theme.iconColor,
+                        showValueOnRight = true,
+                        valueFormatter = { "${(it * 100).toInt()}%" }
                     )
 
 
@@ -6047,12 +6008,9 @@ fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
 
 
                         ColorPickerDialog(
-
-
                             initialColor = initialColor,
-
-
                             recentColors = theme.recentColors,
+                            theme = theme,
 
 
                             onDismiss = { pickingColorFor = null },
@@ -6107,29 +6065,17 @@ fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
 
 
                     // Opacity Slider (Optional now since color picker has alpha, but keeping for direct access)
-
-
-                    Text("Bar Opacity: ${(theme.barBackgroundColor.alpha * 100).toInt()}%", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
-
-
-                    Slider(
-
-
+                    SettingSlider(
+                        label = "Bar Opacity",
                         value = theme.barBackgroundColor.alpha,
-
-
                         onValueChange = { 
-
-
                             viewModel.updateTheme(theme.copy(barBackgroundColor = theme.barBackgroundColor.copy(alpha = it))) 
-
-
                         },
-
-
-                        valueRange = 0f..1f
-
-
+                        valueRange = 0f..1f,
+                        labelStyle = MaterialTheme.typography.labelMedium,
+                        labelColor = theme.iconColor,
+                        showValueOnRight = true,
+                        valueFormatter = { "${(it * 100).toInt()}%" }
                     )
 
 
@@ -6191,29 +6137,17 @@ fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
 
 
                             // Shadow Opacity Slider
-
-
-                            Text("Shadow Opacity: ${(theme.shadowOpacity * 100).toInt()}%", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
-
-
-                            Slider(
-
-
+                            SettingSlider(
+                                label = "Shadow Opacity",
                                 value = theme.shadowOpacity,
-
-
                                 onValueChange = { 
-
-
                                     viewModel.updateTheme(theme.copy(shadowOpacity = it)) 
-
-
                                 },
-
-
-                                valueRange = 0f..1f
-
-
+                                valueRange = 0f..1f,
+                                labelStyle = MaterialTheme.typography.labelMedium,
+                                labelColor = theme.iconColor,
+                                showValueOnRight = true,
+                                valueFormatter = { "${(it * 100).toInt()}%" }
                             )
 
 
@@ -6221,29 +6155,17 @@ fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
 
 
                             // Shadow Blur Slider
-
-
-                            Text("Shadow Blur: ${theme.shadowBlur.value.toInt()} dp", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
-
-
-                            Slider(
-
-
+                            SettingSlider(
+                                label = "Shadow Blur",
                                 value = theme.shadowBlur.value,
-
-
                                 onValueChange = { 
-
-
                                     viewModel.updateTheme(theme.copy(shadowBlur = it.dp)) 
-
-
                                 },
-
-
-                                valueRange = 0f..24f
-
-
+                                valueRange = 0f..24f,
+                                labelStyle = MaterialTheme.typography.labelMedium,
+                                labelColor = theme.iconColor,
+                                showValueOnRight = true,
+                                valueFormatter = { "${it.toInt()} dp" }
                             )
 
 
@@ -6251,29 +6173,17 @@ fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
 
 
                             // Angle Slider
-
-
-                            Text("Shadow Angle: ${theme.shadowAngle.toInt()}°", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
-
-
-                            Slider(
-
-
+                            SettingSlider(
+                                label = "Shadow Angle",
                                 value = theme.shadowAngle,
-
-
                                 onValueChange = { 
-
-
                                     viewModel.updateTheme(theme.copy(shadowAngle = it)) 
-
-
                                 },
-
-
-                                valueRange = 0f..360f
-
-
+                                valueRange = 0f..360f,
+                                labelStyle = MaterialTheme.typography.labelMedium,
+                                labelColor = theme.iconColor,
+                                showValueOnRight = true,
+                                valueFormatter = { "${it.toInt()}°" }
                             )
 
 

@@ -32,6 +32,7 @@ import com.sketcher.sketchercompanionv1.LibraryItem
 import com.sketcher.sketchercompanionv1.SketcherViewModel
 import com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler
 import com.sketcher.sketchercompanionv1.ui.theme.sdp
+import com.sketcher.sketchercompanionv1.ui.AppIconButton
 import java.io.File
 import android.graphics.BitmapFactory
 
@@ -76,9 +77,13 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (currentFolderId != null) {
-                    IconButton(onClick = { currentFolderId = currentFolder?.parentId }, modifier = Modifier.size(24.sdp)) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = theme.iconColor)
-                    }
+                    AppIconButton(
+                        onClick = { currentFolderId = currentFolder?.parentId },
+                        icon = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Volver",
+                        tint = theme.iconColor,
+                        buttonSize = 24.dp
+                    )
                     Spacer(modifier = Modifier.width(4.sdp))
                 }
                 Text(
@@ -91,9 +96,13 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
             
             Row(horizontalArrangement = Arrangement.spacedBy(4.sdp), verticalAlignment = Alignment.CenterVertically) {
                 // Toggle Grid/List
-                IconButton(onClick = { isGridView = !isGridView }, modifier = Modifier.size(24.sdp)) {
-                    Icon(if (isGridView) Icons.Default.ViewList else Icons.Default.GridView, null, tint = theme.iconColor)
-                }
+                AppIconButton(
+                    onClick = { isGridView = !isGridView },
+                    icon = if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
+                    contentDescription = "Toggle Grid/List",
+                    tint = theme.iconColor,
+                    buttonSize = 24.dp
+                )
                 
                 OutlinerActionButton(Icons.Default.CreateNewFolder, "Nueva Carpeta", theme.iconColor) {
                     showNewFolderDialog = true
@@ -315,12 +324,14 @@ fun LibraryItemGridCell(
         
         // Menu button in top right
         Box(modifier = Modifier.align(Alignment.TopEnd)) {
-            IconButton(
+            AppIconButton(
                 onClick = { showMenu = true },
-                modifier = Modifier.size(24.sdp)
-            ) {
-                Icon(Icons.Default.MoreVert, null, tint = theme.iconColor, modifier = Modifier.size(16.sdp))
-            }
+                icon = Icons.Default.MoreVert,
+                contentDescription = "Menu",
+                tint = theme.iconColor,
+                buttonSize = 16.dp,
+                touchSize = 24.dp
+            )
             
             DropdownMenu(
                 expanded = showMenu,
@@ -400,9 +411,13 @@ fun LibraryItemListCell(
         )
         
         Box {
-            IconButton(onClick = { showMenu = true }, modifier = Modifier.size(24.sdp)) {
-                Icon(Icons.Default.MoreVert, null, tint = theme.iconColor)
-            }
+            AppIconButton(
+                onClick = { showMenu = true },
+                icon = Icons.Default.MoreVert,
+                contentDescription = "Menu",
+                tint = theme.iconColor,
+                buttonSize = 24.dp
+            )
             
             DropdownMenu(
                 expanded = showMenu,

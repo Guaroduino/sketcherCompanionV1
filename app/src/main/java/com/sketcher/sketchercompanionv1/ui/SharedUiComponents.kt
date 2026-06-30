@@ -1,10 +1,22 @@
-﻿package com.sketcher.sketchercompanionv1.ui
+package com.sketcher.sketchercompanionv1.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler
+import com.sketcher.sketchercompanionv1.ui.components.BigTouchBox
 
 @Composable
 fun SettingSlider(
@@ -13,19 +25,121 @@ fun SettingSlider(
     valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
     steps: Int = 0,
     onValueChange: (Float) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    labelStyle: TextStyle = MaterialTheme.typography.bodyMedium,
+    labelColor: Color = Color.Unspecified,
+    sliderColors: SliderColors = SliderDefaults.colors(),
+    showValueOnRight: Boolean = false,
+    valueFormatter: (Float) -> String = { "${(it * 100).toInt()}%" },
+    layoutHorizontal: Boolean = false,
+    onValueChangeFinished: (() -> Unit)? = null
 ) {
-    Column(modifier = modifier) {
-        Text(text = label, style = MaterialTheme.typography.bodyMedium)
-        Slider(
-            value = value,
-            onValueChange = onValueChange,
-            valueRange = valueRange,
-            steps = steps,
-            modifier = Modifier.fillMaxWidth()
-        )
+    val scaler = LocalUiScaler.current
+    val scaleFactor = scaler.scaleFactor
+
+    val scaledLabelStyle = if (labelStyle.fontSize.isSp) {
+        labelStyle.copy(fontSize = (labelStyle.fontSize.value * scaleFactor).sp)
+    } else {
+        labelStyle
+    }
+
+    if (layoutHorizontal) {
+        Row(
+            modifier = modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp * scaleFactor)
+        ) {
+            Slider(
+                value = value,
+                onValueChange = onValueChange,
+                valueRange = valueRange,
+                steps = steps,
+                colors = sliderColors,
+                onValueChangeFinished = onValueChangeFinished,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = valueFormatter(value),
+                style = scaledLabelStyle,
+                color = labelColor,
+                modifier = Modifier.width(48.dp * scaleFactor)
+            )
+        }
+    } else {
+        Column(modifier = modifier) {
+            if (label.isNotEmpty()) {
+                if (showValueOnRight) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = label, style = scaledLabelStyle, color = labelColor)
+                        val valueStyle = MaterialTheme.typography.bodySmall
+                        val scaledValueStyle = if (valueStyle.fontSize.isSp) {
+                            valueStyle.copy(fontSize = (valueStyle.fontSize.value * scaleFactor).sp)
+                        } else {
+                            valueStyle
+                        }
+                        Text(text = valueFormatter(value), style = scaledValueStyle, color = labelColor)
+                    }
+                } else {
+                    Text(text = label, style = scaledLabelStyle, color = labelColor)
+                }
+            }
+            Slider(
+                value = value,
+                onValueChange = onValueChange,
+                valueRange = valueRange,
+                steps = steps,
+                colors = sliderColors,
+                onValueChangeFinished = onValueChangeFinished,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 }
+
+
+@Composable
+fun AppIconButton(
+    onClick: () -> Unit,
+    icon: ImageVector,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    tint: Color = LocalContentColor.current,
+    buttonSize: Dp = 24.dp,
+    touchSize: Dp = 48.dp,
+    shape: Shape = CircleShape,
+    backgroundColor: Color = Color.Transparent,
+    enabled: Boolean = true
+) {
+    val scaler = LocalUiScaler.current
+    val scaleFactor = scaler.scaleFactor
+
+    BigTouchBox(
+        onClick = { if (enabled) onClick() },
+        touchSize = touchSize * scaleFactor,
+        modifier = modifier
+    ) {
+        val contentAlpha = if (enabled) 1f else 0.38f
+        Box(
+            modifier = Modifier
+                .size(buttonSize * scaleFactor)
+                .clip(shape)
+                .background(backgroundColor),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = tint.copy(alpha = tint.alpha * contentAlpha),
+                modifier = Modifier.size(buttonSize * scaleFactor)
+            )
+        }
+    }
+}
+
 
 // Ensure we don't conflict or recurse. 
 // If generic HorizontalDivider is needed but M3 one requires parameters, we wrap it.
@@ -37,4 +151,6 @@ fun AppHorizontalDivider(modifier: Modifier = Modifier) {
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
     )
 }
+
+
 

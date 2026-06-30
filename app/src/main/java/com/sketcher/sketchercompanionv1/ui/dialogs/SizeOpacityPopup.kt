@@ -31,6 +31,8 @@ import com.sketcher.sketchercompanionv1.dto.BrushPreset
 import com.sketcher.sketchercompanionv1.dto.ToolType
 import com.sketcher.sketchercompanionv1.ui.FreehandSettingsContent
 import com.sketcher.sketchercompanionv1.ui.EraserSettingsContent
+import com.sketcher.sketchercompanionv1.ui.SettingSlider
+import com.sketcher.sketchercompanionv1.ui.AppIconButton
 
 @Composable
 fun SizeOpacityPopup(
@@ -87,13 +89,13 @@ fun SizeOpacityPopup(
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
-                        IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Close",
-                                tint = theme.iconColor.copy(alpha = 0.6f)
-                            )
-                        }
+                        AppIconButton(
+                            onClick = onDismiss,
+                            icon = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = theme.iconColor.copy(alpha = 0.6f),
+                            buttonSize = 24.dp
+                        )
                     }
 
                     // Presets Section
@@ -154,93 +156,62 @@ fun SizeOpacityPopup(
                     // Size Slider
                     val unit = viewModel.currentUnit
                     val formattedSize = String.format("%.1f", brushSize)
-                    
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Size", style = MaterialTheme.typography.bodyMedium)
-                            Text("$formattedSize ${unit.symbol}", style = MaterialTheme.typography.bodySmall)
-                        }
-                        Slider(
-                            value = brushSize,
-                            onValueChange = { viewModel.updateBrushSize(it) },
-                            valueRange = if (unit == com.sketcher.sketchercompanionv1.dto.DistanceUnit.MM) 0.1f..50f else 1f..100f
-                        )
-                    }
+                    SettingSlider(
+                        label = "Size",
+                        value = brushSize,
+                        onValueChange = { viewModel.updateBrushSize(it) },
+                        valueRange = if (unit == com.sketcher.sketchercompanionv1.dto.DistanceUnit.MM) 0.1f..50f else 1f..100f,
+                        showValueOnRight = true,
+                        valueFormatter = { "$formattedSize ${unit.symbol}" }
+                    )
 
                     // Border Stroke Thickness (ONLY for PAINT, above Stroke Opacity)
                     if (viewModel.currentTool == ToolType.PAINT) {
                         val freehandSettings = viewModel.currentFreehandSettings
-                        Column {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Border Stroke Thickness", style = MaterialTheme.typography.bodyMedium)
-                                Text(String.format("%.1f px", freehandSettings.paintOutlineWidth), style = MaterialTheme.typography.bodySmall)
-                            }
-                            Slider(
-                                value = freehandSettings.paintOutlineWidth,
-                                onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(paintOutlineWidth = it)) },
-                                valueRange = 0.5f..15f
-                            )
-                        }
+                        SettingSlider(
+                            label = "Border Stroke Thickness",
+                            value = freehandSettings.paintOutlineWidth,
+                            onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(paintOutlineWidth = it)) },
+                            valueRange = 0.5f..15f,
+                            showValueOnRight = true,
+                            valueFormatter = { String.format("%.1f px", it) }
+                        )
                     }
 
                     // Stroke Opacity Slider
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Stroke Opacity", style = MaterialTheme.typography.bodyMedium)
-                            Text("${(brushOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
-                        }
-                        Slider(
-                            value = brushOpacity,
-                            onValueChange = { viewModel.updateBrushOpacity(it) },
-                            valueRange = 0f..1f
-                        )
-                    }
+                    SettingSlider(
+                        label = "Stroke Opacity",
+                        value = brushOpacity,
+                        onValueChange = { viewModel.updateBrushOpacity(it) },
+                        valueRange = 0f..1f,
+                        showValueOnRight = true,
+                        valueFormatter = { "${(it * 100).toInt()}%" }
+                    )
 
                     // Stabilization Slider
                     val globalStabilization by viewModel.globalStabilization.collectAsState()
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Stabilization", style = MaterialTheme.typography.bodyMedium)
-                            Text("${(globalStabilization * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
-                        }
-                        Slider(
-                            value = globalStabilization,
-                            onValueChange = { viewModel.updateGlobalStabilization(it) },
-                            valueRange = 0f..0.90f
-                        )
-                    }
+                    SettingSlider(
+                        label = "Stabilization",
+                        value = globalStabilization,
+                        onValueChange = { viewModel.updateGlobalStabilization(it) },
+                        valueRange = 0f..0.90f,
+                        showValueOnRight = true,
+                        valueFormatter = { "${(it * 100).toInt()}%" }
+                    )
 
                     // Fill Opacity Slider
                     val isFillActive by viewModel.isFillActive.collectAsState()
                     if (isFillActive) {
                         val fillColor by viewModel.fillColor.collectAsState()
                         val fillOpacity = ((fillColor shr 24) and 0xFF) / 255f
-                        Column {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Fill Opacity", style = MaterialTheme.typography.bodyMedium)
-                                Text("${(fillOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
-                            }
-                            Slider(
-                                value = fillOpacity,
-                                onValueChange = { viewModel.updateFillOpacity(it) },
-                                valueRange = 0f..1f
-                            )
-                        }
+                        SettingSlider(
+                            label = "Fill Opacity",
+                            value = fillOpacity,
+                            onValueChange = { viewModel.updateFillOpacity(it) },
+                            valueRange = 0f..1f,
+                            showValueOnRight = true,
+                            valueFormatter = { "${(it * 100).toInt()}%" }
+                        )
                     }
 
                     // Cumulative Opacity Toggle (ONLY for FREEHAND)

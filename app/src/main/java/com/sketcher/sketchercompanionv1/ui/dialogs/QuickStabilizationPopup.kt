@@ -15,6 +15,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
+import com.sketcher.sketchercompanionv1.ui.SettingSlider
+import com.sketcher.sketchercompanionv1.ui.AppIconButton
 
 @Composable
 fun QuickStabilizationPopup(
@@ -60,37 +62,27 @@ fun QuickStabilizationPopup(
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
-                        IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Close",
-                                tint = theme.iconColor.copy(alpha = 0.6f)
-                            )
-                        }
+                        AppIconButton(
+                            onClick = onDismiss,
+                            icon = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = theme.iconColor.copy(alpha = 0.6f),
+                            buttonSize = 24.dp
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
 
                     // Slider + Value Display
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Slider(
-                            value = value,
-                            onValueChange = onValueChange,
-                            valueRange = 0f..0.90f,
-                            modifier = Modifier.weight(1f)
-                        )
-                        
-                        Text(
-                            text = "${(value * 100).toInt()}%",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.width(40.dp)
-                        )
-                    }
+                    SettingSlider(
+                        label = "",
+                        value = value,
+                        onValueChange = onValueChange,
+                        valueRange = 0f..0.90f,
+                        layoutHorizontal = true,
+                        valueFormatter = { "${(it * 100).toInt()}%" },
+                        labelStyle = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium)
+                    )
                 }
             }
         }

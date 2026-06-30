@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1.ui
+package com.sketcher.sketchercompanionv1.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -78,9 +78,11 @@ fun FileMenu(
     var showExportDialog by remember { mutableStateOf(false) }
 
     Box {
-        IconButton(onClick = { showMenu = true }) {
-            Icon(Icons.Default.Menu, contentDescription = "Project")
-        }
+        AppIconButton(
+            onClick = { showMenu = true },
+            icon = Icons.Default.Menu,
+            contentDescription = "Project"
+        )
 
         DropdownMenu(
             expanded = showMenu,

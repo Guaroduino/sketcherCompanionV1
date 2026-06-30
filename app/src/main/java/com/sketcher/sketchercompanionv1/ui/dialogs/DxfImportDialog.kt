@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.res.stringResource
+import com.sketcher.sketchercompanionv1.ui.SettingSlider
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.sketcher.sketchercompanionv1.R
@@ -203,8 +204,8 @@ fun DxfImportDialog(
                         }
                         
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text("Grosor de lÃ­nea base: ${strokeWidth.toInt()}px (Default)")
-                        androidx.compose.material3.Slider(
+                        SettingSlider(
+                            label = "Grosor de línea base: ${strokeWidth.toInt()}px (Default)",
                             value = strokeWidth,
                             onValueChange = { strokeWidth = it },
                             valueRange = 1f..50f,

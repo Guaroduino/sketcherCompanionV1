@@ -1,4 +1,5 @@
 package com.sketcher.sketchercompanionv1.ui
+import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
 
 import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.Canvas
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.material3.Surface
@@ -39,6 +41,7 @@ import kotlin.math.sqrt
 @Composable
 fun ColorPickerDialog(
     initialColor: Int,
+    theme: UiThemeConfig = UiThemeConfig(),
     onDismiss: () -> Unit,
     onColorSelected: (Int) -> Unit,
     onDisable: (() -> Unit)? = null
@@ -69,12 +72,12 @@ fun ColorPickerDialog(
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             modifier = Modifier
-                .width(320.sdp)
-                .heightIn(max = 500.sdp)
+                .width(450.sdp)
+                .heightIn(max = 600.sdp)
                 .clip(RoundedCornerShape(16.sdp)),
             shape = RoundedCornerShape(16.sdp),
-            color = MaterialTheme.colorScheme.surface,
-            contentColor = MaterialTheme.colorScheme.onSurface
+            color = theme.barBackgroundColor,
+            contentColor = theme.iconColor
         ) {
             Column(
                 modifier = Modifier
@@ -153,14 +156,15 @@ fun ColorPickerDialog(
                     horizontalArrangement = Arrangement.spacedBy(16.sdp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel", fontSize = 13.ssp) }
+                    TextButton(onClick = onDismiss, modifier = Modifier.weight(1f), colors = ButtonDefaults.textButtonColors(contentColor = theme.iconColor)) { Text("Cancel", fontSize = 13.ssp) }
                     if (onDisable != null) {
-                        TextButton(onClick = { onDisable(); onDismiss() }, modifier = Modifier.weight(1f)) { Text("None", fontSize = 13.ssp) }
+                        TextButton(onClick = { onDisable(); onDismiss() }, modifier = Modifier.weight(1f), colors = ButtonDefaults.textButtonColors(contentColor = theme.iconColor)) { Text("None", fontSize = 13.ssp) }
                     }
                     Button(
                         onClick = { onColorSelected(currentColor.toArgb()) },
                         shape = RoundedCornerShape(8.sdp),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = theme.buttonColor, contentColor = theme.iconColor)
                     ) {
                         Text("Select", fontSize = 13.ssp)
                     }

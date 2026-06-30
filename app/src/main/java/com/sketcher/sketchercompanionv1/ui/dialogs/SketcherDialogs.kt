@@ -38,7 +38,15 @@ import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.*
+import com.sketcher.sketchercompanionv1.ui.SettingSlider
+import com.sketcher.sketchercompanionv1.ui.AppIconButton
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -334,23 +342,21 @@ fun SettingsDialog(
                     )
                 }
                 
-                Column {
-                    Text(
-                        text = "${stringResource(R.string.settings_interface_scale)}: ${(interfaceScale * 100).toInt()}%",
-                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp),
-                        color = theme.iconColor
+                SettingSlider(
+                    label = stringResource(R.string.settings_interface_scale),
+                    value = interfaceScale,
+                    onValueChange = onInterfaceScaleChanged,
+                    valueRange = 0.5f..2.0f,
+                    labelStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp),
+                    labelColor = theme.iconColor,
+                    showValueOnRight = true,
+                    valueFormatter = { "${(it * 100).toInt()}%" },
+                    sliderColors = SliderDefaults.colors(
+                        thumbColor = theme.highlightColor,
+                        activeTrackColor = theme.highlightColor,
+                        inactiveTrackColor = theme.iconColor.copy(alpha = 0.35f)
                     )
-                    Slider(
-                        value = interfaceScale,
-                        onValueChange = onInterfaceScaleChanged,
-                        valueRange = 0.5f..2.0f,
-                        colors = SliderDefaults.colors(
-                            thumbColor = theme.highlightColor,
-                            activeTrackColor = theme.highlightColor,
-                            inactiveTrackColor = theme.iconColor.copy(alpha = 0.35f)
-                        )
-                    )
-                }
+                )
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -527,9 +533,13 @@ fun LayerManagerDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(stringResource(R.string.layer_title), style = MaterialTheme.typography.titleLarge.copy(fontSize = 22.ssp))
-                    IconButton(onClick = onDismiss) {
-                        Text("X", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, fontSize = 14.ssp)
-                    }
+                    AppIconButton(
+                        onClick = onDismiss,
+                        icon = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        buttonSize = 24.dp
+                    )
                 }
 
                 HorizontalDivider()
@@ -559,16 +569,14 @@ fun LayerManagerDialog(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             // Visibility
-                            IconButton(
+                            AppIconButton(
                                 onClick = { onToggleVisibility(originalIndex) },
+                                icon = if (layer.isVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                contentDescription = "Toggle Visibility",
+                                tint = if (layer.isVisible) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                                buttonSize = 24.dp,
                                 modifier = Modifier.size(24.sdp)
-                            ) {
-                                Icon(
-                                    if (layer.isVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                    contentDescription = "Toggle Visibility",
-                                    tint = if (layer.isVisible) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                                )
-                            }
+                            )
 
                             Spacer(modifier = Modifier.width(8.sdp))
 
@@ -607,24 +615,36 @@ fun LayerManagerDialog(
                     horizontalArrangement = Arrangement.SpaceAround
                 ) {
                     // Add
-                    IconButton(onClick = onAddLayer) {
-                        Icon(Icons.Default.Add, contentDescription = stringResource(R.string.layer_add))
-                    }
+                    AppIconButton(
+                        onClick = onAddLayer,
+                        icon = Icons.Default.Add,
+                        contentDescription = stringResource(R.string.layer_add),
+                        tint = MaterialTheme.colorScheme.onSurface
+                    )
                     
                     // Move Up (Visual Up = Higher Index)
-                    IconButton(onClick = onMoveUp) {
-                        Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move Up")
-                    }
+                    AppIconButton(
+                        onClick = onMoveUp,
+                        icon = Icons.Default.KeyboardArrowUp,
+                        contentDescription = "Move Up",
+                        tint = MaterialTheme.colorScheme.onSurface
+                    )
                     
                     // Move Down (Visual Down = Lower Index)
-                    IconButton(onClick = onMoveDown) {
-                        Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move Down")
-                    }
+                    AppIconButton(
+                        onClick = onMoveDown,
+                        icon = Icons.Default.KeyboardArrowDown,
+                        contentDescription = "Move Down",
+                        tint = MaterialTheme.colorScheme.onSurface
+                    )
                     
                     // Delete
-                    IconButton(onClick = onDeleteLayer) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete Active", tint = Color.Red)
-                    }
+                    AppIconButton(
+                        onClick = onDeleteLayer,
+                        icon = Icons.Default.Delete,
+                        contentDescription = "Delete Active",
+                        tint = Color.Red
+                    )
                 }
             }
         }
