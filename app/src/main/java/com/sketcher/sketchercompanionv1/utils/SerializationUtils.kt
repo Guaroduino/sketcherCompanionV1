@@ -225,7 +225,14 @@ fun VectorStroke.toVectorStrokeJson(): VectorStrokeJson {
         isCadGeometry = this.isCadGeometry,
         isScreenSpaceWidth = this.isScreenSpaceWidth,
         paintOutlineWidth = this.paintOutlineWidth,
-        fillStyle = this.fillStyle.toFillStyleJson()
+        fillStyle = this.fillStyle.toFillStyleJson(),
+        watercolorJitterSegment = this.watercolorJitterSegment,
+        watercolorJitterDeviation = this.watercolorJitterDeviation,
+        watercolorBlurRadius = this.watercolorBlurRadius,
+        watercolorEdgeMode = this.watercolorEdgeMode.name,
+        watercolorCenterOpacity = this.watercolorCenterOpacity,
+        watercolorEdgeRingOpacity = this.watercolorEdgeRingOpacity,
+        watercolorEdgeRingWidth = this.watercolorEdgeRingWidth
     )
 }
 
@@ -254,7 +261,7 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     val settings = FreehandSettings(size = this.maxWidth, isComplete = true, simulatePressure = false)
     
     val strokeTypeVal = this.strokeType ?: StrokeType.FREEHAND
-    val isCad = (this.isCadGeometry ?: false) || (strokeTypeVal != StrokeType.FREEHAND && strokeTypeVal != StrokeType.PAINT && strokeTypeVal != StrokeType.PLUMA)
+    val isCad = (this.isCadGeometry ?: false) || (strokeTypeVal != StrokeType.FREEHAND && strokeTypeVal != StrokeType.PAINT && strokeTypeVal != StrokeType.PLUMA && strokeTypeVal != StrokeType.WATERCOLOR)
     
     val resultPath = if (this.isFlattened) {
         val rawPath = PerfectFreehandGenerator.generate(pts, settings).path
@@ -314,7 +321,18 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         isCadGeometry = isCad,
         isScreenSpaceWidth = this.isScreenSpaceWidth ?: false,
         paintOutlineWidth = this.paintOutlineWidth ?: 2.0f,
-        fillStyle = this.fillStyle.toFillStyle(fColor)
+        fillStyle = this.fillStyle.toFillStyle(fColor),
+        watercolorJitterSegment = this.watercolorJitterSegment ?: 12.0f,
+        watercolorJitterDeviation = this.watercolorJitterDeviation ?: 3.5f,
+        watercolorBlurRadius = this.watercolorBlurRadius ?: 5.0f,
+        watercolorEdgeMode = try {
+            com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.valueOf(this.watercolorEdgeMode ?: "BOTH")
+        } catch (e: Exception) {
+            com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.BOTH
+        },
+        watercolorCenterOpacity = this.watercolorCenterOpacity ?: 0.8f,
+        watercolorEdgeRingOpacity = this.watercolorEdgeRingOpacity ?: 1.0f,
+        watercolorEdgeRingWidth = this.watercolorEdgeRingWidth ?: 2.0f
     )
 }
 
@@ -401,7 +419,8 @@ fun FillStyle.toFillStyleJson(): FillStyleJson {
             scaleY = this.scaleY,
             rotation = this.rotation,
             offsetX = this.offsetX,
-            offsetY = this.offsetY
+            offsetY = this.offsetY,
+            opacity = this.opacity
         )
         is FillStyle.MathTexture -> FillStyleJson(
             type = "MATH_TEXTURE",
@@ -410,7 +429,8 @@ fun FillStyle.toFillStyleJson(): FillStyleJson {
             secondaryColor = this.secondaryColor,
             spacing = this.spacing,
             thickness = this.thickness,
-            angle = this.angle
+            angle = this.angle,
+            opacity = this.opacity
         )
         is FillStyle.ImageTexture -> FillStyleJson(
             type = "IMAGE_TEXTURE",
@@ -420,7 +440,9 @@ fun FillStyle.toFillStyleJson(): FillStyleJson {
             rotation = this.rotation,
             offsetX = this.offsetX,
             offsetY = this.offsetY,
-            opacity = this.opacity
+            opacity = this.opacity,
+            tintColor = this.tintColor,
+            tintMix = this.tintMix
         )
     }
 }
@@ -435,7 +457,8 @@ fun FillStyleJson?.toFillStyle(fallbackColor: Int): FillStyle {
             scaleY = this.scaleY ?: 1f,
             rotation = this.rotation ?: 0f,
             offsetX = this.offsetX ?: 0f,
-            offsetY = this.offsetY ?: 0f
+            offsetY = this.offsetY ?: 0f,
+            opacity = this.opacity ?: 1f
         )
         "MATH_TEXTURE" -> FillStyle.MathTexture(
             patternName = this.patternName ?: "GRID",
@@ -443,7 +466,8 @@ fun FillStyleJson?.toFillStyle(fallbackColor: Int): FillStyle {
             secondaryColor = this.secondaryColor ?: android.graphics.Color.TRANSPARENT,
             spacing = this.spacing ?: 20f,
             thickness = this.thickness ?: 2f,
-            angle = this.angle ?: 0f
+            angle = this.angle ?: 0f,
+            opacity = this.opacity ?: 1f
         )
         "IMAGE_TEXTURE" -> FillStyle.ImageTexture(
             imagePath = this.imagePath ?: "",
@@ -452,7 +476,9 @@ fun FillStyleJson?.toFillStyle(fallbackColor: Int): FillStyle {
             rotation = this.rotation ?: 0f,
             offsetX = this.offsetX ?: 0f,
             offsetY = this.offsetY ?: 0f,
-            opacity = this.opacity ?: 1f
+            opacity = this.opacity ?: 1f,
+            tintColor = this.tintColor ?: android.graphics.Color.TRANSPARENT,
+            tintMix = this.tintMix ?: 0f
         )
         else -> FillStyle.Solid(fallbackColor)
     }

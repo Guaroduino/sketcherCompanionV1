@@ -20,6 +20,7 @@ object ToolRegistry {
         StudioTool("pen", Icons.Default.Gesture, "Pen", isPlaceholder = false),
         StudioTool("eraser", Icons.Default.AutoFixNormal, "Eraser", isPlaceholder = false),
         StudioTool("paint", Icons.Default.Brush, "Paint", isPlaceholder = false, parentGroupId = "pencil"),
+        StudioTool("watercolor", Icons.Default.Palette, "Acuarela", isPlaceholder = false, parentGroupId = "pencil"),
         StudioTool("pluma", Icons.Default.Gesture, "Pluma", isPlaceholder = false, parentGroupId = "pencil"),
         StudioTool("line", Icons.Default.Timeline, "Line", isPlaceholder = false, parentGroupId = "pen"),
         StudioTool("circle", Icons.Default.RadioButtonUnchecked, "Circle", isPlaceholder = false, parentGroupId = "pen"),

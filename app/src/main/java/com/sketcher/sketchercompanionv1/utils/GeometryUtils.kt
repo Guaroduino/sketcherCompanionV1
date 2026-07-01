@@ -381,7 +381,7 @@ object GeometryUtils {
                     }
                 }
             }
-            StrokeType.PAINT -> {
+            StrokeType.PAINT, StrokeType.WATERCOLOR -> {
                 if (points.isNotEmpty()) {
                     path.moveTo(points[0].x, points[0].y)
                     for (i in 1 until points.size) {

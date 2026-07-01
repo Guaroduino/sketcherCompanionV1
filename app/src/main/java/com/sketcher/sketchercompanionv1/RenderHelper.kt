@@ -5,6 +5,7 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
+import android.graphics.RectF
 import com.sketcher.sketchercompanionv1.dto.StrokeType
 
 
@@ -95,12 +96,13 @@ object RenderHelper {
                 }
             } else {
                 vectorPaint.style = Paint.Style.STROKE
-                vectorPaint.color = vStroke.strokeColor
-                val width = if (vStroke.strokeType == StrokeType.PAINT) vStroke.paintOutlineWidth else (if (vStroke.maxWidth > 0) vStroke.maxWidth else 0f)
-                vectorPaint.strokeWidth = width
-
+                val isWatercolor = vStroke.strokeType == com.sketcher.sketchercompanionv1.dto.StrokeType.WATERCOLOR
+                
                 // Apply dash path effect for CAD styles
                 if (vStroke.isCadGeometry) {
+                    vectorPaint.color = vStroke.strokeColor
+                    val width = (if (vStroke.maxWidth > 0) vStroke.maxWidth else 0f)
+                    vectorPaint.strokeWidth = width
                     when (vStroke.lineStyle.uppercase()) {
                         "DASHED" -> {
                             val interval = kotlin.math.max(1f, width)
@@ -118,12 +120,64 @@ object RenderHelper {
                             vectorPaint.pathEffect = null
                         }
                     }
-                } else {
+                    canvas.drawPath(vStroke.path, vectorPaint)
                     vectorPaint.pathEffect = null
-                }
+                } else if (isWatercolor) {
+                    val origColor = vStroke.strokeColor
+                    val origAlpha = android.graphics.Color.alpha(origColor)
+                    
+                    val strokeSeed = vStroke.hashCode().toLong()
+                    val jitteredPath = com.sketcher.sketchercompanionv1.utils.JitterPathHelper.createJitterPath(
+                        vStroke.path,
+                        vStroke.watercolorJitterSegment,
+                        vStroke.watercolorJitterDeviation,
+                        seed = strokeSeed
+                    )
 
-                canvas.drawPath(vStroke.path, vectorPaint)
-                vectorPaint.pathEffect = null
+                    // Wrap in saveLayer with the stroke's opacity to match the live preview's compositing
+                    val bounds = RectF()
+                    vStroke.path.computeBounds(bounds, true)
+                    bounds.inset(-60f, -60f)
+                    val saveLayerPaint = android.graphics.Paint().apply { alpha = 255 }
+                    val saveCount = canvas.saveLayer(bounds, saveLayerPaint)
+
+                    // --- PASADA 1: CUERPO DIFUMINADO (CON CLIPPING) ---
+                    val bodyAlpha = (255f * vStroke.watercolorCenterOpacity).toInt().coerceIn(0, 255)
+                    vectorPaint.color = (origColor and 0x00FFFFFF) or (bodyAlpha shl 24)
+                    vectorPaint.strokeWidth = vStroke.paintOutlineWidth
+                    
+                    vectorPaint.pathEffect = null
+                    vectorPaint.maskFilter = android.graphics.BlurMaskFilter(
+                        vStroke.watercolorBlurRadius.coerceAtLeast(0.01f),
+                        android.graphics.BlurMaskFilter.Blur.NORMAL
+                    )
+
+                    if (vStroke.watercolorEdgeMode == com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.INSIDE) {
+                        canvas.save()
+                        canvas.clipPath(vStroke.path)
+                        canvas.drawPath(jitteredPath, vectorPaint)
+                        canvas.restore()
+                    } else if (vStroke.watercolorEdgeMode == com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.OUTSIDE) {
+                        canvas.save()
+                        canvas.clipOutPath(vStroke.path)
+                        canvas.drawPath(jitteredPath, vectorPaint)
+                        canvas.restore()
+                    } else {
+                        canvas.drawPath(jitteredPath, vectorPaint)
+                    }
+
+                    vectorPaint.pathEffect = null
+                    vectorPaint.maskFilter = null
+
+                    canvas.restoreToCount(saveCount)
+                } else {
+                    vectorPaint.color = vStroke.strokeColor
+                    val width = if (vStroke.strokeType == com.sketcher.sketchercompanionv1.dto.StrokeType.PAINT) vStroke.paintOutlineWidth else (if (vStroke.maxWidth > 0) vStroke.maxWidth else 0f)
+                    vectorPaint.strokeWidth = width
+                    vectorPaint.pathEffect = null
+                    vectorPaint.maskFilter = null
+                    canvas.drawPath(vStroke.path, vectorPaint)
+                }
             }
         }
     }

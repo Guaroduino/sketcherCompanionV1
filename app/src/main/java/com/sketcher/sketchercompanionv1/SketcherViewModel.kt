@@ -522,6 +522,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 updateStrokeType(StrokeType.PAINT)
                 selectTool(ToolType.PAINT)
             }
+            ToolPayload.WATERCOLOR -> {
+                updateStrokeType(StrokeType.WATERCOLOR)
+                selectTool(ToolType.WATERCOLOR)
+            }
             ToolPayload.PLUMA -> {
                 updateStrokeType(StrokeType.PLUMA)
                 selectTool(ToolType.PLUMA)
@@ -634,6 +638,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         "paint" -> ({ 
              updateStrokeType(StrokeType.PAINT)
              selectTool(ToolType.PAINT) 
+        })
+
+        "watercolor" -> ({ 
+             updateStrokeType(StrokeType.WATERCOLOR)
+             selectTool(ToolType.WATERCOLOR) 
         })
 
         "pluma" -> ({ 
@@ -1128,6 +1137,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     val strokeColor = toolManager.strokeColor
     val fillColor = toolManager.fillColor
     val fillStyle = toolManager.fillStyle
+    val fillOpacity = toolManager.fillOpacity
     val isStrokeActive = toolManager.isStrokeActive
     val isFillActive = toolManager.isFillActive
 
@@ -3321,12 +3331,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         val targetLayer = layers[activeLayerIndex]
         if (targetLayer.isLocked) return
 
-        if (stroke.strokeType == StrokeType.PAINT) {
+        if (stroke.strokeType == StrokeType.PAINT || stroke.strokeType == StrokeType.WATERCOLOR) {
             val containerSnapshot = synchronized(activeContainer) { activeContainer.toList() }
             viewModelScope.launch {
                 val mergedResult = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                     val sameColorPaintStrokes = containerSnapshot.filterIsInstance<VectorStroke>().filter { existing ->
-                        existing.strokeType == StrokeType.PAINT &&
+                        existing.strokeType == stroke.strokeType &&
                         existing.strokeColor == stroke.strokeColor &&
                         existing.fillColor == stroke.fillColor &&
                         existing.isFillEnabled == stroke.isFillEnabled &&

@@ -9,6 +9,8 @@ import android.graphics.PointF
 import android.graphics.RectF
 import android.graphics.BitmapShader
 import android.graphics.Shader
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import com.sketcher.sketchercompanionv1.dto.*
 import com.sketcher.sketchercompanionv1.utils.UnitUtils
 import com.sketcher.sketchercompanionv1.utils.SvgPatternCache
@@ -22,6 +24,15 @@ import com.sketcher.sketchercompanionv1.managers.SnapType
  * Holds the Paint state and configuration for rendering.
  */
 class RenderEngine {
+
+    // Blur mask filter cache to avoid GC pressure in draw loops
+    private val blurFilterCache = HashMap<Float, android.graphics.BlurMaskFilter>()
+    private fun getBlurFilter(radius: Float): android.graphics.BlurMaskFilter {
+        val clampedRadius = radius.coerceAtLeast(0.01f)
+        return blurFilterCache.getOrPut(clampedRadius) {
+            android.graphics.BlurMaskFilter(clampedRadius, android.graphics.BlurMaskFilter.Blur.NORMAL)
+        }
+    }
 
     // --- PAINTS ---
     private val svgAlphaPaint = Paint()
@@ -185,7 +196,7 @@ class RenderEngine {
                     }
                     shader.setLocalMatrix(matrix)
                     paint.shader = shader
-                    val finalAlpha = (alphaMultiplier * 255).toInt().coerceIn(0, 255)
+                    val finalAlpha = (style.opacity * alphaMultiplier * 255).toInt().coerceIn(0, 255)
                     paint.color = Color.argb(finalAlpha, 255, 255, 255)
                 } else {
                     paint.color = Color.TRANSPARENT
@@ -201,7 +212,7 @@ class RenderEngine {
                     }
                     shader.setLocalMatrix(matrix)
                     paint.shader = shader
-                    val finalAlpha = (alphaMultiplier * 255).toInt().coerceIn(0, 255)
+                    val finalAlpha = (style.opacity * alphaMultiplier * 255).toInt().coerceIn(0, 255)
                     paint.color = Color.argb(finalAlpha, 255, 255, 255)
                 } else {
                     paint.color = Color.TRANSPARENT
@@ -221,8 +232,15 @@ class RenderEngine {
                     paint.shader = shader
                     val finalAlpha = (style.opacity * alphaMultiplier * 255).toInt().coerceIn(0, 255)
                     paint.color = Color.argb(finalAlpha, 255, 255, 255)
+                    if (style.tintColor != Color.TRANSPARENT && style.tintMix > 0f) {
+                        val filterColor = (style.tintColor and 0x00FFFFFF) or (((style.tintMix).coerceIn(0f, 1f) * 255).toInt() shl 24)
+                        paint.colorFilter = PorterDuffColorFilter(filterColor, PorterDuff.Mode.SRC_ATOP)
+                    } else {
+                        paint.colorFilter = null
+                    }
                 } else {
                     paint.color = Color.TRANSPARENT
+                    paint.colorFilter = null
                 }
             }
         }
@@ -458,6 +476,53 @@ class RenderEngine {
                 vectorPaint.strokeWidth = stroke.paintOutlineWidth
                 vectorPaint.pathEffect = null
                 canvas.drawPath(stroke.path, vectorPaint)
+            } else if (stroke.strokeType == StrokeType.WATERCOLOR) {
+                val origColor = stroke.strokeColor
+                val baseAlpha = (255 * alphaMultiplier).toInt().coerceIn(0, 255)
+
+                // Generate deterministic jittered path once for this draw pass
+                val strokeSeed = stroke.hashCode().toLong()
+                val jitteredPath = com.sketcher.sketchercompanionv1.utils.JitterPathHelper.createJitterPath(
+                    stroke.path,
+                    stroke.watercolorJitterSegment,
+                    stroke.watercolorJitterDeviation,
+                    seed = strokeSeed
+                )
+
+                // Wrap in saveLayer with the stroke's opacity to match the live preview's compositing
+                val bounds = RectF()
+                stroke.path.computeBounds(bounds, true)
+                bounds.inset(-60f, -60f)
+                val saveLayerPaint = Paint().apply { alpha = baseAlpha }
+                val saveCount = canvas.saveLayer(bounds, saveLayerPaint)
+
+                // --- PASADA 1: CUERPO DIFUMINADO (CON CLIPPING) ---
+                vectorPaint.style = Paint.Style.STROKE
+                val bodyAlpha = (255f * stroke.watercolorCenterOpacity).toInt().coerceIn(0, 255)
+                vectorPaint.color = (origColor and 0x00FFFFFF) or (bodyAlpha shl 24)
+                vectorPaint.strokeWidth = stroke.paintOutlineWidth
+                
+                vectorPaint.pathEffect = null
+                vectorPaint.maskFilter = getBlurFilter(stroke.watercolorBlurRadius)
+
+                if (stroke.watercolorEdgeMode == com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.INSIDE) {
+                    canvas.save()
+                    canvas.clipPath(stroke.path)
+                    canvas.drawPath(jitteredPath, vectorPaint)
+                    canvas.restore()
+                } else if (stroke.watercolorEdgeMode == com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.OUTSIDE) {
+                    canvas.save()
+                    canvas.clipOutPath(stroke.path)
+                    canvas.drawPath(jitteredPath, vectorPaint)
+                    canvas.restore()
+                } else {
+                    canvas.drawPath(jitteredPath, vectorPaint)
+                }
+
+                vectorPaint.pathEffect = null
+                vectorPaint.maskFilter = null
+
+                canvas.restoreToCount(saveCount)
             } else {
                 // For others, it's a line
                 vectorPaint.style = Paint.Style.STROKE
@@ -612,7 +677,7 @@ class RenderEngine {
         isFillActive: Boolean = false, 
         strokeType: StrokeType = StrokeType.FREEHAND
     ) {
-        if (strokeType == StrokeType.PAINT) {
+        if (strokeType == StrokeType.PAINT || strokeType == StrokeType.WATERCOLOR) {
             if (isFillActive) {
                 vectorPaint.color = fillColor
                 vectorPaint.style = Paint.Style.FILL
@@ -654,7 +719,7 @@ class RenderEngine {
          canvas.save()
          canvas.concat(viewMatrix)
     
-         if (strokeType == StrokeType.PAINT) {
+         if (strokeType == StrokeType.PAINT || strokeType == StrokeType.WATERCOLOR) {
              if (isFillActive && previewPath != null) {
                  vectorPaint.style = Paint.Style.FILL
                  if (fillStyle != null) {

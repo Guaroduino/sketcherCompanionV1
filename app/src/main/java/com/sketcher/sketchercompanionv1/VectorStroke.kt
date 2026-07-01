@@ -30,7 +30,14 @@ data class VectorStroke(
     val isCadGeometry: Boolean = false,
     val isScreenSpaceWidth: Boolean = false,
     val paintOutlineWidth: Float = 2.0f,
-    val fillStyle: FillStyle = FillStyle.Solid(fillColor)
+    val fillStyle: FillStyle = FillStyle.Solid(fillColor),
+    val watercolorJitterSegment: Float = 12.0f,
+    val watercolorJitterDeviation: Float = 3.5f,
+    val watercolorBlurRadius: Float = 5.0f,
+    val watercolorEdgeMode: com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode = com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.BOTH,
+    val watercolorCenterOpacity: Float = 0.8f,
+    val watercolorEdgeRingOpacity: Float = 1.0f,
+    val watercolorEdgeRingWidth: Float = 2.0f
 ) : LayerElement {
     private val cachedBounds = RectF().apply { path.computeBounds(this, true) }
 
@@ -71,7 +78,14 @@ data class VectorStroke(
             isCadGeometry = isCadGeometry,
             isScreenSpaceWidth = isScreenSpaceWidth,
             paintOutlineWidth = paintOutlineWidth,
-            fillStyle = fillStyle
+            fillStyle = fillStyle,
+            watercolorJitterSegment = watercolorJitterSegment,
+            watercolorJitterDeviation = watercolorJitterDeviation,
+            watercolorBlurRadius = watercolorBlurRadius,
+            watercolorEdgeMode = watercolorEdgeMode,
+            watercolorCenterOpacity = watercolorCenterOpacity,
+            watercolorEdgeRingOpacity = watercolorEdgeRingOpacity,
+            watercolorEdgeRingWidth = watercolorEdgeRingWidth
         )
     }
 }

@@ -11,11 +11,14 @@ enum class FillType {
 
 sealed interface FillStyle {
     val type: FillType
+    val opacity: Float
 
     data class Solid(
         val color: Int
     ) : FillStyle {
         override val type = FillType.SOLID
+        override val opacity: Float
+            get() = Color.alpha(color) / 255f
     }
 
     data class SvgPattern(
@@ -24,7 +27,8 @@ sealed interface FillStyle {
         val scaleY: Float = 1.0f,
         val rotation: Float = 0.0f,
         val offsetX: Float = 0.0f,
-        val offsetY: Float = 0.0f
+        val offsetY: Float = 0.0f,
+        override val opacity: Float = 1.0f
     ) : FillStyle {
         override val type = FillType.SVG_PATTERN
     }
@@ -35,7 +39,8 @@ sealed interface FillStyle {
         val secondaryColor: Int = Color.TRANSPARENT,
         val spacing: Float = 20.0f,    // Frecuencia o tamaño de celda
         val thickness: Float = 2.0f,  // Grosor de línea o tamaño de punto
-        val angle: Float = 0.0f       // Rotación de la textura matemática
+        val angle: Float = 0.0f,       // Rotación de la textura matemática
+        override val opacity: Float = 1.0f
     ) : FillStyle {
         override val type = FillType.MATH_TEXTURE
     }
@@ -47,8 +52,28 @@ sealed interface FillStyle {
         val rotation: Float = 0.0f,
         val offsetX: Float = 0.0f,
         val offsetY: Float = 0.0f,
-        val opacity: Float = 1.0f
+        override val opacity: Float = 1.0f,
+        val tintColor: Int = Color.TRANSPARENT,
+        val tintMix: Float = 0.0f
     ) : FillStyle {
         override val type = FillType.IMAGE_TEXTURE
+    }
+}
+
+fun FillStyle.copyWithOpacity(newOpacity: Float): FillStyle {
+    return when (this) {
+        is FillStyle.Solid -> {
+            val alpha = (newOpacity * 255f).toInt().coerceIn(0, 255)
+            FillStyle.Solid((this.color and 0x00FFFFFF) or (alpha shl 24))
+        }
+        is FillStyle.MathTexture -> {
+            val alpha = (newOpacity * 255f).toInt().coerceIn(0, 255)
+            this.copy(
+                primaryColor = (this.primaryColor and 0x00FFFFFF) or (alpha shl 24),
+                opacity = newOpacity
+            )
+        }
+        is FillStyle.SvgPattern -> this.copy(opacity = newOpacity)
+        is FillStyle.ImageTexture -> this.copy(opacity = newOpacity)
     }
 }

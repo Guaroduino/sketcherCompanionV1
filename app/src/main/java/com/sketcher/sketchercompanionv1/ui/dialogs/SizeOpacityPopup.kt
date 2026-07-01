@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -165,8 +166,8 @@ fun SizeOpacityPopup(
                         valueFormatter = { "$formattedSize ${unit.symbol}" }
                     )
 
-                    // Border Stroke Thickness (ONLY for PAINT, above Stroke Opacity)
-                    if (viewModel.currentTool == ToolType.PAINT) {
+                    // Border Stroke Thickness (ONLY for PAINT or WATERCOLOR, above Stroke Opacity)
+                    if (viewModel.currentTool == ToolType.PAINT || viewModel.currentTool == ToolType.WATERCOLOR) {
                         val freehandSettings = viewModel.currentFreehandSettings
                         SettingSlider(
                             label = "Border Stroke Thickness",
@@ -178,15 +179,99 @@ fun SizeOpacityPopup(
                         )
                     }
 
+                    if (viewModel.currentTool == ToolType.WATERCOLOR) {
+                        val freehandSettings = viewModel.currentFreehandSettings
+                        
+                        // Jitter Deviation Slider
+                        val jitterDev = freehandSettings.watercolorJitterDeviation
+                        SettingSlider(
+                            label = "Dispersión del borde (Jitter)",
+                            value = jitterDev,
+                            onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorJitterDeviation = it)) },
+                            valueRange = 0f..15f,
+                            showValueOnRight = true,
+                            valueFormatter = { String.format("%.1f px", it) }
+                        )
+                        
+                        // Jitter Segment Slider
+                        val jitterSeg = freehandSettings.watercolorJitterSegment
+                        SettingSlider(
+                            label = "Frecuencia del borde",
+                            value = jitterSeg,
+                            onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorJitterSegment = it)) },
+                            valueRange = 3f..50f,
+                            showValueOnRight = true,
+                            valueFormatter = { String.format("%.1f px", it) }
+                        )
+                        
+                        // Blur Radius Slider
+                        val blurRad = freehandSettings.watercolorBlurRadius
+                        SettingSlider(
+                            label = "Difuminado (Blur)",
+                            value = blurRad,
+                            onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorBlurRadius = it)) },
+                            valueRange = 0f..25f,
+                            showValueOnRight = true,
+                            valueFormatter = { String.format("%.1f px", it) }
+                        )
+
+                        // Center Opacity Slider
+                        SettingSlider(
+                            label = "Opacidad Central (Center)",
+                            value = freehandSettings.watercolorCenterOpacity,
+                            onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorCenterOpacity = it)) },
+                            valueRange = 0f..1f,
+                            showValueOnRight = true,
+                            valueFormatter = { "${(it * 100).toInt()}%" }
+                        )
+
+
+
+                        // Edge Mode Selector
+                        Text(
+                            text = "Modo del Contorno (Edge Mode)",
+                            style = androidx.compose.ui.text.TextStyle(
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                            ),
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.values().forEach { mode ->
+                                val selected = freehandSettings.watercolorEdgeMode == mode
+                                val btnColor = if (selected) MaterialTheme.colorScheme.primary else Color.DarkGray
+                                val textColor = if (selected) Color.White else Color.LightGray
+                                androidx.compose.material3.Button(
+                                    onClick = {
+                                        viewModel.updateFreehandSettings(freehandSettings.copy(watercolorEdgeMode = mode))
+                                    },
+                                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = btnColor),
+                                    modifier = Modifier.weight(1f).padding(horizontal = 2.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                                ) {
+                                    Text(text = mode.name, color = textColor, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+
                     // Stroke Opacity Slider
-                    SettingSlider(
-                        label = "Stroke Opacity",
-                        value = brushOpacity,
-                        onValueChange = { viewModel.updateBrushOpacity(it) },
-                        valueRange = 0f..1f,
-                        showValueOnRight = true,
-                        valueFormatter = { "${(it * 100).toInt()}%" }
-                    )
+                    if (viewModel.currentTool != com.sketcher.sketchercompanionv1.dto.ToolType.WATERCOLOR) {
+                        SettingSlider(
+                            label = "Stroke Opacity",
+                            value = brushOpacity,
+                            onValueChange = { viewModel.updateBrushOpacity(it) },
+                            valueRange = 0f..1f,
+                            showValueOnRight = true,
+                            valueFormatter = { "${(it * 100).toInt()}%" }
+                        )
+                    }
 
                     // Stabilization Slider
                     val globalStabilization by viewModel.globalStabilization.collectAsState()
@@ -202,8 +287,7 @@ fun SizeOpacityPopup(
                     // Fill Opacity Slider
                     val isFillActive by viewModel.isFillActive.collectAsState()
                     if (isFillActive) {
-                        val fillColor by viewModel.fillColor.collectAsState()
-                        val fillOpacity = ((fillColor shr 24) and 0xFF) / 255f
+                        val fillOpacity by viewModel.fillOpacity.collectAsState()
                         SettingSlider(
                             label = "Fill Opacity",
                             value = fillOpacity,

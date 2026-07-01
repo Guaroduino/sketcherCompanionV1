@@ -730,6 +730,7 @@ fun StudioLayout(
 
     val fillColorVal by viewModel.fillColor.collectAsState()
     val fillStyleVal by viewModel.fillStyle.collectAsState()
+    val fillOpacityVal by viewModel.fillOpacity.collectAsState()
 
 
     val isStrokeActiveVal by viewModel.isStrokeActive.collectAsState()
@@ -1191,6 +1192,7 @@ fun StudioLayout(
 
                 view.activeFillColor = fillColorVal
                 view.activeFillStyle = fillStyleVal
+                view.activeFillOpacity = fillOpacityVal
 
 
                 view.isStrokeActive = isStrokeActiveVal

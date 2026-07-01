@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Palette
 import android.util.Log
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -57,6 +58,7 @@ enum class ToolPayload(val label: String, val icon: ImageVector) {
     STROKE_COLOR("Stroke Color", Icons.Default.BorderColor),
     FILL_COLOR("Fill Color", Icons.Default.FormatColorFill),
     PAINT("Paint", Icons.Default.Brush),
+    WATERCOLOR("Acuarela", Icons.Default.Palette),
     PLUMA("Pluma", Icons.Default.Gesture)
 }
 

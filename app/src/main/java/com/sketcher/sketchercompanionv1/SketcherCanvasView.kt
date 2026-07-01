@@ -801,31 +801,38 @@ class SketcherCanvasView(context: Context) : View(context) {
         },
 
         onStrokeCompleted = { stroke, fill ->
-
             currentCommittedPreviewPath = null
-
             currentLiveIntersections = emptyList()
-
             currentStrokeBounds = null
 
-            // Perform incremental bake immediately
+            val bakedFillStyle = stroke.fillStyle.copyWithOpacity(stroke.fillStyle.opacity * activeFillOpacity)
+            val bakedFillColor = if (stroke.isFillEnabled) {
+                val alpha = (android.graphics.Color.alpha(stroke.fillColor) / 255f)
+                val finalAlpha = (alpha * activeFillOpacity * 255).toInt().coerceIn(0, 255)
+                (stroke.fillColor and 0x00FFFFFF) or (finalAlpha shl 24)
+            } else {
+                stroke.fillColor
+            }
 
-            bakeStrokeDirectly(stroke, fill)
+            val bakedStroke = stroke.copy(
+                fillStyle = bakedFillStyle,
+                fillColor = bakedFillColor
+            )
 
-            
+            val bakedFill = fill?.let { f ->
+                val style = f.fillStyle.copyWithOpacity(f.fillStyle.opacity * activeFillOpacity)
+                f.copy(fillStyle = style)
+            }
 
-            onHybridStrokeCompleted?.invoke(stroke, fill) ?: run {
+            bakeStrokeDirectly(bakedStroke, bakedFill)
 
-                 onStrokeCompleted?.invoke(stroke)
-
-                 fill?.let { onFillCompleted?.invoke(it) }
-
+            onHybridStrokeCompleted?.invoke(bakedStroke, bakedFill) ?: run {
+                 onStrokeCompleted?.invoke(bakedStroke)
+                 bakedFill?.let { onFillCompleted?.invoke(it) }
             }
 
             isDrawing = false
-
             liveMergedExistingStrokes.clear()
-
         }
 
     )
@@ -945,6 +952,7 @@ class SketcherCanvasView(context: Context) : View(context) {
             cachedBitmapMatrix.set(currentMatrix)
 
             transientStrokes.removeAll(strokesBaking)
+            updateLayerType()
 
             transientFills.removeAll(fillsBaking)
 
@@ -969,6 +977,7 @@ class SketcherCanvasView(context: Context) : View(context) {
             fill?.let { transientFills.add(it) }
 
             transientStrokes.add(stroke)
+            updateLayerType()
 
             redrawAllCache()
 
@@ -1515,31 +1524,24 @@ class SketcherCanvasView(context: Context) : View(context) {
         set(value) { if (field == value) return; field = value; strokePipeline.activeStrokeColor = value }
 
     var activeFillColor: Int = android.graphics.Color.TRANSPARENT
-
-        set(value) { if (field == value) return; field = value; strokePipeline.activeFillColor = value }
+        set(value) {
+            if (field == value) return
+            field = value
+            strokePipeline.activeFillColor = value
+        }
 
     var activeFillStyle: FillStyle = FillStyle.Solid(android.graphics.Color.TRANSPARENT)
-
         set(value) {
-
             if (field == value) return
-
             field = value
-
             strokePipeline.activeFillStyle = value
+        }
 
-            // Sync fallback fillColor
-
-            activeFillColor = when (value) {
-
-                is FillStyle.Solid -> value.color
-
-                is FillStyle.MathTexture -> value.primaryColor
-
-                else -> android.graphics.Color.TRANSPARENT
-
-            }
-
+    var activeFillOpacity: Float = 0.5f
+        set(value) {
+            if (field == value) return
+            field = value
+            strokePipeline.activeFillOpacity = value
         }
 
     var isStrokeActive: Boolean = true
@@ -1599,6 +1601,20 @@ class SketcherCanvasView(context: Context) : View(context) {
         set(value) { field = value; strokePipeline.snapFunction = value }
 
     var currentTool: ToolType = ToolType.FREEHAND
+        set(value) {
+            if (field == value) return
+            field = value
+            updateLayerType()
+        }
+
+    private fun updateLayerType() {
+        val needsSoftware = currentTool == ToolType.WATERCOLOR || 
+                            transientStrokes.any { it.strokeType == StrokeType.WATERCOLOR }
+        val targetLayerType = if (needsSoftware) LAYER_TYPE_SOFTWARE else LAYER_TYPE_HARDWARE
+        if (layerType != targetLayerType) {
+            setLayerType(targetLayerType, null)
+        }
+    }
 
     var currentSelectionMode: SketcherViewModel.SelectionMode = SketcherViewModel.SelectionMode.RECTANGLE
 
@@ -1887,42 +1903,36 @@ class SketcherCanvasView(context: Context) : View(context) {
                 // Pass 1: Draw Live Fill (always directly on canvas, using its own activeFillColor with alpha, multiplied by activeLayerOpacity)
 
                 if (isFillActive && currentFillPath != null) {
-
                     liveFillPaint.style = android.graphics.Paint.Style.FILL
-
-                    renderEngine.applyFillStyle(liveFillPaint, activeFillStyle, alphaMultiplier = activeLayerOpacity)
-
+                    renderEngine.applyFillStyle(liveFillPaint, activeFillStyle, alphaMultiplier = activeFillOpacity * activeLayerOpacity)
                     canvas.save()
-
                     canvas.concat(drawCombinedMatrix)
-
                     canvas.drawPath(currentFillPath!!, liveFillPaint)
-
                     canvas.restore()
-
                     liveFillPaint.shader = null
-
                 }
 
-
-
                 // Pass 2: Draw Live Stroke
-
-                if (isStrokeActive || (activeStrokeType == StrokeType.PAINT && isFillActive)) {
-
+                if (isStrokeActive || ((activeStrokeType == StrokeType.PAINT || activeStrokeType == StrokeType.WATERCOLOR) && isFillActive)) {
                     val strokeAlpha = if (isStrokeActive) (android.graphics.Color.alpha(activeStrokeColor) / 255f) else 0f
-
-                    val fillAlpha = if (isFillActive) (android.graphics.Color.alpha(activeFillColor) / 255f) else 0f
-
+                    val fillAlpha = if (isFillActive) activeFillOpacity else 0f
                     val primaryAlpha = if (isStrokeActive) strokeAlpha else fillAlpha
 
-                    val relativeFillAlpha = if (primaryAlpha > 0f) (fillAlpha / primaryAlpha).coerceIn(0f, 1f) else 0f
+                    val relativeFillAlpha = if (activeStrokeType == StrokeType.WATERCOLOR) {
+                        activeFillOpacity
+                    } else {
+                        if (primaryAlpha > 0f) (fillAlpha / primaryAlpha).coerceIn(0f, 1f) else 0f
+                    }
 
-                    val effectiveStrokeOpacity = primaryAlpha * activeLayerOpacity
+                    val effectiveStrokeOpacity = if (activeStrokeType == StrokeType.WATERCOLOR) {
+                        activeLayerOpacity
+                    } else {
+                        primaryAlpha * activeLayerOpacity
+                    }
 
                     val isCumulative = activeFreehandSettings.isCumulativeOpacity
 
-                    val isCadDraw = activeStrokeType != StrokeType.FREEHAND && activeStrokeType != StrokeType.PAINT && activeStrokeType != StrokeType.PLUMA
+                    val isCadDraw = activeStrokeType != StrokeType.FREEHAND && activeStrokeType != StrokeType.PAINT && activeStrokeType != StrokeType.PLUMA && activeStrokeType != StrokeType.WATERCOLOR
 
                     
 
@@ -1940,7 +1950,8 @@ class SketcherCanvasView(context: Context) : View(context) {
 
                             drawCombinedMatrix.mapRect(tempScreenBounds, tempStrokeBounds)
 
-                            tempScreenBounds.inset(-4f, -4f)
+                            val insetVal = if (activeStrokeType == StrokeType.WATERCOLOR) -60f else -4f
+                            tempScreenBounds.inset(insetVal, insetVal)
 
                             canvas.saveLayer(tempScreenBounds, saveLayerPaint)
 
@@ -1958,7 +1969,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
                         
 
-                        if (activeStrokeType == StrokeType.PAINT) {
+                        if (activeStrokeType == StrokeType.PAINT || activeStrokeType == StrokeType.WATERCOLOR) {
 
                             canvas.save()
 
@@ -1983,17 +1994,16 @@ class SketcherCanvasView(context: Context) : View(context) {
 
 
                             // 1. Draw fills (underneath)
-
                             if (isFillActive) {
-
                                 liveFillPaint.style = android.graphics.Paint.Style.FILL
-
-                                renderEngine.applyFillStyle(liveFillPaint, activeFillStyle)
-
+                                val fillStyleSnap = activeFillStyle
+                                val relativeFillStyle = when (fillStyleSnap) {
+                                    is FillStyle.Solid -> FillStyle.Solid(fillStyleSnap.color or (0xFF shl 24))
+                                    else -> fillStyleSnap
+                                }
+                                renderEngine.applyFillStyle(liveFillPaint, relativeFillStyle, alphaMultiplier = relativeFillAlpha)
                                 canvas.drawPath(combinedPath, liveFillPaint)
-
                                 liveFillPaint.shader = null
-
                             }
 
 
@@ -2001,17 +2011,52 @@ class SketcherCanvasView(context: Context) : View(context) {
                             // 2. Draw borders (on top)
 
                             if (isStrokeActive) {
+                                if (activeStrokeType == StrokeType.WATERCOLOR) {
+                                    val origAlpha = android.graphics.Color.alpha(opaqueColor)
+                                    
+                                    val jitteredPath = com.sketcher.sketchercompanionv1.utils.JitterPathHelper.createJitterPath(
+                                        combinedPath,
+                                        activeFreehandSettings.watercolorJitterSegment,
+                                        activeFreehandSettings.watercolorJitterDeviation,
+                                        seed = 999L
+                                    )
 
-                                liveFillPaint.style = android.graphics.Paint.Style.STROKE
+                                    // --- PASADA 1: CUERPO DIFUMINADO (CON CLIPPING) ---
+                                    liveFillPaint.style = android.graphics.Paint.Style.STROKE
+                                    val bodyAlpha = (origAlpha * activeFreehandSettings.watercolorCenterOpacity).toInt().coerceIn(0, 255)
+                                    liveFillPaint.color = (opaqueColor and 0x00FFFFFF) or (bodyAlpha shl 24)
+                                    liveFillPaint.strokeWidth = activeFreehandSettings.paintOutlineWidth
+                                    
+                                    liveFillPaint.pathEffect = null
+                                    liveFillPaint.maskFilter = android.graphics.BlurMaskFilter(
+                                        activeFreehandSettings.watercolorBlurRadius.coerceAtLeast(0.01f),
+                                        android.graphics.BlurMaskFilter.Blur.NORMAL
+                                    )
 
-                                liveFillPaint.strokeWidth = activeFreehandSettings.paintOutlineWidth
-
-                                liveFillPaint.pathEffect = null
-
-                                liveFillPaint.color = opaqueColor
-
-                                canvas.drawPath(combinedPath, liveFillPaint)
-
+                                    if (activeFreehandSettings.watercolorEdgeMode == com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.INSIDE) {
+                                        canvas.save()
+                                        canvas.clipPath(combinedPath)
+                                        canvas.drawPath(jitteredPath, liveFillPaint)
+                                        canvas.restore()
+                                    } else if (activeFreehandSettings.watercolorEdgeMode == com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.OUTSIDE) {
+                                        canvas.save()
+                                        canvas.clipOutPath(combinedPath)
+                                        canvas.drawPath(jitteredPath, liveFillPaint)
+                                        canvas.restore()
+                                    } else {
+                                        canvas.drawPath(jitteredPath, liveFillPaint)
+                                    }
+                                    
+                                    liveFillPaint.pathEffect = null
+                                    liveFillPaint.maskFilter = null
+                                } else {
+                                    liveFillPaint.style = android.graphics.Paint.Style.STROKE
+                                    liveFillPaint.strokeWidth = activeFreehandSettings.paintOutlineWidth
+                                    liveFillPaint.pathEffect = null
+                                    liveFillPaint.maskFilter = null
+                                    liveFillPaint.color = opaqueColor
+                                    canvas.drawPath(combinedPath, liveFillPaint)
+                                }
                             }
 
                             
@@ -2098,67 +2143,105 @@ class SketcherCanvasView(context: Context) : View(context) {
                         canvas.restoreToCount(saveCount)
 
                     } else {
-
                         // Cumulative or fully opaque: draw directly onto canvas
+                        val layerStrokeColor = let {
+                            val origColor = activeStrokeColor
+                            val origAlpha = if (activeStrokeType == StrokeType.WATERCOLOR) 255 else android.graphics.Color.alpha(origColor)
+                            val newAlpha = (origAlpha * activeLayerOpacity).toInt().coerceIn(0, 255)
+                            (origColor and 0x00FFFFFF) or (newAlpha shl 24)
+                        }
+                        val layerFillColor = let {
+                            val origColor = activeFillColor
+                            val origAlpha = if (activeStrokeType == StrokeType.WATERCOLOR) 255 else android.graphics.Color.alpha(origColor)
+                            val newAlpha = (origAlpha * activeFillOpacity * activeLayerOpacity).toInt().coerceIn(0, 255)
+                            (origColor and 0x00FFFFFF) or (newAlpha shl 24)
+                        }
 
-                        if (activeStrokeType == StrokeType.PAINT) {
+                        if (activeStrokeType == StrokeType.PAINT || activeStrokeType == StrokeType.WATERCOLOR) {
+                            val isWatercolor = activeStrokeType == StrokeType.WATERCOLOR
+                            val bounds = currentStrokeBounds
+                            val saveCount = if (isWatercolor) {
+                                if (bounds != null && !bounds.isEmpty) {
+                                    tempStrokeBounds.set(bounds)
+                                    drawCombinedMatrix.mapRect(tempScreenBounds, tempStrokeBounds)
+                                    tempScreenBounds.inset(-60f, -60f)
+                                    canvas.saveLayer(tempScreenBounds, null)
+                                } else {
+                                    canvas.saveLayer(null, null)
+                                }
+                            } else {
+                                0
+                            }
 
                             canvas.save()
-
                             canvas.concat(drawCombinedMatrix)
-
                             
-
                             val combinedPath = reusableCombinedPath.apply { rewind() }
-
                             if (currentCommittedPreviewPath != null && currentVectorPreviewPath != null) {
-
                                 combinedPath.op(currentCommittedPreviewPath!!, currentVectorPreviewPath!!, android.graphics.Path.Op.UNION)
-
                             } else {
-
                                 currentCommittedPreviewPath?.let { combinedPath.set(it) }
-
                                 currentVectorPreviewPath?.let { combinedPath.set(it) }
-
                             }
-
-
 
                             // 1. Draw fills (underneath)
-
                             if (isFillActive) {
-
                                 liveFillPaint.style = android.graphics.Paint.Style.FILL
-
-                                renderEngine.applyFillStyle(liveFillPaint, activeFillStyle)
-
+                                renderEngine.applyFillStyle(liveFillPaint, activeFillStyle, alphaMultiplier = activeFillOpacity * activeLayerOpacity)
                                 canvas.drawPath(combinedPath, liveFillPaint)
-
                                 liveFillPaint.shader = null
-
                             }
-
-
 
                             // 2. Draw borders (on top)
-
                             if (isStrokeActive) {
+                                if (isWatercolor) {
+                                    val origAlpha = android.graphics.Color.alpha(layerStrokeColor)
+                                    
+                                    val jitteredPath = com.sketcher.sketchercompanionv1.utils.JitterPathHelper.createJitterPath(
+                                        combinedPath,
+                                        activeFreehandSettings.watercolorJitterSegment,
+                                        activeFreehandSettings.watercolorJitterDeviation,
+                                        seed = 999L
+                                    )
 
-                                liveFillPaint.style = android.graphics.Paint.Style.STROKE
+                                    // --- PASADA 1: CUERPO DIFUMINADO (CON CLIPPING) ---
+                                    liveFillPaint.style = android.graphics.Paint.Style.STROKE
+                                    val bodyAlpha = (origAlpha * activeFreehandSettings.watercolorCenterOpacity).toInt().coerceIn(0, 255)
+                                    liveFillPaint.color = (layerStrokeColor and 0x00FFFFFF) or (bodyAlpha shl 24)
+                                    liveFillPaint.strokeWidth = activeFreehandSettings.paintOutlineWidth
+                                    
+                                    liveFillPaint.pathEffect = null
+                                    liveFillPaint.maskFilter = android.graphics.BlurMaskFilter(
+                                        activeFreehandSettings.watercolorBlurRadius.coerceAtLeast(0.01f),
+                                        android.graphics.BlurMaskFilter.Blur.NORMAL
+                                    )
 
-                                liveFillPaint.strokeWidth = activeFreehandSettings.paintOutlineWidth
-
-                                liveFillPaint.pathEffect = null
-
-                                liveFillPaint.color = activeStrokeColor
-
-                                canvas.drawPath(combinedPath, liveFillPaint)
-
+                                    if (activeFreehandSettings.watercolorEdgeMode == com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.INSIDE) {
+                                        canvas.save()
+                                        canvas.clipPath(combinedPath)
+                                        canvas.drawPath(jitteredPath, liveFillPaint)
+                                        canvas.restore()
+                                    } else if (activeFreehandSettings.watercolorEdgeMode == com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.OUTSIDE) {
+                                        canvas.save()
+                                        canvas.clipOutPath(combinedPath)
+                                        canvas.drawPath(jitteredPath, liveFillPaint)
+                                        canvas.restore()
+                                    } else {
+                                        canvas.drawPath(jitteredPath, liveFillPaint)
+                                    }
+                                    
+                                    liveFillPaint.pathEffect = null
+                                    liveFillPaint.maskFilter = null
+                                } else {
+                                    liveFillPaint.style = android.graphics.Paint.Style.STROKE
+                                    liveFillPaint.strokeWidth = activeFreehandSettings.paintOutlineWidth
+                                    liveFillPaint.pathEffect = null
+                                    liveFillPaint.maskFilter = null
+                                    liveFillPaint.color = layerStrokeColor
+                                    canvas.drawPath(combinedPath, liveFillPaint)
+                                }
                             }
-
                             
-
                             if (isDebugWireframe && currentVectorPreviewPoints != null) {
                                 renderEngine.drawDebugWireframe(
                                     canvas,
@@ -2167,75 +2250,43 @@ class SketcherCanvasView(context: Context) : View(context) {
                                     currentVectorPreviewPath
                                 )
                             }
-
-                            canvas.restore()
-
-                        } else {
-
-                            currentCommittedPreviewPath?.let { committed ->
-
-                                canvas.save()
-
-                                canvas.concat(drawCombinedMatrix)
-
-                                renderEngine.drawCommittedPreview(
-
-                                    canvas, 
-
-                                    committed, 
-
-                                    activeStrokeColor, 
-
-                                    activeFillColor, 
-
-                                    isStrokeActive, 
-
-                                    isFillActive, 
-
-                                    activeStrokeType
-
-                                )
-
-                                canvas.restore()
-
+                            canvas.restore() // restore matrix save
+                            if (isWatercolor && saveCount > 0) {
+                                canvas.restoreToCount(saveCount) // restore saveLayer
                             }
-
+                        } else {
+                            currentCommittedPreviewPath?.let { committed ->
+                                canvas.save()
+                                canvas.concat(drawCombinedMatrix)
+                                renderEngine.drawCommittedPreview(
+                                    canvas, 
+                                    committed, 
+                                    layerStrokeColor, 
+                                    layerFillColor, 
+                                    isStrokeActive, 
+                                    isFillActive, 
+                                    activeStrokeType
+                                )
+                                canvas.restore()
+                            }
                             
-
                             renderEngine.drawLiveStroke(
-
                                 canvas, 
-
                                 currentVectorPreviewPoints, 
-
                                 currentVectorPreviewPath,
-
-                                activeStrokeColor,
-
+                                layerStrokeColor,
                                 fillPath = null, // Handled in Pass 1!
-
-                                fillColor = activeFillColor,
-
+                                fillColor = layerFillColor,
                                 isFillActive = isFillActive,
-
                                 isStrokeActive = isStrokeActive,
-
                                 currentLiveGeneratedRadius = currentLiveGeneratedRadius,
-
                                 viewMatrix = drawCombinedMatrix,
-
                                 isDrawing = isDrawing,
-
                                 isCad = isCadDraw,
-
                                 strokeType = activeStrokeType,
-
                                 fillStyle = activeFillStyle
-
                             )
-
                         }
-
                     }
 
                     
@@ -2658,7 +2709,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
 
 
-            val isDrawTool = currentTool == ToolType.FREEHAND || currentTool == ToolType.PEN || currentTool == ToolType.PAINT
+            val isDrawTool = currentTool == ToolType.FREEHAND || currentTool == ToolType.PEN || currentTool == ToolType.PAINT || currentTool == ToolType.WATERCOLOR
 
             if (isElementSnappingEnabled && isSnapEndpointEnabled && isDrawTool) {
 

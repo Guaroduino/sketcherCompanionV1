@@ -116,7 +116,14 @@ data class VectorStrokeJson(
     val isCadGeometry: Boolean = false,
     val isScreenSpaceWidth: Boolean = false,
     val paintOutlineWidth: Float? = null,
-    val fillStyle: FillStyleJson? = null
+    val fillStyle: FillStyleJson? = null,
+    val watercolorJitterSegment: Float? = null,
+    val watercolorJitterDeviation: Float? = null,
+    val watercolorBlurRadius: Float? = null,
+    val watercolorEdgeMode: String? = null,
+    val watercolorCenterOpacity: Float? = null,
+    val watercolorEdgeRingOpacity: Float? = null,
+    val watercolorEdgeRingWidth: Float? = null
 )
 
 data class StrokePointJson(
@@ -167,8 +174,16 @@ data class FillStyleJson(
     val rotation: Float? = null,
     val offsetX: Float? = null,
     val offsetY: Float? = null,
-    val opacity: Float? = null
+    val opacity: Float? = null,
+    val tintColor: Int? = null,
+    val tintMix: Float? = null
 )
+
+enum class WatercolorEdgeMode {
+    BOTH,
+    INSIDE,
+    OUTSIDE
+}
 
 data class PathCommandJson(
     val type: String, // "MOVE", "LINE", "QUAD", "CUBIC", "CLOSE"
@@ -199,7 +214,14 @@ data class FreehandSettings(
     val isSimplificationEnabled: Boolean = true,
     val minWidthRatio: Float = 0.1f,
     val isCumulativeOpacity: Boolean = false,
-    val paintOutlineWidth: Float = 2.0f
+    val paintOutlineWidth: Float = 2.0f,
+    val watercolorJitterSegment: Float = 12.0f,
+    val watercolorJitterDeviation: Float = 3.5f,
+    val watercolorBlurRadius: Float = 5.0f,
+    val watercolorEdgeMode: WatercolorEdgeMode = WatercolorEdgeMode.BOTH,
+    val watercolorCenterOpacity: Float = 0.8f,
+    val watercolorEdgeRingOpacity: Float = 1.0f,
+    val watercolorEdgeRingWidth: Float = 2.0f
 )
 
 data class BrushPreset(
@@ -208,9 +230,9 @@ data class BrushPreset(
     val freehandSettings: FreehandSettings
 )
 
-enum class ToolType { FREEHAND, PEN, FILL, ERASER, SELECTION, ANDROID_INK, TRIM, EXTEND, EDIT_POINTS, PAINT, PLUMA, MIRROR, MOVE_PT_PT, ALIGN_2_PT, OFFSET, FILLET, CHAMFER }
+enum class ToolType { FREEHAND, PEN, FILL, ERASER, SELECTION, ANDROID_INK, TRIM, EXTEND, EDIT_POINTS, PAINT, PLUMA, MIRROR, MOVE_PT_PT, ALIGN_2_PT, OFFSET, FILLET, CHAMFER, WATERCOLOR }
 
-enum class StrokeType { FREEHAND, PEN, LINE, POLYLINE, CIRCLE, ARC, ELLIPSE, SPLINE, BEZIER, PAINT, PLUMA }
+enum class StrokeType { FREEHAND, PEN, LINE, POLYLINE, CIRCLE, ARC, ELLIPSE, SPLINE, BEZIER, PAINT, PLUMA, WATERCOLOR }
 
 data class FillSettings(val tolerance: Float = 0.1f)
 

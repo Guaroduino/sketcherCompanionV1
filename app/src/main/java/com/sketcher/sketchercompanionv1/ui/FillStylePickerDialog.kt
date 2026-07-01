@@ -25,8 +25,12 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 
 import androidx.compose.foundation.rememberScrollState
-
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.ScrollState
+import androidx.compose.ui.composed
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
 
 import androidx.compose.foundation.lazy.grid.GridCells
 
@@ -231,6 +235,8 @@ fun FillStylePickerDialog(
     var imgOffsetY by remember { mutableFloatStateOf(if (initialStyle is FillStyle.ImageTexture) initialStyle.offsetY else 0f) }
 
     var imgOpacity by remember { mutableFloatStateOf(if (initialStyle is FillStyle.ImageTexture) initialStyle.opacity else 1f) }
+    var imgTintColor by remember { mutableIntStateOf(if (initialStyle is FillStyle.ImageTexture) initialStyle.tintColor else android.graphics.Color.TRANSPARENT) }
+    var imgTintMix by remember { mutableFloatStateOf(if (initialStyle is FillStyle.ImageTexture) initialStyle.tintMix else 0f) }
 
     // File launcher for SVGs
 
@@ -304,20 +310,13 @@ fun FillStylePickerDialog(
 
     var pickingMathColorTarget by remember { mutableStateOf<String?>(null) } // "PRIMARY" or "SECONDARY"
 
-    val currentPreviewStyle = remember(selectedTab, solidColor, svgContent, svgScaleX, svgScaleY, svgRotation, svgOffsetX, svgOffsetY, mathPatternName, mathPrimaryColor, mathSecondaryColor, mathSpacing, mathThickness, mathAngle, imagePath, imgScaleX, imgScaleY, imgRotation, imgOffsetX, imgOffsetY, imgOpacity) {
-
+    val currentPreviewStyle = remember(selectedTab, solidColor, svgContent, svgScaleX, svgScaleY, svgRotation, svgOffsetX, svgOffsetY, mathPatternName, mathPrimaryColor, mathSecondaryColor, mathSpacing, mathThickness, mathAngle, imagePath, imgScaleX, imgScaleY, imgRotation, imgOffsetX, imgOffsetY, imgOpacity, imgTintColor, imgTintMix) {
         when (selectedTab) {
-
             FillType.SOLID -> FillStyle.Solid(solidColor)
-
             FillType.SVG_PATTERN -> FillStyle.SvgPattern(svgContent, svgScaleX, svgScaleY, svgRotation, svgOffsetX, svgOffsetY)
-
             FillType.MATH_TEXTURE -> FillStyle.MathTexture(mathPatternName, mathPrimaryColor, mathSecondaryColor, mathSpacing, mathThickness, mathAngle)
-
-            FillType.IMAGE_TEXTURE -> FillStyle.ImageTexture(imagePath, imgScaleX, imgScaleY, imgRotation, imgOffsetX, imgOffsetY, imgOpacity)
-
+            FillType.IMAGE_TEXTURE -> FillStyle.ImageTexture(imagePath, imgScaleX, imgScaleY, imgRotation, imgOffsetX, imgOffsetY, imgOpacity, imgTintColor, imgTintMix)
         }
-
     }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -325,11 +324,8 @@ fun FillStylePickerDialog(
         Surface(
 
             modifier = Modifier
-
                 .width(450.sdp)
-
-                .heightIn(max = 600.sdp)
-
+                .heightIn(max = 700.sdp)
                 .clip(RoundedCornerShape(16.sdp)),
 
             shape = RoundedCornerShape(16.sdp),
@@ -554,40 +550,26 @@ fun FillStylePickerDialog(
                         }
 
                         FillType.IMAGE_TEXTURE -> {
-
                             ImageTexturePanel(
-
                                 imagePath = imagePath,
-
                                 scaleX = imgScaleX,
-
                                 scaleY = imgScaleY,
-
                                 rotation = imgRotation,
-
                                 offsetX = imgOffsetX,
-
                                 offsetY = imgOffsetY,
-
-                                opacity = imgOpacity,
-
+                                tintColor = imgTintColor,
+                                tintMix = imgTintMix,
+                                onTintColorClick = { pickingMathColorTarget = "TINT" },
+                                onTintMixChanged = { imgTintMix = it },
+                                onClearTintClick = { imgTintColor = android.graphics.Color.TRANSPARENT; imgTintMix = 0f },
                                 onScaleXChanged = { imgScaleX = it },
-
                                 onScaleYChanged = { imgScaleY = it },
-
                                 onRotationChanged = { imgRotation = it },
-
                                 onOffsetXChanged = { imgOffsetX = it },
-
                                 onOffsetYChanged = { imgOffsetY = it },
-
-                                onOpacityChanged = { imgOpacity = it },
-
                                 onChooseImage = { imageLauncher.launch("image/*") },
                                 theme = theme
-
                             )
-
                         }
 
                     }
@@ -665,21 +647,15 @@ fun FillStylePickerDialog(
                                 )
 
                                 FillType.IMAGE_TEXTURE -> FillStyle.ImageTexture(
-
                                     imagePath = imagePath,
-
                                     scaleX = imgScaleX,
-
                                     scaleY = imgScaleY,
-
                                     rotation = imgRotation,
-
                                     offsetX = imgOffsetX,
-
                                     offsetY = imgOffsetY,
-
-                                    opacity = imgOpacity
-
+                                    opacity = imgOpacity,
+                                    tintColor = imgTintColor,
+                                    tintMix = imgTintMix
                                 )
 
                             }
@@ -711,41 +687,30 @@ fun FillStylePickerDialog(
     // Sub color picker for Math Textures colors
 
     if (pickingMathColorTarget != null) {
-
-        val initialColor = if (pickingMathColorTarget == "PRIMARY") mathPrimaryColor else mathSecondaryColor
+        val initialColor = when (pickingMathColorTarget) {
+            "PRIMARY" -> mathPrimaryColor
+            "SECONDARY" -> mathSecondaryColor
+            else -> if (imgTintColor == android.graphics.Color.TRANSPARENT) android.graphics.Color.RED else imgTintColor
+        }
 
         ColorPickerDialog(
-
             initialColor = initialColor,
-
             theme = theme,
-
             onDismiss = { pickingMathColorTarget = null },
-
-            onColorSelected = { color ->
-
-                if (pickingMathColorTarget == "PRIMARY") {
-
-                    mathPrimaryColor = color
-
-                } else {
-
-                    mathSecondaryColor = color
-
+            onColorSelected = { colorInt ->
+                when (pickingMathColorTarget) {
+                    "PRIMARY" -> mathPrimaryColor = colorInt
+                    "SECONDARY" -> mathSecondaryColor = colorInt
+                    "TINT" -> imgTintColor = colorInt
                 }
-
                 pickingMathColorTarget = null
-
             },
-
-            onDisable = if (pickingMathColorTarget == "SECONDARY") {
-
-                { mathSecondaryColor = AndroidColor.TRANSPARENT }
-
-            } else null
-
+            onDisable = when (pickingMathColorTarget) {
+                "SECONDARY" -> ({ mathSecondaryColor = android.graphics.Color.TRANSPARENT })
+                "TINT" -> ({ imgTintColor = android.graphics.Color.TRANSPARENT })
+                else -> null
+            }
         )
-
     }
 
 }
@@ -794,14 +759,11 @@ fun SolidColorSelector(
 
     }
 
+    val scrollState = rememberScrollState()
     Column(
-
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-
+        modifier = Modifier.fillMaxSize().verticalScroll(scrollState).drawScrollbar(scrollState),
         verticalArrangement = Arrangement.spacedBy(8.sdp),
-
         horizontalAlignment = Alignment.CenterHorizontally
-
     ) {
 
         Box(
@@ -819,27 +781,28 @@ fun SolidColorSelector(
         )
 
         ColorWheel(
-
             hue = hue,
-
             saturation = saturation,
-
             onColorChange = { h, s -> hue = h; saturation = s }
-
         )
 
-        ValueSlider(
-
-            value = value,
-
-            hue = hue,
-
+        Spacer(modifier = Modifier.height(4.sdp))
+        Text("Saturation", fontSize = 10.ssp, modifier = Modifier.align(Alignment.Start))
+        SaturationSlider(
             saturation = saturation,
-
-            onValueChange = { value = it }
-
+            hue = hue,
+            value = value,
+            onSaturationChange = { saturation = it }
         )
 
+        Spacer(modifier = Modifier.height(4.sdp))
+        Text("Brightness", fontSize = 10.ssp, modifier = Modifier.align(Alignment.Start))
+        ValueSlider(
+            value = value,
+            hue = hue,
+            saturation = saturation,
+            onValueChange = { value = it }
+        )
     }
 
 }
@@ -879,12 +842,10 @@ fun SvgPatternPanel(
 
 ) {
 
+    val scrollState = rememberScrollState()
     Column(
-
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-
+        modifier = Modifier.fillMaxSize().verticalScroll(scrollState).drawScrollbar(scrollState),
         verticalArrangement = Arrangement.spacedBy(8.sdp)
-
     ) {
 
         Text("Builtin Patterns", fontSize = 11.ssp)
@@ -1009,12 +970,10 @@ fun MathTexturePanel(
 
     val patterns = listOf("GRID", "CHECKERBOARD", "STRIPES", "DOTS")
 
+    val scrollState = rememberScrollState()
     Column(
-
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-
+        modifier = Modifier.fillMaxSize().verticalScroll(scrollState).drawScrollbar(scrollState),
         verticalArrangement = Arrangement.spacedBy(8.sdp)
-
     ) {
 
                 Row(
@@ -1193,90 +1152,108 @@ fun MathTexturePanel(
 @Composable
 
 fun ImageTexturePanel(
-
     imagePath: String,
-
     scaleX: Float,
-
     scaleY: Float,
-
     rotation: Float,
-
     offsetX: Float,
-
     offsetY: Float,
-
-    opacity: Float,
-
+    tintColor: Int,
+    tintMix: Float,
+    onTintColorClick: () -> Unit,
+    onTintMixChanged: (Float) -> Unit,
+    onClearTintClick: () -> Unit,
     onScaleXChanged: (Float) -> Unit,
-
     onScaleYChanged: (Float) -> Unit,
-
     onRotationChanged: (Float) -> Unit,
-
     onOffsetXChanged: (Float) -> Unit,
-
     onOffsetYChanged: (Float) -> Unit,
-
-    onOpacityChanged: (Float) -> Unit,
-
     onChooseImage: () -> Unit,
     theme: com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
-
 ) {
-
+    val scrollState = rememberScrollState()
     Column(
-
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-
+        modifier = Modifier.fillMaxSize().verticalScroll(scrollState).drawScrollbar(scrollState),
         verticalArrangement = Arrangement.spacedBy(8.sdp)
-
     ) {
-
         OutlinedButton(
-
             onClick = onChooseImage,
-
             modifier = Modifier.fillMaxWidth().height(36.sdp),
-
             shape = RoundedCornerShape(8.sdp)
-
         ) {
-
             Text("Load Image from Gallery", fontSize = 11.ssp)
+        }
+        if (imagePath.isNotEmpty()) {
+            val file = java.io.File(imagePath)
+            Text("Texture: ${file.name}", fontSize = 10.ssp, color = MaterialTheme.colorScheme.primary)
+        } else {
+            Text("No texture selected", fontSize = 10.ssp, color = Color.Gray)
+        }
+        
+        HorizontalDivider()
+        Text("Color Tint / Tone Mix", fontSize = 11.ssp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.sdp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(24.sdp)
+                    .clip(CircleShape)
+                    .background(if (tintColor == android.graphics.Color.TRANSPARENT) Color.Transparent else Color(tintColor))
+                    .border(1.sdp, Color.Gray, CircleShape)
+                    .clickable { onTintColorClick() }
+            ) {
+                if (tintColor == android.graphics.Color.TRANSPARENT) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        drawLine(
+                            color = Color.Red,
+                            start = Offset(0f, 0f),
+                            end = Offset(size.width, size.height),
+                            strokeWidth = 2.dp.toPx()
+                        )
+                    }
+                }
+            }
 
+            Button(
+                onClick = onTintColorClick,
+                modifier = Modifier.height(30.sdp),
+                shape = RoundedCornerShape(8.sdp)
+            ) {
+                Text(if (tintColor == android.graphics.Color.TRANSPARENT) "Choose Tint Color" else "Change Tint Color", fontSize = 10.ssp)
+            }
+
+            if (tintColor != android.graphics.Color.TRANSPARENT) {
+                OutlinedButton(
+                    onClick = onClearTintClick,
+                    modifier = Modifier.height(30.sdp),
+                    shape = RoundedCornerShape(8.sdp)
+                ) {
+                    Text("Clear Tint", fontSize = 10.ssp)
+                }
+            }
         }
 
-        if (imagePath.isNotEmpty()) {
-
-            val file = java.io.File(imagePath)
-
-            Text("Texture: ${file.name}", fontSize = 10.ssp, color = MaterialTheme.colorScheme.primary)
-
-        } else {
-
-            Text("No texture selected", fontSize = 10.ssp, color = Color.Gray)
-
+        if (tintColor != android.graphics.Color.TRANSPARENT) {
+            SliderRow(
+                label = "Tint Intensity",
+                value = tintMix,
+                range = 0f..1f,
+                theme = theme,
+                onValueChange = onTintMixChanged
+            )
         }
 
         HorizontalDivider()
-
         Text("Image Transformations", fontSize = 11.ssp)
-
         SliderRow(label = "Scale X", value = scaleX, range = 0.1f..4.0f, theme = theme, onValueChange = onScaleXChanged)
-
         SliderRow(label = "Scale Y", value = scaleY, range = 0.1f..4.0f, theme = theme, onValueChange = onScaleYChanged)
-
         SliderRow(label = "Rotation", value = rotation, range = 0f..360f, theme = theme, onValueChange = onRotationChanged)
-
         SliderRow(label = "Offset X", value = offsetX, range = -200f..200f, theme = theme, onValueChange = onOffsetXChanged)
-
         SliderRow(label = "Offset Y", value = offsetY, range = -200f..200f, theme = theme, onValueChange = onOffsetYChanged)
-
-        SliderRow(label = "Opacity", value = opacity, range = 0f..1f, theme = theme, onValueChange = onOpacityChanged)
-
     }
-
 }
 
 @Composable
@@ -1620,6 +1597,30 @@ fun CirclePresetPreview(
                     drawCircle(paintColor.copy(alpha=0.3f), radius = size.minDimension / 3.5f, center = Offset(size.width / 2f, size.height / 2f))
                 }
             }
+        }
+    }
+}
+
+fun Modifier.drawScrollbar(
+    state: ScrollState,
+    color: Color = Color.Gray.copy(alpha = 0.4f)
+): Modifier = composed {
+    drawWithContent {
+        drawContent()
+        val viewportHeight = size.height
+        val totalHeight = state.maxValue + viewportHeight
+        if (totalHeight > viewportHeight) {
+            val scrollFraction = state.value.toFloat() / state.maxValue
+            val barHeight = (viewportHeight * (viewportHeight / totalHeight)).coerceAtLeast(30.dp.toPx())
+            val maxScrollOffset = viewportHeight - barHeight
+            val barOffset = scrollFraction * maxScrollOffset
+            
+            drawRoundRect(
+                color = color,
+                topLeft = Offset(size.width - 4.dp.toPx(), barOffset),
+                size = Size(3.dp.toPx(), barHeight),
+                cornerRadius = CornerRadius(1.5.dp.toPx(), 1.5.dp.toPx())
+            )
         }
     }
 }
