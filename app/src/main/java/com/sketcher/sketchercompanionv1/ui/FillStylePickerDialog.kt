@@ -100,7 +100,9 @@ fun FillStylePickerDialog(
 
     onStyleSelected: (FillStyle) -> Unit,
 
-    onDisable: (() -> Unit)? = null
+    onDisable: (() -> Unit)? = null,
+
+    onRevertToPreset: (() -> Unit)? = null
 
 ) {
 
@@ -587,6 +589,15 @@ fun FillStylePickerDialog(
                     verticalAlignment = Alignment.CenterVertically
 
                 ) {
+                    if (onRevertToPreset != null) {
+                        Button(
+                            onClick = onRevertToPreset,
+                            shape = RoundedCornerShape(8.sdp),
+                            colors = ButtonDefaults.buttonColors(containerColor = theme.highlightColor, contentColor = theme.barBackgroundColor)
+                        ) {
+                            Text("Preset", fontSize = 12.ssp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                        }
+                    }
 
                     TextButton(onClick = onDismiss, shape = RoundedCornerShape(8.sdp), colors = ButtonDefaults.textButtonColors(contentColor = theme.iconColor)) {
 

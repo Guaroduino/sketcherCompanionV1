@@ -83,6 +83,7 @@ fun ToolPropertiesPanel(
                         ToolType.WATERCOLOR -> "Watercolor Settings"
                         ToolType.PEN -> "Pen Settings"
                         ToolType.PLUMA -> "Pluma Settings"
+                        ToolType.PENCIL_CUMULATIVE -> "Lápiz Acumulativo Settings"
                         else -> "Tool Settings"
                     }
                     Text(
@@ -125,6 +126,18 @@ fun ToolPropertiesPanel(
                                 title = "Ajustes de Lápiz"
                             )
                         }
+                        ToolType.PENCIL_CUMULATIVE -> {
+                            FreehandSettingsContent(
+                                currentSettings = viewModel.currentFreehandSettings,
+                                onSettingsChanged = { viewModel.updateFreehandSettings(it) },
+                                isFlattenedOuterStrokeEnabled = false,
+                                onToggleFlattenedOuterStroke = {},
+                                showFlatStrokeOption = false,
+                                showCapsOption = true,
+                                showPolygonOption = true,
+                                title = "Ajustes de Lápiz Acumulativo"
+                            )
+                        }
                         ToolType.PAINT -> {
                             FreehandSettingsContent(
                                 currentSettings = viewModel.currentFreehandSettings,
@@ -134,6 +147,7 @@ fun ToolPropertiesPanel(
                                 showFlatStrokeOption = false,
                                 showCapsOption = false,
                                 showPolygonOption = false,
+                                showJoinPreviousOption = true,
                                 title = "Ajustes de Pintura"
                             )
                         }
@@ -147,6 +161,7 @@ fun ToolPropertiesPanel(
                                     showFlatStrokeOption = false,
                                     showCapsOption = false,
                                     showPolygonOption = false,
+                                    showJoinPreviousOption = true,
                                     title = "Ajustes de Acuarela"
                                 )
                                 
@@ -246,7 +261,7 @@ fun ToolPropertiesPanel(
                                 title = "Pluma Settings"
                             )
                         }
-                        ToolType.ERASER -> {
+                        ToolType.ERASER, ToolType.POINT_ERASER -> {
                             // REUSE LEGACY COMPONENT (Mirror functionality)
                             EraserSettingsContent(
                                 selectionScope = viewModel.selectionScope,

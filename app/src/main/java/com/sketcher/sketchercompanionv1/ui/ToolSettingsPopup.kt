@@ -92,6 +92,7 @@ fun FreehandSettingsContent(
     onToggleFlattenedOuterStroke: () -> Unit,
     showFlatStrokeOption: Boolean = true,
     showPaintOutlineOption: Boolean = false,
+    showJoinPreviousOption: Boolean = false,
     showCapsOption: Boolean = true,
     showPolygonOption: Boolean = true,
     title: String = "Ajustes de Pincel"
@@ -156,6 +157,28 @@ fun FreehandSettingsContent(
             valueRange = 0.5f..15f,
             onValueChange = { onSettingsChanged(currentSettings.copy(paintOutlineWidth = it)) }
         )
+    }
+
+    if (showJoinPreviousOption) {
+        HorizontalDivider()
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Fusionar con trazos anteriores")
+                Text(
+                    text = "Une automáticamente los trazos nuevos con los trazos que se solapen.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
+            }
+            Switch(
+                checked = currentSettings.paintJoinPrevious,
+                onCheckedChange = { onSettingsChanged(currentSettings.copy(paintJoinPrevious = it)) }
+            )
+        }
     }
 
     HorizontalDivider()

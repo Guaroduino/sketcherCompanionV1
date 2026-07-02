@@ -221,18 +221,24 @@ data class FreehandSettings(
     val watercolorEdgeMode: WatercolorEdgeMode = WatercolorEdgeMode.BOTH,
     val watercolorCenterOpacity: Float = 0.8f,
     val watercolorEdgeRingOpacity: Float = 1.0f,
-    val watercolorEdgeRingWidth: Float = 2.0f
+    val watercolorEdgeRingWidth: Float = 2.0f,
+    val paintJoinPrevious: Boolean = true
 )
 
 data class BrushPreset(
     val size: Float,
     val opacity: Float,
-    val freehandSettings: FreehandSettings
+    val freehandSettings: FreehandSettings,
+    val strokeColor: Int? = null,
+    val fillColor: Int? = null,
+    val isStrokeActive: Boolean? = null,
+    val isFillActive: Boolean? = null,
+    val fillStyle: FillStyle? = null
 )
 
-enum class ToolType { FREEHAND, PEN, FILL, ERASER, SELECTION, ANDROID_INK, TRIM, EXTEND, EDIT_POINTS, PAINT, PLUMA, MIRROR, MOVE_PT_PT, ALIGN_2_PT, OFFSET, FILLET, CHAMFER, WATERCOLOR }
+enum class ToolType { FREEHAND, PEN, FILL, ERASER, POINT_ERASER, SELECTION, ANDROID_INK, TRIM, EXTEND, EDIT_POINTS, PAINT, PLUMA, MIRROR, MOVE_PT_PT, ALIGN_2_PT, OFFSET, FILLET, CHAMFER, WATERCOLOR, PENCIL_CUMULATIVE }
 
-enum class StrokeType { FREEHAND, PEN, LINE, POLYLINE, CIRCLE, ARC, ELLIPSE, SPLINE, BEZIER, PAINT, PLUMA, WATERCOLOR }
+enum class StrokeType { FREEHAND, LINE, POLYLINE, CIRCLE, ARC, ELLIPSE, SPLINE, BEZIER }
 
 data class FillSettings(val tolerance: Float = 0.1f)
 

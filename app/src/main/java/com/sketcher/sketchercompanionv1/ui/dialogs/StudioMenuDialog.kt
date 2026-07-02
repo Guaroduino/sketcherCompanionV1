@@ -198,6 +198,31 @@ fun StudioMenuDialog(
                     item { Spacer(modifier = Modifier.height(8.dp)) }
                     item { MenuSectionHeader("APP", theme.iconColor) }
                     item {
+                        val showExp = viewModel.showExperimentalTools
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { viewModel.toggleExperimentalTools() }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Science, null, tint = theme.iconColor, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text("Herramientas Experimentales", color = theme.iconColor, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                            Switch(
+                                checked = showExp,
+                                onCheckedChange = { viewModel.toggleExperimentalTools() },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = theme.highlightColor,
+                                    uncheckedThumbColor = theme.iconColor.copy(alpha = 0.5f),
+                                    uncheckedTrackColor = theme.iconColor.copy(alpha = 0.1f)
+                                )
+                            )
+                        }
+                    }
+                    item {
                         val showStats = viewModel.showPerformanceStats
                         MenuItem(
                             icon = Icons.Default.Speed,

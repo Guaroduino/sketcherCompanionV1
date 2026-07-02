@@ -240,31 +240,6 @@ object GeometryUtils {
         val path = Path()
         if (points.isEmpty()) return path
         when (strokeType) {
-            StrokeType.PEN -> {
-                if (points.isNotEmpty()) {
-                    val unique = points.filterIndexed { index, curr ->
-                        index == 0 || kotlin.math.hypot(curr.x - points[index - 1].x, curr.y - points[index - 1].y) > 0.01f
-                    }
-                    if (unique.isNotEmpty()) {
-                        path.moveTo(unique[0].x, unique[0].y)
-                        if (unique.size == 2) {
-                            path.lineTo(unique[1].x, unique[1].y)
-                        } else if (unique.size > 2) {
-                            for (i in 0 until unique.size - 1) {
-                                val p0 = unique[kotlin.math.max(0, i - 1)]
-                                val p1 = unique[i]
-                                val p2 = unique[i + 1]
-                                val p3 = unique[kotlin.math.min(unique.size - 1, i + 2)]
-                                val cp1x = p1.x + (p2.x - p0.x) / 6f
-                                val cp1y = p1.y + (p2.y - p0.y) / 6f
-                                val cp2x = p2.x - (p3.x - p1.x) / 6f
-                                val cp2y = p2.y - (p3.y - p1.y) / 6f
-                                path.cubicTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y)
-                            }
-                        }
-                    }
-                }
-            }
             StrokeType.LINE -> {
                 if (points.size >= 2) {
                     path.moveTo(points.first().x, points.first().y)
@@ -381,15 +356,7 @@ object GeometryUtils {
                     }
                 }
             }
-            StrokeType.PAINT, StrokeType.WATERCOLOR -> {
-                if (points.isNotEmpty()) {
-                    path.moveTo(points[0].x, points[0].y)
-                    for (i in 1 until points.size) {
-                        path.lineTo(points[i].x, points[i].y)
-                    }
-                    path.close()
-                }
-            }
+
             else -> {}
         }
         return path
@@ -714,7 +681,7 @@ object GeometryUtils {
         val segments = mutableListOf<Pair<PointF, PointF>>()
         val pts = stroke.points
         if (pts.size < 2) return emptyList()
-        if (stroke.strokeType == StrokeType.LINE || stroke.strokeType == StrokeType.POLYLINE || stroke.strokeType == StrokeType.FREEHAND || stroke.strokeType == StrokeType.PEN) {
+        if (stroke.strokeType == StrokeType.LINE || stroke.strokeType == StrokeType.POLYLINE || stroke.strokeType == StrokeType.FREEHAND) {
             for (i in 0 until pts.size - 1) {
                 segments.add(Pair(PointF(pts[i].x, pts[i].y), PointF(pts[i + 1].x, pts[i + 1].y)))
             }

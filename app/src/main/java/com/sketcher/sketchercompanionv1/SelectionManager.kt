@@ -215,14 +215,14 @@ class SelectionManager {
         originalElementsBackup.clear()
     }
 
-    fun restoreOriginalElements(activeLayer: Layer) {
+    fun restoreOriginalElements(elementsContainer: MutableList<LayerElement>) {
         if (originalElementsBackup.isEmpty()) return
         
         selectedElements.forEachIndexed { idx, selected ->
             val backup = originalElementsBackup.getOrNull(idx) ?: return@forEachIndexed
-            val layerIdx = activeLayer.elements.indexOfFirst { it === selected }
-            if (layerIdx != -1) {
-                activeLayer.elements[layerIdx] = backup
+            val containerIdx = elementsContainer.indexOfFirst { it === selected }
+            if (containerIdx != -1) {
+                elementsContainer[containerIdx] = backup
             }
         }
         
@@ -261,7 +261,7 @@ class SelectionManager {
     }
 
     // --- TRANSFORM BOX TOUCH GESTURES ---
-    fun handleTransformDown(worldX: Float, worldY: Float, eventX: Float, eventY: Float, viewMatrix: Matrix) {
+    fun handleTransformDown(worldX: Float, worldY: Float, eventX: Float, eventY: Float, viewMatrix: Matrix, density: Float) {
         if (selectedElements.isEmpty()) {
             currentDragMode = DragMode.NONE
             return
@@ -274,11 +274,6 @@ class SelectionManager {
         val centerX = baseBounds.centerX()
         val centerY = baseBounds.centerY()
         
-        val values = FloatArray(9)
-        viewMatrix.getValues(values)
-        val zoom = kotlin.math.sqrt(values[Matrix.MSCALE_X] * values[Matrix.MSCALE_X] + values[Matrix.MSKEW_X] * values[Matrix.MSKEW_X]).coerceAtLeast(0.001f)
-        val stemLength = 30f / zoom
-
         val localPts = floatArrayOf(
             left, top,       // TL (0)
             centerX, top,    // T  (1)
@@ -287,15 +282,34 @@ class SelectionManager {
             right, bottom,   // BR (4)
             centerX, bottom, // B  (5)
             left, bottom,    // BL (6)
-            left, centerY,   // L  (7)
-            centerX, top - stemLength // ROT (8)
+            left, centerY    // L  (7)
         )
         
         val screenPts = FloatArray(18)
+        val tempScreenPts = FloatArray(16)
         val combinedMatrix = Matrix()
         combinedMatrix.set(viewMatrix)
         combinedMatrix.preConcat(selectionMatrix)
-        combinedMatrix.mapPoints(screenPts, localPts)
+        combinedMatrix.mapPoints(tempScreenPts, localPts)
+        for (i in 0 until 16) {
+            screenPts[i] = tempScreenPts[i]
+        }
+
+        // Calculate rotation handle in screen space to match drawSelectionOverlay
+        val hx = screenPts[1 * 2]
+        val hy = screenPts[1 * 2 + 1]
+        val bx = screenPts[5 * 2]
+        val by = screenPts[5 * 2 + 1]
+        
+        val dx = hx - bx
+        val dy = hy - by
+        val len = kotlin.math.hypot(dx, dy)
+        val ux = if (len > 0f) dx / len else 0f
+        val uy = if (len > 0f) dy / len else -1f
+        
+        val stemLength = 30f * density
+        screenPts[8 * 2] = hx + ux * stemLength
+        screenPts[8 * 2 + 1] = hy + uy * stemLength
 
         // 48 pixels touch target size (~16-24dp tolerance)
         val tolerance = 48f
@@ -303,9 +317,9 @@ class SelectionManager {
         var minDist = Float.MAX_VALUE
         
         for (i in 0 until 9) {
-            val hx = screenPts[i * 2]
-            val hy = screenPts[i * 2 + 1]
-            val dist = kotlin.math.hypot(eventX - hx, eventY - hy)
+            val shx = screenPts[i * 2]
+            val shy = screenPts[i * 2 + 1]
+            val dist = kotlin.math.hypot(eventX - shx, eventY - shy)
             if (dist < tolerance && dist < minDist) {
                 minDist = dist
                 selectedHandle = i
@@ -504,16 +518,16 @@ class SelectionManager {
         applyTransform(flipMatrix)
     }
 
-    fun commitTransformSession(activeLayer: Layer, library: Map<String, ComponentDefinition> = emptyMap()) {
+    fun commitTransformSession(elementsContainer: MutableList<LayerElement>, library: Map<String, ComponentDefinition> = emptyMap()) {
         if (selectedElements.isEmpty()) return
         
         val transformedElements = selectedElements.map { selected ->
             val copy = selected.copyElement()
             copy.transform(selectionMatrix)
             
-            val idx = activeLayer.elements.indexOfFirst { it === selected }
+            val idx = elementsContainer.indexOfFirst { it === selected }
             if (idx != -1) {
-                activeLayer.elements[idx] = copy
+                elementsContainer[idx] = copy
             }
             copy
         }
@@ -525,8 +539,8 @@ class SelectionManager {
         activeTransform = null
     }
 
-    fun cancelTransformSession(activeLayer: Layer, library: Map<String, ComponentDefinition> = emptyMap()) {
-        restoreOriginalElements(activeLayer)
+    fun cancelTransformSession(elementsContainer: MutableList<LayerElement>, library: Map<String, ComponentDefinition> = emptyMap()) {
+        restoreOriginalElements(elementsContainer)
         selectionMatrix.reset()
         activeTransform = null
         recalculateBaseBounds(library)
@@ -544,7 +558,7 @@ class SelectionManager {
         onPerformSnapshot("Borrar Selección") {
             val currentLayers = layerManager.layers.toMutableList()
             currentLayers.forEachIndexed { index, layer ->
-                val remaining = layer.elements.filter { it !in selectedElements }
+                val remaining = layer.elements.filter { el -> selectedElements.none { it === el } }
                 if (remaining.size != layer.elements.size) {
                     currentLayers[index] = layer.copy(elements = remaining.toMutableStateList())
                 }

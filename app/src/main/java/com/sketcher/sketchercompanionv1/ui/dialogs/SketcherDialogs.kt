@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.*
+import com.sketcher.sketchercompanionv1.R
 import com.sketcher.sketchercompanionv1.ui.SettingSlider
 import com.sketcher.sketchercompanionv1.ui.AppIconButton
 import androidx.compose.runtime.*

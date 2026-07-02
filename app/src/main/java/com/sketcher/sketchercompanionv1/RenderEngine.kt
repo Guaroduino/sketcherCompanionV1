@@ -454,8 +454,8 @@ class RenderEngine {
 
         // Pass 2: STROKE (if enabled)
         if (stroke.isStrokeEnabled) {
-            // For FREEHAND, the 'path' IS already the mesh (shape)
-            if (stroke.strokeType == StrokeType.FREEHAND || stroke.strokeType == StrokeType.PLUMA) {
+            val isMeshBrush = stroke.brushType == "FREEHAND" || stroke.brushType == "PLUMA" || stroke.brushType == "PENCIL_CUMULATIVE"
+            if (isMeshBrush) {
                 vectorPaint.style = Paint.Style.FILL
                 val origColor = stroke.strokeColor
                 val origAlpha = Color.alpha(origColor)
@@ -467,7 +467,7 @@ class RenderEngine {
                         canvas.drawPath(p, vectorPaint)
                     }
                 }
-            } else if (stroke.strokeType == StrokeType.PAINT) {
+            } else if (stroke.brushType == "PAINT") {
                 vectorPaint.style = Paint.Style.STROKE
                 val origColor = stroke.strokeColor
                 val origAlpha = Color.alpha(origColor)
@@ -476,29 +476,16 @@ class RenderEngine {
                 vectorPaint.strokeWidth = stroke.paintOutlineWidth
                 vectorPaint.pathEffect = null
                 canvas.drawPath(stroke.path, vectorPaint)
-            } else if (stroke.strokeType == StrokeType.WATERCOLOR) {
+            } else if (stroke.brushType == "WATERCOLOR") {
                 val origColor = stroke.strokeColor
                 val baseAlpha = (255 * alphaMultiplier).toInt().coerceIn(0, 255)
 
-                // Generate deterministic jittered path once for this draw pass
                 val strokeSeed = stroke.hashCode().toLong()
-                val jitteredPath = com.sketcher.sketchercompanionv1.utils.JitterPathHelper.createJitterPath(
-                    stroke.path,
-                    stroke.watercolorJitterSegment,
-                    stroke.watercolorJitterDeviation,
-                    seed = strokeSeed
-                )
-
-                // Wrap in saveLayer with the stroke's opacity to match the live preview's compositing
-                val bounds = RectF()
-                stroke.path.computeBounds(bounds, true)
-                bounds.inset(-60f, -60f)
-                val saveLayerPaint = Paint().apply { alpha = baseAlpha }
-                val saveCount = canvas.saveLayer(bounds, saveLayerPaint)
+                val jitteredPath = stroke.getJitteredPath(strokeSeed)
 
                 // --- PASADA 1: CUERPO DIFUMINADO (CON CLIPPING) ---
                 vectorPaint.style = Paint.Style.STROKE
-                val bodyAlpha = (255f * stroke.watercolorCenterOpacity).toInt().coerceIn(0, 255)
+                val bodyAlpha = (255f * stroke.watercolorCenterOpacity * alphaMultiplier).toInt().coerceIn(0, 255)
                 vectorPaint.color = (origColor and 0x00FFFFFF) or (bodyAlpha shl 24)
                 vectorPaint.strokeWidth = stroke.paintOutlineWidth
                 
@@ -521,8 +508,6 @@ class RenderEngine {
 
                 vectorPaint.pathEffect = null
                 vectorPaint.maskFilter = null
-
-                canvas.restoreToCount(saveCount)
             } else {
                 // For others, it's a line
                 vectorPaint.style = Paint.Style.STROKE
@@ -675,9 +660,10 @@ class RenderEngine {
         fillColor: Int = 0, 
         isStrokeActive: Boolean = true, 
         isFillActive: Boolean = false, 
-        strokeType: StrokeType = StrokeType.FREEHAND
+        strokeType: StrokeType = StrokeType.FREEHAND,
+        brushType: String = "FREEHAND"
     ) {
-        if (strokeType == StrokeType.PAINT || strokeType == StrokeType.WATERCOLOR) {
+        if (brushType == "PAINT" || brushType == "WATERCOLOR") {
             if (isFillActive) {
                 vectorPaint.color = fillColor
                 vectorPaint.style = Paint.Style.FILL
@@ -712,14 +698,15 @@ class RenderEngine {
         isCad: Boolean = false,
         lineStyle: String = "SOLID",
         strokeType: StrokeType = StrokeType.FREEHAND,
-        fillStyle: FillStyle? = null
+        fillStyle: FillStyle? = null,
+        brushType: String = "FREEHAND"
     ) {
          if (!isDrawing) return
          
          canvas.save()
          canvas.concat(viewMatrix)
     
-         if (strokeType == StrokeType.PAINT || strokeType == StrokeType.WATERCOLOR) {
+         if (brushType == "PAINT" || brushType == "WATERCOLOR") {
              if (isFillActive && previewPath != null) {
                  vectorPaint.style = Paint.Style.FILL
                  if (fillStyle != null) {
@@ -756,8 +743,9 @@ class RenderEngine {
              if (isStrokeActive && previewPath != null) {
                  vectorPaint.color = previewColor
                  val width = if (isCad || previewPoints == null) currentLiveGeneratedRadius * 2 else 0f
+                 val isBrushMesh = brushType == "FREEHAND" || brushType == "PLUMA" || brushType == "PENCIL_CUMULATIVE"
                  
-                 if (isCad) {
+                 if (isCad && !isBrushMesh) {
                      vectorPaint.style = Paint.Style.STROKE
                      vectorPaint.strokeWidth = width
                      
@@ -779,7 +767,7 @@ class RenderEngine {
                          }
                      }
                  } else {
-                     vectorPaint.style = if (previewPoints != null) Paint.Style.FILL else Paint.Style.STROKE
+                     vectorPaint.style = if (previewPoints != null || isBrushMesh) Paint.Style.FILL else Paint.Style.STROKE
                      vectorPaint.strokeWidth = width
                      vectorPaint.pathEffect = null
                  }
@@ -1002,51 +990,76 @@ class RenderEngine {
         }
     }
 
-    fun drawSelectionOverlay(canvas: Canvas, manager: SelectionManager, viewMatrix: Matrix) {
+    fun drawSelectionOverlay(canvas: Canvas, manager: SelectionManager, viewMatrix: Matrix, density: Float) {
         if (manager.selectedElements.isEmpty()) return
         val bounds = manager.baseBounds
         if (bounds.isEmpty) return
 
-        canvas.save()
-        canvas.concat(viewMatrix)
-        canvas.concat(manager.selectionMatrix)
+        // Combined matrix of view transformation and selection transformation
+        val combinedMatrix = Matrix(viewMatrix)
+        combinedMatrix.preConcat(manager.selectionMatrix)
 
-        // Draw Bounding Box
-        canvas.drawRect(bounds, selectionBoxPaint)
-        canvas.drawRect(bounds, selectionBorderPaint)
+        // Key selection handle coordinates mapped to screen coordinates
+        val pts = FloatArray(16)
+        pts[0] = bounds.left;       pts[1] = bounds.top        // TL
+        pts[2] = bounds.right;      pts[3] = bounds.top        // TR
+        pts[4] = bounds.right;      pts[5] = bounds.bottom     // BR
+        pts[6] = bounds.left;       pts[7] = bounds.bottom     // BL
+        pts[8] = bounds.centerX();  pts[9] = bounds.top        // TC
+        pts[10] = bounds.centerX(); pts[11] = bounds.bottom    // BC
+        pts[12] = bounds.left;      pts[13] = bounds.centerY() // LC
+        pts[14] = bounds.right;     pts[15] = bounds.centerY() // RC
+
+        combinedMatrix.mapPoints(pts)
+
+        // Draw Bounding Box Fill in screen space
+        val fillPath = Path()
+        fillPath.moveTo(pts[0], pts[1])
+        fillPath.lineTo(pts[2], pts[3])
+        fillPath.lineTo(pts[4], pts[5])
+        fillPath.lineTo(pts[6], pts[7])
+        fillPath.close()
+        canvas.drawPath(fillPath, selectionBoxPaint)
+
+        // Draw Bounding Box Borders
+        selectionBorderPaint.strokeWidth = 2f * density
+        canvas.drawLine(pts[0], pts[1], pts[2], pts[3], selectionBorderPaint)
+        canvas.drawLine(pts[2], pts[3], pts[4], pts[5], selectionBorderPaint)
+        canvas.drawLine(pts[4], pts[5], pts[6], pts[7], selectionBorderPaint)
+        canvas.drawLine(pts[6], pts[7], pts[0], pts[1], selectionBorderPaint)
 
         // Draw Handles
-        viewMatrix.getValues(tempFloatArray)
-        val zoom = kotlin.math.sqrt(tempFloatArray[Matrix.MSCALE_X] * tempFloatArray[Matrix.MSCALE_X] + tempFloatArray[Matrix.MSKEW_X] * tempFloatArray[Matrix.MSKEW_X])
-        
-        val handleSize = 10f / zoom
-        
-        // Draw 8 handles + rotation... (Simplified for brevity, or full implementation needed?)
-        // Let's implement full based on View logic
+        val handleRadius = 6f * density
         
         // Corners
-        drawHandle(canvas, bounds.left, bounds.top, handleSize)
-        drawHandle(canvas, bounds.right, bounds.top, handleSize)
-        drawHandle(canvas, bounds.left, bounds.bottom, handleSize)
-        drawHandle(canvas, bounds.right, bounds.bottom, handleSize)
+        drawHandle(canvas, pts[0], pts[1], handleRadius, density) // TL
+        drawHandle(canvas, pts[2], pts[3], handleRadius, density) // TR
+        drawHandle(canvas, pts[4], pts[5], handleRadius, density) // BR
+        drawHandle(canvas, pts[6], pts[7], handleRadius, density) // BL
         
         // Edges
-        drawHandle(canvas, bounds.centerX(), bounds.top, handleSize)
-        drawHandle(canvas, bounds.centerX(), bounds.bottom, handleSize)
-        drawHandle(canvas, bounds.left, bounds.centerY(), handleSize)
-        drawHandle(canvas, bounds.right, bounds.centerY(), handleSize)
-        
-        // Rotate
-        val stemLength = 30f / zoom
-        val centerX = bounds.centerX()
-        val rotateY = bounds.top - stemLength
-        canvas.drawLine(centerX, bounds.top, centerX, rotateY, selectionBorderPaint)
-        drawHandle(canvas, centerX, rotateY, handleSize)
+        drawHandle(canvas, pts[8], pts[9], handleRadius, density)   // TC
+        drawHandle(canvas, pts[10], pts[11], handleRadius, density) // BC
+        drawHandle(canvas, pts[12], pts[13], handleRadius, density) // LC
+        drawHandle(canvas, pts[14], pts[15], handleRadius, density) // RC
 
-        canvas.restore()
+        // Rotate Handle (extended from TC pointing away from BC)
+        val dx = pts[8] - pts[10]
+        val dy = pts[9] - pts[11]
+        val len = kotlin.math.hypot(dx, dy)
+        val ux = if (len > 0f) dx / len else 0f
+        val uy = if (len > 0f) dy / len else -1f
+        
+        val stemLength = 30f * density
+        val rotX = pts[8] + ux * stemLength
+        val rotY = pts[9] + uy * stemLength
+        
+        canvas.drawLine(pts[8], pts[9], rotX, rotY, selectionBorderPaint)
+        drawHandle(canvas, rotX, rotY, handleRadius, density)
     }
     
-    private fun drawHandle(canvas: Canvas, x: Float, y: Float, size: Float) {
+    private fun drawHandle(canvas: Canvas, x: Float, y: Float, size: Float, density: Float) {
+        selectionBorderPaint.strokeWidth = 2f * density
         canvas.drawCircle(x, y, size, selectionHandlePaint)
         canvas.drawCircle(x, y, size, selectionBorderPaint)
     }

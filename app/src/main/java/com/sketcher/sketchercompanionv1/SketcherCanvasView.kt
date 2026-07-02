@@ -88,7 +88,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
         // Ensure all drawing is hardware accelerated for minimum latency
 
-        setLayerType(LAYER_TYPE_HARDWARE, null)
+        setLayerType(LAYER_TYPE_NONE, null)
 
     }
 
@@ -446,7 +446,10 @@ class SketcherCanvasView(context: Context) : View(context) {
 
         }
 
-    })
+    }).apply {
+        isQuickScaleEnabled = false
+        isStylusScaleEnabled = false
+    }
 
 
 
@@ -1604,19 +1607,23 @@ class SketcherCanvasView(context: Context) : View(context) {
         set(value) {
             if (field == value) return
             field = value
+            strokePipeline.activeTool = value
             updateLayerType()
         }
 
     private fun updateLayerType() {
-        val needsSoftware = currentTool == ToolType.WATERCOLOR || 
-                            transientStrokes.any { it.strokeType == StrokeType.WATERCOLOR }
-        val targetLayerType = if (needsSoftware) LAYER_TYPE_SOFTWARE else LAYER_TYPE_HARDWARE
+        val targetLayerType = LAYER_TYPE_NONE
         if (layerType != targetLayerType) {
             setLayerType(targetLayerType, null)
         }
     }
 
     var currentSelectionMode: SketcherViewModel.SelectionMode = SketcherViewModel.SelectionMode.RECTANGLE
+        set(value) {
+            if (field == value) return
+            field = value
+            redrawAllCache()
+        }
 
     // selectionManager declaration removed to avoid conflict
 
@@ -1913,18 +1920,18 @@ class SketcherCanvasView(context: Context) : View(context) {
                 }
 
                 // Pass 2: Draw Live Stroke
-                if (isStrokeActive || ((activeStrokeType == StrokeType.PAINT || activeStrokeType == StrokeType.WATERCOLOR) && isFillActive)) {
+                if (isStrokeActive || ((currentTool == ToolType.PAINT || currentTool == ToolType.WATERCOLOR) && isFillActive)) {
                     val strokeAlpha = if (isStrokeActive) (android.graphics.Color.alpha(activeStrokeColor) / 255f) else 0f
                     val fillAlpha = if (isFillActive) activeFillOpacity else 0f
                     val primaryAlpha = if (isStrokeActive) strokeAlpha else fillAlpha
 
-                    val relativeFillAlpha = if (activeStrokeType == StrokeType.WATERCOLOR) {
+                    val relativeFillAlpha = if (currentTool == ToolType.WATERCOLOR) {
                         activeFillOpacity
                     } else {
                         if (primaryAlpha > 0f) (fillAlpha / primaryAlpha).coerceIn(0f, 1f) else 0f
                     }
 
-                    val effectiveStrokeOpacity = if (activeStrokeType == StrokeType.WATERCOLOR) {
+                    val effectiveStrokeOpacity = if (currentTool == ToolType.WATERCOLOR) {
                         activeLayerOpacity
                     } else {
                         primaryAlpha * activeLayerOpacity
@@ -1932,7 +1939,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
                     val isCumulative = activeFreehandSettings.isCumulativeOpacity
 
-                    val isCadDraw = activeStrokeType != StrokeType.FREEHAND && activeStrokeType != StrokeType.PAINT && activeStrokeType != StrokeType.PLUMA && activeStrokeType != StrokeType.WATERCOLOR
+                    val isCadDraw = activeStrokeType != StrokeType.FREEHAND
 
                     
 
@@ -1950,7 +1957,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
                             drawCombinedMatrix.mapRect(tempScreenBounds, tempStrokeBounds)
 
-                            val insetVal = if (activeStrokeType == StrokeType.WATERCOLOR) -60f else -4f
+                            val insetVal = if (currentTool == ToolType.WATERCOLOR) -60f else -4f
                             tempScreenBounds.inset(insetVal, insetVal)
 
                             canvas.saveLayer(tempScreenBounds, saveLayerPaint)
@@ -1969,7 +1976,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
                         
 
-                        if (activeStrokeType == StrokeType.PAINT || activeStrokeType == StrokeType.WATERCOLOR) {
+                        if (currentTool == ToolType.PAINT || currentTool == ToolType.WATERCOLOR) {
 
                             canvas.save()
 
@@ -2011,7 +2018,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                             // 2. Draw borders (on top)
 
                             if (isStrokeActive) {
-                                if (activeStrokeType == StrokeType.WATERCOLOR) {
+                                if (currentTool == ToolType.WATERCOLOR) {
                                     val origAlpha = android.graphics.Color.alpha(opaqueColor)
                                     
                                     val jitteredPath = com.sketcher.sketchercompanionv1.utils.JitterPathHelper.createJitterPath(
@@ -2094,7 +2101,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
                                     isFillActive, 
 
-                                    activeStrokeType
+                                    activeStrokeType, brushType = currentTool.name
 
                                 )
 
@@ -2132,7 +2139,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
                                 strokeType = activeStrokeType,
 
-                                fillStyle = activeFillStyle
+                                fillStyle = activeFillStyle, brushType = currentTool.name
 
                             )
 
@@ -2146,19 +2153,19 @@ class SketcherCanvasView(context: Context) : View(context) {
                         // Cumulative or fully opaque: draw directly onto canvas
                         val layerStrokeColor = let {
                             val origColor = activeStrokeColor
-                            val origAlpha = if (activeStrokeType == StrokeType.WATERCOLOR) 255 else android.graphics.Color.alpha(origColor)
+                            val origAlpha = if (currentTool == ToolType.WATERCOLOR) 255 else android.graphics.Color.alpha(origColor)
                             val newAlpha = (origAlpha * activeLayerOpacity).toInt().coerceIn(0, 255)
                             (origColor and 0x00FFFFFF) or (newAlpha shl 24)
                         }
                         val layerFillColor = let {
                             val origColor = activeFillColor
-                            val origAlpha = if (activeStrokeType == StrokeType.WATERCOLOR) 255 else android.graphics.Color.alpha(origColor)
+                            val origAlpha = if (currentTool == ToolType.WATERCOLOR) 255 else android.graphics.Color.alpha(origColor)
                             val newAlpha = (origAlpha * activeFillOpacity * activeLayerOpacity).toInt().coerceIn(0, 255)
                             (origColor and 0x00FFFFFF) or (newAlpha shl 24)
                         }
 
-                        if (activeStrokeType == StrokeType.PAINT || activeStrokeType == StrokeType.WATERCOLOR) {
-                            val isWatercolor = activeStrokeType == StrokeType.WATERCOLOR
+                        if (currentTool == ToolType.PAINT || currentTool == ToolType.WATERCOLOR) {
+                            val isWatercolor = currentTool == ToolType.WATERCOLOR
                             val bounds = currentStrokeBounds
                             val saveCount = if (isWatercolor) {
                                 if (bounds != null && !bounds.isEmpty) {
@@ -2265,7 +2272,8 @@ class SketcherCanvasView(context: Context) : View(context) {
                                     layerFillColor, 
                                     isStrokeActive, 
                                     isFillActive, 
-                                    activeStrokeType
+                                    activeStrokeType,
+                                    brushType = currentTool.name
                                 )
                                 canvas.restore()
                             }
@@ -2284,7 +2292,8 @@ class SketcherCanvasView(context: Context) : View(context) {
                                 isDrawing = isDrawing,
                                 isCad = isCadDraw,
                                 strokeType = activeStrokeType,
-                                fillStyle = activeFillStyle
+                                fillStyle = activeFillStyle,
+                                brushType = currentTool.name
                             )
                         }
                     }
@@ -2329,14 +2338,11 @@ class SketcherCanvasView(context: Context) : View(context) {
 
                 if (!path.isEmpty) {
 
-                    selectionLassoPaint.strokeWidth = 2f * resources.displayMetrics.density
-
+                    val zoom = getMatrixScale(viewMatrix)
+                    selectionLassoPaint.strokeWidth = (2f * resources.displayMetrics.density) / (if (zoom > 0f) zoom else 1f)
                     canvas.save()
-
                     canvas.concat(viewMatrix)
-
                     canvas.drawPath(path, selectionLassoPaint)
-
                     canvas.restore()
 
                 }
@@ -2367,7 +2373,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
                   for (element in manager.selectedElements) {
 
-                      val elementLayerOpacity = layers.find { it.elements.contains(element) }?.opacity ?: 1f
+                      val elementLayerOpacity = layers.find { layer -> layer.elements.any { it === element } }?.opacity ?: 1f
 
                       renderEngine.drawElementRecursive(canvas, element, componentLibrary, combinedMatrix, elementLayerOpacity)
 
@@ -2387,24 +2393,15 @@ class SketcherCanvasView(context: Context) : View(context) {
 
             if (manager.selectedElements.isNotEmpty()) {
 
+                val density = resources.displayMetrics.density
                 if (currentTool == ToolType.EDIT_POINTS) {
-
-                    val density = resources.displayMetrics.density
-
                     for (element in manager.selectedElements) {
-
                         if (element is VectorStroke) {
-
                             renderEngine.drawGrips(canvas, element, viewMatrix, density)
-
                         }
-
                     }
-
                 } else {
-
-                    renderEngine.drawSelectionOverlay(canvas, manager, viewMatrix)
-
+                    renderEngine.drawSelectionOverlay(canvas, manager, viewMatrix, density)
                 }
 
             }
@@ -2781,15 +2778,28 @@ class SketcherCanvasView(context: Context) : View(context) {
 
         // --- 1. GESTURES (Zoom/Pan) ---
 
-        // Delegate to Scale and Gesture Detectors
+        // Detect if a stylus is touching the screen to avoid gesture conflicts
+        val hasStylus = (0 until event.pointerCount).any { i ->
+            val toolType = event.getToolType(i)
+            toolType == MotionEvent.TOOL_TYPE_STYLUS || toolType == MotionEvent.TOOL_TYPE_ERASER
+        }
 
+        // Delegate to Scale and Gesture Detectors
         val wasInProgress = scaleDetector.isInProgress
 
-        scaleDetector.onTouchEvent(event)
-
-        gestureDetector.onTouchEvent(event)
-
-        
+        if (hasStylus) {
+            if (wasInProgress) {
+                // If a gesture was active, cancel it to reset internal detector states cleanly
+                val cancelEvent = MotionEvent.obtain(event)
+                cancelEvent.setAction(MotionEvent.ACTION_CANCEL)
+                scaleDetector.onTouchEvent(cancelEvent)
+                gestureDetector.onTouchEvent(cancelEvent)
+                cancelEvent.recycle()
+            }
+        } else {
+            scaleDetector.onTouchEvent(event)
+            gestureDetector.onTouchEvent(event)
+        }
 
         // Manual Pan Logic Removed (Replaced by GestureDetector)
 
@@ -2799,9 +2809,9 @@ class SketcherCanvasView(context: Context) : View(context) {
 
         // We only allow scale/pan block if we actually have 2+ pointers to avoid single-finger ghost/stuck scale detector states.
 
-        val isScaleActive = scaleDetector.isInProgress && event.pointerCount >= 2
+        val isScaleActive = scaleDetector.isInProgress && !hasStylus && event.pointerCount >= 2
 
-        if (isScaleActive || event.pointerCount >= 2 || (wasInProgress && (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_POINTER_UP))) {
+        if (!hasStylus && (isScaleActive || event.pointerCount >= 2 || (wasInProgress && (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_POINTER_UP)))) {
 
             if (event.actionMasked == MotionEvent.ACTION_UP || (event.pointerCount == 2 && event.actionMasked == MotionEvent.ACTION_POINTER_UP)) {
 
@@ -2845,7 +2855,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
             ToolType.SELECTION -> handleSelectionInput(event)
 
-            ToolType.ERASER -> handleEraserInput(event)
+            ToolType.ERASER, ToolType.POINT_ERASER -> handleEraserInput(event)
 
             ToolType.TRIM -> {
 
@@ -3532,51 +3542,31 @@ class SketcherCanvasView(context: Context) : View(context) {
      */
 
     var onRequestErase: ((Float, Float, Float) -> Boolean)? = null
-
-
+    var onEraserDragStarted: (() -> Unit)? = null
+    var onEraserDragEnded: (() -> Unit)? = null
 
     private fun handleEraserInput(event: MotionEvent): Boolean {
+        // Mapear coordenadas de pantalla → espacio del mundo
+        tempTouchPoint[0] = event.x
+        tempTouchPoint[1] = event.y
+        inverseMatrix.mapPoints(tempTouchPoint)
+        val worldX = tempTouchPoint[0]
+        val worldY = tempTouchPoint[1]
+        val diameterPx = activeSize * 2f
 
         when (event.actionMasked) {
-
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
-
-                // Mapear coordenadas de pantalla → espacio del mundo
-
-                tempTouchPoint[0] = event.x
-
-                tempTouchPoint[1] = event.y
-
-                inverseMatrix.mapPoints(tempTouchPoint)
-
-
-
-                val worldX = tempTouchPoint[0]
-
-                val worldY = tempTouchPoint[1]
-
-
-
-                // Calcular diámetro del borrador en unidades de pantalla (px)
-
-                // activeSize es el radio de la brocha, por lo tanto el diámetro = activeSize * 2
-
-                val diameterPx = activeSize * 2f
-
-
-
-                // Delegar al callback seguro (conectado al ViewModel.erase)
-
-                // Si no hay callback registrado, se ignora el evento sin crashear
-
+            MotionEvent.ACTION_DOWN -> {
+                onEraserDragStarted?.invoke()
                 onRequestErase?.invoke(worldX, worldY, diameterPx)
-
             }
-
+            MotionEvent.ACTION_MOVE -> {
+                onRequestErase?.invoke(worldX, worldY, diameterPx)
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                onEraserDragEnded?.invoke()
+            }
         }
-
         return true
-
     }
 
 
@@ -3638,11 +3628,9 @@ class SketcherCanvasView(context: Context) : View(context) {
                 }
 
                 SketcherViewModel.SelectionMode.TRANSFORM_BOX -> {
-
                     when (event.actionMasked) {
-
                         MotionEvent.ACTION_DOWN -> {
-                            manager.handleTransformDown(worldX, worldY, event.x, event.y, viewMatrix)
+                            manager.handleTransformDown(worldX, worldY, event.x, event.y, viewMatrix, resources.displayMetrics.density)
                             if (manager.currentDragMode == SelectionManager.DragMode.TRANSLATE) {
                                 startSelectionDragWorldX = worldX
                                 startSelectionDragWorldY = worldY

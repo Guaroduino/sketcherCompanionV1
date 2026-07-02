@@ -354,11 +354,11 @@ fun StudioLayout(
 
 
             payload == ToolPayload.PENCIL || tool.registryId == "pencil" -> {
+                currentTool == ToolType.FREEHAND
+            }
 
-
-                currentTool == ToolType.FREEHAND && currentStrokeType == StrokeType.FREEHAND
-
-
+            payload == ToolPayload.PENCIL_CUMULATIVE || tool.registryId == "pencil_cumulative" -> {
+                currentTool == ToolType.PENCIL_CUMULATIVE
             }
 
 
@@ -389,75 +389,51 @@ fun StudioLayout(
             }
 
 
-            tool.registryId == "line" -> {
+            tool.registryId == "stroke_freehand" -> {
+                currentStrokeType == StrokeType.FREEHAND
+            }
 
-
-                currentTool == ToolType.FREEHAND && currentStrokeType == StrokeType.LINE
-
-
+            tool.registryId == "stroke_line" || tool.registryId == "line" -> {
+                currentStrokeType == StrokeType.LINE
             }
 
 
-            tool.registryId == "circle" -> {
-
-
-                currentTool == ToolType.FREEHAND && currentStrokeType == StrokeType.CIRCLE
-
-
+            tool.registryId == "stroke_circle" || tool.registryId == "circle" -> {
+                currentStrokeType == StrokeType.CIRCLE
             }
 
 
-            tool.registryId == "polyline" -> {
-
-
-                currentTool == ToolType.FREEHAND && currentStrokeType == StrokeType.POLYLINE
-
-
+            tool.registryId == "stroke_polyline" || tool.registryId == "polyline" -> {
+                currentStrokeType == StrokeType.POLYLINE
             }
 
 
-            tool.registryId == "arc" -> {
-
-
-                currentTool == ToolType.FREEHAND && currentStrokeType == StrokeType.ARC
-
-
+            tool.registryId == "stroke_arc" || tool.registryId == "arc" -> {
+                currentStrokeType == StrokeType.ARC
             }
 
 
-            tool.registryId == "ellipse" -> {
-
-
-                currentTool == ToolType.FREEHAND && currentStrokeType == StrokeType.ELLIPSE
-
-
+            tool.registryId == "stroke_ellipse" || tool.registryId == "ellipse" -> {
+                currentStrokeType == StrokeType.ELLIPSE
             }
 
 
-            tool.registryId == "spline" -> {
-
-
-                currentTool == ToolType.FREEHAND && currentStrokeType == StrokeType.SPLINE
-
-
+            tool.registryId == "stroke_spline" || tool.registryId == "spline" -> {
+                currentStrokeType == StrokeType.SPLINE
             }
 
 
-            tool.registryId == "bezier" -> {
-
-
-                currentTool == ToolType.FREEHAND && currentStrokeType == StrokeType.BEZIER
-
-
+            tool.registryId == "stroke_bezier" || tool.registryId == "bezier" -> {
+                currentStrokeType == StrokeType.BEZIER
             }
 
 
             payload == ToolPayload.ERASER || tool.registryId == "eraser" -> {
-
-
                 currentTool == ToolType.ERASER
+            }
 
-
+            payload == ToolPayload.POINT_ERASER || tool.registryId == "point_eraser" -> {
+                currentTool == ToolType.POINT_ERASER
             }
 
 
@@ -1076,11 +1052,13 @@ fun StudioLayout(
 
 
                     onRequestErase = { worldX, worldY, diameterPx ->
-
-
                         viewModel.erase(worldX, worldY, diameterPx)
-
-
+                    }
+                    onEraserDragStarted = {
+                        viewModel.startEraserDrag()
+                    }
+                    onEraserDragEnded = {
+                        viewModel.endEraserDrag()
                     }
 
 
@@ -5453,7 +5431,12 @@ fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
                 onDismiss = { viewModel.setShowStrokeColorPicker(false) },
 
 
-                onDisable = { viewModel.toggleStroke(false); viewModel.setShowStrokeColorPicker(false) }
+                onDisable = { viewModel.toggleStroke(false); viewModel.setShowStrokeColorPicker(false) },
+
+                onRevertToPreset = {
+                    viewModel.revertToPresetColor(isStroke = true)
+                    viewModel.setShowStrokeColorPicker(false)
+                }
 
 
             )
@@ -5479,7 +5462,11 @@ fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
                     }
                     viewModel.setShowFillColorPicker(false)
                 },
-                onDisable = { viewModel.toggleFill(false); viewModel.setShowFillColorPicker(false) }
+                onDisable = { viewModel.toggleFill(false); viewModel.setShowFillColorPicker(false) },
+                onRevertToPreset = {
+                    viewModel.revertToPresetColor(isStroke = false)
+                    viewModel.setShowFillColorPicker(false)
+                }
             )
         }
 
@@ -5790,7 +5777,7 @@ fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
                 border = androidx.compose.foundation.BorderStroke(1.dp, theme.iconColor.copy(alpha = 0.1f)),
 
 
-                modifier = Modifier.padding(16.dp).width(200.sdp)
+                modifier = Modifier.padding(16.dp).width(300.sdp)
 
 
             ) {

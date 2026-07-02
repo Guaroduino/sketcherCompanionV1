@@ -261,20 +261,48 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     val settings = FreehandSettings(size = this.maxWidth, isComplete = true, simulatePressure = false)
     
     val strokeTypeVal = this.strokeType ?: StrokeType.FREEHAND
-    val isCad = (this.isCadGeometry ?: false) || (strokeTypeVal != StrokeType.FREEHAND && strokeTypeVal != StrokeType.PAINT && strokeTypeVal != StrokeType.PLUMA && strokeTypeVal != StrokeType.WATERCOLOR)
+    val isCad = (this.isCadGeometry ?: false) || (strokeTypeVal != StrokeType.FREEHAND)
+    val isMeshBrush = this.brushType == "FREEHAND" || this.brushType == "PLUMA" || this.brushType == "PENCIL_CUMULATIVE" || this.brushType == "PAINT" || this.brushType == "WATERCOLOR"
     
-    val resultPath = if (this.isFlattened) {
-        val rawPath = PerfectFreehandGenerator.generate(pts, settings).path
-        val cleanPath = android.graphics.Path()
-        cleanPath.op(rawPath, rawPath, android.graphics.Path.Op.UNION)
-        cleanPath
-    } else if (isCad) {
-        com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(strokeTypeVal, pts)
+    val resultPath = if (isCad) {
+        val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(strokeTypeVal, pts)
+        if (isMeshBrush) {
+            val pm = android.graphics.PathMeasure(centerline, false)
+            val densePoints = mutableListOf<StrokePoint>()
+            val pos = FloatArray(2)
+            val length = pm.length
+            if (length > 0f) {
+                val steps = (length / 2f).toInt().coerceIn(10, 1000)
+                for (i in 0..steps) {
+                    val distance = (i.toFloat() / steps) * length
+                    pm.getPosTan(distance, pos, null)
+                    densePoints.add(StrokePoint(pos[0], pos[1], 1.0f, 0L))
+                }
+            }
+            val meshPath = android.graphics.Path()
+            if (densePoints.isNotEmpty()) {
+                PerfectFreehandGenerator.generate(densePoints, settings, 1.0f, meshPath)
+            }
+            meshPath
+        } else {
+            centerline
+        }
     } else {
-        PerfectFreehandGenerator.generate(
-            rawPoints = pts, 
-            settings = settings
-        ).path
+        if (isMeshBrush) {
+            PerfectFreehandGenerator.generate(rawPoints = pts, settings = settings).path
+        } else {
+            val path = android.graphics.Path()
+            if (pts.isNotEmpty()) {
+                path.moveTo(pts[0].x, pts[0].y)
+                for (i in 1 until pts.size) {
+                    path.lineTo(pts[i].x, pts[i].y)
+                }
+                if (this.isFlattened) {
+                    path.close()
+                }
+            }
+            path
+        }
     }
     
     val chunkPaths = if (isCumul && strokeTypeVal == StrokeType.FREEHAND && !this.isFlattened) {
@@ -291,7 +319,12 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     var fPath: android.graphics.Path? = null
     if (fEnabled) {
         if (isCad) {
-            fPath = android.graphics.Path(resultPath)
+            val isPaintOrWatercolor = this.brushType == "PAINT" || this.brushType == "WATERCOLOR"
+            fPath = if (isPaintOrWatercolor) {
+                android.graphics.Path(resultPath)
+            } else {
+                com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(strokeTypeVal, pts)
+            }
         } else if (pts.size >= 3) {
             fPath = android.graphics.Path()
             fPath.moveTo(pts[0].x, pts[0].y)

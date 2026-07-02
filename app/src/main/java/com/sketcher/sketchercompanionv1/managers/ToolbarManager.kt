@@ -73,9 +73,13 @@ class ToolbarManager(
         "pencil" -> ToolPayload.PENCIL
         "pen" -> ToolPayload.PEN
         "eraser" -> ToolPayload.ERASER
+        "point_eraser" -> ToolPayload.POINT_ERASER
         "stroke_color" -> ToolPayload.STROKE_COLOR
         "fill_color" -> ToolPayload.FILL_COLOR
         "paint" -> ToolPayload.PAINT
+        "watercolor" -> ToolPayload.WATERCOLOR
+        "pluma" -> ToolPayload.PLUMA
+        "pencil_cumulative" -> ToolPayload.PENCIL_CUMULATIVE
         else -> null
     }
 
@@ -455,12 +459,12 @@ class ToolbarManager(
             ToolLocation.RightBar to listOfNotNull(
                 ToolRegistry.getToolById(StudioTool.SIZE_OPACITY_TOOL_ID),
                 ToolRegistry.getToolById("pencil"),
+                ToolRegistry.getToolById("stroke_type"),
                 ToolRegistry.getToolById("divider"),
                 ToolRegistry.getToolById("stroke_color"),
                 ToolRegistry.getToolById("fill_color"),
                 ToolRegistry.getToolById("divider"),
                 ToolRegistry.getToolById("eraser"),
-                ToolRegistry.getToolById("pen"),
                 ToolRegistry.getToolById("divider"),
                 ToolRegistry.getToolById("edit_points"),
                 ToolRegistry.getToolById("toggle_snap")

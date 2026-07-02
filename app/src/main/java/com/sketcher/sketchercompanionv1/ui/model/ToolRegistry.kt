@@ -15,23 +15,41 @@ import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.outlined.*
 
 object ToolRegistry {
-    val allTools = listOf(
+    var showExperimental: Boolean = true
+
+    val allTools: List<StudioTool>
+        get() = if (showExperimental) {
+            fullToolsList
+        } else {
+            fullToolsList.filter { !it.isExperimental }
+        }
+
+    private val fullToolsList = listOf(
         StudioTool("pencil", Icons.Default.Edit, "Pencil", isPlaceholder = false),
-        StudioTool("pen", Icons.Default.Gesture, "Pen", isPlaceholder = false),
-        StudioTool("eraser", Icons.Default.AutoFixNormal, "Eraser", isPlaceholder = false),
+        StudioTool("pen", Icons.Default.Gesture, "Pen", isPlaceholder = false, parentGroupId = "pencil"),
+        StudioTool("eraser", Icons.Default.AutoFixNormal, "Borrador", isPlaceholder = false, subTools = listOf(
+            StudioTool("eraser", Icons.Default.AutoFixNormal, "Borrador de Trazo", isPlaceholder = false, parentGroupId = "eraser"),
+            StudioTool("point_eraser", Icons.Default.AutoFixNormal, "Borrador de Puntos", isPlaceholder = false, parentGroupId = "eraser")
+        )),
+        StudioTool("point_eraser", Icons.Default.AutoFixNormal, "Borrador de Puntos", isPlaceholder = false, parentGroupId = "eraser"),
         StudioTool("paint", Icons.Default.Brush, "Paint", isPlaceholder = false, parentGroupId = "pencil"),
-        StudioTool("watercolor", Icons.Default.Palette, "Acuarela", isPlaceholder = false, parentGroupId = "pencil"),
+        StudioTool("watercolor", Icons.Default.Palette, "Acuarela", isPlaceholder = false, parentGroupId = "pencil", isExperimental = true),
         StudioTool("pluma", Icons.Default.Gesture, "Pluma", isPlaceholder = false, parentGroupId = "pencil"),
-        StudioTool("line", Icons.Default.Timeline, "Line", isPlaceholder = false, parentGroupId = "pen"),
-        StudioTool("circle", Icons.Default.RadioButtonUnchecked, "Circle", isPlaceholder = false, parentGroupId = "pen"),
-        StudioTool("square", Icons.Default.CheckBoxOutlineBlank, "Square", isPlaceholder = false, parentGroupId = "pen"),
-        StudioTool("polyline", Icons.Default.Polyline, "Polyline", isPlaceholder = false, parentGroupId = "pen"),
-        StudioTool("arc", Icons.Default.Gesture, "Arc", isPlaceholder = false, parentGroupId = "pen"),
-        StudioTool("ellipse", Icons.Default.Adjust, "Ellipse", isPlaceholder = false, parentGroupId = "pen"),
-        StudioTool("spline", Icons.Default.Gesture, "Spline", isPlaceholder = false, parentGroupId = "pen"),
-        StudioTool("bezier", Icons.Default.FormatShapes, "Bezier Spline", isPlaceholder = false, parentGroupId = "pen"),
-        StudioTool("trim", Icons.Default.ContentCut, "Trim", isPlaceholder = false, parentGroupId = "pen"),
-        StudioTool("extend", Icons.Default.TrendingFlat, "Extend", isPlaceholder = false, parentGroupId = "pen"),
+        StudioTool("pencil_cumulative", Icons.Default.Edit, "Pencil Acumulativo", isPlaceholder = false, parentGroupId = "pencil", isExperimental = true),
+        
+        StudioTool("stroke_type", Icons.Default.Gesture, "Tipo de Trazo", isPlaceholder = false, subTools = listOf(
+            StudioTool("stroke_freehand", Icons.Default.Gesture, "Mano Alzada", isPlaceholder = false, parentGroupId = "stroke_type"),
+            StudioTool("stroke_line", Icons.Default.Timeline, "Línea", isPlaceholder = false, parentGroupId = "stroke_type"),
+            StudioTool("stroke_circle", Icons.Default.RadioButtonUnchecked, "Círculo", isPlaceholder = false, parentGroupId = "stroke_type"),
+            StudioTool("stroke_polyline", Icons.Default.Polyline, "Polilínea", isPlaceholder = false, parentGroupId = "stroke_type"),
+            StudioTool("stroke_arc", Icons.Default.Gesture, "Arco", isPlaceholder = false, parentGroupId = "stroke_type"),
+            StudioTool("stroke_ellipse", Icons.Default.Adjust, "Elipse", isPlaceholder = false, parentGroupId = "stroke_type"),
+            StudioTool("stroke_spline", Icons.Default.Gesture, "Spline", isPlaceholder = false, parentGroupId = "stroke_type"),
+            StudioTool("stroke_bezier", Icons.Default.FormatShapes, "Bézier", isPlaceholder = false, parentGroupId = "stroke_type")
+        )),
+
+        StudioTool("trim", Icons.Default.ContentCut, "Trim", isPlaceholder = false, parentGroupId = "edit_points"),
+        StudioTool("extend", Icons.Default.TrendingFlat, "Extend", isPlaceholder = false, parentGroupId = "edit_points"),
         StudioTool("orto", Icons.Default.SquareFoot, "Ortho Mode", isPlaceholder = false, parentGroupId = "edit_points"),
         StudioTool("mirror", Icons.Default.Compare, "Mirror", isPlaceholder = false, parentGroupId = "edit_points"),
         StudioTool("mover_pt_pt", Icons.Default.OpenWith, "Move Point to Point", isPlaceholder = false, parentGroupId = "edit_points"),
@@ -46,9 +64,11 @@ object ToolRegistry {
             StudioTool("align_2_pt", Icons.Default.AlignHorizontalLeft, "Align 2 Points", isPlaceholder = false, parentGroupId = "edit_points"),
             StudioTool("offset", Icons.Default.CopyAll, "Offset", isPlaceholder = false, parentGroupId = "edit_points"),
             StudioTool("fillet", Icons.Default.RoundedCorner, "Fillet", isPlaceholder = false, parentGroupId = "edit_points"),
-            StudioTool("chamfer", Icons.Default.Architecture, "Chamfer", isPlaceholder = false, parentGroupId = "edit_points")
+            StudioTool("chamfer", Icons.Default.Architecture, "Chamfer", isPlaceholder = false, parentGroupId = "edit_points"),
+            StudioTool("trim", Icons.Default.ContentCut, "Trim", isPlaceholder = false, parentGroupId = "edit_points"),
+            StudioTool("extend", Icons.Default.TrendingFlat, "Extend", isPlaceholder = false, parentGroupId = "edit_points")
         )),
-        StudioTool("toggle_snap", Icons.Default.FilterCenterFocus, "Toggle Snap", isPlaceholder = false),
+        StudioTool("toggle_snap", Icons.Default.FilterCenterFocus, "Toggle Snap", isPlaceholder = false, isExperimental = true),
         StudioTool("undo", Icons.Default.Undo, "Undo", isPlaceholder = false),
         StudioTool("redo", Icons.Default.Redo, "Redo", isPlaceholder = false),
         // Selection tools

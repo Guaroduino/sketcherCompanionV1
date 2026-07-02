@@ -31,6 +31,7 @@ class StrokePipeline(
 ) {
 
     // --- Configuration ---
+    var activeTool: ToolType = ToolType.FREEHAND
     var activeStrokeType: StrokeType = StrokeType.FREEHAND
     var activeFreehandSettings: FreehandSettings = FreehandSettings()
     var activeSize: Float = 10f
@@ -265,7 +266,7 @@ class StrokePipeline(
 
     private fun updateGeometricPoints(action: Int, worldP: StrokePoint) {
           when (activeStrokeType) {
-            StrokeType.FREEHAND, StrokeType.PEN, StrokeType.PAINT, StrokeType.PLUMA, StrokeType.WATERCOLOR -> {
+            StrokeType.FREEHAND -> {
                 currentStrokePoints.add(worldP)
             }
             StrokeType.LINE, StrokeType.CIRCLE -> {
@@ -405,21 +406,27 @@ class StrokePipeline(
 
         if (livePoints.isEmpty()) return
 
-        val isCad = activeStrokeType != StrokeType.FREEHAND && activeStrokeType != StrokeType.PAINT && activeStrokeType != StrokeType.PLUMA && activeStrokeType != StrokeType.WATERCOLOR
+        val isCad = activeStrokeType != StrokeType.FREEHAND
         if (isCad) {
             val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(activeStrokeType, livePoints)
+            val isMesh = activeTool == ToolType.FREEHAND || activeTool == ToolType.PLUMA || activeTool == ToolType.PENCIL_CUMULATIVE || activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR
+            val isPaintOrWatercolor = activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR
+            val drawPath = if (isMesh) generateMeshPathForGeometry(centerline) else centerline
+            
             val totalBounds = RectF()
-            centerline.computeBounds(totalBounds, true)
+            drawPath.computeBounds(totalBounds, true)
             val pad = (activeSize * 2f).coerceAtLeast(10f)
             totalBounds.inset(-pad, -pad)
 
             onUpdate(PipelineUpdate(
-                previewPath = centerline,
+                previewPath = drawPath,
                 previewPoints = livePoints,
                 centerPoints = livePoints.map { android.graphics.PointF(it.x, it.y) },
                 outlinePoints = emptyList(),
                 lastRadius = activeSize / 2f,
-                fillPath = if (isFillActive) centerline else null,
+                fillPath = if (isFillActive) {
+                    if (isPaintOrWatercolor) drawPath else centerline
+                } else null,
                 fillColor = if (isFillActive) activeFillColor else 0,
                 committedPreviewPath = null,
                 intersections = emptyList(),
@@ -446,9 +453,9 @@ class StrokePipeline(
 
         // 2. Incremental preview for FREEHAND only when stroke is long enough
         val result: PerfectFreehandGenerator.FreehandResult
-        var committedPathToSend: Path? = if (activeStrokeType == StrokeType.PAINT || activeStrokeType == StrokeType.WATERCOLOR) committedPath else null
+        var committedPathToSend: Path? = if (activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR) committedPath else null
 
-        if ((activeStrokeType == StrokeType.FREEHAND || activeStrokeType == StrokeType.PAINT || activeStrokeType == StrokeType.PLUMA || activeStrokeType == StrokeType.WATERCOLOR) &&
+        if (activeStrokeType == StrokeType.FREEHAND &&
             livePoints.size >= INCREMENTAL_MIN_POINTS) {
 
             // -- Bake head if we have enough new points since last commit --
@@ -545,7 +552,7 @@ class StrokePipeline(
 
         // 3. Fill Preview
         var fillPath: Path? = null
-        if (isFillActive && livePoints.size >= 3 && activeStrokeType != StrokeType.PAINT && activeStrokeType != StrokeType.WATERCOLOR) {
+        if (isFillActive && livePoints.size >= 3 && activeTool != ToolType.PAINT && activeTool != ToolType.WATERCOLOR) {
             fillPath = reusableFillPath.apply { rewind() }
             fillPath.moveTo(livePoints[0].x, livePoints[0].y)
             for (i in 1 until livePoints.size) {
@@ -650,9 +657,12 @@ class StrokePipeline(
              return
         }
 
-        val isCad = activeStrokeType != StrokeType.FREEHAND && activeStrokeType != StrokeType.PAINT && activeStrokeType != StrokeType.PLUMA && activeStrokeType != StrokeType.WATERCOLOR
+        val isCad = activeStrokeType != StrokeType.FREEHAND
         if (isCad) {
             val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(activeStrokeType, finalPointsRaw)
+            val isMesh = activeTool == ToolType.FREEHAND || activeTool == ToolType.PLUMA || activeTool == ToolType.PENCIL_CUMULATIVE || activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR
+            val isPaintOrWatercolor = activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR
+            val drawPath = if (isMesh) generateMeshPathForGeometry(centerline) else centerline
             val stroke = VectorStroke(
                 points = finalPointsRaw,
                 strokeColor = activeStrokeColor,
@@ -660,9 +670,11 @@ class StrokePipeline(
                 isStrokeEnabled = isStrokeActive,
                 isFillEnabled = isFillActive,
                 maxWidth = activeSize,
-                path = centerline,
-                fillPath = if (isFillActive) centerline else null,
-                brushType = "CAD",
+                path = drawPath,
+                fillPath = if (isFillActive) {
+                    if (isPaintOrWatercolor) drawPath else centerline
+                } else null,
+                brushType = activeTool.name,
                 strokeType = activeStrokeType,
                 isCadGeometry = true,
                 fillStyle = activeFillStyle
@@ -698,12 +710,23 @@ class StrokePipeline(
         )
         val rawPath = Path(genResult.path)
 
-        if (activeStrokeType == StrokeType.PAINT || activeStrokeType == StrokeType.WATERCOLOR) {
+        if (activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR) {
             val combinedFinal = Path(rawPath)
             if (!committedPath.isEmpty) {
                 combinedFinal.addPath(committedPath)
             }
             val path = flattenOuterStroke(combinedFinal)
+            
+            // Committed fill path should connect center points instead of perimeter
+            var fPath: Path? = null
+            if (isFillActive && finalPoints.size >= 3) {
+                 fPath = Path()
+                 fPath.moveTo(finalPoints[0].x, finalPoints[0].y)
+                 for (i in 1 until finalPoints.size) {
+                     fPath.lineTo(finalPoints[i].x, finalPoints[i].y)
+                 }
+                 fPath.close()
+            }
             
             val step = (8f / currentZoom).coerceAtLeast(1.0f)
             val epsilon = (1.5f / currentZoom).coerceAtLeast(0.2f)
@@ -724,7 +747,7 @@ class StrokePipeline(
                 maxWidth = activeSize,
                 path = path,
                 fillPath = if (isFillActive) path else null,
-                brushType = if (activeStrokeType == StrokeType.PAINT) "PAINT" else "WATERCOLOR",
+                brushType = activeTool.name,
                 strokeType = activeStrokeType,
                 isFlattened = false,
                 paintOutlineWidth = activeFreehandSettings.paintOutlineWidth,
@@ -744,6 +767,7 @@ class StrokePipeline(
         }
 
         if (isFlattenedOuterStrokeEnabled && activeStrokeType == StrokeType.FREEHAND && !activeFreehandSettings.isCumulativeOpacity) {
+            val activeToolSnap = activeTool.name
             val activeStrokeTypeSnap = activeStrokeType
             val activeStrokeColorSnap = activeStrokeColor
             val activeFillColorSnap = activeFillColor
@@ -803,8 +827,18 @@ class StrokePipeline(
                          fPath.close()
                     }
 
+                    val step = (8f / currentZoom).coerceAtLeast(1.0f)
+                    val epsilon = (1.5f / currentZoom).coerceAtLeast(0.2f)
+                    val outlinePointsPointF = com.sketcher.sketchercompanionv1.utils.GeometryUtils.flattenPath(path, step = step)
+                    val outlineStrokePoints = outlinePointsPointF.map { pt -> StrokePoint(pt.x, pt.y, 0.5f) }
+                    val simplifiedPoints = if (outlineStrokePoints.size > 2) {
+                        com.sketcher.sketchercompanionv1.utils.StrokeSimplifier.simplify(outlineStrokePoints, epsilon, 20f)
+                    } else {
+                        outlineStrokePoints
+                    }
+
                     val stroke = VectorStroke(
-                        points = finalPointsSnap,
+                        points = simplifiedPoints,
                         strokeColor = activeStrokeColorSnap,
                         fillColor = activeFillColorSnap,
                         isStrokeEnabled = isStrokeActiveSnap,
@@ -812,7 +846,7 @@ class StrokePipeline(
                         maxWidth = activeSizeSnap,
                         path = path,
                         fillPath = fPath,
-                        brushType = "FREEHAND",
+                        brushType = activeToolSnap,
                         strokeType = activeStrokeTypeSnap,
                         leftPoints = genResultLeftSnap,
                         rightPoints = genResultRightSnap,
@@ -872,7 +906,7 @@ class StrokePipeline(
                 maxWidth = activeSize,
                 path = path,
                 fillPath = fPath,
-                brushType = "FREEHAND",
+                brushType = activeTool.name,
                 strokeType = activeStrokeType,
                 leftPoints = genResult.left,
                 rightPoints = genResult.right,
@@ -906,9 +940,12 @@ class StrokePipeline(
             return
         }
         
-        val isCad = activeStrokeType != StrokeType.FREEHAND && activeStrokeType != StrokeType.PAINT && activeStrokeType != StrokeType.PLUMA && activeStrokeType != StrokeType.WATERCOLOR
+        val isCad = activeStrokeType != StrokeType.FREEHAND
         if (isCad) {
             val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(activeStrokeType, finalPointsRaw)
+            val isMesh = activeTool == ToolType.FREEHAND || activeTool == ToolType.PLUMA || activeTool == ToolType.PENCIL_CUMULATIVE || activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR
+            val isPaintOrWatercolor = activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR
+            val drawPath = if (isMesh) generateMeshPathForGeometry(centerline) else centerline
             val stroke = VectorStroke(
                 points = finalPointsRaw,
                 strokeColor = activeStrokeColor,
@@ -916,9 +953,11 @@ class StrokePipeline(
                 isStrokeEnabled = isStrokeActive,
                 isFillEnabled = isFillActive,
                 maxWidth = activeSize,
-                path = centerline,
-                fillPath = if (isFillActive) centerline else null,
-                brushType = "CAD",
+                path = drawPath,
+                fillPath = if (isFillActive) {
+                    if (isPaintOrWatercolor) drawPath else centerline
+                } else null,
+                brushType = activeTool.name,
                 strokeType = activeStrokeType,
                 isCadGeometry = true,
                 fillStyle = activeFillStyle
@@ -983,7 +1022,7 @@ class StrokePipeline(
              maxWidth = activeSize,
              path = path,
              fillPath = fPath,
-             brushType = "FREEHAND",
+             brushType = activeTool.name,
              strokeType = activeStrokeType,
              leftPoints = genResult.left,
              rightPoints = genResult.right,
@@ -1011,7 +1050,7 @@ class StrokePipeline(
         if (currentStrokePoints.isEmpty()) return
         
         when (activeStrokeType) {
-            StrokeType.FREEHAND, StrokeType.PEN, StrokeType.PAINT, StrokeType.PLUMA, StrokeType.WATERCOLOR -> {}
+            StrokeType.FREEHAND -> {}
             StrokeType.LINE, StrokeType.CIRCLE -> {
                 reset()
             }
@@ -1077,7 +1116,7 @@ class StrokePipeline(
 
     private fun getInterpolatedPoints(isFinal: Boolean): List<StrokePoint> {
         return when (activeStrokeType) {
-            StrokeType.FREEHAND, StrokeType.PEN, StrokeType.PAINT, StrokeType.PLUMA, StrokeType.WATERCOLOR -> {
+            StrokeType.FREEHAND -> {
                 if (!isFinal) {
                     val latencyMs = activeFreehandSettings.predictionLatency.toLong()
                     val predictedPt = predictor.getPredictedPoint(
@@ -1231,6 +1270,27 @@ class StrokePipeline(
              // 2. Compute fill path
              null // Return null for now until implemented
         }
+    }
+
+    private fun generateMeshPathForGeometry(centerline: Path): Path {
+        val pm = android.graphics.PathMeasure(centerline, false)
+        val densePoints = mutableListOf<StrokePoint>()
+        val pos = FloatArray(2)
+        val length = pm.length
+        if (length > 0f) {
+            val steps = (length / 2f).toInt().coerceIn(10, 1000)
+            for (i in 0..steps) {
+                val distance = (i.toFloat() / steps) * length
+                pm.getPosTan(distance, pos, null)
+                densePoints.add(StrokePoint(pos[0], pos[1], 1.0f, 0L))
+            }
+        }
+        val meshPath = Path()
+        if (densePoints.isNotEmpty()) {
+            val settings = liveSettingsCache.copy(size = activeSize, isComplete = true, streamline = globalStabilizationLevel * 0.8f)
+            PerfectFreehandGenerator.generate(densePoints, settings, currentZoom, meshPath)
+        }
+        return meshPath
     }
 
     private fun flattenOuterStroke(outlinePath: Path): Path {

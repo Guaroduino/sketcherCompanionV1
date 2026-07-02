@@ -25,7 +25,7 @@ class ToolManager(context: Context) {
                 ToolType.FREEHAND
             }
             // Selection and Eraser should not persist between sessions
-            if (saved == ToolType.SELECTION || saved == ToolType.ERASER) ToolType.FREEHAND else saved
+            if (saved == ToolType.SELECTION || saved == ToolType.ERASER || saved == ToolType.POINT_ERASER) ToolType.FREEHAND else saved
         } catch(e: Exception) { ToolType.FREEHAND }
     )
         private set
@@ -65,10 +65,10 @@ class ToolManager(context: Context) {
     private val _strokeColor = MutableStateFlow(AndroidColor.BLACK)
     val strokeColor = _strokeColor.asStateFlow()
 
-    private val _fillColor = MutableStateFlow(AndroidColor.argb(128, 0, 0, 255))
+    private val _fillColor = MutableStateFlow(AndroidColor.WHITE)
     val fillColor = _fillColor.asStateFlow()
 
-    private val _fillStyle = MutableStateFlow<FillStyle>(FillStyle.Solid(AndroidColor.argb(128, 0, 0, 255)))
+    private val _fillStyle = MutableStateFlow<FillStyle>(FillStyle.Solid(AndroidColor.WHITE))
     val fillStyle = _fillStyle.asStateFlow()
 
     private val _fillOpacity = MutableStateFlow(0.5f)
@@ -116,6 +116,7 @@ class ToolManager(context: Context) {
         val savedPaint = loadPaintSettings()
         val savedPluma = loadPlumaSettings()
         val savedWatercolor = loadWatercolorSettings()
+        val savedPencilCumulative = loadPencilCumulativeSettings()
         
         fun loadConfig(type: ToolType, defSize: Float, defOpacity: Float): ToolConfig {
             val s = prefs.getFloat("tool_size_${type.name}", defSize)
@@ -126,6 +127,7 @@ class ToolManager(context: Context) {
                 ToolType.PAINT -> savedPaint
                 ToolType.PLUMA -> savedPluma
                 ToolType.WATERCOLOR -> savedWatercolor
+                ToolType.PENCIL_CUMULATIVE -> savedPencilCumulative
                 else -> FreehandSettings()
             }
             return ToolConfig(size = s, opacity = o, freehandSettings = settings)
@@ -136,8 +138,10 @@ class ToolManager(context: Context) {
         put(ToolType.PAINT, loadConfig(ToolType.PAINT, 10f, 1f))
         put(ToolType.PLUMA, loadConfig(ToolType.PLUMA, 2.5f, 1f))
         put(ToolType.WATERCOLOR, loadConfig(ToolType.WATERCOLOR, 20f, 0.4f))
+        put(ToolType.PENCIL_CUMULATIVE, loadConfig(ToolType.PENCIL_CUMULATIVE, 2f, 0.5f))
         put(ToolType.FILL, loadConfig(ToolType.FILL, 1f, 1.0f))
         put(ToolType.ERASER, loadConfig(ToolType.ERASER, 10f, 1f))
+        put(ToolType.POINT_ERASER, loadConfig(ToolType.POINT_ERASER, 10f, 1f))
         put(ToolType.SELECTION, loadConfig(ToolType.SELECTION, 1f, 1f))
         put(ToolType.TRIM, loadConfig(ToolType.TRIM, 1f, 1f))
         put(ToolType.EXTEND, loadConfig(ToolType.EXTEND, 1f, 1f))
@@ -157,30 +161,13 @@ class ToolManager(context: Context) {
     // --- LOGIC METHODS ---
 
     fun selectTool(type: ToolType) {
-        if (type != ToolType.ERASER && type != ToolType.SELECTION && type != ToolType.FILL) {
+        if (type != ToolType.ERASER && type != ToolType.POINT_ERASER && type != ToolType.SELECTION && type != ToolType.FILL) {
             lastDrawingTool = type
         }
         currentTool = type
         prefs.edit().putString("current_tool", type.name).apply()
 
-        // Automatically sync stroke type for standard drawing tools
-        when (type) {
-            ToolType.PAINT -> updateStrokeType(StrokeType.PAINT)
-            ToolType.WATERCOLOR -> updateStrokeType(StrokeType.WATERCOLOR)
-            ToolType.FREEHAND -> updateStrokeType(StrokeType.FREEHAND)
-            ToolType.PLUMA -> updateStrokeType(StrokeType.PLUMA)
-            ToolType.PEN -> {
-                if (currentStrokeType != StrokeType.LINE &&
-                    currentStrokeType != StrokeType.CIRCLE &&
-                    currentStrokeType != StrokeType.ARC &&
-                    currentStrokeType != StrokeType.ELLIPSE &&
-                    currentStrokeType != StrokeType.SPLINE &&
-                    currentStrokeType != StrokeType.BEZIER) {
-                    updateStrokeType(StrokeType.PEN)
-                }
-            }
-            else -> {}
-        }
+
         
         val config = toolConfigs[type] ?: toolConfigs[ToolType.FREEHAND]!!
         var settings = config.freehandSettings
@@ -190,6 +177,9 @@ class ToolManager(context: Context) {
             ToolType.FREEHAND -> {
                 isFlattenedOuterStrokeEnabled = true
                 settings = settings.copy(isCumulativeOpacity = false)
+            }
+            ToolType.PENCIL_CUMULATIVE -> {
+                isFlattenedOuterStrokeEnabled = false
             }
             ToolType.PAINT -> {
                 isFlattenedOuterStrokeEnabled = true
@@ -238,7 +228,7 @@ class ToolManager(context: Context) {
         if (type == ToolType.PAINT || type == ToolType.WATERCOLOR) {
             _isStrokeActive.value = true
             _isFillActive.value = true
-        } else if (type == ToolType.FREEHAND || type == ToolType.PEN || type == ToolType.PLUMA) {
+        } else if (type == ToolType.FREEHAND || type == ToolType.PEN || type == ToolType.PLUMA || type == ToolType.PENCIL_CUMULATIVE) {
             _isStrokeActive.value = true
             _isFillActive.value = false
         }
@@ -270,6 +260,7 @@ class ToolManager(context: Context) {
     private fun loadBrushPresetsForTool(type: ToolType): List<BrushPreset> {
         val prefKey = when(type) {
             ToolType.FREEHAND -> "pencil_presets_v1"
+            ToolType.PENCIL_CUMULATIVE -> "pencil_cumulative_presets_v1"
             ToolType.PEN -> "pen_presets_v1"
             ToolType.PAINT -> "paint_presets_v1"
             ToolType.PLUMA -> "pluma_presets_v1"
@@ -294,6 +285,7 @@ class ToolManager(context: Context) {
     private fun saveBrushPresetsForTool(type: ToolType, list: List<BrushPreset>) {
         val prefKey = when(type) {
             ToolType.FREEHAND -> "pencil_presets_v1"
+            ToolType.PENCIL_CUMULATIVE -> "pencil_cumulative_presets_v1"
             ToolType.PEN -> "pen_presets_v1"
             ToolType.PAINT -> "paint_presets_v1"
             ToolType.PLUMA -> "pluma_presets_v1"
@@ -306,6 +298,13 @@ class ToolManager(context: Context) {
 
     private fun getDefaultPresetsForTool(type: ToolType): List<BrushPreset> {
         return when(type) {
+            ToolType.PENCIL_CUMULATIVE -> listOf(
+                BrushPreset(size = 2f, opacity = 0.3f, freehandSettings = FreehandSettings(thinning = 0.4f, smoothing = 0.3f, isCumulativeOpacity = true)),
+                BrushPreset(size = 5f, opacity = 0.4f, freehandSettings = FreehandSettings(thinning = 0.5f, smoothing = 0.4f, isCumulativeOpacity = true)),
+                BrushPreset(size = 12f, opacity = 0.5f, freehandSettings = FreehandSettings(thinning = 0.6f, smoothing = 0.5f, isCumulativeOpacity = true)),
+                BrushPreset(size = 20f, opacity = 0.6f, freehandSettings = FreehandSettings(thinning = 0.7f, smoothing = 0.6f, simulatePressure = true, taperStart = 20f, taperEnd = 20f, isCumulativeOpacity = true)),
+                BrushPreset(size = 35f, opacity = 0.4f, freehandSettings = FreehandSettings(thinning = 0f, smoothing = 0.4f, isCumulativeOpacity = true))
+            )
             ToolType.PEN -> listOf(
                 BrushPreset(size = 1f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0f, smoothing = 0f)),
                 BrushPreset(size = 2f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0f, smoothing = 0f)),
@@ -348,7 +347,12 @@ class ToolManager(context: Context) {
         val currentPreset = BrushPreset(
             size = currentSize,
             opacity = currentOpacity,
-            freehandSettings = currentFreehandSettings
+            freehandSettings = currentFreehandSettings,
+            strokeColor = _strokeColor.value,
+            fillColor = _fillColor.value,
+            isStrokeActive = _isStrokeActive.value,
+            isFillActive = _isFillActive.value,
+            fillStyle = _fillStyle.value
         )
         val currentList = _brushPresets.value.toMutableList()
         if (index in 0 until currentList.size) {
@@ -366,6 +370,13 @@ class ToolManager(context: Context) {
             setToolSize(preset.size)
             setToolOpacity(preset.opacity)
             updateFreehandSettings(preset.freehandSettings)
+            
+            preset.strokeColor?.let { _strokeColor.value = it }
+            preset.fillColor?.let { _fillColor.value = it }
+            preset.isStrokeActive?.let { _isStrokeActive.value = it }
+            preset.isFillActive?.let { _isFillActive.value = it }
+            preset.fillStyle?.let { _fillStyle.value = it }
+
             _selectedPresetIndex.value = index
         }
     }
@@ -376,7 +387,12 @@ class ToolManager(context: Context) {
         val preset = list[index]
         return _brushSize.value != preset.size ||
                _brushOpacity.value != preset.opacity ||
-               currentFreehandSettings != preset.freehandSettings
+               currentFreehandSettings != preset.freehandSettings ||
+               (preset.strokeColor != null && _strokeColor.value != preset.strokeColor) ||
+               (preset.fillColor != null && _fillColor.value != preset.fillColor) ||
+               (preset.isStrokeActive != null && _isStrokeActive.value != preset.isStrokeActive) ||
+               (preset.isFillActive != null && _isFillActive.value != preset.isFillActive) ||
+               (preset.fillStyle != null && _fillStyle.value != preset.fillStyle)
     }
 
     fun updateStrokeType(type: StrokeType) {
@@ -429,6 +445,9 @@ class ToolManager(context: Context) {
                 isFlattenedOuterStrokeEnabled = true
                 settings = settings.copy(isCumulativeOpacity = false)
             }
+            ToolType.PENCIL_CUMULATIVE -> {
+                isFlattenedOuterStrokeEnabled = false
+            }
             ToolType.PAINT -> {
                 isFlattenedOuterStrokeEnabled = true
                 settings = settings.copy(
@@ -466,6 +485,7 @@ class ToolManager(context: Context) {
             ToolType.PAINT -> savePaintSettings(settings)
             ToolType.PLUMA -> savePlumaSettings(settings)
             ToolType.WATERCOLOR -> saveWatercolorSettings(settings)
+            ToolType.PENCIL_CUMULATIVE -> savePencilCumulativeSettings(settings)
             else -> {}
         }
     }
@@ -529,6 +549,16 @@ class ToolManager(context: Context) {
         prefs.edit().putString("pluma_settings_v3", json).apply()
     }
 
+    private fun loadPencilCumulativeSettings(): FreehandSettings {
+        val json = prefs.getString("pencil_cumulative_settings_v1", null) ?: return FreehandSettings(isCumulativeOpacity = true)
+        return try { gson.fromJson(json, FreehandSettings::class.java) } catch (e: Exception) { FreehandSettings(isCumulativeOpacity = true) }
+    }
+
+    private fun savePencilCumulativeSettings(settings: FreehandSettings) {
+        val json = gson.toJson(settings)
+        prefs.edit().putString("pencil_cumulative_settings_v1", json).apply()
+    }
+
     private fun loadWatercolorSettings(): FreehandSettings {
         val json = prefs.getString("watercolor_settings_v1", null) ?: return FreehandSettings(
             thinning = 0.5f,
@@ -580,7 +610,7 @@ class ToolManager(context: Context) {
             } else {
                 ToolType.FREEHAND
             }
-            if (saved == ToolType.SELECTION || saved == ToolType.ERASER) ToolType.FREEHAND else saved
+            if (saved == ToolType.SELECTION || saved == ToolType.ERASER || saved == ToolType.POINT_ERASER) ToolType.FREEHAND else saved
         } catch(e: Exception) { ToolType.FREEHAND }
 
         currentStrokeType = try {
@@ -596,6 +626,7 @@ class ToolManager(context: Context) {
         val savedPaint = loadPaintSettings()
         val savedPluma = loadPlumaSettings()
         val savedWatercolor = loadWatercolorSettings()
+        val savedPencilCumulative = loadPencilCumulativeSettings()
         
         fun loadConfig(type: ToolType, defSize: Float, defOpacity: Float): ToolConfig {
             val s = prefs.getFloat("tool_size_${type.name}", defSize)
@@ -606,6 +637,7 @@ class ToolManager(context: Context) {
                 ToolType.PAINT -> savedPaint
                 ToolType.PLUMA -> savedPluma
                 ToolType.WATERCOLOR -> savedWatercolor
+                ToolType.PENCIL_CUMULATIVE -> savedPencilCumulative
                 else -> FreehandSettings()
             }
             return ToolConfig(size = s, opacity = o, freehandSettings = settings)
@@ -616,8 +648,10 @@ class ToolManager(context: Context) {
         toolConfigs[ToolType.PAINT] = loadConfig(ToolType.PAINT, 10f, 1f)
         toolConfigs[ToolType.PLUMA] = loadConfig(ToolType.PLUMA, 2.5f, 1f)
         toolConfigs[ToolType.WATERCOLOR] = loadConfig(ToolType.WATERCOLOR, 20f, 0.4f)
+        toolConfigs[ToolType.PENCIL_CUMULATIVE] = loadConfig(ToolType.PENCIL_CUMULATIVE, 2f, 0.5f)
         toolConfigs[ToolType.FILL] = loadConfig(ToolType.FILL, 1f, 1.0f)
         toolConfigs[ToolType.ERASER] = loadConfig(ToolType.ERASER, 10f, 1f)
+        toolConfigs[ToolType.POINT_ERASER] = loadConfig(ToolType.POINT_ERASER, 10f, 1f)
         toolConfigs[ToolType.SELECTION] = loadConfig(ToolType.SELECTION, 1f, 1f)
         toolConfigs[ToolType.TRIM] = loadConfig(ToolType.TRIM, 1f, 1f)
         toolConfigs[ToolType.EXTEND] = loadConfig(ToolType.EXTEND, 1f, 1f)

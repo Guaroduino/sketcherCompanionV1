@@ -39,6 +39,27 @@ data class VectorStroke(
     val watercolorEdgeRingOpacity: Float = 1.0f,
     val watercolorEdgeRingWidth: Float = 2.0f
 ) : LayerElement {
+    @kotlin.jvm.Transient
+    private var cachedJitteredPath: android.graphics.Path? = null
+    @kotlin.jvm.Transient
+    private var cachedJitteredSeed: Long? = null
+
+    fun getJitteredPath(seed: Long): android.graphics.Path {
+        val currentPath = cachedJitteredPath
+        if (currentPath != null && cachedJitteredSeed == seed) {
+            return currentPath
+        }
+        val newPath = com.sketcher.sketchercompanionv1.utils.JitterPathHelper.createJitterPath(
+            path,
+            watercolorJitterSegment,
+            watercolorJitterDeviation,
+            seed = seed
+        )
+        cachedJitteredPath = newPath
+        cachedJitteredSeed = seed
+        return newPath
+    }
+
     private val cachedBounds = RectF().apply { path.computeBounds(this, true) }
 
     override fun getBoundingBox(library: Map<String, ComponentDefinition>): RectF {

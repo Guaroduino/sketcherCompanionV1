@@ -12,6 +12,7 @@ data class StudioTool(
     val parentGroupId: String? = null,
     val registryId: String = id,
     val subTools: List<StudioTool> = emptyList(),
+    val isExperimental: Boolean = false,
     val onClick: () -> Unit = {}
 ) {
     companion object {

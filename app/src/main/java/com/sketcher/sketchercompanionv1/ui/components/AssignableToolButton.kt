@@ -55,11 +55,13 @@ enum class ToolPayload(val label: String, val icon: ImageVector) {
     PENCIL("Pencil", Icons.Default.Edit),
     PEN("Pen", Icons.Default.Gesture),
     ERASER("Eraser", Icons.Default.AutoFixNormal),
+    POINT_ERASER("Borrador de Puntos", Icons.Default.AutoFixNormal),
     STROKE_COLOR("Stroke Color", Icons.Default.BorderColor),
     FILL_COLOR("Fill Color", Icons.Default.FormatColorFill),
     PAINT("Paint", Icons.Default.Brush),
     WATERCOLOR("Acuarela", Icons.Default.Palette),
-    PLUMA("Pluma", Icons.Default.Gesture)
+    PLUMA("Pluma", Icons.Default.Gesture),
+    PENCIL_CUMULATIVE("Pencil Acumulativo", Icons.Default.Edit)
 }
 
 @OptIn(ExperimentalFoundationApi::class)

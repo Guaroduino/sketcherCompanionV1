@@ -119,6 +119,12 @@ import com.sketcher.sketchercompanionv1.ui.model.StudioTool
 
 import com.sketcher.sketchercompanionv1.ui.model.ToolLocation
 
+import com.sketcher.sketchercompanionv1.ui.model.ToolRegistry
+
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.SharingStarted
+
 import androidx.compose.material.icons.Icons
 
 import androidx.compose.material.icons.filled.*
@@ -184,6 +190,28 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     }
 
+    private val _showExperimentalTools = MutableStateFlow(prefs.getBoolean("show_experimental_tools", false))
+
+    var showExperimentalTools by mutableStateOf(prefs.getBoolean("show_experimental_tools", false))
+
+        private set
+
+    fun toggleExperimentalTools() {
+        showExperimentalTools = !showExperimentalTools
+        prefs.edit().putBoolean("show_experimental_tools", showExperimentalTools).apply()
+        _showExperimentalTools.value = showExperimentalTools
+        ToolRegistry.showExperimental = showExperimentalTools
+        if (!showExperimentalTools) {
+            val isCurrentToolExperimental = when (currentTool) {
+                ToolType.WATERCOLOR, ToolType.PENCIL_CUMULATIVE -> true
+                else -> false
+            }
+            if (isCurrentToolExperimental) {
+                selectTool(ToolType.FREEHAND)
+            }
+        }
+    }
+
 
 
     val strokeCount: Int by androidx.compose.runtime.derivedStateOf {
@@ -232,7 +260,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     var isSnapToGridEnabled by mutableStateOf(false)
 
-    var isElementSnappingEnabled by mutableStateOf(prefs.getBoolean("element_snapping", true))
+    var isElementSnappingEnabled by mutableStateOf(prefs.getBoolean("element_snapping", false))
 
         private set
 
@@ -436,9 +464,45 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     // --- TOOLBAR STATE (Dynamic Slot System) ---
 
-    val toolbarState = toolbarManager.toolbarState
+    private fun filterExperimentalFromSubTools(tool: StudioTool): StudioTool {
+        if (tool.subTools.isEmpty()) return tool
+        val filteredSubs = tool.subTools.filter { !it.isExperimental }.map { filterExperimentalFromSubTools(it) }
+        return tool.copy(subTools = filteredSubs)
+    }
 
-    val contextualToolbar = toolbarManager.contextualToolbar
+    val toolbarState: kotlinx.coroutines.flow.StateFlow<Map<ToolLocation, List<StudioTool>>> =
+        kotlinx.coroutines.flow.combine(
+            toolbarManager.toolbarState,
+            _showExperimentalTools
+        ) { state, showExp ->
+            if (showExp) {
+                state
+            } else {
+                state.mapValues { (_, list) ->
+                    list.filter { !it.isExperimental }.map { filterExperimentalFromSubTools(it) }
+                }
+            }
+        }.stateIn(
+            scope = viewModelScope,
+            started = kotlinx.coroutines.flow.SharingStarted.Eagerly,
+            initialValue = emptyMap()
+        )
+
+    val contextualToolbar: kotlinx.coroutines.flow.StateFlow<List<StudioTool>> =
+        kotlinx.coroutines.flow.combine(
+            toolbarManager.contextualToolbar,
+            _showExperimentalTools
+        ) { list, showExp ->
+            if (showExp) {
+                list
+            } else {
+                list.filter { !it.isExperimental }.map { filterExperimentalFromSubTools(it) }
+            }
+        }.stateIn(
+            scope = viewModelScope,
+            started = kotlinx.coroutines.flow.SharingStarted.Eagerly,
+            initialValue = emptyList()
+        )
 
     val isEditMode = toolbarManager.isEditMode
 
@@ -511,24 +575,22 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         when(payload) {
 
             ToolPayload.PENCIL -> {
-                updateStrokeType(StrokeType.FREEHAND)
                 selectTool(ToolType.FREEHAND)
             }
             ToolPayload.PEN -> {
-                updateStrokeType(StrokeType.PEN)
                 selectTool(ToolType.PEN)
             }
             ToolPayload.PAINT -> {
-                updateStrokeType(StrokeType.PAINT)
                 selectTool(ToolType.PAINT)
             }
             ToolPayload.WATERCOLOR -> {
-                updateStrokeType(StrokeType.WATERCOLOR)
                 selectTool(ToolType.WATERCOLOR)
             }
             ToolPayload.PLUMA -> {
-                updateStrokeType(StrokeType.PLUMA)
                 selectTool(ToolType.PLUMA)
+            }
+            ToolPayload.PENCIL_CUMULATIVE -> {
+                selectTool(ToolType.PENCIL_CUMULATIVE)
             }
             ToolPayload.ERASER -> selectTool(ToolType.ERASER)
 
@@ -547,6 +609,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             ToolPayload.FILL_COLOR -> {
                 // Toggle fill active state without resetting to solid color
                 toggleFill(!isFillActive.value)
+            }
+            ToolPayload.POINT_ERASER -> {
+                selectTool(ToolType.POINT_ERASER)
             }
 
         }
@@ -631,89 +696,67 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         "toggle_snap" -> ({ toggleElementSnapping() })
 
         "pencil" -> ({ 
-             updateStrokeType(StrokeType.FREEHAND)
              selectTool(ToolType.FREEHAND) 
         })
-
+ 
         "paint" -> ({ 
-             updateStrokeType(StrokeType.PAINT)
              selectTool(ToolType.PAINT) 
         })
-
+ 
         "watercolor" -> ({ 
-             updateStrokeType(StrokeType.WATERCOLOR)
              selectTool(ToolType.WATERCOLOR) 
         })
-
+ 
         "pluma" -> ({ 
-             updateStrokeType(StrokeType.PLUMA)
              selectTool(ToolType.PLUMA) 
         })
-
-        "pen" -> ({ 
-
-             updateStrokeType(StrokeType.PEN)
-
-             selectTool(ToolType.PEN) 
-
+ 
+        "pencil_cumulative" -> ({ 
+             selectTool(ToolType.PENCIL_CUMULATIVE) 
         })
-
+ 
+        "pen" -> ({ 
+             selectTool(ToolType.PEN) 
+        })
+ 
         "eraser" -> ({ selectTool(ToolType.ERASER) })
+        "point_eraser" -> ({ selectTool(ToolType.POINT_ERASER) })
+ 
+        "stroke_freehand" -> ({ updateStrokeType(StrokeType.FREEHAND) })
+        "stroke_line" -> ({ updateStrokeType(StrokeType.LINE) })
+        "stroke_polyline" -> ({ updateStrokeType(StrokeType.POLYLINE) })
+        "stroke_circle" -> ({ updateStrokeType(StrokeType.CIRCLE) })
+        "stroke_arc" -> ({ updateStrokeType(StrokeType.ARC) })
+        "stroke_ellipse" -> ({ updateStrokeType(StrokeType.ELLIPSE) })
+        "stroke_spline" -> ({ updateStrokeType(StrokeType.SPLINE) })
+        "stroke_bezier" -> ({ updateStrokeType(StrokeType.BEZIER) })
 
         "line" -> ({
-
              updateStrokeType(StrokeType.LINE)
-
-             selectTool(ToolType.FREEHAND)
-
         })
-
+ 
         "circle" -> ({
-
              updateStrokeType(StrokeType.CIRCLE)
-
-             selectTool(ToolType.FREEHAND)
-
         })
-
+ 
         "polyline" -> ({
-
              updateStrokeType(StrokeType.POLYLINE)
-
-             selectTool(ToolType.FREEHAND)
-
         })
-
+ 
         "arc" -> ({
-
              updateStrokeType(StrokeType.ARC)
-
-             selectTool(ToolType.FREEHAND)
-
         })
-
+ 
         "ellipse" -> ({
-
              updateStrokeType(StrokeType.ELLIPSE)
-
-             selectTool(ToolType.FREEHAND)
-
         })
-
+ 
         "spline" -> ({
-
              updateStrokeType(StrokeType.SPLINE)
-
-             selectTool(ToolType.FREEHAND)
-
         })
-
+ 
         "bezier" -> ({
-
              updateStrokeType(StrokeType.BEZIER)
-
-             selectTool(ToolType.FREEHAND)
-
         })
 
         "trim" -> ({ selectTool(ToolType.TRIM) })
@@ -865,6 +908,19 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun reloadPreferences() {
 
         showPerformanceStats = prefs.getBoolean("show_performance_stats", false)
+
+        showExperimentalTools = prefs.getBoolean("show_experimental_tools", false)
+        _showExperimentalTools.value = showExperimentalTools
+        ToolRegistry.showExperimental = showExperimentalTools
+        if (!showExperimentalTools) {
+            val isCurrentToolExperimental = when (currentTool) {
+                ToolType.WATERCOLOR, ToolType.PENCIL_CUMULATIVE -> true
+                else -> false
+            }
+            if (isCurrentToolExperimental) {
+                selectTool(ToolType.FREEHAND)
+            }
+        }
 
         isRotationLocked = prefs.getBoolean("rotation_lock", false)
 
@@ -1172,6 +1228,20 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun saveBrushPreset(index: Int) = toolManager.saveBrushPreset(index)
     fun selectBrushPreset(index: Int) = toolManager.selectBrushPreset(index)
     fun isPresetModified(index: Int): Boolean = toolManager.isPresetModified(index)
+    fun revertToPresetColor(isStroke: Boolean) {
+        val index = selectedPresetIndex.value ?: 0
+        val list = brushPresets.value
+        if (index in list.indices) {
+            val preset = list[index]
+            if (isStroke) {
+                preset.strokeColor?.let { setStrokeColor(it) }
+            } else {
+                preset.fillColor?.let { setFillColor(it) }
+                preset.fillStyle?.let { setFillStyle(it) }
+                preset.isFillActive?.let { toggleFill(it) }
+            }
+        }
+    }
     val fillPresets = toolManager.fillPresets
     fun saveFillPreset(index: Int, style: FillStyle) = toolManager.saveFillPreset(index, style)
 
@@ -1187,6 +1257,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         private set
 
     init {
+        ToolRegistry.showExperimental = showExperimentalTools
         hasPreferencesBackup = application.getSharedPreferences("sketcher_prefs_backup", Context.MODE_PRIVATE).all.isNotEmpty()
         selectTool(currentTool)
         toolbarManager.initLayout()
@@ -1319,10 +1390,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun confirmTransform() {
-        val activeIndex = activeLayerIndex
-        if (layers.isNotEmpty() && activeIndex in layers.indices) {
-            selectionManager.commitTransformSession(layers[activeIndex], componentLibrary)
-        }
+        selectionManager.commitTransformSession(activeContainer, componentLibrary)
         val before = layersSnapshotBeforeTransform
         if (before != null) {
             val activeIndexBefore = activeLayerIndex
@@ -1335,11 +1403,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun cancelTransform() {
-        val activeIndex = activeLayerIndex
-        if (layers.isNotEmpty() && activeIndex in layers.indices) {
-            val activeLayer = layers[activeIndex]
-            selectionManager.cancelTransformSession(activeLayer, componentLibrary)
-        }
+        selectionManager.cancelTransformSession(activeContainer, componentLibrary)
         layersSnapshotBeforeTransform = null
         selectionManager.clearBackup()
         currentSelectionMode = SelectionMode.FREEHAND
@@ -1445,8 +1509,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             val oldGroup = parent
             val newGroup = GroupElement(oldGroup.id, ctx.toMutableList(), oldGroup.matrix)
             // Replace in container
-            if (activeContainer.contains(oldGroup)) {
-                val idx = activeContainer.indexOf(oldGroup)
+            val idx = activeContainer.indexOfFirst { it === oldGroup }
+            if (idx != -1) {
                 activeContainer[idx] = newGroup
             } else {
                 // Should not happen normally
@@ -1523,9 +1587,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
             groupsAndInstances.forEach { item ->
 
-                if (activeContainer.contains(item)) {
-
-                    activeContainer.remove(item)
+                val idx = activeContainer.indexOfFirst { it === item }
+                if (idx != -1) {
+                    activeContainer.removeAt(idx)
 
                     
 
@@ -2147,18 +2211,97 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         
 
+        val isCad = stroke.strokeType != com.sketcher.sketchercompanionv1.dto.StrokeType.FREEHAND
+        val isMeshBrush = stroke.brushType == "FREEHAND" || stroke.brushType == "PLUMA" || stroke.brushType == "PENCIL_CUMULATIVE" || stroke.brushType == "PAINT" || stroke.brushType == "WATERCOLOR"
+        val isPaintOrWatercolor = stroke.brushType == "PAINT" || stroke.brushType == "WATERCOLOR"
+
+        val updatedPath = if (isCad) {
+            val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(stroke.strokeType, newPoints)
+            if (isMeshBrush) {
+                val pm = android.graphics.PathMeasure(centerline, false)
+                val densePoints = mutableListOf<StrokePoint>()
+                val pos = FloatArray(2)
+                val length = pm.length
+                if (length > 0f) {
+                    val steps = (length / 2f).toInt().coerceIn(10, 1000)
+                    for (i in 0..steps) {
+                        val distance = (i.toFloat() / steps) * length
+                        pm.getPosTan(distance, pos, null)
+                        densePoints.add(StrokePoint(pos[0], pos[1], 1.0f, 0L))
+                    }
+                }
+                val meshPath = android.graphics.Path()
+                if (densePoints.isNotEmpty()) {
+                    val toolType = when (stroke.brushType) {
+                        "PLUMA" -> com.sketcher.sketchercompanionv1.dto.ToolType.PLUMA
+                        "PAINT" -> com.sketcher.sketchercompanionv1.dto.ToolType.PAINT
+                        "WATERCOLOR" -> com.sketcher.sketchercompanionv1.dto.ToolType.WATERCOLOR
+                        else -> com.sketcher.sketchercompanionv1.dto.ToolType.FREEHAND
+                    }
+                    val settings = toolManager.getToolConfigMap()[toolType]?.freehandSettings ?: com.sketcher.sketchercompanionv1.dto.FreehandSettings()
+                    com.sketcher.sketchercompanionv1.PerfectFreehandGenerator.generate(densePoints, settings.copy(size = stroke.maxWidth, isComplete = true), outPath = meshPath)
+                }
+                meshPath
+            } else {
+                centerline
+            }
+        } else {
+            if (isMeshBrush) {
+                if (stroke.isFlattened) {
+                    val path = android.graphics.Path()
+                    if (newPoints.isNotEmpty()) {
+                        path.moveTo(newPoints[0].x, newPoints[0].y)
+                        for (i in 1 until newPoints.size) {
+                            path.lineTo(newPoints[i].x, newPoints[i].y)
+                        }
+                        path.close()
+                    }
+                    path
+                } else {
+                    val toolType = when (stroke.brushType) {
+                        "PLUMA" -> com.sketcher.sketchercompanionv1.dto.ToolType.PLUMA
+                        "PAINT" -> com.sketcher.sketchercompanionv1.dto.ToolType.PAINT
+                        "WATERCOLOR" -> com.sketcher.sketchercompanionv1.dto.ToolType.WATERCOLOR
+                        else -> com.sketcher.sketchercompanionv1.dto.ToolType.FREEHAND
+                    }
+                    val settings = toolManager.getToolConfigMap()[toolType]?.freehandSettings ?: com.sketcher.sketchercompanionv1.dto.FreehandSettings()
+                    com.sketcher.sketchercompanionv1.PerfectFreehandGenerator.generate(newPoints, settings.copy(size = stroke.maxWidth, isComplete = true)).path
+                }
+            } else {
+                val path = android.graphics.Path()
+                if (newPoints.isNotEmpty()) {
+                    path.moveTo(newPoints[0].x, newPoints[0].y)
+                    for (i in 1 until newPoints.size) {
+                        path.lineTo(newPoints[i].x, newPoints[i].y)
+                    }
+                    path.close()
+                }
+                path
+            }
+        }
+
+        val updatedFillPath = if (stroke.isFillEnabled) {
+            if (isCad) {
+                if (isPaintOrWatercolor) updatedPath else com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(stroke.strokeType, newPoints)
+            } else {
+                val path = android.graphics.Path()
+                if (newPoints.isNotEmpty()) {
+                    path.moveTo(newPoints[0].x, newPoints[0].y)
+                    for (i in 1 until newPoints.size) {
+                        path.lineTo(newPoints[i].x, newPoints[i].y)
+                    }
+                    path.close()
+                }
+                path
+            }
+        } else {
+            null
+        }
+
         val updatedStroke = stroke.copy(
-
             points = newPoints,
-
-            path = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(stroke.strokeType, newPoints),
-
-            fillPath = if (stroke.isFillEnabled && newPoints.size >= 3) {
-
-                com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(stroke.strokeType, newPoints)
-
-            } else null
-
+            path = updatedPath,
+            fillPath = updatedFillPath
         )
 
         
@@ -2180,15 +2323,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         
 
         // Mantener el elemento editado seleccionado
-
-        if (selectionManager.selectedElements.contains(stroke)) {
-
-            selectionManager.selectedElements.remove(stroke)
-
-            selectionManager.selectedElements.add(updatedStroke)
-
+        val idx = selectionManager.selectedElements.indexOfFirst { it === stroke }
+        if (idx != -1) {
+            selectionManager.selectedElements[idx] = updatedStroke
             selectionManager.recalculateBaseBounds(componentLibrary)
-
         }
 
     }
@@ -2421,7 +2559,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
             layer.copy(elements = layer.elements.map { element ->
 
-                if (selected.contains(element)) element.copyElement() else element
+                if (selected.any { it === element }) element.copyElement() else element
 
             }.toMutableStateList())
 
@@ -2439,7 +2577,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
             layer.id to layer.elements.mapIndexedNotNull { index, element ->
 
-                if (selectionManager.selectedElements.contains(element)) index else null
+                if (selectionManager.selectedElements.any { it === element }) index else null
 
             }
 
@@ -3331,12 +3469,20 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         val targetLayer = layers[activeLayerIndex]
         if (targetLayer.isLocked) return
 
-        if (stroke.strokeType == StrokeType.PAINT || stroke.strokeType == StrokeType.WATERCOLOR) {
+        val isPaintOrWatercolor = stroke.brushType == "PAINT" || stroke.brushType == "WATERCOLOR"
+        var shouldJoin = true
+        if (isPaintOrWatercolor) {
+            val toolType = if (stroke.brushType == "PAINT") ToolType.PAINT else ToolType.WATERCOLOR
+            val toolSettings = toolManager.getToolConfigMap()[toolType]?.freehandSettings ?: FreehandSettings()
+            shouldJoin = toolSettings.paintJoinPrevious
+        }
+
+        if (isPaintOrWatercolor && shouldJoin) {
             val containerSnapshot = synchronized(activeContainer) { activeContainer.toList() }
             viewModelScope.launch {
                 val mergedResult = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                     val sameColorPaintStrokes = containerSnapshot.filterIsInstance<VectorStroke>().filter { existing ->
-                        existing.strokeType == stroke.strokeType &&
+                        existing.brushType == stroke.brushType &&
                         existing.strokeColor == stroke.strokeColor &&
                         existing.fillColor == stroke.fillColor &&
                         existing.isFillEnabled == stroke.isFillEnabled &&
@@ -4427,141 +4573,308 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
 
 
-    
+    private var eraserDragActive = false
+    private val eraserSnapshots = mutableMapOf<MutableList<LayerElement>, List<LayerElement>>()
+
+    fun startEraserDrag() {
+        eraserDragActive = true
+        eraserSnapshots.clear()
+        val containers = if (editingContext != null) {
+            listOf(activeContainer)
+        } else {
+            if (selectionScope == SelectionScope.ALL_LAYERS) {
+                layers.map { it.elements }
+            } else {
+                val activeIndex = activeLayerIndex
+                val activeLayer = layers.getOrNull(activeIndex)
+                if (activeLayer != null) listOf(activeLayer.elements) else emptyList()
+            }
+        }
+        for (container in containers) {
+            eraserSnapshots[container] = synchronized(container) { container.toList() }
+        }
+    }
+
+    fun endEraserDrag() {
+        if (!eraserDragActive) return
+        eraserDragActive = false
+
+        val commands = mutableListOf<UndoCommand>()
+        for ((container, snapshot) in eraserSnapshots) {
+            val currentList = synchronized(container) { container.toList() }
+            val elementsRemoved = snapshot.filter { it !in currentList }
+            val elementsAdded = currentList.filter { it !in snapshot }
+
+            if (elementsRemoved.isNotEmpty() || elementsAdded.isNotEmpty()) {
+                commands.add(com.sketcher.sketchercompanionv1.command.PointEraseCommand(container, elementsRemoved, elementsAdded))
+            }
+        }
+
+        if (commands.isNotEmpty()) {
+            val finalCommand = if (commands.size == 1) commands.first() else com.sketcher.sketchercompanionv1.command.CompoundCommand(commands, "Borrador de Puntos")
+            undoStack.push(finalCommand)
+            if (undoStack.size > 100) undoStack.removeLast()
+            redoStack.clear()
+            updateUndoRedoSupport()
+        }
+        eraserSnapshots.clear()
+    }
 
     fun erase(x: Float, y: Float, diameterPx: Float): Boolean {
-
         var changed = false
 
         // Convert diameterPx to World Radius
-
         val radiusWorld = com.sketcher.sketchercompanionv1.utils.UnitUtils.pixelsToProjectUnits(
-
             diameterPx, currentUnit, scaleConfig.basePixelsPerMillimeter
-
         ) / 2f
 
-        
-
-        if (editingContext != null) {
-
-            val hits = mutableListOf<LayerElement>()
-
-            val elementsSnapshot = synchronized(activeContainer) { activeContainer.toList() }
-
-            for (element in elementsSnapshot) {
-
-                val bounds = element.getBoundingBox(componentLibrary)
-
-                if (RectF.intersects(bounds, RectF(x - radiusWorld, y - radiusWorld, x + radiusWorld, y + radiusWorld))) {
-
-                    hits.add(element)
-
-                }
-
-            }
-
-            if (hits.isNotEmpty()) {
-
-                for (element in hits) {
-
-                    performAction(EraseCommand(activeContainer, element))
-
-                    changed = true
-
-                }
-
-            }
-
-            return changed
-
+        val isLocalSession = !eraserDragActive
+        if (isLocalSession) {
+            startEraserDrag()
         }
 
-
-
-        // Normal mode (non-editing)
-
-        val hitsWithLayer = mutableListOf<Pair<Layer, LayerElement>>()
-
-        val layersSnapshot = synchronized(layers) {
-
-            layers.toList().map { layer ->
-
-                val elementsSnapshot = synchronized(layer.elements) {
-
-                    layer.elements.toList()
-
-                }
-
-                layer to elementsSnapshot
-
-            }
-
-        }
-
-
-
-        val layersToCheck = if (selectionScope == SelectionScope.ALL_LAYERS) {
-
-            layersSnapshot
-
-        } else {
-
-            val activeIndex = activeLayerIndex
-
-            if (activeIndex in layersSnapshot.indices) {
-
-                listOf(layersSnapshot[activeIndex])
-
+        if (currentTool == ToolType.POINT_ERASER) {
+            val containersToCheck = if (editingContext != null) {
+                listOf(activeContainer)
             } else {
-
-                emptyList()
-
+                if (selectionScope == SelectionScope.ALL_LAYERS) {
+                    layers.map { it.elements }
+                } else {
+                    val activeIndex = activeLayerIndex
+                    val activeLayer = layers.getOrNull(activeIndex)
+                    if (activeLayer != null) listOf(activeLayer.elements) else emptyList()
+                }
             }
 
-        }
-
-
-
-        for ((layer, elements) in layersToCheck) {
-
-            for (element in elements) {
-
-                val bounds = element.getBoundingBox(componentLibrary)
-
-                if (RectF.intersects(bounds, RectF(x - radiusWorld, y - radiusWorld, x + radiusWorld, y + radiusWorld))) {
-
-                    hitsWithLayer.add(layer to element)
-
+            for (container in containersToCheck) {
+                if (erasePartialInContainer(container, x, y, radiusWorld)) {
+                    changed = true
+                }
+            }
+        } else {
+            // Legacy full-stroke eraser
+            if (editingContext != null) {
+                val hits = mutableListOf<LayerElement>()
+                val elementsSnapshot = synchronized(activeContainer) { activeContainer.toList() }
+                for (element in elementsSnapshot) {
+                    val bounds = element.getBoundingBox(componentLibrary)
+                    if (RectF.intersects(bounds, RectF(x - radiusWorld, y - radiusWorld, x + radiusWorld, y + radiusWorld))) {
+                        hits.add(element)
+                    }
+                }
+                if (hits.isNotEmpty()) {
+                    for (element in hits) {
+                        performAction(EraseCommand(activeContainer, element))
+                        changed = true
+                    }
+                }
+            } else {
+                // Normal mode (non-editing)
+                val hitsWithLayer = mutableListOf<Pair<Layer, LayerElement>>()
+                val layersSnapshot = synchronized(layers) {
+                    layers.toList().map { layer ->
+                        val elementsSnapshot = synchronized(layer.elements) {
+                            layer.elements.toList()
+                        }
+                        layer to elementsSnapshot
+                    }
                 }
 
-            }
+                val layersToCheck = if (selectionScope == SelectionScope.ALL_LAYERS) {
+                    layersSnapshot
+                } else {
+                    val activeIndex = activeLayerIndex
+                    if (activeIndex in layersSnapshot.indices) {
+                        listOf(layersSnapshot[activeIndex])
+                    } else {
+                        emptyList()
+                    }
+                }
 
+                for ((layer, elements) in layersToCheck) {
+                    for (element in elements) {
+                        val bounds = element.getBoundingBox(componentLibrary)
+                        if (RectF.intersects(bounds, RectF(x - radiusWorld, y - radiusWorld, x + radiusWorld, y + radiusWorld))) {
+                            hitsWithLayer.add(layer to element)
+                        }
+                    }
+                }
+
+                if (hitsWithLayer.isNotEmpty()) {
+                    for ((layer, element) in hitsWithLayer) {
+                        performAction(EraseCommand(layer.elements, element))
+                        changed = true
+                    }
+                }
+            }
         }
 
-
-
-        if (hitsWithLayer.isNotEmpty()) {
-
-            for ((layer, element) in hitsWithLayer) {
-
-                performAction(EraseCommand(layer.elements, element))
-
-                changed = true
-
-            }
-
+        if (isLocalSession) {
+            endEraserDrag()
         }
 
         return changed
-
     }
 
+    private fun erasePartialInContainer(
+        container: MutableList<LayerElement>,
+        x: Float,
+        y: Float,
+        radiusWorld: Float
+    ): Boolean {
+        val zoom = run {
+            val vals = FloatArray(9)
+            _cameraMatrix.value.getValues(vals)
+            val scale = kotlin.math.sqrt(vals[android.graphics.Matrix.MSCALE_X] * vals[android.graphics.Matrix.MSCALE_X] + vals[android.graphics.Matrix.MSKEW_X] * vals[android.graphics.Matrix.MSKEW_X])
+            if (scale > 0.001f) scale else 1.0f
+        }
+        var changed = false
+        val toRemove = mutableListOf<LayerElement>()
+        val toAdd = mutableListOf<LayerElement>()
 
+        val snapshot = synchronized(container) { container.toList() }
+        val eraserBounds = RectF(x - radiusWorld, y - radiusWorld, x + radiusWorld, y + radiusWorld)
 
+        for (element in snapshot) {
+            val bounds = element.getBoundingBox(componentLibrary)
+            if (!RectF.intersects(bounds, eraserBounds)) continue
 
+            when (element) {
+                is VectorStroke -> {
+                    if (element.isFlattened) {
+                        // Borrado mesh (corte booleano)
+                        val eraserPath = android.graphics.Path().apply {
+                            addCircle(x, y, radiusWorld, android.graphics.Path.Direction.CW)
+                        }
+                        val newPath = android.graphics.Path()
+                        val success = newPath.op(element.path, eraserPath, android.graphics.Path.Op.DIFFERENCE)
+                        if (success) {
+                            toRemove.add(element)
+                            if (!newPath.isEmpty) {
+                                val newFillPath = if (element.fillPath != null) {
+                                    val fp = android.graphics.Path()
+                                    if (fp.op(element.fillPath, eraserPath, android.graphics.Path.Op.DIFFERENCE)) fp else null
+                                } else null
 
-    
+                                val step = (8f / zoom).coerceAtLeast(1.0f)
+                                val outlinePoints = com.sketcher.sketchercompanionv1.utils.GeometryUtils.flattenPath(newPath, step = step)
+                                val newPoints = outlinePoints.map { pt -> StrokePoint(pt.x, pt.y, 0.5f) }
+
+                                val updatedStroke = element.copy(
+                                    path = newPath,
+                                    fillPath = newFillPath,
+                                    points = newPoints
+                                )
+                                toAdd.add(updatedStroke)
+                            }
+                            changed = true
+                        }
+                    } else {
+                        // Borrado por puntos (línea media)
+                        val segments = mutableListOf<MutableList<StrokePoint>>()
+                        var currentSeg = mutableListOf<StrokePoint>()
+                        val radiusSq = radiusWorld * radiusWorld
+
+                        for (pt in element.points) {
+                            val dx = pt.x - x
+                            val dy = pt.y - y
+                            val distSq = dx * dx + dy * dy
+                            if (distSq < radiusSq) {
+                                if (currentSeg.isNotEmpty()) {
+                                    segments.add(currentSeg)
+                                    currentSeg = mutableListOf()
+                                }
+                            } else {
+                                currentSeg.add(pt)
+                            }
+                        }
+                        if (currentSeg.isNotEmpty()) {
+                            segments.add(currentSeg)
+                        }
+
+                        // Si hubo cambios en los puntos
+                        if (segments.size != 1 || segments[0].size != element.points.size) {
+                            toRemove.add(element)
+                            changed = true
+
+                            for (segment in segments) {
+                                if (segment.size >= 2 || (segment.isNotEmpty() && element.strokeType == StrokeType.FREEHAND)) {
+                                    val isMeshBrush = element.brushType == "FREEHAND" || element.brushType == "PLUMA" || element.brushType == "PENCIL_CUMULATIVE"
+                                    val (newPath, leftPts, rightPts) = if (isMeshBrush) {
+                                        val toolType = when (element.brushType) {
+                                            "PLUMA" -> ToolType.PLUMA
+                                            else -> ToolType.FREEHAND
+                                        }
+                                        val settings = toolManager.getToolConfigMap()[toolType]?.freehandSettings ?: FreehandSettings()
+                                        val genResult = PerfectFreehandGenerator.generate(
+                                            segment,
+                                            settings.copy(size = element.maxWidth, isComplete = true),
+                                            zoom = zoom
+                                        )
+                                        Triple(genResult.path, genResult.left, genResult.right)
+                                    } else {
+                                        val cp = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(element.strokeType, segment)
+                                        Triple(cp, emptyList(), emptyList())
+                                    }
+
+                                    var newFillPath: android.graphics.Path? = null
+                                    if (element.isFillEnabled && segment.size >= 3) {
+                                        newFillPath = android.graphics.Path().apply {
+                                            moveTo(segment[0].x, segment[0].y)
+                                            for (i in 1 until segment.size) {
+                                                lineTo(segment[i].x, segment[i].y)
+                                            }
+                                            close()
+                                        }
+                                    }
+
+                                    val subStroke = element.copy(
+                                        points = segment,
+                                        path = newPath,
+                                        fillPath = newFillPath,
+                                        leftPoints = leftPts,
+                                        rightPoints = rightPts
+                                    )
+                                    toAdd.add(subStroke)
+                                }
+                            }
+                        }
+                    }
+                }
+                is FillData -> {
+                    // Corte booleano de relleno
+                    val eraserPath = android.graphics.Path().apply {
+                        addCircle(x, y, radiusWorld, android.graphics.Path.Direction.CW)
+                    }
+                    val newPath = android.graphics.Path()
+                    val success = newPath.op(element.path, eraserPath, android.graphics.Path.Op.DIFFERENCE)
+                    if (success) {
+                        toRemove.add(element)
+                        if (!newPath.isEmpty) {
+                            val updatedFill = element.copy(path = newPath)
+                            toAdd.add(updatedFill)
+                        }
+                        changed = true
+                    }
+                }
+                else -> {}
+            }
+        }
+
+        if (changed) {
+            synchronized(container) {
+                val firstIndex = toRemove.map { container.indexOf(it) }.filter { it != -1 }.minOrNull()
+                container.removeAll(toRemove)
+                if (firstIndex != null && firstIndex <= container.size) {
+                    container.addAll(firstIndex, toAdd)
+                } else {
+                    container.addAll(toAdd)
+                }
+            }
+        }
+
+        return changed
+    }
 
     fun clear() {
 
