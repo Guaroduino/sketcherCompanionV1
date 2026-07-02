@@ -246,7 +246,7 @@ object GeometryUtils {
                     path.lineTo(points.last().x, points.last().y)
                 }
             }
-            StrokeType.POLYLINE -> {
+            StrokeType.POLYLINE, StrokeType.FREEHAND -> {
                 if (points.isNotEmpty()) {
                     val unique = points.filterIndexed { index, curr ->
                         index == 0 || hypot(curr.x - points[index - 1].x, curr.y - points[index - 1].y) > 0.01f

@@ -29,9 +29,11 @@ object ToolRegistry {
         StudioTool("pen", Icons.Default.Gesture, "Pen", isPlaceholder = false, parentGroupId = "pencil"),
         StudioTool("eraser", Icons.Default.AutoFixNormal, "Borrador", isPlaceholder = false, subTools = listOf(
             StudioTool("eraser", Icons.Default.AutoFixNormal, "Borrador de Trazo", isPlaceholder = false, parentGroupId = "eraser"),
-            StudioTool("point_eraser", Icons.Default.AutoFixNormal, "Borrador de Puntos", isPlaceholder = false, parentGroupId = "eraser")
+            StudioTool("point_eraser", Icons.Default.AutoFixNormal, "Borrador de Puntos", isPlaceholder = false, parentGroupId = "eraser"),
+            StudioTool("cut_eraser", Icons.Default.AutoFixNormal, "Borrador de Corte", isPlaceholder = false, parentGroupId = "eraser")
         )),
         StudioTool("point_eraser", Icons.Default.AutoFixNormal, "Borrador de Puntos", isPlaceholder = false, parentGroupId = "eraser"),
+        StudioTool("cut_eraser", Icons.Default.AutoFixNormal, "Borrador de Corte", isPlaceholder = false, parentGroupId = "eraser"),
         StudioTool("paint", Icons.Default.Brush, "Paint", isPlaceholder = false, parentGroupId = "pencil"),
         StudioTool("watercolor", Icons.Default.Palette, "Acuarela", isPlaceholder = false, parentGroupId = "pencil", isExperimental = true),
         StudioTool("pluma", Icons.Default.Gesture, "Pluma", isPlaceholder = false, parentGroupId = "pencil"),

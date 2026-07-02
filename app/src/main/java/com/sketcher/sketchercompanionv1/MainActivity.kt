@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import com.sketcher.sketchercompanionv1.ui.dialogs.DxfImportDialog
 import com.sketcher.sketchercompanionv1.ui.dialogs.DxfExportDialog
 import com.sketcher.sketchercompanionv1.ui.dialogs.StudioMenuDialog
+import com.sketcher.sketchercompanionv1.dto.FillStyle
 import java.io.File
 
 class MainActivity : ComponentActivity() {
@@ -68,6 +69,7 @@ class MainActivity : ComponentActivity() {
                     confirmButton = {
                         androidx.compose.material3.TextButton(onClick = { 
                             sketchViewModel.loadProjectFromZip(context, android.net.Uri.fromFile(autosaveFile))
+                            sketchViewModel.showDashboard = false
                             showAutosaveRestoreDialog = false
                         }) { androidx.compose.material3.Text("Restaurar") }
                     },
@@ -191,15 +193,42 @@ class MainActivity : ComponentActivity() {
             ) {
                 com.sketcher.sketchercompanionv1.ui.theme.SketcherCompanionV1Theme {
                     Box(modifier = androidx.compose.ui.Modifier.fillMaxSize()) {
-                        // 1. MAIN UI LAYER
-                        com.sketcher.sketchercompanionv1.ui.layout.StudioLayout(
-                            viewModel = sketchViewModel,
-                            uiCollapsed = uiCollapsed,
-                            onToggleUi = { uiCollapsed = !uiCollapsed },
-                            swapVertical = swapVertical,
-                            swapHorizontal = swapHorizontal,
-                            projectActions = projectActions
-                        )
+                        // Initialize local projects directory
+                        androidx.compose.runtime.LaunchedEffect(Unit) {
+                            sketchViewModel.initLocalProjects(context)
+                        }
+
+                        // Intercept back button gestures
+                        androidx.activity.compose.BackHandler(enabled = true) {
+                            if (!sketchViewModel.showDashboard) {
+                                sketchViewModel.exitEditorToDashboard()
+                            } else {
+                                val handled = sketchViewModel.navigateUp(context)
+                                if (!handled) {
+                                    (context as? android.app.Activity)?.moveTaskToBack(true)
+                                }
+                            }
+                        }
+
+                        if (sketchViewModel.showDashboard) {
+                            com.sketcher.sketchercompanionv1.ui.DashboardScreen(
+                                viewModel = sketchViewModel,
+                                theme = theme,
+                                onOpenProject = { project ->
+                                    sketchViewModel.loadLocalProject(context, project)
+                                }
+                            )
+                        } else {
+                            // 1. MAIN UI LAYER
+                            com.sketcher.sketchercompanionv1.ui.layout.StudioLayout(
+                                viewModel = sketchViewModel,
+                                uiCollapsed = uiCollapsed,
+                                onToggleUi = { uiCollapsed = !uiCollapsed },
+                                swapVertical = swapVertical,
+                                swapHorizontal = swapHorizontal,
+                                projectActions = projectActions
+                            )
+                        }
                         
                         // 3. COMMON DIALOGS
                         if (showSettingsPopup) {
@@ -228,10 +257,14 @@ class MainActivity : ComponentActivity() {
                         if (showPaperSizeDialog) {
                             com.sketcher.sketchercompanionv1.ui.PaperSizeDialog(
                                 currentConfig = sketchViewModel.canvasSizeConfig,
-                                currentColor = sketchViewModel.backgroundColor,
-                                onConfirm = { config, color -> 
+                                currentStyle = sketchViewModel.backgroundStyle,
+                                theme = theme,
+                                fillPresets = sketchViewModel.fillPresets.value,
+                                onPresetOverwritten = { index, style -> sketchViewModel.saveFillPreset(index, style) },
+                                onConfirm = { config, style -> 
                                     sketchViewModel.updateCanvasSize(config)
-                                    sketchViewModel.backgroundColor = color
+                                    sketchViewModel.backgroundStyle = style
+                                    sketchViewModel.backgroundColor = if (style is FillStyle.Solid) style.color else android.graphics.Color.WHITE
                                     showPaperSizeDialog = false
                                 },
                                 onDismiss = { showPaperSizeDialog = false }

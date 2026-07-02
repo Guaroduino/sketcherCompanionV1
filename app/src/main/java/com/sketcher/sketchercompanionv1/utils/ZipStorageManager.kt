@@ -76,7 +76,8 @@ object ZipStorageManager {
         projectData: ProjectData,
         layers: List<Layer>,
         uri: Uri,
-        components: Collection<ComponentDefinition> = emptyList()
+        components: Collection<ComponentDefinition> = emptyList(),
+        thumbnail: Bitmap? = null
     ) {
         val contentResolver = context.contentResolver
         
@@ -90,6 +91,18 @@ object ZipStorageManager {
                 zipOut.putNextEntry(jsonEntry)
                 zipOut.write(jsonString.toByteArray(Charsets.UTF_8))
                 zipOut.closeEntry()
+
+                // Write preview.png if thumbnail is provided
+                if (thumbnail != null) {
+                    try {
+                        val entry = ZipEntry("preview.png")
+                        zipOut.putNextEntry(entry)
+                        thumbnail.compress(Bitmap.CompressFormat.PNG, 90, zipOut)
+                        zipOut.closeEntry()
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
 
                 // Save toolbar layout if available in SharedPreferences
                 val prefs = context.getSharedPreferences("toolbar_prefs", Context.MODE_PRIVATE)
@@ -226,6 +239,33 @@ object ZipStorageManager {
         }
 
         return Triple(projectData!!, bitmapMap, svgMap)
+    }
+
+    fun loadThumbnail(file: java.io.File): Bitmap? {
+        try {
+            if (!file.exists()) return null
+            java.io.FileInputStream(file).use { fileIn ->
+                ZipInputStream(java.io.BufferedInputStream(fileIn)).use { zipIn ->
+                    var entry: ZipEntry? = zipIn.nextEntry
+                    while (entry != null) {
+                        if (entry.name == "preview.png") {
+                            val bytes = zipIn.readBytes()
+                            if (bytes.isNotEmpty()) {
+                                val options = BitmapFactory.Options().apply {
+                                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                                }
+                                return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+                            }
+                        }
+                        zipIn.closeEntry()
+                        entry = zipIn.nextEntry
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return null
     }
 }
 

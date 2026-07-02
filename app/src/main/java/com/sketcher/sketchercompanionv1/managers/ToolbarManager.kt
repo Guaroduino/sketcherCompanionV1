@@ -74,6 +74,7 @@ class ToolbarManager(
         "pen" -> ToolPayload.PEN
         "eraser" -> ToolPayload.ERASER
         "point_eraser" -> ToolPayload.POINT_ERASER
+        "cut_eraser" -> ToolPayload.CUT_ERASER
         "stroke_color" -> ToolPayload.STROKE_COLOR
         "fill_color" -> ToolPayload.FILL_COLOR
         "paint" -> ToolPayload.PAINT

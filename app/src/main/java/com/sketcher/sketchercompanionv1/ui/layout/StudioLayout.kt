@@ -436,6 +436,10 @@ fun StudioLayout(
                 currentTool == ToolType.POINT_ERASER
             }
 
+            payload == ToolPayload.CUT_ERASER || tool.registryId == "cut_eraser" -> {
+                currentTool == ToolType.CUT_ERASER
+            }
+
 
             tool.registryId == "trim" -> {
 
@@ -1157,6 +1161,7 @@ fun StudioLayout(
 
 
                 view.currentTool = viewModel.currentTool
+                view.activeEraserShape = viewModel.currentEraserShape
 
 
                 val alpha = (brushOpacity * 255f).coerceIn(0f, 255f).toInt()
@@ -1206,6 +1211,7 @@ fun StudioLayout(
                 view.isDebugWireframe = viewModel.isDebugWireframe
 
 
+                view.canvasBackgroundStyle = viewModel.backgroundStyle
                 view.canvasBackgroundColor = viewModel.backgroundColor
 
 

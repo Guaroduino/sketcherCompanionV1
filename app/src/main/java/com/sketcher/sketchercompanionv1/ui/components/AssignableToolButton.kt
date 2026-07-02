@@ -56,6 +56,7 @@ enum class ToolPayload(val label: String, val icon: ImageVector) {
     PEN("Pen", Icons.Default.Gesture),
     ERASER("Eraser", Icons.Default.AutoFixNormal),
     POINT_ERASER("Borrador de Puntos", Icons.Default.AutoFixNormal),
+    CUT_ERASER("Borrador de Corte", Icons.Default.AutoFixNormal),
     STROKE_COLOR("Stroke Color", Icons.Default.BorderColor),
     FILL_COLOR("Fill Color", Icons.Default.FormatColorFill),
     PAINT("Paint", Icons.Default.Brush),

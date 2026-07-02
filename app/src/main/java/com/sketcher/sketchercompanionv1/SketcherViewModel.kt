@@ -74,6 +74,8 @@ import com.google.gson.Gson
 import com.sketcher.sketchercompanionv1.dto.*
 
 import com.sketcher.sketchercompanionv1.utils.TemplateManager
+import com.sketcher.sketchercompanionv1.utils.toFillStyle
+import com.sketcher.sketchercompanionv1.utils.toFillStyleJson
 
 import com.sketcher.sketchercompanionv1.importers.DxfImportData
 
@@ -445,6 +447,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     // BACKGROUND COLOR
 
     var backgroundColor by mutableIntStateOf(AndroidColor.WHITE)
+    var backgroundStyle by mutableStateOf<FillStyle>(FillStyle.Solid(AndroidColor.WHITE))
 
 
 
@@ -613,6 +616,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             ToolPayload.POINT_ERASER -> {
                 selectTool(ToolType.POINT_ERASER)
             }
+            ToolPayload.CUT_ERASER -> {
+                selectTool(ToolType.CUT_ERASER)
+            }
 
         }
 
@@ -721,6 +727,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
  
         "eraser" -> ({ selectTool(ToolType.ERASER) })
         "point_eraser" -> ({ selectTool(ToolType.POINT_ERASER) })
+        "cut_eraser" -> ({ selectTool(ToolType.CUT_ERASER) })
  
         "stroke_freehand" -> ({ updateStrokeType(StrokeType.FREEHAND) })
         "stroke_line" -> ({ updateStrokeType(StrokeType.LINE) })
@@ -1209,6 +1216,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun updateFillOpacity(opacity: Float) = toolManager.updateFillOpacity(opacity)
     fun updateStrokeType(type: StrokeType) = toolManager.updateStrokeType(type)
     
+    val currentEraserShape: com.sketcher.sketchercompanionv1.dto.EraserShape
+        get() = toolManager.currentEraserShape
+
+    fun setEraserShape(shape: com.sketcher.sketchercompanionv1.dto.EraserShape) {
+        toolManager.setEraserShape(shape)
+    }
+
     fun setStrokeColor(color: Int) = toolManager.setStrokeColor(color)
     fun setFillColor(color: Int) = toolManager.setFillColor(color)
     fun setFillStyle(style: FillStyle) = toolManager.setFillStyle(style)
@@ -1261,6 +1275,16 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         hasPreferencesBackup = application.getSharedPreferences("sketcher_prefs_backup", Context.MODE_PRIVATE).all.isNotEmpty()
         selectTool(currentTool)
         toolbarManager.initLayout()
+
+        // Periodic background autosave (runs every 30 seconds if there are changes)
+        viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(30_000)
+                if (hasUnsavedChanges) {
+                    autoSaveProject(application)
+                }
+            }
+        }
     }
 
     fun updateContextualToolbar(newList: List<StudioTool>) {
@@ -2673,45 +2697,51 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     fun centerPaperAsHomeCamera() {
 
-        val config = canvasSizeConfig ?: return
+        if (lastViewportWidth > 0.0f && lastViewportHeight > 0.0f) {
 
-        val w = config.widthInPixels
-
-        val h = config.heightInPixels
-
-        if (w > 0 && h > 0 && lastViewportWidth > 0.0f && lastViewportHeight > 0.0f) {
-
-            val padding = 50f
-
-            val scaleX = (lastViewportWidth - padding * 2.0f) / w
-
-            val scaleY = (lastViewportHeight - padding * 2.0f) / h
-
-            val scale = kotlin.math.min(scaleX, scaleY).coerceIn(0.1f, 12.0f)
-
-            
-
-            val cx = if (config.origin == com.sketcher.sketchercompanionv1.dto.CoordinateOrigin.CENTER) 0f else w / 2.0f
-
-            val cy = if (config.origin == com.sketcher.sketchercompanionv1.dto.CoordinateOrigin.CENTER) 0f else h / 2.0f
-
-            
+            val scale = getZoomScale100()
 
             val m = Matrix()
 
-            m.postTranslate(-cx, -cy)
+            val config = canvasSizeConfig
 
-            m.postScale(scale, scale)
+            if (config != null) {
 
-            m.postTranslate(lastViewportWidth / 2.0f, lastViewportHeight / 2.0f)
+                val w = config.widthInPixels
 
-            
+                val h = config.heightInPixels
+
+                if (w > 0 && h > 0) {
+
+                    val cx = if (config.origin == com.sketcher.sketchercompanionv1.dto.CoordinateOrigin.CENTER) 0f else w / 2.0f
+
+                    val cy = if (config.origin == com.sketcher.sketchercompanionv1.dto.CoordinateOrigin.CENTER) 0f else h / 2.0f
+
+                    m.postTranslate(-cx, -cy)
+
+                    m.postScale(scale, scale)
+
+                    m.postTranslate(lastViewportWidth / 2.0f, lastViewportHeight / 2.0f)
+
+                } else {
+
+                    m.postScale(scale, scale)
+
+                    m.postTranslate(lastViewportWidth / 2.0f, lastViewportHeight / 2.0f)
+
+                }
+
+            } else {
+
+                m.postScale(scale, scale)
+
+                m.postTranslate(lastViewportWidth / 2.0f, lastViewportHeight / 2.0f)
+
+            }
 
             m.getValues(homeCameraMatrixValues)
 
-            prefs.edit().putString("home_camera_matrix_v3", homeCameraMatrixValues.joinToString(",")).apply()
-
-            
+            prefs.edit().putString("home_camera_matrix_v4", homeCameraMatrixValues.joinToString(",")).apply()
 
             saveCameraState(m)
 
@@ -2733,7 +2763,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     private val homeCameraMatrixValues = FloatArray(9).apply {
 
-        val saved = prefs.getString("home_camera_matrix_v3", null)
+        val saved = prefs.getString("home_camera_matrix_v4", null)
 
         if (saved != null) {
 
@@ -2775,7 +2805,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         cameraMatrixValues.copyInto(homeCameraMatrixValues)
 
-        prefs.edit().putString("home_camera_matrix_v3", homeCameraMatrixValues.joinToString(",")).apply()
+        prefs.edit().putString("home_camera_matrix_v4", homeCameraMatrixValues.joinToString(",")).apply()
 
     }
 
@@ -2801,7 +2831,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
             liveProjectionController.updateViewportDimensions(w, h)
 
-            if (isHomeCameraDefaultOrIdentity() && canvasSizeConfig != null) {
+            if (isHomeCameraDefaultOrIdentity()) {
 
                 centerPaperAsHomeCamera()
 
@@ -4091,6 +4121,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         val savedBgColor = backgroundColor
 
+        val savedBgStyle = backgroundStyle
+
         val savedGridConfig = gridConfig
 
         val savedScaleConfig = scaleConfig
@@ -4105,11 +4137,25 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
 
 
+        // Generate thumbnail on Main thread (safe from ConcurrentModificationException)
+
+        val thumbnailBmp = try {
+
+            renderExportBitmap(ExportPngConfig(transparentBackground = false, useHomeView = false, width = 256, height = 256))
+
+        } catch (e: Exception) {
+
+            e.printStackTrace()
+
+            null
+
+        }
+
+
+
         launchIO {
 
             try {
-
-
 
                 val projectData = ProjectData(
 
@@ -4117,7 +4163,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                     layers = currentLayersSnapshot.map { it.toLayerJson() },
 
-                    backgroundConfig = BackgroundConfig(color = savedBgColor, gridConfig = savedGridConfig),
+                    backgroundConfig = BackgroundConfig(color = savedBgColor, gridConfig = savedGridConfig, fillStyle = savedBgStyle.toFillStyleJson()),
 
                     paletteColors = emptyList(),
 
@@ -4149,9 +4195,29 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                     uri = uri,
 
-                    components = currentComponentLibrary.values
+                    components = currentComponentLibrary.values,
+
+                    thumbnail = thumbnailBmp
 
                 )
+
+
+
+                // Delete autosave file if user successfully saved manually
+
+                if (!isAutosave) {
+
+                    val autosaveFile = java.io.File(context.cacheDir, "autosave.skc")
+
+                    if (autosaveFile.exists()) {
+
+                        autosaveFile.delete()
+
+                    }
+
+                }
+
+
 
                 withContext(Dispatchers.Main) {
 
@@ -4180,6 +4246,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     android.widget.Toast.makeText(context, "Error al guardar: ${e.localizedMessage}", android.widget.Toast.LENGTH_LONG).show()
 
                 }
+
+            } finally {
+
+                thumbnailBmp?.recycle()
 
             }
 
@@ -4278,6 +4348,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         
 
         backgroundColor = data.backgroundConfig.color
+        backgroundStyle = data.backgroundConfig.fillStyle.toFillStyle(data.backgroundConfig.color)
 
         val loadedGrid = data.backgroundConfig.gridConfig
 
@@ -4301,7 +4372,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
 
 
-        if (isHomeCameraDefaultOrIdentity() && canvasSizeConfig != null && lastViewportWidth > 0f && lastViewportHeight > 0f) {
+        if (isHomeCameraDefaultOrIdentity() && lastViewportWidth > 0f && lastViewportHeight > 0f) {
 
             centerPaperAsHomeCamera()
 
@@ -4466,6 +4537,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         val savedProjectId = projectId
 
         val savedBgColor = backgroundColor
+        val savedBgStyle = backgroundStyle
 
         val savedGridConfig = gridConfig
 
@@ -4517,7 +4589,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                     layers = currentLayersSnapshot.map { it.toLayerJson() },
 
-                    backgroundConfig = BackgroundConfig(color = savedBgColor, gridConfig = savedGridConfig),
+                    backgroundConfig = BackgroundConfig(color = savedBgColor, gridConfig = savedGridConfig, fillStyle = savedBgStyle.toFillStyleJson()),
 
                     paletteColors = emptyList(),
 
@@ -4633,7 +4705,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             startEraserDrag()
         }
 
-        if (currentTool == ToolType.POINT_ERASER) {
+        if (currentTool == ToolType.POINT_ERASER || currentTool == ToolType.CUT_ERASER) {
             val containersToCheck = if (editingContext != null) {
                 listOf(activeContainer)
             } else {
@@ -4713,6 +4785,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             endEraserDrag()
         }
 
+        if (changed) {
+            notifyLayersChanged()
+        }
+
         return changed
     }
 
@@ -4741,10 +4817,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
             when (element) {
                 is VectorStroke -> {
-                    if (element.isFlattened) {
+                    if (element.isFlattened || currentTool == ToolType.CUT_ERASER) {
                         // Borrado mesh (corte booleano)
                         val eraserPath = android.graphics.Path().apply {
-                            addCircle(x, y, radiusWorld, android.graphics.Path.Direction.CW)
+                            if (currentEraserShape == com.sketcher.sketchercompanionv1.dto.EraserShape.SQUARE) {
+                                addRect(x - radiusWorld, y - radiusWorld, x + radiusWorld, y + radiusWorld, android.graphics.Path.Direction.CW)
+                            } else {
+                                addCircle(x, y, radiusWorld, android.graphics.Path.Direction.CW)
+                            }
                         }
                         val newPath = android.graphics.Path()
                         val success = newPath.op(element.path, eraserPath, android.graphics.Path.Op.DIFFERENCE)
@@ -4776,10 +4856,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                         val radiusSq = radiusWorld * radiusWorld
 
                         for (pt in element.points) {
-                            val dx = pt.x - x
-                            val dy = pt.y - y
-                            val distSq = dx * dx + dy * dy
-                            if (distSq < radiusSq) {
+                            val inEraser = if (currentEraserShape == com.sketcher.sketchercompanionv1.dto.EraserShape.SQUARE) {
+                                kotlin.math.abs(pt.x - x) < radiusWorld && kotlin.math.abs(pt.y - y) < radiusWorld
+                            } else {
+                                val dx = pt.x - x
+                                val dy = pt.y - y
+                                dx * dx + dy * dy < radiusSq
+                            }
+                            if (inEraser) {
                                 if (currentSeg.isNotEmpty()) {
                                     segments.add(currentSeg)
                                     currentSeg = mutableListOf()
@@ -4799,10 +4883,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                             for (segment in segments) {
                                 if (segment.size >= 2 || (segment.isNotEmpty() && element.strokeType == StrokeType.FREEHAND)) {
-                                    val isMeshBrush = element.brushType == "FREEHAND" || element.brushType == "PLUMA" || element.brushType == "PENCIL_CUMULATIVE"
+                                    val isMeshBrush = element.brushType == "FREEHAND" || element.brushType == "PLUMA" || element.brushType == "PENCIL_CUMULATIVE" || element.brushType == "PAINT" || element.brushType == "WATERCOLOR"
                                     val (newPath, leftPts, rightPts) = if (isMeshBrush) {
                                         val toolType = when (element.brushType) {
                                             "PLUMA" -> ToolType.PLUMA
+                                            "PAINT" -> ToolType.PAINT
+                                            "WATERCOLOR" -> ToolType.WATERCOLOR
                                             else -> ToolType.FREEHAND
                                         }
                                         val settings = toolManager.getToolConfigMap()[toolType]?.freehandSettings ?: FreehandSettings()
@@ -4844,7 +4930,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 is FillData -> {
                     // Corte booleano de relleno
                     val eraserPath = android.graphics.Path().apply {
-                        addCircle(x, y, radiusWorld, android.graphics.Path.Direction.CW)
+                        if (currentEraserShape == com.sketcher.sketchercompanionv1.dto.EraserShape.SQUARE) {
+                            addRect(x - radiusWorld, y - radiusWorld, x + radiusWorld, y + radiusWorld, android.graphics.Path.Direction.CW)
+                        } else {
+                            addCircle(x, y, radiusWorld, android.graphics.Path.Direction.CW)
+                        }
                     }
                     val newPath = android.graphics.Path()
                     val success = newPath.op(element.path, eraserPath, android.graphics.Path.Op.DIFFERENCE)
@@ -4891,6 +4981,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         currentFileUri = null
 
         backgroundColor = android.graphics.Color.WHITE
+        backgroundStyle = FillStyle.Solid(android.graphics.Color.WHITE)
 
         gridConfig = GridConfig()
 
@@ -4901,6 +4992,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         val identity = android.graphics.Matrix()
 
         identity.getValues(cameraMatrixValues)
+
+        identity.getValues(homeCameraMatrixValues)
+
+        prefs.edit().remove("home_camera_matrix_v4").apply()
 
         cameraUpdateTrigger++
 
@@ -4927,6 +5022,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
          val savedProjectId = projectId
 
          val savedBgColor = backgroundColor
+         val savedBgStyle = backgroundStyle
 
          val savedGridConfig = gridConfig
 
@@ -4944,7 +5040,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                  layers = currentLayersSnapshot.map { it.toLayerJson() },
 
-                 backgroundConfig = com.sketcher.sketchercompanionv1.dto.BackgroundConfig(savedBgColor, savedGridConfig),
+                 backgroundConfig = com.sketcher.sketchercompanionv1.dto.BackgroundConfig(savedBgColor, savedGridConfig, savedBgStyle.toFillStyleJson()),
 
                  paletteColors = emptyList(),
 
@@ -5400,7 +5496,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         liveProjectionController.renderAndSendSyncFrame(
             layers = layers,
             componentLibrary = componentLibrary,
-            backgroundColor = backgroundColor,
+            backgroundStyle = backgroundStyle,
             cameraMatrixValues = cameraMatrixValues,
             strokeColor = strokeColor.value,
             fillColor = fillColor.value,
@@ -5424,7 +5520,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         liveProjectionController.renderAndSendFixedSnapshot(
             layers = layers,
             componentLibrary = componentLibrary,
-            backgroundColor = backgroundColor,
+            backgroundStyle = backgroundStyle,
             homeCameraMatrixValues = homeCameraMatrixValues,
             strokeColor = strokeColor.value,
             fillColor = fillColor.value,
@@ -5597,4 +5693,240 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             }
         }
     }
+
+    // --- DASHBOARD AND FOLDER MANAGEMENT ---
+    var showDashboard by mutableStateOf(true)
+    var currentDirectory by mutableStateOf<java.io.File?>(null)
+        private set
+    val localItems = mutableStateListOf<DashboardItem>()
+    val thumbnailCache = mutableStateMapOf<String, android.graphics.Bitmap?>()
+
+    fun initLocalProjects(context: Context) {
+        val rootDir = java.io.File(context.filesDir, "projects")
+        if (!rootDir.exists()) {
+            rootDir.mkdirs()
+        }
+        if (currentDirectory == null) {
+            currentDirectory = rootDir
+        }
+        refreshLocalItems()
+    }
+
+    fun navigateToFolder(folder: java.io.File) {
+        currentDirectory = folder
+        refreshLocalItems()
+    }
+
+    fun navigateUp(context: Context): Boolean {
+        val current = currentDirectory ?: return false
+        val rootDir = java.io.File(context.filesDir, "projects")
+        if (current.absolutePath == rootDir.absolutePath) {
+            return false
+        }
+        val parent = current.parentFile
+        if (parent != null && parent.absolutePath.startsWith(rootDir.absolutePath)) {
+            currentDirectory = parent
+            refreshLocalItems()
+            return true
+        }
+        return false
+    }
+
+    fun refreshLocalItems() {
+        val dir = currentDirectory ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val files = dir.listFiles() ?: emptyArray()
+            val items = files.map { file ->
+                if (file.isDirectory) {
+                    val count = file.listFiles { f -> f.extension == "skc" }?.size ?: 0
+                    DashboardItem.Folder(
+                        name = file.name,
+                        path = file.absolutePath,
+                        lastModified = file.lastModified(),
+                        itemCount = count
+                    )
+                } else {
+                    DashboardItem.Project(
+                        name = file.nameWithoutExtension,
+                        path = file.absolutePath,
+                        lastModified = file.lastModified(),
+                        sizeBytes = file.length()
+                    )
+                }
+            }.sortedWith(compareByDescending<DashboardItem> { it is DashboardItem.Folder }.thenByDescending { it.lastModified })
+
+            withContext(Dispatchers.Main) {
+                localItems.clear()
+                localItems.addAll(items)
+            }
+
+            // Load thumbnails asynchronously
+            items.filterIsInstance<DashboardItem.Project>().forEach { project ->
+                if (!thumbnailCache.containsKey(project.path)) {
+                    val bmp = com.sketcher.sketchercompanionv1.utils.ZipStorageManager.loadThumbnail(java.io.File(project.path))
+                    withContext(Dispatchers.Main) {
+                        thumbnailCache[project.path] = bmp
+                    }
+                }
+            }
+        }
+    }
+
+    fun createLocalProject(context: Context, name: String) {
+        val dir = currentDirectory ?: return
+        val file = java.io.File(dir, "$name.skc")
+        if (file.exists()) {
+            android.widget.Toast.makeText(context, "El archivo ya existe", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        clear()
+        currentFileUri = android.net.Uri.fromFile(file)
+        saveProjectToZip(context, currentFileUri!!)
+        showDashboard = false
+    }
+
+    fun createLocalFolder(context: Context, name: String) {
+        val dir = currentDirectory ?: return
+        val folder = java.io.File(dir, name)
+        if (folder.exists()) {
+            android.widget.Toast.makeText(context, "La carpeta ya existe", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        folder.mkdirs()
+        refreshLocalItems()
+    }
+
+    fun renameLocalItem(context: Context, item: DashboardItem, newName: String) {
+        val oldFile = java.io.File(item.path)
+        val parent = oldFile.parentFile ?: return
+        val extension = if (item is DashboardItem.Project) ".skc" else ""
+        val newFile = java.io.File(parent, "$newName$extension")
+        if (newFile.exists()) {
+            android.widget.Toast.makeText(context, "Ya existe un elemento con ese nombre", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (oldFile.renameTo(newFile)) {
+            // Update active file URI if renamed the open project
+            val activeUri = currentFileUri
+            if (activeUri != null && activeUri.scheme == "file" && activeUri.path == oldFile.absolutePath) {
+                currentFileUri = android.net.Uri.fromFile(newFile)
+            }
+            // Update thumbnailCache
+            if (item is DashboardItem.Project) {
+                val oldBmp = thumbnailCache.remove(item.path)
+                if (oldBmp != null) {
+                    thumbnailCache[newFile.absolutePath] = oldBmp
+                }
+            }
+            refreshLocalItems()
+        } else {
+            android.widget.Toast.makeText(context, "Error al renombrar", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun deleteLocalItem(context: Context, item: DashboardItem) {
+        val file = java.io.File(item.path)
+        
+        // If deleted file is currently open in editor, clear workspace
+        val activeUri = currentFileUri
+        if (activeUri != null && activeUri.scheme == "file" && activeUri.path == file.absolutePath) {
+            clear()
+        }
+        
+        viewModelScope.launch(Dispatchers.IO) {
+            file.deleteRecursively()
+            withContext(Dispatchers.Main) {
+                thumbnailCache.remove(item.path)
+                refreshLocalItems()
+            }
+        }
+    }
+
+    fun moveLocalItem(context: Context, item: DashboardItem, targetFolder: java.io.File) {
+        val oldFile = java.io.File(item.path)
+        val newFile = java.io.File(targetFolder, oldFile.name)
+        if (newFile.exists()) {
+            android.widget.Toast.makeText(context, "Ya existe un elemento con el mismo nombre en la carpeta destino", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (oldFile.renameTo(newFile)) {
+            val activeUri = currentFileUri
+            if (activeUri != null && activeUri.scheme == "file" && activeUri.path == oldFile.absolutePath) {
+                currentFileUri = android.net.Uri.fromFile(newFile)
+            }
+            if (item is DashboardItem.Project) {
+                val oldBmp = thumbnailCache.remove(item.path)
+                if (oldBmp != null) {
+                    thumbnailCache[newFile.absolutePath] = oldBmp
+                }
+            }
+            refreshLocalItems()
+        } else {
+            android.widget.Toast.makeText(context, "Error al mover el elemento", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun loadLocalProject(context: Context, project: DashboardItem.Project) {
+        val file = java.io.File(project.path)
+        loadProjectFromZip(context, android.net.Uri.fromFile(file))
+        showDashboard = false
+    }
+
+    fun importExternalProject(context: Context, uri: android.net.Uri) {
+        val dir = currentDirectory ?: return
+        val fileName = com.sketcher.sketchercompanionv1.utils.BitmapUtils.getFileNameFromUri(context, uri) ?: "imported_drawing.skc"
+        var baseName = fileName.substringBeforeLast(".")
+        val ext = "skc"
+        var destFile = java.io.File(dir, "$baseName.$ext")
+        var counter = 1
+        while (destFile.exists()) {
+            destFile = java.io.File(dir, "${baseName}_$counter.$ext")
+            counter++
+        }
+        
+        launchIO {
+            try {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    java.io.FileOutputStream(destFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    refreshLocalItems()
+                    android.widget.Toast.makeText(context, "Proyecto importado", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: java.lang.Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "Error al importar: ${e.localizedMessage}", android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    fun exitEditorToDashboard() {
+        showDashboard = true
+        refreshLocalItems()
+    }
+}
+
+// --- DATA STRUCTURES FOR DASHBOARD ITEMS ---
+sealed interface DashboardItem {
+    val name: String
+    val path: String
+    val lastModified: Long
+
+    data class Folder(
+        override val name: String,
+        override val path: String,
+        override val lastModified: Long,
+        val itemCount: Int
+    ) : DashboardItem
+
+    data class Project(
+        override val name: String,
+        override val path: String,
+        override val lastModified: Long,
+        val sizeBytes: Long
+    ) : DashboardItem
 }

@@ -129,6 +129,7 @@ class RenderEngine {
     var currentUnit: DistanceUnit = DistanceUnit.M
     var canvasSizeConfig: CanvasSizeConfig? = null // For bounds/grid centering
     var canvasBackgroundColor: Int = Color.WHITE
+    var canvasBackgroundStyle: FillStyle = FillStyle.Solid(Color.WHITE)
     
     var isDebugWireframe: Boolean = false
 
@@ -285,7 +286,7 @@ class RenderEngine {
             val right = left + sizeConfig.widthInPixels
             val bottom = top + sizeConfig.heightInPixels
             
-            paperPaint.color = canvasBackgroundColor
+            applyFillStyle(paperPaint, canvasBackgroundStyle, alphaMultiplier = 1f)
             canvas.drawRect(left, top, right, bottom, paperPaint)
             
             // Draw paper bounds and shadow
@@ -316,7 +317,39 @@ class RenderEngine {
             
         } else {
             // Infinite Canvas
-            canvas.drawColor(canvasBackgroundColor)
+            if (canvasBackgroundStyle is FillStyle.Solid) {
+                canvas.drawColor((canvasBackgroundStyle as FillStyle.Solid).color)
+            } else {
+                // If it is a texture/pattern, we draw it in World Space so that panning/zooming works.
+                canvas.save()
+                canvas.concat(viewMatrix)
+                
+                // Get the viewport size in world coordinates to fill the screen correctly.
+                val inverse = Matrix()
+                if (viewMatrix.invert(inverse)) {
+                    val pts = floatArrayOf(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat())
+                    inverse.mapPoints(pts)
+                    val wLeft = minOf(pts[0], pts[2])
+                    val wRight = maxOf(pts[0], pts[2])
+                    val wTop = minOf(pts[1], pts[3])
+                    val wBottom = maxOf(pts[1], pts[3])
+                    
+                    // Add margin to avoid issues with fast panning/zooming or rotation
+                    val widthMargin = (wRight - wLeft) * 0.5f
+                    val heightMargin = (wBottom - wTop) * 0.5f
+                    
+                    val bgPaint = Paint().apply {
+                        style = Paint.Style.FILL
+                        isAntiAlias = true
+                    }
+                    applyFillStyle(bgPaint, canvasBackgroundStyle, alphaMultiplier = 1f)
+                    canvas.drawRect(wLeft - widthMargin, wTop - heightMargin, wRight + widthMargin, wBottom + heightMargin, bgPaint)
+                } else {
+                    // Fallback to solid color if matrix not invertible
+                    canvas.drawColor(canvasBackgroundColor)
+                }
+                canvas.restore()
+            }
             
             if (drawGrid) {
                 canvas.save()
@@ -324,7 +357,6 @@ class RenderEngine {
                 drawGrid(canvas, viewMatrix, false, null)
                 canvas.restore()   
             }
-            // Note: drawGrid previously restored its own save, but we'll refactor drawGrid to be cleaner
         }
         
         // Draw Layers

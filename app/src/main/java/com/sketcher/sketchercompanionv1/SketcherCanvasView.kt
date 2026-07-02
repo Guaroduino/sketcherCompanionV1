@@ -195,6 +195,24 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     }
 
+    private val eraserPreviewPaint = Paint().apply {
+        style = Paint.Style.STROKE
+        color = Color.parseColor("#80FF3B30") // Semi-transparent system red
+        strokeWidth = 2f
+        isAntiAlias = true
+    }
+
+    private val eraserPreviewFillPaint = Paint().apply {
+        style = Paint.Style.FILL
+        color = Color.parseColor("#1AFF3B30") // Very light red fill (10% opacity)
+        isAntiAlias = true
+    }
+
+    private var isEraserActive = false
+    private var eraserWorldX = 0f
+    private var eraserWorldY = 0f
+    private var eraserRadiusWorld = 0f
+
     private val cadGuidePaint = Paint().apply {
         color = Color.RED
         style = Paint.Style.STROKE
@@ -1102,18 +1120,26 @@ class SketcherCanvasView(context: Context) : View(context) {
 
         }
 
-    var canvasBackgroundColor: Int = android.graphics.Color.WHITE
-
+    var canvasBackgroundStyle: FillStyle = FillStyle.Solid(android.graphics.Color.WHITE)
         set(value) {
-
             if (field == value) return
-
             field = value
-
-            renderEngine.canvasBackgroundColor = value
-
+            renderEngine.canvasBackgroundStyle = value
+            if (value is FillStyle.Solid && canvasBackgroundColor != value.color) {
+                canvasBackgroundColor = value.color
+            }
             redrawAllCache()
+        }
 
+    var canvasBackgroundColor: Int = android.graphics.Color.WHITE
+        set(value) {
+            if (field == value) return
+            field = value
+            renderEngine.canvasBackgroundColor = value
+            if (canvasBackgroundStyle !is FillStyle.Solid || (canvasBackgroundStyle as FillStyle.Solid).color != value) {
+                canvasBackgroundStyle = FillStyle.Solid(value)
+            }
+            redrawAllCache()
         }
 
         
@@ -1609,6 +1635,16 @@ class SketcherCanvasView(context: Context) : View(context) {
             field = value
             strokePipeline.activeTool = value
             updateLayerType()
+            if (value != ToolType.ERASER && value != ToolType.POINT_ERASER && value != ToolType.CUT_ERASER) {
+                isEraserActive = false
+            }
+        }
+
+    var activeEraserShape: com.sketcher.sketchercompanionv1.dto.EraserShape = com.sketcher.sketchercompanionv1.dto.EraserShape.CIRCLE
+        set(value) {
+            if (field == value) return
+            field = value
+            invalidate()
         }
 
     private fun updateLayerType() {
@@ -2552,6 +2588,36 @@ class SketcherCanvasView(context: Context) : View(context) {
 
         }
 
+        if (isEraserActive && eraserRadiusWorld > 0f && (currentTool == ToolType.ERASER || currentTool == ToolType.POINT_ERASER || currentTool == ToolType.CUT_ERASER)) {
+            canvas.save()
+            canvas.concat(viewMatrix)
+            if (activeEraserShape == com.sketcher.sketchercompanionv1.dto.EraserShape.SQUARE) {
+                canvas.drawRect(
+                    eraserWorldX - eraserRadiusWorld,
+                    eraserWorldY - eraserRadiusWorld,
+                    eraserWorldX + eraserRadiusWorld,
+                    eraserWorldY + eraserRadiusWorld,
+                    eraserPreviewFillPaint
+                )
+            } else {
+                canvas.drawCircle(eraserWorldX, eraserWorldY, eraserRadiusWorld, eraserPreviewFillPaint)
+            }
+            val zoom = getMatrixScale(viewMatrix)
+            eraserPreviewPaint.strokeWidth = (1.5f * resources.displayMetrics.density) / (if (zoom > 0f) zoom else 1f)
+            if (activeEraserShape == com.sketcher.sketchercompanionv1.dto.EraserShape.SQUARE) {
+                canvas.drawRect(
+                    eraserWorldX - eraserRadiusWorld,
+                    eraserWorldY - eraserRadiusWorld,
+                    eraserWorldX + eraserRadiusWorld,
+                    eraserWorldY + eraserRadiusWorld,
+                    eraserPreviewPaint
+                )
+            } else {
+                canvas.drawCircle(eraserWorldX, eraserWorldY, eraserRadiusWorld, eraserPreviewPaint)
+            }
+            canvas.restore()
+        }
+
         drawCadVisualGuides(canvas)
 
         onDrawAction?.invoke()
@@ -2567,6 +2633,32 @@ class SketcherCanvasView(context: Context) : View(context) {
 
 
     override fun onHoverEvent(event: MotionEvent): Boolean {
+        if (currentTool == ToolType.ERASER || currentTool == ToolType.POINT_ERASER || currentTool == ToolType.CUT_ERASER) {
+            val action = event.actionMasked
+            when (action) {
+                MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
+                    val pts = floatArrayOf(event.x, event.y)
+                    inverseMatrix.mapPoints(pts)
+                    val worldX = pts[0]
+                    val worldY = pts[1]
+                    val diameterPx = activeSize * 2f
+                    val radiusWorld = com.sketcher.sketchercompanionv1.utils.UnitUtils.pixelsToProjectUnits(
+                        diameterPx, currentUnit, scaleConfig.basePixelsPerMillimeter
+                    ) / 2f
+
+                    eraserWorldX = worldX
+                    eraserWorldY = worldY
+                    eraserRadiusWorld = radiusWorld
+                    isEraserActive = true
+                    invalidate()
+                }
+                MotionEvent.ACTION_HOVER_EXIT -> {
+                    isEraserActive = false
+                    invalidate()
+                }
+            }
+            return true
+        }
 
         if (!isElementSnappingEnabled && !isSnapToGridEnabled) {
 
@@ -2855,7 +2947,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
             ToolType.SELECTION -> handleSelectionInput(event)
 
-            ToolType.ERASER, ToolType.POINT_ERASER -> handleEraserInput(event)
+            ToolType.ERASER, ToolType.POINT_ERASER, ToolType.CUT_ERASER -> handleEraserInput(event)
 
             ToolType.TRIM -> {
 
@@ -3554,16 +3646,30 @@ class SketcherCanvasView(context: Context) : View(context) {
         val worldY = tempTouchPoint[1]
         val diameterPx = activeSize * 2f
 
+        val radiusWorld = com.sketcher.sketchercompanionv1.utils.UnitUtils.pixelsToProjectUnits(
+            diameterPx, currentUnit, scaleConfig.basePixelsPerMillimeter
+        ) / 2f
+
+        eraserWorldX = worldX
+        eraserWorldY = worldY
+        eraserRadiusWorld = radiusWorld
+
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                isEraserActive = true
                 onEraserDragStarted?.invoke()
                 onRequestErase?.invoke(worldX, worldY, diameterPx)
+                invalidate()
             }
             MotionEvent.ACTION_MOVE -> {
+                isEraserActive = true
                 onRequestErase?.invoke(worldX, worldY, diameterPx)
+                invalidate()
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                isEraserActive = false
                 onEraserDragEnded?.invoke()
+                invalidate()
             }
         }
         return true

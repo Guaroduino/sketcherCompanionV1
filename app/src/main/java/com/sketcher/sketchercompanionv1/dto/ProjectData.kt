@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1.dto
+package com.sketcher.sketchercompanionv1.dto
 
 import com.sketcher.sketchercompanionv1.ComponentDefinition
 
@@ -19,7 +19,8 @@ data class ProjectData(
 
 data class BackgroundConfig(
     val color: Int,
-    val gridConfig: GridConfig?
+    val gridConfig: GridConfig?,
+    val fillStyle: FillStyleJson? = null
 )
 
 data class CanvasMetadata(

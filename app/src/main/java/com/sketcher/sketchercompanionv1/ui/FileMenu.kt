@@ -118,7 +118,7 @@ fun FileMenu(
             
             // PAPER SIZE
             DropdownMenuItem(
-                text = { Text("Papel") },
+                text = { Text("Lienzo") },
                 leadingIcon = { Icon(Icons.Default.Description, null) },
                 onClick = { onPaperSizeClick(); showMenu = false }
             )

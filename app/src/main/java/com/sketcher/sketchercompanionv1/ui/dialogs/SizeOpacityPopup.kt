@@ -104,6 +104,9 @@ fun SizeOpacityPopup(
                             ToolType.PAINT -> "Paint Settings"
                             ToolType.PEN -> "Pen Settings"
                             ToolType.PLUMA -> "Pluma Settings"
+                            ToolType.ERASER -> "Ajustes de Borrador de Trazo"
+                            ToolType.POINT_ERASER -> "Ajustes de Borrador de Puntos"
+                            ToolType.CUT_ERASER -> "Ajustes de Borrador de Corte"
                             else -> "Brush Settings"
                         }
                         Text(
@@ -120,8 +123,10 @@ fun SizeOpacityPopup(
                         )
                     }
 
-                    // Presets Section
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    val isEraser = viewModel.currentTool == ToolType.ERASER || viewModel.currentTool == ToolType.POINT_ERASER || viewModel.currentTool == ToolType.CUT_ERASER
+                    if (!isEraser) {
+                        // Presets Section
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
                             text = "Presets",
                             style = MaterialTheme.typography.labelSmall,
@@ -236,9 +241,11 @@ fun SizeOpacityPopup(
                             }
                         }
                     }
+                    } // end isEraser check for Presets
 
-                    // Stroke & Fill Settings Section inside Popup
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!isEraser) {
+                        // Stroke & Fill Settings Section inside Popup
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Divider(color = theme.iconColor.copy(alpha = 0.1f))
                         Text(
                             text = "Stroke & Fill",
@@ -367,6 +374,7 @@ fun SizeOpacityPopup(
                             }
                         )
                     }
+                    } // end isEraser check for Stroke & Fill
 
                     // Size Slider
                     val unit = viewModel.currentUnit
@@ -380,6 +388,60 @@ fun SizeOpacityPopup(
                         valueFormatter = { "$formattedSize ${unit.symbol}" }
                     )
 
+                    if (isEraser) {
+                        Text(
+                            text = "Forma del Borrador",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            val activeShape = viewModel.currentEraserShape
+                            com.sketcher.sketchercompanionv1.dto.EraserShape.values().forEach { shape ->
+                                val selected = activeShape == shape
+                                val btnColor = if (selected) MaterialTheme.colorScheme.primary else Color.DarkGray
+                                val textColor = if (selected) Color.White else Color.LightGray
+                                Button(
+                                    onClick = { viewModel.setEraserShape(shape) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = btnColor),
+                                    modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
+                                ) {
+                                    Text(
+                                        text = when(shape) {
+                                            com.sketcher.sketchercompanionv1.dto.EraserShape.CIRCLE -> "Círculo"
+                                            com.sketcher.sketchercompanionv1.dto.EraserShape.SQUARE -> "Cuadrado"
+                                        },
+                                        color = textColor,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Selection Scope for Eraser
+                        Text(
+                            text = "Afectación",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        EraserSettingsContent(
+                            selectionScope = viewModel.selectionScope,
+                            onToggleSelectionScope = {
+                                viewModel.selectionScope = if (viewModel.selectionScope == SketcherViewModel.SelectionScope.CURRENT_LAYER)
+                                    SketcherViewModel.SelectionScope.ALL_LAYERS else SketcherViewModel.SelectionScope.CURRENT_LAYER
+                            }
+                        )
+                    }
+
+                    if (!isEraser) {
                     // Border Stroke Thickness (ONLY for PAINT or WATERCOLOR, above Stroke Opacity)
                     if (viewModel.currentTool == ToolType.PAINT || viewModel.currentTool == ToolType.WATERCOLOR) {
                         val freehandSettings = viewModel.currentFreehandSettings
@@ -663,6 +725,7 @@ fun SizeOpacityPopup(
                                 }
                             }
                         }
+                    }
                     }
                 }
             }

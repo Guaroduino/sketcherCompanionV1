@@ -73,6 +73,12 @@ fun StudioMenuDialog(
                 ) {
                     item { MenuSectionHeader("PROJECT", theme.iconColor) }
                     item {
+                        MenuItem(Icons.Default.Home, "Volver al Inicio", theme.iconColor) { 
+                            viewModel.exitEditorToDashboard()
+                            onDismiss()
+                        }
+                    }
+                    item {
                         MenuItem(Icons.Default.Refresh, "New Drawing", theme.iconColor) { 
                             actions.onNew()
                             onDismiss()

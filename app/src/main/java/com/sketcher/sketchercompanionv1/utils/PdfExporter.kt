@@ -9,6 +9,8 @@ import android.graphics.RectF
 import android.net.Uri
 import com.sketcher.sketchercompanionv1.dto.CanvasSizeConfig
 import com.sketcher.sketchercompanionv1.dto.ProjectData
+import com.sketcher.sketchercompanionv1.dto.FillStyle
+import com.sketcher.sketchercompanionv1.RenderEngine
 import com.sketcher.sketchercompanionv1.Layer
 import com.sketcher.sketchercompanionv1.ComponentDefinition
 import com.sketcher.sketchercompanionv1.RenderHelper
@@ -69,9 +71,11 @@ object PdfExporter {
             // Draw background if enabled
             if (config.includeBackground) {
                 val bgPaint = Paint().apply {
-                    color = projectData.backgroundConfig.color
                     style = Paint.Style.FILL
                 }
+                val renderEngine = RenderEngine()
+                val bgStyle = projectData.backgroundConfig.fillStyle.toFillStyle(projectData.backgroundConfig.color)
+                renderEngine.applyFillStyle(bgPaint, bgStyle)
                 canvas.drawRect(0f, 0f, bounds.width, bounds.height, bgPaint)
             }
 

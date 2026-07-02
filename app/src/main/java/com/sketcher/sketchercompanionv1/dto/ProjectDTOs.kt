@@ -236,11 +236,13 @@ data class BrushPreset(
     val fillStyle: FillStyle? = null
 )
 
-enum class ToolType { FREEHAND, PEN, FILL, ERASER, POINT_ERASER, SELECTION, ANDROID_INK, TRIM, EXTEND, EDIT_POINTS, PAINT, PLUMA, MIRROR, MOVE_PT_PT, ALIGN_2_PT, OFFSET, FILLET, CHAMFER, WATERCOLOR, PENCIL_CUMULATIVE }
+enum class ToolType { FREEHAND, PEN, FILL, ERASER, POINT_ERASER, CUT_ERASER, SELECTION, ANDROID_INK, TRIM, EXTEND, EDIT_POINTS, PAINT, PLUMA, MIRROR, MOVE_PT_PT, ALIGN_2_PT, OFFSET, FILLET, CHAMFER, WATERCOLOR, PENCIL_CUMULATIVE }
 
 enum class StrokeType { FREEHAND, LINE, POLYLINE, CIRCLE, ARC, ELLIPSE, SPLINE, BEZIER }
 
 data class FillSettings(val tolerance: Float = 0.1f)
+
+enum class EraserShape { CIRCLE, SQUARE }
 
 data class ToolConfig(
     val size: Float = 9f,
@@ -250,7 +252,8 @@ data class ToolConfig(
     // Global Input Settings
     val isFingerMode: Boolean = false,
     val fingerOffsetX: Float = 0f,
-    val fingerOffsetY: Float = 50f
+    val fingerOffsetY: Float = 50f,
+    val eraserShape: EraserShape = EraserShape.CIRCLE
 )
 
 /**

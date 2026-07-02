@@ -261,7 +261,7 @@ fun ToolPropertiesPanel(
                                 title = "Pluma Settings"
                             )
                         }
-                        ToolType.ERASER, ToolType.POINT_ERASER -> {
+                        ToolType.ERASER, ToolType.POINT_ERASER, ToolType.CUT_ERASER -> {
                             // REUSE LEGACY COMPONENT (Mirror functionality)
                             EraserSettingsContent(
                                 selectionScope = viewModel.selectionScope,

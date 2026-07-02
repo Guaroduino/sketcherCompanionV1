@@ -25,7 +25,7 @@ class ToolManager(context: Context) {
                 ToolType.FREEHAND
             }
             // Selection and Eraser should not persist between sessions
-            if (saved == ToolType.SELECTION || saved == ToolType.ERASER || saved == ToolType.POINT_ERASER) ToolType.FREEHAND else saved
+            if (saved == ToolType.SELECTION || saved == ToolType.ERASER || saved == ToolType.POINT_ERASER || saved == ToolType.CUT_ERASER) ToolType.FREEHAND else saved
         } catch(e: Exception) { ToolType.FREEHAND }
     )
         private set
@@ -90,6 +90,9 @@ class ToolManager(context: Context) {
     var currentFreehandSettings by mutableStateOf(loadFreehandSettings())
         private set
 
+    var currentEraserShape by mutableStateOf(EraserShape.CIRCLE)
+        private set
+
     // --- EXPERIMENTAL: Flattened Outer Stroke ---
     var isFlattenedOuterStrokeEnabled by mutableStateOf(true)
         private set
@@ -121,6 +124,8 @@ class ToolManager(context: Context) {
         fun loadConfig(type: ToolType, defSize: Float, defOpacity: Float): ToolConfig {
             val s = prefs.getFloat("tool_size_${type.name}", defSize)
             val o = prefs.getFloat("tool_alpha_${type.name}", defOpacity)
+            val shapeName = prefs.getString("tool_eraser_shape_${type.name}", EraserShape.CIRCLE.name) ?: EraserShape.CIRCLE.name
+            val shape = try { EraserShape.valueOf(shapeName) } catch (e: Exception) { EraserShape.CIRCLE }
             val settings = when(type) {
                 ToolType.FREEHAND -> savedFreehand
                 ToolType.PEN -> savedPen
@@ -130,7 +135,7 @@ class ToolManager(context: Context) {
                 ToolType.PENCIL_CUMULATIVE -> savedPencilCumulative
                 else -> FreehandSettings()
             }
-            return ToolConfig(size = s, opacity = o, freehandSettings = settings)
+            return ToolConfig(size = s, opacity = o, freehandSettings = settings, eraserShape = shape)
         }
 
         put(ToolType.FREEHAND, loadConfig(ToolType.FREEHAND, 2f, 1f))
@@ -142,6 +147,7 @@ class ToolManager(context: Context) {
         put(ToolType.FILL, loadConfig(ToolType.FILL, 1f, 1.0f))
         put(ToolType.ERASER, loadConfig(ToolType.ERASER, 10f, 1f))
         put(ToolType.POINT_ERASER, loadConfig(ToolType.POINT_ERASER, 10f, 1f))
+        put(ToolType.CUT_ERASER, loadConfig(ToolType.CUT_ERASER, 10f, 1f))
         put(ToolType.SELECTION, loadConfig(ToolType.SELECTION, 1f, 1f))
         put(ToolType.TRIM, loadConfig(ToolType.TRIM, 1f, 1f))
         put(ToolType.EXTEND, loadConfig(ToolType.EXTEND, 1f, 1f))
@@ -161,7 +167,7 @@ class ToolManager(context: Context) {
     // --- LOGIC METHODS ---
 
     fun selectTool(type: ToolType) {
-        if (type != ToolType.ERASER && type != ToolType.POINT_ERASER && type != ToolType.SELECTION && type != ToolType.FILL) {
+        if (type != ToolType.ERASER && type != ToolType.POINT_ERASER && type != ToolType.CUT_ERASER && type != ToolType.SELECTION && type != ToolType.FILL) {
             lastDrawingTool = type
         }
         currentTool = type
@@ -215,6 +221,7 @@ class ToolManager(context: Context) {
         currentOpacity = config.opacity
         _brushOpacity.value = config.opacity
         currentFreehandSettings = settings
+        currentEraserShape = config.eraserShape
         toolConfigs[type] = config.copy(freehandSettings = settings)
         
         if (settings.isCumulativeOpacity) {
@@ -232,6 +239,13 @@ class ToolManager(context: Context) {
             _isStrokeActive.value = true
             _isFillActive.value = false
         }
+    }
+
+    fun setEraserShape(shape: EraserShape) {
+        currentEraserShape = shape
+        val config = toolConfigs[currentTool]!!
+        toolConfigs[currentTool] = config.copy(eraserShape = shape)
+        prefs.edit().putString("tool_eraser_shape_${currentTool.name}", shape.name).apply()
     }
 
     fun setToolSize(size: Float) {
@@ -610,7 +624,7 @@ class ToolManager(context: Context) {
             } else {
                 ToolType.FREEHAND
             }
-            if (saved == ToolType.SELECTION || saved == ToolType.ERASER || saved == ToolType.POINT_ERASER) ToolType.FREEHAND else saved
+            if (saved == ToolType.SELECTION || saved == ToolType.ERASER || saved == ToolType.POINT_ERASER || saved == ToolType.CUT_ERASER) ToolType.FREEHAND else saved
         } catch(e: Exception) { ToolType.FREEHAND }
 
         currentStrokeType = try {
@@ -652,6 +666,7 @@ class ToolManager(context: Context) {
         toolConfigs[ToolType.FILL] = loadConfig(ToolType.FILL, 1f, 1.0f)
         toolConfigs[ToolType.ERASER] = loadConfig(ToolType.ERASER, 10f, 1f)
         toolConfigs[ToolType.POINT_ERASER] = loadConfig(ToolType.POINT_ERASER, 10f, 1f)
+        toolConfigs[ToolType.CUT_ERASER] = loadConfig(ToolType.CUT_ERASER, 10f, 1f)
         toolConfigs[ToolType.SELECTION] = loadConfig(ToolType.SELECTION, 1f, 1f)
         toolConfigs[ToolType.TRIM] = loadConfig(ToolType.TRIM, 1f, 1f)
         toolConfigs[ToolType.EXTEND] = loadConfig(ToolType.EXTEND, 1f, 1f)

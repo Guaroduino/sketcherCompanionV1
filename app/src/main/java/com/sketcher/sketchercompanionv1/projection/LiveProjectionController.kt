@@ -12,6 +12,7 @@ import com.sketcher.sketchercompanionv1.Layer
 import com.sketcher.sketchercompanionv1.RenderEngine
 import com.sketcher.sketchercompanionv1.StrokePoint
 import com.sketcher.sketchercompanionv1.SketcherViewModel
+import com.sketcher.sketchercompanionv1.dto.FillStyle
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -149,7 +150,7 @@ class LiveProjectionController(
     fun renderAndSendSyncFrame(
         layers: List<Layer>,
         componentLibrary: Map<String, ComponentDefinition>,
-        backgroundColor: Int,
+        backgroundStyle: FillStyle,
         cameraMatrixValues: FloatArray,
         strokeColor: Int,
         fillColor: Int,
@@ -183,7 +184,8 @@ class LiveProjectionController(
 
                     val bitmap = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
                     val canvas = Canvas(bitmap)
-                    canvas.drawColor(backgroundColor)
+                    val bgSolidColor = if (backgroundStyle is FillStyle.Solid) backgroundStyle.color else Color.WHITE
+                    canvas.drawColor(bgSolidColor)
 
                     val fitMatrix = Matrix()
                     val pW = phoneW.coerceAtLeast(1f)
@@ -212,7 +214,8 @@ class LiveProjectionController(
                     fitMatrix.postTranslate(tx, ty)
 
                     val renderEngine = RenderEngine()
-                    renderEngine.canvasBackgroundColor = backgroundColor
+                    renderEngine.canvasBackgroundStyle = backgroundStyle
+                    renderEngine.canvasBackgroundColor = if (backgroundStyle is FillStyle.Solid) backgroundStyle.color else Color.WHITE
                     renderEngine.drawLayers(
                         canvas = canvas,
                         layers = layersSnapshot,
@@ -265,7 +268,7 @@ class LiveProjectionController(
     fun renderAndSendFixedSnapshot(
         layers: List<Layer>,
         componentLibrary: Map<String, ComponentDefinition>,
-        backgroundColor: Int,
+        backgroundStyle: FillStyle,
         homeCameraMatrixValues: FloatArray,
         strokeColor: Int,
         fillColor: Int,
@@ -297,7 +300,8 @@ class LiveProjectionController(
             try {
                 val bitmap = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
                 val canvas = Canvas(bitmap)
-                canvas.drawColor(backgroundColor)
+                val bgSolidColor = if (backgroundStyle is FillStyle.Solid) backgroundStyle.color else Color.WHITE
+                canvas.drawColor(bgSolidColor)
 
                 val fitMatrix = Matrix()
                 if (fixedZoomMode == "home") {
@@ -336,7 +340,8 @@ class LiveProjectionController(
                 }
 
                 val renderEngine = RenderEngine()
-                renderEngine.canvasBackgroundColor = backgroundColor
+                renderEngine.canvasBackgroundStyle = backgroundStyle
+                renderEngine.canvasBackgroundColor = if (backgroundStyle is FillStyle.Solid) backgroundStyle.color else Color.WHITE
                 renderEngine.drawLayers(
                     canvas = canvas,
                     layers = layersSnapshot,

@@ -24,20 +24,24 @@ import androidx.compose.ui.unit.dp
 import com.sketcher.sketchercompanionv1.dto.*
 import com.sketcher.sketchercompanionv1.ui.theme.sdp
 import com.sketcher.sketchercompanionv1.ui.theme.ssp
+import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
 
 @Composable
 fun PaperSizeDialog(
     currentConfig: CanvasSizeConfig?,
-    currentColor: Int,
+    currentStyle: FillStyle,
+    theme: UiThemeConfig,
+    fillPresets: List<FillStyle>,
+    onPresetOverwritten: (Int, FillStyle) -> Unit,
     pixelsPerMm: Float = 5.0f,
     onDismiss: () -> Unit,
-    onConfirm: (CanvasSizeConfig?, Int) -> Unit
+    onConfirm: (CanvasSizeConfig?, FillStyle) -> Unit
 ) {
     var selectedTab by remember { mutableStateOf(if (currentConfig == null) 0 else if (currentConfig.preset != null) 1 else 2) }
     var selectedPreset by remember { mutableStateOf(currentConfig?.preset ?: PaperSizePreset.LETTER) }
     var selectedOrientation by remember { mutableStateOf(currentConfig?.orientation ?: PaperOrientation.PORTRAIT) }
     var selectedOrigin by remember { mutableStateOf(currentConfig?.origin ?: CoordinateOrigin.TOP_LEFT) } // Origin State
-    var selectedColor by remember { mutableStateOf(Color(currentColor)) }
+    var selectedStyle by remember { mutableStateOf(currentStyle) }
     
     // Custom size state
     var customWidth by remember { mutableStateOf(currentConfig?.widthInPixels?.toInt()?.toString() ?: "2550") }
@@ -46,12 +50,12 @@ fun PaperSizeDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Tamaño de Lienzo", fontSize = 22.ssp) },
+        title = { Text("Lienzo", fontSize = 22.ssp) },
         text = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(490.sdp)
+                    .height(510.sdp)
             ) {
                 // Tabs
                 TabRow(selectedTabIndex = selectedTab) {
@@ -214,11 +218,25 @@ fun PaperSizeDialog(
                 HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
                 Spacer(modifier = Modifier.height(12.sdp))
 
-                Text(
-                    text = "Color del Papel:",
-                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Fondo de Lienzo:",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                    
+                    LargeFillStylePreview(
+                        style = selectedStyle,
+                        modifier = Modifier
+                            .size(40.sdp)
+                            .clip(RoundedCornerShape(6.sdp))
+                            .border(1.sdp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f), RoundedCornerShape(6.sdp))
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(8.sdp))
 
@@ -238,7 +256,7 @@ fun PaperSizeDialog(
                     )
 
                     paperPresets.forEach { color ->
-                        val isSelected = selectedColor == color
+                        val isSelected = (selectedStyle is FillStyle.Solid && (selectedStyle as FillStyle.Solid).color == color.toArgb())
                         Box(
                             modifier = Modifier
                                 .size(36.sdp)
@@ -249,7 +267,7 @@ fun PaperSizeDialog(
                                     color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
                                     shape = CircleShape
                                 )
-                                .clickable { selectedColor = color },
+                                .clickable { selectedStyle = FillStyle.Solid(color.toArgb()) },
                             contentAlignment = Alignment.Center
                         ) {
                             if (isSelected) {
@@ -263,8 +281,8 @@ fun PaperSizeDialog(
                         }
                     }
 
-                    // Custom Color Picker Button
-                    var showCustomColorPicker by remember { mutableStateOf(false) }
+                    // Advanced Color and Texture Picker Button
+                    var showStylePickerDialog by remember { mutableStateOf(false) }
 
                     Box(
                         modifier = Modifier
@@ -276,24 +294,27 @@ fun PaperSizeDialog(
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                                 shape = CircleShape
                             )
-                            .clickable { showCustomColorPicker = true },
+                            .clickable { showStylePickerDialog = true },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.Palette,
-                            contentDescription = "Color personalizado",
+                            contentDescription = "Fondo avanzado",
                             tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(20.sdp)
                         )
                     }
 
-                    if (showCustomColorPicker) {
-                        ColorPickerDialog(
-                            initialColor = selectedColor.toArgb(),
-                            onDismiss = { showCustomColorPicker = false },
-                            onColorSelected = { colorInt ->
-                                selectedColor = Color(colorInt)
-                                showCustomColorPicker = false
+                    if (showStylePickerDialog) {
+                        FillStylePickerDialog(
+                            initialStyle = selectedStyle,
+                            theme = theme,
+                            presets = fillPresets,
+                            onPresetOverwritten = onPresetOverwritten,
+                            onDismiss = { showStylePickerDialog = false },
+                            onStyleSelected = { style ->
+                                selectedStyle = style
+                                showStylePickerDialog = false
                             }
                         )
                     }
@@ -313,7 +334,7 @@ fun PaperSizeDialog(
                         }
                         else -> null
                     }
-                    onConfirm(config, selectedColor.toArgb())
+                    onConfirm(config, selectedStyle)
                 },
                 shape = RoundedCornerShape(8.sdp)
             ) {
