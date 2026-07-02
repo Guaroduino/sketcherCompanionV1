@@ -8,6 +8,7 @@ import android.graphics.RectF
 import com.sketcher.sketchercompanionv1.dto.StrokeType
 
 import com.sketcher.sketchercompanionv1.dto.FillStyle
+import com.sketcher.sketchercompanionv1.dto.FreehandSettings
 
 data class StrokePoint(val x: Float, val y: Float, val pressure: Float, val timestamp: Long = 0L)
 
@@ -37,7 +38,8 @@ data class VectorStroke(
     val watercolorEdgeMode: com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode = com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.BOTH,
     val watercolorCenterOpacity: Float = 0.8f,
     val watercolorEdgeRingOpacity: Float = 1.0f,
-    val watercolorEdgeRingWidth: Float = 2.0f
+    val watercolorEdgeRingWidth: Float = 2.0f,
+    val freehandSettings: FreehandSettings = FreehandSettings()
 ) : LayerElement {
     @kotlin.jvm.Transient
     private var cachedJitteredPath: android.graphics.Path? = null
@@ -106,7 +108,8 @@ data class VectorStroke(
             watercolorEdgeMode = watercolorEdgeMode,
             watercolorCenterOpacity = watercolorCenterOpacity,
             watercolorEdgeRingOpacity = watercolorEdgeRingOpacity,
-            watercolorEdgeRingWidth = watercolorEdgeRingWidth
+            watercolorEdgeRingWidth = watercolorEdgeRingWidth,
+            freehandSettings = freehandSettings
         )
     }
 }

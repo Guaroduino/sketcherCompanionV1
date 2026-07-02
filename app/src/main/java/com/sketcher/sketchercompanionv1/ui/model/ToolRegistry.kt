@@ -50,25 +50,25 @@ object ToolRegistry {
             StudioTool("stroke_bezier", Icons.Default.FormatShapes, "Bézier", isPlaceholder = false, parentGroupId = "stroke_type")
         )),
 
-        StudioTool("trim", Icons.Default.ContentCut, "Trim", isPlaceholder = false, parentGroupId = "edit_points"),
-        StudioTool("extend", Icons.Default.TrendingFlat, "Extend", isPlaceholder = false, parentGroupId = "edit_points"),
-        StudioTool("orto", Icons.Default.SquareFoot, "Ortho Mode", isPlaceholder = false, parentGroupId = "edit_points"),
-        StudioTool("mirror", Icons.Default.Compare, "Mirror", isPlaceholder = false, parentGroupId = "edit_points"),
-        StudioTool("mover_pt_pt", Icons.Default.OpenWith, "Move Point to Point", isPlaceholder = false, parentGroupId = "edit_points"),
-        StudioTool("align_2_pt", Icons.Default.AlignHorizontalLeft, "Align 2 Points", isPlaceholder = false, parentGroupId = "edit_points"),
-        StudioTool("offset", Icons.Default.CopyAll, "Offset", isPlaceholder = false, parentGroupId = "edit_points"),
-        StudioTool("fillet", Icons.Default.RoundedCorner, "Fillet", isPlaceholder = false, parentGroupId = "edit_points"),
-        StudioTool("chamfer", Icons.Default.Architecture, "Chamfer", isPlaceholder = false, parentGroupId = "edit_points"),
-        StudioTool("edit_points", Icons.Default.Build, "Edit Points", isPlaceholder = false, subTools = listOf(
-            StudioTool("orto", Icons.Default.SquareFoot, "Ortho Mode", isPlaceholder = false, parentGroupId = "edit_points"),
-            StudioTool("mirror", Icons.Default.Compare, "Mirror", isPlaceholder = false, parentGroupId = "edit_points"),
-            StudioTool("mover_pt_pt", Icons.Default.OpenWith, "Move Point to Point", isPlaceholder = false, parentGroupId = "edit_points"),
-            StudioTool("align_2_pt", Icons.Default.AlignHorizontalLeft, "Align 2 Points", isPlaceholder = false, parentGroupId = "edit_points"),
-            StudioTool("offset", Icons.Default.CopyAll, "Offset", isPlaceholder = false, parentGroupId = "edit_points"),
-            StudioTool("fillet", Icons.Default.RoundedCorner, "Fillet", isPlaceholder = false, parentGroupId = "edit_points"),
-            StudioTool("chamfer", Icons.Default.Architecture, "Chamfer", isPlaceholder = false, parentGroupId = "edit_points"),
-            StudioTool("trim", Icons.Default.ContentCut, "Trim", isPlaceholder = false, parentGroupId = "edit_points"),
-            StudioTool("extend", Icons.Default.TrendingFlat, "Extend", isPlaceholder = false, parentGroupId = "edit_points")
+        StudioTool("trim", Icons.Default.ContentCut, "Trim", isPlaceholder = false, parentGroupId = "edit_points", isExperimental = true),
+        StudioTool("extend", Icons.Default.TrendingFlat, "Extend", isPlaceholder = false, parentGroupId = "edit_points", isExperimental = true),
+        StudioTool("orto", Icons.Default.SquareFoot, "Ortho Mode", isPlaceholder = false, parentGroupId = "edit_points", isExperimental = true),
+        StudioTool("mirror", Icons.Default.Compare, "Mirror", isPlaceholder = false, parentGroupId = "edit_points", isExperimental = true),
+        StudioTool("mover_pt_pt", Icons.Default.OpenWith, "Move Point to Point", isPlaceholder = false, parentGroupId = "edit_points", isExperimental = true),
+        StudioTool("align_2_pt", Icons.Default.AlignHorizontalLeft, "Align 2 Points", isPlaceholder = false, parentGroupId = "edit_points", isExperimental = true),
+        StudioTool("offset", Icons.Default.CopyAll, "Offset", isPlaceholder = false, parentGroupId = "edit_points", isExperimental = true),
+        StudioTool("fillet", Icons.Default.RoundedCorner, "Fillet", isPlaceholder = false, parentGroupId = "edit_points", isExperimental = true),
+        StudioTool("chamfer", Icons.Default.Architecture, "Chamfer", isPlaceholder = false, parentGroupId = "edit_points", isExperimental = true),
+        StudioTool("edit_points", Icons.Default.Build, "Edit Points", isPlaceholder = false, isExperimental = true, subTools = listOf(
+            StudioTool("orto", Icons.Default.SquareFoot, "Ortho Mode", isPlaceholder = false, parentGroupId = "edit_points", isExperimental = true),
+            StudioTool("mirror", Icons.Default.Compare, "Mirror", isPlaceholder = false, parentGroupId = "edit_points", isExperimental = true),
+            StudioTool("mover_pt_pt", Icons.Default.OpenWith, "Move Point to Point", isPlaceholder = false, parentGroupId = "edit_points", isExperimental = true),
+            StudioTool("align_2_pt", Icons.Default.AlignHorizontalLeft, "Align 2 Points", isPlaceholder = false, parentGroupId = "edit_points", isExperimental = true),
+            StudioTool("offset", Icons.Default.CopyAll, "Offset", isPlaceholder = false, parentGroupId = "edit_points", isExperimental = true),
+            StudioTool("fillet", Icons.Default.RoundedCorner, "Fillet", isPlaceholder = false, parentGroupId = "edit_points", isExperimental = true),
+            StudioTool("chamfer", Icons.Default.Architecture, "Chamfer", isPlaceholder = false, parentGroupId = "edit_points", isExperimental = true),
+            StudioTool("trim", Icons.Default.ContentCut, "Trim", isPlaceholder = false, parentGroupId = "edit_points", isExperimental = true),
+            StudioTool("extend", Icons.Default.TrendingFlat, "Extend", isPlaceholder = false, parentGroupId = "edit_points", isExperimental = true)
         )),
         StudioTool("toggle_snap", Icons.Default.FilterCenterFocus, "Toggle Snap", isPlaceholder = false, isExperimental = true),
         StudioTool("undo", Icons.Default.Undo, "Undo", isPlaceholder = false),
@@ -96,6 +96,7 @@ object ToolRegistry {
         StudioTool("action_copy", Icons.Outlined.ContentCopy, "Copiar", isPlaceholder = false),
         StudioTool("action_cut", Icons.Outlined.ContentCut, "Cortar", isPlaceholder = false),
         StudioTool("action_paste", Icons.Outlined.ContentPaste, "Pegar", isPlaceholder = false),
+        StudioTool("grid_menu", Icons.Default.GridOn, "Grid Menu", isPlaceholder = false),
         
         // Existing tools...
         StudioTool("layers", Icons.Default.Layers, "Layers", isPlaceholder = true),

@@ -677,7 +677,8 @@ class StrokePipeline(
                 brushType = activeTool.name,
                 strokeType = activeStrokeType,
                 isCadGeometry = true,
-                fillStyle = activeFillStyle
+                fillStyle = activeFillStyle,
+                freehandSettings = activeFreehandSettings
             )
             val fill = null
             onStrokeCompleted(stroke, fill)
@@ -749,7 +750,7 @@ class StrokePipeline(
                 fillPath = if (isFillActive) path else null,
                 brushType = activeTool.name,
                 strokeType = activeStrokeType,
-                isFlattened = false,
+                isFlattened = true,
                 paintOutlineWidth = activeFreehandSettings.paintOutlineWidth,
                 fillStyle = activeFillStyle,
                 watercolorJitterSegment = activeFreehandSettings.watercolorJitterSegment,
@@ -758,7 +759,8 @@ class StrokePipeline(
                 watercolorEdgeMode = activeFreehandSettings.watercolorEdgeMode,
                 watercolorCenterOpacity = activeFreehandSettings.watercolorCenterOpacity,
                 watercolorEdgeRingOpacity = activeFreehandSettings.watercolorEdgeRingOpacity,
-                watercolorEdgeRingWidth = activeFreehandSettings.watercolorEdgeRingWidth
+                watercolorEdgeRingWidth = activeFreehandSettings.watercolorEdgeRingWidth,
+                freehandSettings = activeFreehandSettings
             )
 
             onStrokeCompleted(stroke, null)
@@ -775,8 +777,10 @@ class StrokePipeline(
             val isStrokeActiveSnap = isStrokeActive
             val isFillActiveSnap = isFillActive
             val activeSizeSnap = activeSize
+            val activeFreehandSettingsSnap = activeFreehandSettings
             val genResultLeftSnap = genResult.left.toList()
             val genResultRightSnap = genResult.right.toList()
+            val genResultCenterSnap = genResult.center.toList()
             val finalPointsSnap = finalPoints.toList()
             val strokeIdSnap = currentStrokeId
 
@@ -814,7 +818,7 @@ class StrokePipeline(
 
             pipelineScope.launch {
                 consolidationMutex.withLock {
-                    val path = flattenOuterStroke(rawPath)
+                    val path = flattenOuterStroke(genResultLeftSnap, genResultRightSnap, genResultCenterSnap, rawPath)
                     
                     // Committed fill path should connect center points (finalPointsSnap) instead of perimeter
                     var fPath: Path? = null
@@ -851,7 +855,8 @@ class StrokePipeline(
                         leftPoints = genResultLeftSnap,
                         rightPoints = genResultRightSnap,
                         isFlattened = true,
-                        fillStyle = activeFillStyleSnap
+                        fillStyle = activeFillStyleSnap,
+                        freehandSettings = activeFreehandSettingsSnap
                     )
 
                     var fill: FillData? = null
@@ -911,7 +916,8 @@ class StrokePipeline(
                 leftPoints = genResult.left,
                 rightPoints = genResult.right,
                 paths = chunkPaths,
-                fillStyle = activeFillStyle
+                fillStyle = activeFillStyle,
+                freehandSettings = activeFreehandSettings
             )
 
             var fill: FillData? = null
@@ -960,7 +966,8 @@ class StrokePipeline(
                 brushType = activeTool.name,
                 strokeType = activeStrokeType,
                 isCadGeometry = true,
-                fillStyle = activeFillStyle
+                fillStyle = activeFillStyle,
+                freehandSettings = activeFreehandSettings
             )
             val fill = null
             onStrokeCompleted(stroke, fill)
@@ -1027,7 +1034,8 @@ class StrokePipeline(
              leftPoints = genResult.left,
              rightPoints = genResult.right,
              paths = chunkPaths,
-             fillStyle = activeFillStyle
+             fillStyle = activeFillStyle,
+             freehandSettings = activeFreehandSettings
         )
 
         var fill: FillData? = null
@@ -1291,6 +1299,74 @@ class StrokePipeline(
             PerfectFreehandGenerator.generate(densePoints, settings, currentZoom, meshPath)
         }
         return meshPath
+    }
+
+    private fun flattenOuterStroke(
+        left: List<PointF>,
+        right: List<PointF>,
+        center: List<PointF>,
+        rawPath: Path
+    ): Path {
+        if (left.size < 100 || right.size < 100 || center.size < 2) {
+            val cleanPath = Path()
+            cleanPath.op(rawPath, rawPath, Path.Op.UNION)
+            return cleanPath
+        }
+
+        val numChunks = (left.size / 50).coerceIn(2, 20)
+        val unionedChunks = mutableListOf<Path>()
+        
+        val startRadius = kotlin.math.hypot(left[0].x - center[0].x, left[0].y - center[0].y)
+        val endRadius = kotlin.math.hypot(left.last().x - center.last().x, left.last().y - center.last().y)
+        
+        for (j in 0 until numChunks) {
+            val tStart = j.toFloat() / numChunks
+            val tEnd = (j + 1).toFloat() / numChunks
+            
+            val startLeftIdx = (tStart * (left.size - 1)).toInt().coerceIn(0, left.size - 1)
+            val endLeftIdx = (tEnd * (left.size - 1)).toInt().coerceIn(startLeftIdx + 1, left.size - 1)
+            
+            val startRightIdx = (tStart * (right.size - 1)).toInt().coerceIn(0, right.size - 1)
+            val endRightIdx = (tEnd * (right.size - 1)).toInt().coerceIn(startRightIdx + 1, right.size - 1)
+            
+            val chunkPath = Path()
+            
+            val lStart = startLeftIdx
+            val lEnd = endLeftIdx
+            val rStart = startRightIdx
+            val rEnd = endRightIdx
+            
+            chunkPath.moveTo(left[lStart].x, left[lStart].y)
+            for (i in lStart + 1..lEnd) {
+                chunkPath.lineTo(left[i].x, left[i].y)
+            }
+            chunkPath.lineTo(right[rEnd].x, right[rEnd].y)
+            for (i in rEnd - 1 downTo rStart) {
+                chunkPath.lineTo(right[i].x, right[i].y)
+            }
+            chunkPath.close()
+            
+            if (j == 0) {
+                chunkPath.addCircle(center[0].x, center[0].y, startRadius, Path.Direction.CW)
+            }
+            if (j == numChunks - 1) {
+                chunkPath.addCircle(center.last().x, center.last().y, endRadius, Path.Direction.CW)
+            }
+            
+            val unionedChunk = Path()
+            unionedChunk.op(chunkPath, chunkPath, Path.Op.UNION)
+            unionedChunks.add(unionedChunk)
+        }
+        
+        val finalUnion = Path()
+        for (chunk in unionedChunks) {
+            if (finalUnion.isEmpty) {
+                finalUnion.set(chunk)
+            } else {
+                finalUnion.op(finalUnion, chunk, Path.Op.UNION)
+            }
+        }
+        return finalUnion
     }
 
     private fun flattenOuterStroke(outlinePath: Path): Path {

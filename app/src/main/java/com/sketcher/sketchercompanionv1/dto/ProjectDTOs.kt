@@ -123,7 +123,8 @@ data class VectorStrokeJson(
     val watercolorEdgeMode: String? = null,
     val watercolorCenterOpacity: Float? = null,
     val watercolorEdgeRingOpacity: Float? = null,
-    val watercolorEdgeRingWidth: Float? = null
+    val watercolorEdgeRingWidth: Float? = null,
+    val freehandSettings: FreehandSettings? = null
 )
 
 data class StrokePointJson(

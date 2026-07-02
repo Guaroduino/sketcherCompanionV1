@@ -51,9 +51,9 @@ class ToolbarManager(
 
     fun initLayout() {
         val loaded = toolbarRepository.loadLayout()
-        val layoutResetV7 = prefs.getInt("layout_reset_v7", 0)
+        val layoutResetV8 = prefs.getInt("layout_reset_v8", 0)
         
-        if (loaded != null && layoutResetV7 >= 1) {
+        if (loaded != null && layoutResetV8 >= 1) {
             _assignedTools.value = loaded.assignedMap
             _assignedToolColors.value = loaded.toolColors
             
@@ -65,7 +65,7 @@ class ToolbarManager(
         } else {
             initToolbarState()
             saveLayout()
-            prefs.edit().putInt("layout_reset_v7", 1).apply()
+            prefs.edit().putInt("layout_reset_v8", 1).apply()
         }
     }
 
@@ -478,7 +478,8 @@ class ToolbarManager(
             ),
             ToolLocation.BottomBar to listOfNotNull(
                 ToolRegistry.getToolById("tool_selection"),
-                ToolRegistry.getToolById("action_paste")
+                ToolRegistry.getToolById("action_paste"),
+                ToolRegistry.getToolById("grid_menu")
             ),
             ToolLocation.TopLeftCorner to listOfNotNull(
                 ToolRegistry.getToolById("menu")

@@ -4151,6 +4151,17 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         }
 
+        // Cache thumbnail in memory immediately
+        val path = uri.path
+        if (path != null && thumbnailBmp != null) {
+            try {
+                val cachedBmp = thumbnailBmp.copy(Bitmap.Config.ARGB_8888, false)
+                thumbnailCache[path] = cachedBmp
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
 
 
         launchIO {
@@ -4817,7 +4828,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
             when (element) {
                 is VectorStroke -> {
-                    if (element.isFlattened || currentTool == ToolType.CUT_ERASER) {
+                    if (currentTool == ToolType.CUT_ERASER) {
                         // Borrado mesh (corte booleano)
                         val eraserPath = android.graphics.Path().apply {
                             if (currentEraserShape == com.sketcher.sketchercompanionv1.dto.EraserShape.SQUARE) {
@@ -4884,7 +4895,18 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                             for (segment in segments) {
                                 if (segment.size >= 2 || (segment.isNotEmpty() && element.strokeType == StrokeType.FREEHAND)) {
                                     val isMeshBrush = element.brushType == "FREEHAND" || element.brushType == "PLUMA" || element.brushType == "PENCIL_CUMULATIVE" || element.brushType == "PAINT" || element.brushType == "WATERCOLOR"
-                                    val (newPath, leftPts, rightPts) = if (isMeshBrush) {
+                                    val (newPath, leftPts, rightPts) = if (element.isFlattened) {
+                                        val p = android.graphics.Path().apply {
+                                            if (segment.isNotEmpty()) {
+                                                moveTo(segment[0].x, segment[0].y)
+                                                for (i in 1 until segment.size) {
+                                                    lineTo(segment[i].x, segment[i].y)
+                                                }
+                                                close()
+                                            }
+                                        }
+                                        Triple(p, emptyList(), emptyList())
+                                    } else if (isMeshBrush) {
                                         val toolType = when (element.brushType) {
                                             "PLUMA" -> ToolType.PLUMA
                                             "PAINT" -> ToolType.PAINT
@@ -5493,6 +5515,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         liveFillPath: android.graphics.Path?,
         liveRadius: Float
     ) {
+        if (currentSelectionMode == SelectionMode.TRANSFORM_BOX) return
         liveProjectionController.renderAndSendSyncFrame(
             layers = layers,
             componentLibrary = componentLibrary,
@@ -5517,6 +5540,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         liveFillPath: android.graphics.Path?,
         liveRadius: Float
     ) {
+        if (currentSelectionMode == SelectionMode.TRANSFORM_BOX) return
         liveProjectionController.renderAndSendFixedSnapshot(
             layers = layers,
             componentLibrary = componentLibrary,
@@ -5659,6 +5683,177 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         saveGlobalLibrary(context)
     }
 
+    fun addElementToGlobalLibrary(context: Context, name: String, element: LayerElement, parentId: String?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val definitionId = "def_" + java.util.UUID.randomUUID().toString()
+            val definition = ComponentDefinition(definitionId, mutableListOf(element))
+            
+            var thumbnailName: String? = null
+            val bounds = element.getBoundingBox(emptyMap())
+            if (!bounds.isEmpty) {
+                try {
+                    val size = 256
+                    val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+                    val canvas = android.graphics.Canvas(bitmap)
+                    
+                    val scaleX = size / bounds.width()
+                    val scaleY = size / bounds.height()
+                    val scale = java.lang.Math.min(scaleX, scaleY) * 0.8f
+                    
+                    val dx = (size - bounds.width() * scale) / 2f
+                    val dy = (size - bounds.height() * scale) / 2f
+                    
+                    val m = android.graphics.Matrix()
+                    m.postTranslate(-bounds.left, -bounds.top)
+                    m.postScale(scale, scale)
+                    m.postTranslate(dx, dy)
+                    
+                    canvas.drawColor(android.graphics.Color.WHITE)
+                    canvas.concat(m)
+                    
+                    com.sketcher.sketchercompanionv1.RenderEngine().drawElementRecursive(
+                        canvas,
+                        element,
+                        emptyMap(),
+                        m,
+                        1f
+                    )
+                    
+                    val thumbFile = "thumb_" + java.util.UUID.randomUUID().toString() + ".png"
+                    val assetsDir = java.io.File(context.filesDir, "library_assets")
+                    if (!assetsDir.exists()) assetsDir.mkdirs()
+                    val out = java.io.FileOutputStream(java.io.File(assetsDir, thumbFile))
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+                    out.close()
+                    bitmap.recycle()
+                    
+                    thumbnailName = thumbFile
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+            
+            val newId = "lib_comp_" + java.util.UUID.randomUUID().toString()
+            val newItem = LibraryComponent(newId, name, parentId, definition, thumbnailName)
+            
+            withContext(Dispatchers.Main) {
+                componentLibrary[definitionId] = definition
+                _globalLibraryItems.value = _globalLibraryItems.value + newItem
+                saveGlobalLibrary(context)
+            }
+        }
+    }
+
+    fun addSvgToGlobalLibrary(context: Context, name: String, svgElement: SvgElement, parentId: String?) {
+        val group = GroupElement(
+            id = java.util.UUID.randomUUID().toString(),
+            elements = mutableListOf(svgElement),
+            matrix = android.graphics.Matrix()
+        )
+        addElementToGlobalLibrary(context, name, group, parentId)
+    }
+
+    fun addImageToGlobalLibrary(context: Context, name: String, bitmap: android.graphics.Bitmap, parentId: String?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val imgFileName = "img_" + java.util.UUID.randomUUID().toString() + ".png"
+            val assetsDir = java.io.File(context.filesDir, "library_assets")
+            if (!assetsDir.exists()) assetsDir.mkdirs()
+            val destFile = java.io.File(assetsDir, imgFileName)
+            try {
+                val out = java.io.FileOutputStream(destFile)
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+                out.close()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            
+            val imageElement = ImageElement(
+                id = java.util.UUID.randomUUID().toString(),
+                bitmap = bitmap,
+                imageFileName = imgFileName,
+                matrix = android.graphics.Matrix()
+            )
+            
+            addElementToGlobalLibrary(context, name, imageElement, parentId)
+        }
+    }
+
+    fun addDxfToGlobalLibrary(
+        context: Context,
+        name: String,
+        data: DxfImportData,
+        scaleToFit: Boolean,
+        defaultStrokeWidth: Float,
+        fillClosedShapes: Boolean,
+        sourceUnit: DistanceUnit,
+        parentId: String?
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val matrix = android.graphics.Matrix()
+            if (scaleToFit) {
+                val bounds = data.totalBounds
+                if (bounds.width() > 0 && bounds.height() > 0) {
+                    val scale = 200f / kotlin.math.max(bounds.width(), bounds.height())
+                    matrix.postTranslate(-bounds.centerX(), -bounds.centerY())
+                    matrix.postScale(scale, scale)
+                }
+            } else {
+                val pixelScale = sourceUnit.toMillimeters * scaleConfig.basePixelsPerMillimeter
+                matrix.postScale(pixelScale, pixelScale)
+            }
+            
+            val mutableElements = mutableListOf<LayerElement>()
+            val pathsByLayer = data.paths.groupBy { it.layerName }
+            
+            pathsByLayer.entries.forEach { entry ->
+                val dxfPaths = entry.value
+                dxfPaths.forEach { dp ->
+                    val path = android.graphics.Path(dp.path)
+                    path.transform(matrix)
+                    val strokeColor = dp.color ?: android.graphics.Color.BLACK
+                    val points = PathUtils.samplePath(path)
+                    val isFilledShape = fillClosedShapes && dp.isClosed
+                    
+                    val finalPath: android.graphics.Path
+                    val brushType: String
+                    if (isFilledShape) {
+                        finalPath = path
+                        brushType = "FILLED_SHAPE"
+                    } else {
+                        val outlinePath = android.graphics.Path()
+                        val paint = android.graphics.Paint().apply {
+                            style = android.graphics.Paint.Style.STROKE
+                            strokeWidth = defaultStrokeWidth
+                            strokeCap = android.graphics.Paint.Cap.ROUND
+                            strokeJoin = android.graphics.Paint.Join.ROUND
+                        }
+                        paint.getFillPath(path, outlinePath)
+                        finalPath = outlinePath
+                        brushType = "FREEHAND"
+                    }
+                    
+                    val stroke = VectorStroke(
+                        points = points,
+                        strokeColor = strokeColor,
+                        brushType = brushType,
+                        strokeType = StrokeType.FREEHAND,
+                        maxWidth = defaultStrokeWidth,
+                        path = finalPath
+                    )
+                    mutableElements.add(stroke)
+                }
+            }
+            
+            val group = GroupElement(
+                id = java.util.UUID.randomUUID().toString(),
+                elements = mutableElements,
+                matrix = android.graphics.Matrix()
+            )
+            
+            addElementToGlobalLibrary(context, name, group, parentId)
+        }
+    }
+
     fun instantiateFromGlobalLibrary(component: LibraryComponent) {
         performSnapshotAction("Insertar de Librería") {
             val defId = "comp_" + java.util.UUID.randomUUID().toString()
@@ -5736,22 +5931,36 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         val dir = currentDirectory ?: return
         viewModelScope.launch(Dispatchers.IO) {
             val files = dir.listFiles() ?: emptyArray()
-            val items = files.map { file ->
+            val items = files.mapNotNull { file ->
                 if (file.isDirectory) {
                     val count = file.listFiles { f -> f.extension == "skc" }?.size ?: 0
+                    val metadataFile = java.io.File(file, ".metadata.json")
+                    val metadata = if (metadataFile.exists()) {
+                        try {
+                            Gson().fromJson(metadataFile.readText(), FolderMetadata::class.java) ?: FolderMetadata()
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            FolderMetadata()
+                        }
+                    } else {
+                        FolderMetadata()
+                    }
                     DashboardItem.Folder(
                         name = file.name,
                         path = file.absolutePath,
                         lastModified = file.lastModified(),
-                        itemCount = count
+                        itemCount = count,
+                        metadata = metadata
                     )
-                } else {
+                } else if (file.isFile && file.extension == "skc") {
                     DashboardItem.Project(
                         name = file.nameWithoutExtension,
                         path = file.absolutePath,
                         lastModified = file.lastModified(),
                         sizeBytes = file.length()
                     )
+                } else {
+                    null
                 }
             }.sortedWith(compareByDescending<DashboardItem> { it is DashboardItem.Folder }.thenByDescending { it.lastModified })
 
@@ -5768,6 +5977,22 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                         thumbnailCache[project.path] = bmp
                     }
                 }
+            }
+        }
+    }
+
+    fun updateFolderMetadata(context: Context, folderPath: String, coverStyle: String, coverFill: com.sketcher.sketchercompanionv1.dto.FillStyleJson?, coverProject: String?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val folder = java.io.File(folderPath)
+            if (folder.exists() && folder.isDirectory) {
+                val metadataFile = java.io.File(folder, ".metadata.json")
+                val metadata = FolderMetadata(coverStyle = coverStyle, coverFill = coverFill, coverProject = coverProject)
+                try {
+                    metadataFile.writeText(Gson().toJson(metadata))
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                refreshLocalItems()
             }
         }
     }
@@ -5904,13 +6129,23 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun exitEditorToDashboard() {
+    fun exitEditorToDashboard(context: Context) {
+        val uri = currentFileUri
+        if (uri != null && hasUnsavedChanges) {
+            saveProjectToZip(context, uri)
+        }
         showDashboard = true
         refreshLocalItems()
     }
 }
 
 // --- DATA STRUCTURES FOR DASHBOARD ITEMS ---
+data class FolderMetadata(
+    val coverStyle: String = "classic", // "spiral", "classic", "minimalist"
+    val coverFill: com.sketcher.sketchercompanionv1.dto.FillStyleJson? = null,
+    val coverProject: String? = null
+)
+
 sealed interface DashboardItem {
     val name: String
     val path: String
@@ -5920,7 +6155,8 @@ sealed interface DashboardItem {
         override val name: String,
         override val path: String,
         override val lastModified: Long,
-        val itemCount: Int
+        val itemCount: Int,
+        val metadata: FolderMetadata
     ) : DashboardItem
 
     data class Project(

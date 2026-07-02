@@ -1,5 +1,7 @@
 package com.sketcher.sketchercompanionv1.ui.panels
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -30,6 +32,11 @@ import com.sketcher.sketchercompanionv1.LibraryComponent
 import com.sketcher.sketchercompanionv1.LibraryFolder
 import com.sketcher.sketchercompanionv1.LibraryItem
 import com.sketcher.sketchercompanionv1.SketcherViewModel
+import com.sketcher.sketchercompanionv1.SvgElement
+import com.sketcher.sketchercompanionv1.GroupElement
+import com.sketcher.sketchercompanionv1.dto.ImageEditState
+import com.sketcher.sketchercompanionv1.ui.dialogs.ImageEditDialog
+import com.sketcher.sketchercompanionv1.ui.dialogs.DxfImportDialog
 import com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler
 import com.sketcher.sketchercompanionv1.ui.theme.sdp
 import com.sketcher.sketchercompanionv1.ui.AppIconButton
@@ -54,6 +61,54 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
     var showNewFolderDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf<LibraryItem?>(null) }
     var newName by remember { mutableStateOf("") }
+    
+    var importImageEditState by remember { mutableStateOf<ImageEditState?>(null) }
+    var dxfImportUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var showDxfImportDialog by remember { mutableStateOf(false) }
+
+    val uploadLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let { fileUri ->
+            val contentResolver = context.contentResolver
+            val mimeType = contentResolver.getType(fileUri)
+            val extension = fileUri.path?.substringAfterLast('.')?.lowercase(java.util.Locale.ROOT)
+            
+            if (mimeType?.startsWith("image/") == true || extension in listOf("png", "jpg", "jpeg", "webp")) {
+                try {
+                    contentResolver.openInputStream(fileUri)?.use { stream ->
+                        val originalBmp = android.graphics.BitmapFactory.decodeStream(stream)
+                        if (originalBmp != null) {
+                            importImageEditState = ImageEditState(
+                                isNewImport = true,
+                                elementId = null,
+                                originalBitmap = originalBmp,
+                                filename = "imported_lib_img.png"
+                            )
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            } else if (extension == "svg") {
+                try {
+                    contentResolver.openInputStream(fileUri)?.use { stream ->
+                        val bytes = stream.readBytes()
+                        val content = String(bytes, Charsets.UTF_8)
+                        val svgElement = SvgElement("svg_${java.util.UUID.randomUUID()}", "import.svg", content)
+                        viewModel.addSvgToGlobalLibrary(context, "SVG Importado", svgElement, currentFolderId)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            } else if (extension == "dxf") {
+                dxfImportUri = fileUri
+                showDxfImportDialog = true
+            } else {
+                android.widget.Toast.makeText(context, "Formato no soportado", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
     
     val currentItems = libraryItems.filter { it.parentId == currentFolderId }
     val currentFolder = libraryItems.find { it.id == currentFolderId } as? LibraryFolder
@@ -95,7 +150,6 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
             }
             
             Row(horizontalArrangement = Arrangement.spacedBy(4.sdp), verticalAlignment = Alignment.CenterVertically) {
-                // Toggle Grid/List
                 AppIconButton(
                     onClick = { isGridView = !isGridView },
                     icon = if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
@@ -107,6 +161,10 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
                 OutlinerActionButton(Icons.Default.CreateNewFolder, "Nueva Carpeta", theme.iconColor) {
                     showNewFolderDialog = true
                     newName = "Nueva Carpeta"
+                }
+
+                OutlinerActionButton(Icons.Default.CloudUpload, "Subir", theme.iconColor) {
+                    uploadLauncher.launch(arrayOf("*/*"))
                 }
                 
                 OutlinerActionButton(Icons.Default.Add, "Añadir a Librería", theme.iconColor, enabled = canAddToLibrary) {
@@ -241,6 +299,40 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
             },
             dismissButton = {
                 TextButton(onClick = { showRenameDialog = null }) { Text("Cancelar") }
+            }
+        )
+    }
+    
+    // --- IMPORT DIALOGS ---
+    val imgState = importImageEditState
+    if (imgState != null) {
+        ImageEditDialog(
+            state = imgState,
+            theme = theme,
+            onDismiss = { importImageEditState = null },
+            onConfirm = { processedBmp, _, _, _, _, _, _, _, _ ->
+                viewModel.addImageToGlobalLibrary(context, "Imagen Importada", processedBmp, currentFolderId)
+                importImageEditState = null
+            }
+        )
+    }
+
+    if (showDxfImportDialog && dxfImportUri != null) {
+        DxfImportDialog(
+            uri = dxfImportUri!!,
+            onDismiss = { showDxfImportDialog = false },
+            onImport = { dxfData, scaleToFit, defaultStrokeWidth, fillClosedShapes, selectedUnit ->
+                viewModel.addDxfToGlobalLibrary(
+                    context = context,
+                    name = "DXF Importado",
+                    data = dxfData,
+                    scaleToFit = scaleToFit,
+                    defaultStrokeWidth = defaultStrokeWidth,
+                    fillClosedShapes = fillClosedShapes,
+                    sourceUnit = selectedUnit,
+                    parentId = currentFolderId
+                )
+                showDxfImportDialog = false
             }
         )
     }

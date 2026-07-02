@@ -37,6 +37,7 @@ fun StudioMenuDialog(
 ) {
     val theme by viewModel.themeConfig.collectAsState()
     val scaler = LocalUiScaler.current
+    val context = androidx.compose.ui.platform.LocalContext.current
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
     val maxCardHeight = (configuration.screenHeightDp * 0.85f).dp
 
@@ -74,7 +75,7 @@ fun StudioMenuDialog(
                     item { MenuSectionHeader("PROJECT", theme.iconColor) }
                     item {
                         MenuItem(Icons.Default.Home, "Volver al Inicio", theme.iconColor) { 
-                            viewModel.exitEditorToDashboard()
+                            viewModel.exitEditorToDashboard(context)
                             onDismiss()
                         }
                     }

@@ -235,6 +235,8 @@ class ToolManager(context: Context) {
         if (type == ToolType.PAINT || type == ToolType.WATERCOLOR) {
             _isStrokeActive.value = true
             _isFillActive.value = true
+            _fillColor.value = _strokeColor.value
+            _fillStyle.value = FillStyle.Solid(_strokeColor.value)
         } else if (type == ToolType.FREEHAND || type == ToolType.PEN || type == ToolType.PLUMA || type == ToolType.PENCIL_CUMULATIVE) {
             _isStrokeActive.value = true
             _isFillActive.value = false
@@ -417,6 +419,10 @@ class ToolManager(context: Context) {
     fun setStrokeColor(color: Int) {
         _strokeColor.value = color
         _isStrokeActive.value = true
+        if (currentTool == ToolType.PAINT || currentTool == ToolType.WATERCOLOR) {
+            _fillColor.value = color
+            _fillStyle.value = FillStyle.Solid(color)
+        }
     }
 
     fun setFillColor(color: Int) {

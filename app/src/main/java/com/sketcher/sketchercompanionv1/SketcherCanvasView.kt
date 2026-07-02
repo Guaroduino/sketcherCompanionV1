@@ -826,34 +826,54 @@ class SketcherCanvasView(context: Context) : View(context) {
             currentLiveIntersections = emptyList()
             currentStrokeBounds = null
 
-            val bakedFillStyle = stroke.fillStyle.copyWithOpacity(stroke.fillStyle.opacity * activeFillOpacity)
-            val bakedFillColor = if (stroke.isFillEnabled) {
-                val alpha = (android.graphics.Color.alpha(stroke.fillColor) / 255f)
-                val finalAlpha = (alpha * activeFillOpacity * 255).toInt().coerceIn(0, 255)
-                (stroke.fillColor and 0x00FFFFFF) or (finalAlpha shl 24)
+            if (currentTool == ToolType.ERASER || currentTool == ToolType.POINT_ERASER || currentTool == ToolType.CUT_ERASER) {
+                val path = stroke.path
+                if (path != null) {
+                    val diameterPx = activeSize * 2f
+                    val radiusWorld = com.sketcher.sketchercompanionv1.utils.UnitUtils.pixelsToProjectUnits(
+                        diameterPx, currentUnit, scaleConfig.basePixelsPerMillimeter
+                    ) / 2f
+                    val step = (radiusWorld / 2f).coerceAtLeast(0.1f)
+                    val points = com.sketcher.sketchercompanionv1.utils.GeometryUtils.flattenPath(path, step)
+
+                    onEraserDragStarted?.invoke()
+                    for (pt in points) {
+                        onRequestErase?.invoke(pt.x, pt.y, diameterPx)
+                    }
+                    onEraserDragEnded?.invoke()
+                }
+                isDrawing = false
+                liveMergedExistingStrokes.clear()
             } else {
-                stroke.fillColor
+                val bakedFillStyle = stroke.fillStyle.copyWithOpacity(stroke.fillStyle.opacity * activeFillOpacity)
+                val bakedFillColor = if (stroke.isFillEnabled) {
+                    val alpha = (android.graphics.Color.alpha(stroke.fillColor) / 255f)
+                    val finalAlpha = (alpha * activeFillOpacity * 255).toInt().coerceIn(0, 255)
+                    (stroke.fillColor and 0x00FFFFFF) or (finalAlpha shl 24)
+                } else {
+                    stroke.fillColor
+                }
+
+                val bakedStroke = stroke.copy(
+                    fillStyle = bakedFillStyle,
+                    fillColor = bakedFillColor
+                )
+
+                val bakedFill = fill?.let { f ->
+                    val style = f.fillStyle.copyWithOpacity(f.fillStyle.opacity * activeFillOpacity)
+                    f.copy(fillStyle = style)
+                }
+
+                bakeStrokeDirectly(bakedStroke, bakedFill)
+
+                onHybridStrokeCompleted?.invoke(bakedStroke, bakedFill) ?: run {
+                     onStrokeCompleted?.invoke(bakedStroke)
+                     bakedFill?.let { onFillCompleted?.invoke(it) }
+                }
+
+                isDrawing = false
+                liveMergedExistingStrokes.clear()
             }
-
-            val bakedStroke = stroke.copy(
-                fillStyle = bakedFillStyle,
-                fillColor = bakedFillColor
-            )
-
-            val bakedFill = fill?.let { f ->
-                val style = f.fillStyle.copyWithOpacity(f.fillStyle.opacity * activeFillOpacity)
-                f.copy(fillStyle = style)
-            }
-
-            bakeStrokeDirectly(bakedStroke, bakedFill)
-
-            onHybridStrokeCompleted?.invoke(bakedStroke, bakedFill) ?: run {
-                 onStrokeCompleted?.invoke(bakedStroke)
-                 bakedFill?.let { onFillCompleted?.invoke(it) }
-            }
-
-            isDrawing = false
-            liveMergedExistingStrokes.clear()
         }
 
     )
@@ -1933,7 +1953,8 @@ class SketcherCanvasView(context: Context) : View(context) {
 
         // 2. Draw Live Content (Stroke & Fill)
 
-        if (isDrawing && (isStrokeActive || isFillActive)) {
+        val isEraser = currentTool == ToolType.ERASER || currentTool == ToolType.POINT_ERASER || currentTool == ToolType.CUT_ERASER
+        if (isDrawing && (isStrokeActive || isFillActive || isEraser)) {
 
             val hasCommitted = currentCommittedPreviewPath != null
 
@@ -1945,7 +1966,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
                 // Pass 1: Draw Live Fill (always directly on canvas, using its own activeFillColor with alpha, multiplied by activeLayerOpacity)
 
-                if (isFillActive && currentFillPath != null) {
+                if (!isEraser && isFillActive && currentFillPath != null) {
                     liveFillPaint.style = android.graphics.Paint.Style.FILL
                     renderEngine.applyFillStyle(liveFillPaint, activeFillStyle, alphaMultiplier = activeFillOpacity * activeLayerOpacity)
                     canvas.save()
@@ -1956,7 +1977,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                 }
 
                 // Pass 2: Draw Live Stroke
-                if (isStrokeActive || ((currentTool == ToolType.PAINT || currentTool == ToolType.WATERCOLOR) && isFillActive)) {
+                if (!isEraser && (isStrokeActive || ((currentTool == ToolType.PAINT || currentTool == ToolType.WATERCOLOR) && isFillActive))) {
                     val strokeAlpha = if (isStrokeActive) (android.graphics.Color.alpha(activeStrokeColor) / 255f) else 0f
                     val fillAlpha = if (isFillActive) activeFillOpacity else 0f
                     val primaryAlpha = if (isStrokeActive) strokeAlpha else fillAlpha
@@ -2356,6 +2377,46 @@ class SketcherCanvasView(context: Context) : View(context) {
 
                     }
 
+                }
+
+                // Pass 3: Eraser preview for CAD tools
+                if (isEraser && currentVectorPreviewPath != null) {
+                    val diameterPx = activeSize * 2f
+                    val radiusWorld = com.sketcher.sketchercompanionv1.utils.UnitUtils.pixelsToProjectUnits(
+                        diameterPx, currentUnit, scaleConfig.basePixelsPerMillimeter
+                    ) / 2f
+                    val eraserStrokeWidthWorld = radiusWorld * 2f
+
+                    eraserPreviewFillPaint.apply {
+                        style = android.graphics.Paint.Style.STROKE
+                        strokeWidth = eraserStrokeWidthWorld
+                        strokeCap = if (activeEraserShape == com.sketcher.sketchercompanionv1.dto.EraserShape.SQUARE) {
+                            android.graphics.Paint.Cap.SQUARE
+                        } else {
+                            android.graphics.Paint.Cap.ROUND
+                        }
+                        strokeJoin = if (activeEraserShape == com.sketcher.sketchercompanionv1.dto.EraserShape.SQUARE) {
+                            android.graphics.Paint.Join.MITER
+                        } else {
+                            android.graphics.Paint.Join.ROUND
+                        }
+                    }
+                    val currentZoom = getMatrixScale(viewMatrix)
+                    eraserPreviewPaint.apply {
+                        style = android.graphics.Paint.Style.STROKE
+                        strokeWidth = (1.5f * resources.displayMetrics.density) / (if (currentZoom > 0f) currentZoom else 1f)
+                    }
+
+                    canvas.save()
+                    canvas.concat(drawCombinedMatrix)
+                    canvas.drawPath(currentVectorPreviewPath!!, eraserPreviewFillPaint)
+                    canvas.drawPath(currentVectorPreviewPath!!, eraserPreviewPaint)
+                    canvas.restore()
+
+                    // Reset eraserPreviewFillPaint back to defaults for fill drawing
+                    eraserPreviewFillPaint.apply {
+                        style = android.graphics.Paint.Style.FILL
+                    }
                 }
 
             }
@@ -2947,7 +3008,33 @@ class SketcherCanvasView(context: Context) : View(context) {
 
             ToolType.SELECTION -> handleSelectionInput(event)
 
-            ToolType.ERASER, ToolType.POINT_ERASER, ToolType.CUT_ERASER -> handleEraserInput(event)
+            ToolType.ERASER, ToolType.POINT_ERASER, ToolType.CUT_ERASER -> {
+                if (activeStrokeType == StrokeType.FREEHAND) {
+                    handleEraserInput(event)
+                } else {
+                    // Update eraser cursor preview coordinates
+                    tempTouchPoint[0] = event.x
+                    tempTouchPoint[1] = event.y
+                    inverseMatrix.mapPoints(tempTouchPoint)
+                    eraserWorldX = tempTouchPoint[0]
+                    eraserWorldY = tempTouchPoint[1]
+                    val diameterPx = activeSize * 2f
+                    eraserRadiusWorld = com.sketcher.sketchercompanionv1.utils.UnitUtils.pixelsToProjectUnits(
+                        diameterPx, currentUnit, scaleConfig.basePixelsPerMillimeter
+                    ) / 2f
+
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                            isEraserActive = true
+                        }
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            isEraserActive = false
+                        }
+                    }
+
+                    strokePipeline.onTouchEvent(event)
+                }
+            }
 
             ToolType.TRIM -> {
 

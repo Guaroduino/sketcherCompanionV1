@@ -191,7 +191,7 @@ class MainActivity : ComponentActivity() {
             androidx.compose.runtime.CompositionLocalProvider(
                 com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler provides scaler
             ) {
-                com.sketcher.sketchercompanionv1.ui.theme.SketcherCompanionV1Theme {
+                com.sketcher.sketchercompanionv1.ui.theme.SketcherCompanionV1Theme(theme = theme) {
                     Box(modifier = androidx.compose.ui.Modifier.fillMaxSize()) {
                         // Initialize local projects directory
                         androidx.compose.runtime.LaunchedEffect(Unit) {
@@ -201,7 +201,7 @@ class MainActivity : ComponentActivity() {
                         // Intercept back button gestures
                         androidx.activity.compose.BackHandler(enabled = true) {
                             if (!sketchViewModel.showDashboard) {
-                                sketchViewModel.exitEditorToDashboard()
+                                sketchViewModel.exitEditorToDashboard(context)
                             } else {
                                 val handled = sketchViewModel.navigateUp(context)
                                 if (!handled) {

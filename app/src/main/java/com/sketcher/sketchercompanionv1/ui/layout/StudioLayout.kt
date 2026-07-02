@@ -103,6 +103,9 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.FilterCenterFocus
 
 
+import androidx.compose.material.icons.filled.GridOn
+
+
 import androidx.compose.material.icons.filled.Undo
 
 
@@ -477,6 +480,11 @@ fun StudioLayout(
             }
 
 
+            tool.registryId == "grid_menu" -> {
+                viewModel.gridConfig.isVisible || viewModel.isSnapToGridEnabled
+            }
+
+
             tool.registryId.startsWith("tool_selection") || tool.registryId == "tool_transform" -> {
 
 
@@ -597,49 +605,10 @@ fun StudioLayout(
         while (viewModel.isProjectionActive) {
 
 
-            if (viewModel.projectionMode == "sync") {
+            if (viewModel.currentSelectionMode != com.sketcher.sketchercompanionv1.SketcherViewModel.SelectionMode.TRANSFORM_BOX) {
 
 
-                canvasViewRef.value?.let { view ->
-
-
-                    val livePoints = view.getLiveStrokePoints()
-
-
-                    val livePath = view.getLiveStrokePath()?.let { android.graphics.Path(it) }
-
-
-                    val committedPath = view.getLiveCommittedPath()
-
-
-                    val liveFillPath = view.getLiveFillPath()?.let { android.graphics.Path(it) }
-
-
-                    val liveRadius = view.getLiveGeneratedRadius()
-
-
-                    viewModel.renderAndSendSyncFrame(livePoints, livePath, committedPath, liveFillPath, liveRadius)
-
-
-                } ?: run {
-
-
-                    viewModel.renderAndSendSyncFrame(null, null, null, null, 0f)
-
-
-                }
-
-
-            }
-
-
-            frameCount++
-
-
-            if (frameCount % 8 == 0) {
-
-
-                if (viewModel.projectionMode == "fixed") {
+                if (viewModel.projectionMode == "sync") {
 
 
                     canvasViewRef.value?.let { view ->
@@ -660,13 +629,58 @@ fun StudioLayout(
                         val liveRadius = view.getLiveGeneratedRadius()
 
 
-                        viewModel.renderAndSendFixedSnapshot(livePoints, livePath, committedPath, liveFillPath, liveRadius)
+                        viewModel.renderAndSendSyncFrame(livePoints, livePath, committedPath, liveFillPath, liveRadius)
 
 
                     } ?: run {
 
 
-                        viewModel.renderAndSendFixedSnapshot(null, null, null, null, 0f)
+                        viewModel.renderAndSendSyncFrame(null, null, null, null, 0f)
+
+
+                    }
+
+
+                }
+
+
+                frameCount++
+
+
+                if (frameCount % 8 == 0) {
+
+
+                    if (viewModel.projectionMode == "fixed") {
+
+
+                        canvasViewRef.value?.let { view ->
+
+
+                            val livePoints = view.getLiveStrokePoints()
+
+
+                            val livePath = view.getLiveStrokePath()?.let { android.graphics.Path(it) }
+
+
+                            val committedPath = view.getLiveCommittedPath()
+
+
+                            val liveFillPath = view.getLiveFillPath()?.let { android.graphics.Path(it) }
+
+
+                            val liveRadius = view.getLiveGeneratedRadius()
+
+
+                            viewModel.renderAndSendFixedSnapshot(livePoints, livePath, committedPath, liveFillPath, liveRadius)
+
+
+                        } ?: run {
+
+
+                            viewModel.renderAndSendFixedSnapshot(null, null, null, null, 0f)
+
+
+                        }
 
 
                     }
@@ -780,6 +794,9 @@ fun StudioLayout(
 
 
     var showStudioMenu by remember { mutableStateOf(false) }
+
+
+    var showGridDropdown by remember { mutableStateOf(false) }
 
 
     // --- SWAP STATES (Moved to MainActivity) ---
@@ -4215,7 +4232,122 @@ fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
                          val isRealAction = !tool.isPlaceholder || isActionButton
 
 
-                         if (tool.registryId == "divider") {
+                         if (tool.registryId == "grid_menu") {
+                             val bgColor = if (viewModel.gridConfig.isVisible || viewModel.isSnapToGridEnabled) theme.highlightColor.copy(alpha = 0.2f) else null
+                             Box {
+                                 com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
+                                     onClick = {
+                                         if (isEditMode) {
+                                             toolPickerTarget = ToolLocation.BottomBar to idx
+                                         } else {
+                                             showGridDropdown = !showGridDropdown
+                                         }
+                                     },
+                                     icon = tool.icon,
+                                     contentDescription = tool.contentDescription,
+                                     isActive = viewModel.gridConfig.isVisible || viewModel.isSnapToGridEnabled,
+                                     isEditMode = isEditMode,
+                                     backgroundColorOverride = bgColor,
+                                     highlightColor = theme.highlightColor,
+                                     buttonColor = theme.buttonColor,
+                                     iconColor = theme.iconColor,
+                                     shape = theme.floatingShape(),
+                                     iconSize = scaler.smallIconSize,
+                                     tool = tool,
+                                     theme = theme
+                                 )
+
+                                 if (showGridDropdown && !isEditMode) {
+                                     DropdownMenu(
+                                         expanded = showGridDropdown,
+                                         onDismissRequest = { showGridDropdown = false },
+                                         offset = androidx.compose.ui.unit.DpOffset(x = 0.dp, y = 8.dp * scaler.scaleFactor),
+                                         modifier = Modifier.background(theme.barBackgroundColor)
+                                     ) {
+                                         val isSnap = viewModel.isSnapToGridEnabled
+                                         DropdownMenuItem(
+                                             text = { Text("Activar Snap to Grid", color = theme.iconColor, fontSize = (14 * scaler.scaleFactor).sp) },
+                                             leadingIcon = {
+                                                 Icon(
+                                                     imageVector = androidx.compose.material.icons.Icons.Default.FilterCenterFocus,
+                                                     contentDescription = null,
+                                                     tint = theme.iconColor,
+                                                     modifier = Modifier.size(24.dp * scaler.scaleFactor)
+                                                 )
+                                             },
+                                             trailingIcon = {
+                                                 if (isSnap) {
+                                                     Icon(
+                                                         imageVector = androidx.compose.material.icons.Icons.Default.Check,
+                                                         contentDescription = "Active",
+                                                         tint = theme.iconColor,
+                                                         modifier = Modifier.size(18.dp * scaler.scaleFactor)
+                                                     )
+                                                 }
+                                             },
+                                             onClick = {
+                                                 viewModel.isSnapToGridEnabled = !isSnap
+                                                 showGridDropdown = false
+                                             },
+                                             modifier = Modifier
+                                                 .height(48.dp * scaler.scaleFactor)
+                                                 .background(if (isSnap) theme.highlightColor.copy(alpha = 0.2f) else Color.Transparent),
+                                             contentPadding = PaddingValues(horizontal = 16.dp * scaler.scaleFactor, vertical = 0.dp)
+                                         )
+
+                                         val isVisible = viewModel.gridConfig.isVisible
+                                         DropdownMenuItem(
+                                             text = { Text("Mostrar Grid", color = theme.iconColor, fontSize = (14 * scaler.scaleFactor).sp) },
+                                             leadingIcon = {
+                                                 Icon(
+                                                     imageVector = androidx.compose.material.icons.Icons.Default.GridOn,
+                                                     contentDescription = null,
+                                                     tint = theme.iconColor,
+                                                     modifier = Modifier.size(24.dp * scaler.scaleFactor)
+                                                 )
+                                             },
+                                             trailingIcon = {
+                                                 if (isVisible) {
+                                                     Icon(
+                                                         imageVector = androidx.compose.material.icons.Icons.Default.Check,
+                                                         contentDescription = "Active",
+                                                         tint = theme.iconColor,
+                                                         modifier = Modifier.size(18.dp * scaler.scaleFactor)
+                                                     )
+                                                 }
+                                             },
+                                             onClick = {
+                                                 viewModel.gridConfig = viewModel.gridConfig.copy(isVisible = !isVisible)
+                                                 showGridDropdown = false
+                                             },
+                                             modifier = Modifier
+                                                 .height(48.dp * scaler.scaleFactor)
+                                                 .background(if (isVisible) theme.highlightColor.copy(alpha = 0.2f) else Color.Transparent),
+                                              contentPadding = PaddingValues(horizontal = 16.dp * scaler.scaleFactor, vertical = 0.dp)
+                                         )
+
+                                         DropdownMenuItem(
+                                             text = { Text("Editar Grid", color = theme.iconColor, fontSize = (14 * scaler.scaleFactor).sp) },
+                                             leadingIcon = {
+                                                 Icon(
+                                                     imageVector = androidx.compose.material.icons.Icons.Default.Edit,
+                                                     contentDescription = null,
+                                                     tint = theme.iconColor,
+                                                     modifier = Modifier.size(24.dp * scaler.scaleFactor)
+                                                 )
+                                             },
+                                             onClick = {
+                                                 showGridDropdown = false
+                                                 projectActions.onGridSettings()
+                                             },
+                                             modifier = Modifier
+                                                 .height(48.dp * scaler.scaleFactor),
+                                             contentPadding = PaddingValues(horizontal = 16.dp * scaler.scaleFactor, vertical = 0.dp)
+                                         )
+                                     }
+                                 }
+                             }
+                         } else if (tool.registryId == "divider") {
 
 
                              Box(

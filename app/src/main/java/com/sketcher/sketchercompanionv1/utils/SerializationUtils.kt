@@ -232,7 +232,8 @@ fun VectorStroke.toVectorStrokeJson(): VectorStrokeJson {
         watercolorEdgeMode = this.watercolorEdgeMode.name,
         watercolorCenterOpacity = this.watercolorCenterOpacity,
         watercolorEdgeRingOpacity = this.watercolorEdgeRingOpacity,
-        watercolorEdgeRingWidth = this.watercolorEdgeRingWidth
+        watercolorEdgeRingWidth = this.watercolorEdgeRingWidth,
+        freehandSettings = this.freehandSettings
     )
 }
 
@@ -258,11 +259,11 @@ fun LayerJson.toLayer(
 fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     val pts = this.points.map { StrokePoint(it.x, it.y, it.pressure, it.timestamp) }
     val isCumul = this.isCumulative
-    val settings = FreehandSettings(size = this.maxWidth, isComplete = true, simulatePressure = false)
+    val settings = (this.freehandSettings ?: FreehandSettings()).copy(size = this.maxWidth, isComplete = true)
     
     val strokeTypeVal = this.strokeType ?: StrokeType.FREEHAND
     val isCad = (this.isCadGeometry ?: false) || (strokeTypeVal != StrokeType.FREEHAND)
-    val isMeshBrush = this.brushType == "FREEHAND" || this.brushType == "PLUMA" || this.brushType == "PENCIL_CUMULATIVE" || this.brushType == "PAINT" || this.brushType == "WATERCOLOR"
+    val isMeshBrush = (this.brushType == "FREEHAND" || this.brushType == "PLUMA" || this.brushType == "PENCIL_CUMULATIVE") && !(this.isFlattened ?: false)
     
     val resultPath = if (isCad) {
         val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(strokeTypeVal, pts)
@@ -293,12 +294,38 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         } else {
             val path = android.graphics.Path()
             if (pts.isNotEmpty()) {
-                path.moveTo(pts[0].x, pts[0].y)
-                for (i in 1 until pts.size) {
-                    path.lineTo(pts[i].x, pts[i].y)
+                val unique = pts.filterIndexed { index, curr ->
+                    index == 0 || Math.hypot((curr.x - pts[index - 1].x).toDouble(), (curr.y - pts[index - 1].y).toDouble()) > 0.01
                 }
-                if (this.isFlattened) {
-                    path.close()
+                if (unique.isNotEmpty()) {
+                    val isPaintOrWatercolor = this.brushType == "PAINT" || this.brushType == "WATERCOLOR"
+                    val shouldSmooth = isPaintOrWatercolor || (this.isFlattened ?: false) || this.brushType == "FREEHAND" || this.brushType == "PLUMA" || this.brushType == "PENCIL_CUMULATIVE"
+                    if (shouldSmooth && unique.size >= 3) {
+                        path.moveTo(unique[0].x, unique[0].y)
+                        val n = unique.size
+                        for (i in 0 until n) {
+                            val p0 = unique[(i - 1 + n) % n]
+                            val p1 = unique[i]
+                            val p2 = unique[(i + 1) % n]
+                            val p3 = unique[(i + 2) % n]
+                            
+                            val cp1x = p1.x + (p2.x - p0.x) / 6f
+                            val cp1y = p1.y + (p2.y - p0.y) / 6f
+                            val cp2x = p2.x - (p3.x - p1.x) / 6f
+                            val cp2y = p2.y - (p3.y - p1.y) / 6f
+                            
+                            path.cubicTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y)
+                        }
+                        path.close()
+                    } else {
+                        path.moveTo(unique[0].x, unique[0].y)
+                        for (i in 1 until unique.size) {
+                            path.lineTo(unique[i].x, unique[i].y)
+                        }
+                        if (this.isFlattened || isPaintOrWatercolor) {
+                            path.close()
+                        }
+                    }
                 }
             }
             path
@@ -312,27 +339,48 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     }
     
     val sColor = this.strokeColor ?: this.color
-    val fColor = this.fillColor ?: android.graphics.Color.TRANSPARENT
+    
+    val isPaintOrWatercolor = this.brushType == "PAINT" || this.brushType == "WATERCOLOR"
+    val fColor = if (isPaintOrWatercolor) {
+        if (this.fillColor == null || this.fillColor == android.graphics.Color.TRANSPARENT) sColor else this.fillColor
+    } else {
+        this.fillColor ?: android.graphics.Color.TRANSPARENT
+    }
+    
     val sEnabled = this.isStrokeEnabled ?: true
-    val fEnabled = this.isFillEnabled ?: false
+    val fEnabled = if (isPaintOrWatercolor) true else (this.isFillEnabled ?: false)
 
     var fPath: android.graphics.Path? = null
     if (fEnabled) {
         if (isCad) {
-            val isPaintOrWatercolor = this.brushType == "PAINT" || this.brushType == "WATERCOLOR"
             fPath = if (isPaintOrWatercolor) {
                 android.graphics.Path(resultPath)
             } else {
                 com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(strokeTypeVal, pts)
             }
-        } else if (pts.size >= 3) {
-            fPath = android.graphics.Path()
-            fPath.moveTo(pts[0].x, pts[0].y)
-            for (i in 1 until pts.size) {
-                fPath.lineTo(pts[i].x, pts[i].y)
+        } else {
+            val shouldCopyResultPath = (this.isFlattened ?: false) || isPaintOrWatercolor || this.brushType == "FREEHAND" || this.brushType == "PLUMA" || this.brushType == "PENCIL_CUMULATIVE"
+            if (shouldCopyResultPath) {
+                fPath = android.graphics.Path(resultPath)
+            } else if (pts.size >= 3) {
+                fPath = android.graphics.Path()
+                fPath.moveTo(pts[0].x, pts[0].y)
+                for (i in 1 until pts.size) {
+                    fPath.lineTo(pts[i].x, pts[i].y)
+                }
+                fPath.close()
             }
-            fPath.close()
         }
+    }
+    
+    val loadedFillStyle = if (isPaintOrWatercolor) {
+        if (this.fillStyle == null || (this.fillStyle.type == "SOLID" && (this.fillStyle.color == null || this.fillStyle.color == android.graphics.Color.TRANSPARENT))) {
+            FillStyleJson(type = "SOLID", color = sColor)
+        } else {
+            this.fillStyle
+        }
+    } else {
+        this.fillStyle
     }
     
     return VectorStroke(
@@ -354,7 +402,7 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         isCadGeometry = isCad,
         isScreenSpaceWidth = this.isScreenSpaceWidth ?: false,
         paintOutlineWidth = this.paintOutlineWidth ?: 2.0f,
-        fillStyle = this.fillStyle.toFillStyle(fColor),
+        fillStyle = loadedFillStyle.toFillStyle(fColor),
         watercolorJitterSegment = this.watercolorJitterSegment ?: 12.0f,
         watercolorJitterDeviation = this.watercolorJitterDeviation ?: 3.5f,
         watercolorBlurRadius = this.watercolorBlurRadius ?: 5.0f,
@@ -365,7 +413,8 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         },
         watercolorCenterOpacity = this.watercolorCenterOpacity ?: 0.8f,
         watercolorEdgeRingOpacity = this.watercolorEdgeRingOpacity ?: 1.0f,
-        watercolorEdgeRingWidth = this.watercolorEdgeRingWidth ?: 2.0f
+        watercolorEdgeRingWidth = this.watercolorEdgeRingWidth ?: 2.0f,
+        freehandSettings = settings
     )
 }
 
