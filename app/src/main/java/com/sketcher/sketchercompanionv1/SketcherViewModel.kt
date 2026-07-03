@@ -2236,7 +2236,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         
 
         val isCad = stroke.strokeType != com.sketcher.sketchercompanionv1.dto.StrokeType.FREEHAND
-        val isMeshBrush = stroke.brushType == "FREEHAND" || stroke.brushType == "PLUMA" || stroke.brushType == "PENCIL_CUMULATIVE" || stroke.brushType == "PAINT" || stroke.brushType == "WATERCOLOR"
+        val isMeshBrush = stroke.brushType == "FREEHAND" || stroke.brushType == "PEN" || stroke.brushType == "PLUMA" || stroke.brushType == "PENCIL_CUMULATIVE" || stroke.brushType == "PAINT" || stroke.brushType == "WATERCOLOR"
         val isPaintOrWatercolor = stroke.brushType == "PAINT" || stroke.brushType == "WATERCOLOR"
 
         val updatedPath = if (isCad) {
@@ -4716,7 +4716,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             startEraserDrag()
         }
 
-        if (currentTool == ToolType.POINT_ERASER || currentTool == ToolType.CUT_ERASER) {
+        if (currentTool == ToolType.POINT_ERASER) {
             val containersToCheck = if (editingContext != null) {
                 listOf(activeContainer)
             } else {
@@ -4803,6 +4803,109 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         return changed
     }
 
+    fun cutWithPath(eraserPath: android.graphics.Path): Boolean {
+        var changed = false
+        val containersToCheck = if (editingContext != null) {
+            listOf(activeContainer)
+        } else {
+            if (selectionScope == SelectionScope.ALL_LAYERS) {
+                layers.map { it.elements }
+            } else {
+                val activeIndex = activeLayerIndex
+                val activeLayer = layers.getOrNull(activeIndex)
+                if (activeLayer != null) listOf(activeLayer.elements) else emptyList()
+            }
+        }
+
+        for (container in containersToCheck) {
+            if (cutWithPathInContainer(container, eraserPath)) {
+                changed = true
+            }
+        }
+        if (changed) {
+            notifyLayersChanged()
+        }
+        return changed
+    }
+
+    private fun cutWithPathInContainer(
+        container: MutableList<LayerElement>,
+        eraserPath: android.graphics.Path
+    ): Boolean {
+        val zoom = run {
+            val vals = FloatArray(9)
+            _cameraMatrix.value.getValues(vals)
+            val scale = kotlin.math.sqrt(vals[android.graphics.Matrix.MSCALE_X] * vals[android.graphics.Matrix.MSCALE_X] + vals[android.graphics.Matrix.MSKEW_X] * vals[android.graphics.Matrix.MSKEW_X])
+            if (scale > 0.001f) scale else 1.0f
+        }
+        var changed = false
+        val toRemove = mutableListOf<LayerElement>()
+        val toAdd = mutableListOf<LayerElement>()
+
+        val snapshot = synchronized(container) { container.toList() }
+        val eraserBounds = RectF()
+        eraserPath.computeBounds(eraserBounds, true)
+
+        for (element in snapshot) {
+            val bounds = element.getBoundingBox(componentLibrary)
+            if (!RectF.intersects(bounds, eraserBounds)) continue
+
+            when (element) {
+                is VectorStroke -> {
+                    val newPath = android.graphics.Path()
+                    val success = newPath.op(element.path, eraserPath, android.graphics.Path.Op.DIFFERENCE)
+                    if (success) {
+                        toRemove.add(element)
+                        if (!newPath.isEmpty) {
+                            val newFillPath = if (element.fillPath != null) {
+                                val fp = android.graphics.Path()
+                                if (fp.op(element.fillPath, eraserPath, android.graphics.Path.Op.DIFFERENCE)) fp else null
+                            } else null
+
+                            val step = (8f / zoom).coerceAtLeast(1.0f)
+                            val outlinePoints = com.sketcher.sketchercompanionv1.utils.GeometryUtils.flattenPath(newPath, step = step)
+                            val newPoints = outlinePoints.map { pt -> StrokePoint(pt.x, pt.y, 0.5f) }
+
+                            val updatedStroke = element.copy(
+                                path = newPath,
+                                fillPath = newFillPath,
+                                points = newPoints
+                            )
+                            toAdd.add(updatedStroke)
+                        }
+                        changed = true
+                    }
+                }
+                is FillData -> {
+                    val newPath = android.graphics.Path()
+                    val success = newPath.op(element.path, eraserPath, android.graphics.Path.Op.DIFFERENCE)
+                    if (success) {
+                        toRemove.add(element)
+                        if (!newPath.isEmpty) {
+                            val updatedFill = element.copy(path = newPath)
+                            toAdd.add(updatedFill)
+                        }
+                        changed = true
+                    }
+                }
+                else -> {}
+            }
+        }
+
+        if (changed) {
+            synchronized(container) {
+                val firstIndex = toRemove.map { container.indexOf(it) }.filter { it != -1 }.minOrNull()
+                container.removeAll(toRemove)
+                if (firstIndex != null && firstIndex <= container.size) {
+                    container.addAll(firstIndex, toAdd)
+                } else {
+                    container.addAll(toAdd)
+                }
+            }
+        }
+        return changed
+    }
+
     private fun erasePartialInContainer(
         container: MutableList<LayerElement>,
         x: Float,
@@ -4828,42 +4931,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
             when (element) {
                 is VectorStroke -> {
-                    if (currentTool == ToolType.CUT_ERASER) {
-                        // Borrado mesh (corte booleano)
-                        val eraserPath = android.graphics.Path().apply {
-                            if (currentEraserShape == com.sketcher.sketchercompanionv1.dto.EraserShape.SQUARE) {
-                                addRect(x - radiusWorld, y - radiusWorld, x + radiusWorld, y + radiusWorld, android.graphics.Path.Direction.CW)
-                            } else {
-                                addCircle(x, y, radiusWorld, android.graphics.Path.Direction.CW)
-                            }
-                        }
-                        val newPath = android.graphics.Path()
-                        val success = newPath.op(element.path, eraserPath, android.graphics.Path.Op.DIFFERENCE)
-                        if (success) {
-                            toRemove.add(element)
-                            if (!newPath.isEmpty) {
-                                val newFillPath = if (element.fillPath != null) {
-                                    val fp = android.graphics.Path()
-                                    if (fp.op(element.fillPath, eraserPath, android.graphics.Path.Op.DIFFERENCE)) fp else null
-                                } else null
-
-                                val step = (8f / zoom).coerceAtLeast(1.0f)
-                                val outlinePoints = com.sketcher.sketchercompanionv1.utils.GeometryUtils.flattenPath(newPath, step = step)
-                                val newPoints = outlinePoints.map { pt -> StrokePoint(pt.x, pt.y, 0.5f) }
-
-                                val updatedStroke = element.copy(
-                                    path = newPath,
-                                    fillPath = newFillPath,
-                                    points = newPoints
-                                )
-                                toAdd.add(updatedStroke)
-                            }
-                            changed = true
-                        }
-                    } else {
-                        // Borrado por puntos (línea media)
-                        val segments = mutableListOf<MutableList<StrokePoint>>()
-                        var currentSeg = mutableListOf<StrokePoint>()
+                    // Borrado por puntos (línea media)
+                    val segments = mutableListOf<MutableList<StrokePoint>>()
+                    var currentSeg = mutableListOf<StrokePoint>()
                         val radiusSq = radiusWorld * radiusWorld
 
                         for (pt in element.points) {
@@ -4894,7 +4964,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                             for (segment in segments) {
                                 if (segment.size >= 2 || (segment.isNotEmpty() && element.strokeType == StrokeType.FREEHAND)) {
-                                    val isMeshBrush = element.brushType == "FREEHAND" || element.brushType == "PLUMA" || element.brushType == "PENCIL_CUMULATIVE" || element.brushType == "PAINT" || element.brushType == "WATERCOLOR"
+                                    val isMeshBrush = element.brushType == "FREEHAND" || element.brushType == "PEN" || element.brushType == "PLUMA" || element.brushType == "PENCIL_CUMULATIVE" || element.brushType == "PAINT" || element.brushType == "WATERCOLOR"
                                     val (newPath, leftPts, rightPts) = if (element.isFlattened) {
                                         val p = android.graphics.Path().apply {
                                             if (segment.isNotEmpty()) {
@@ -4947,7 +5017,6 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                                 }
                             }
                         }
-                    }
                 }
                 is FillData -> {
                     // Corte booleano de relleno

@@ -84,7 +84,7 @@ object RenderHelper {
 
         // Pass 2: STROKE (if enabled)
         if (vStroke.isStrokeEnabled) {
-            val isMeshBrush = vStroke.brushType == "FREEHAND" || vStroke.brushType == "PLUMA" || vStroke.brushType == "PENCIL_CUMULATIVE"
+            val isMeshBrush = vStroke.brushType == "FREEHAND" || vStroke.brushType == "PEN" || vStroke.brushType == "PLUMA" || vStroke.brushType == "PENCIL_CUMULATIVE"
             if (isMeshBrush) {
                 vectorPaint.style = Paint.Style.FILL
                 vectorPaint.color = vStroke.strokeColor

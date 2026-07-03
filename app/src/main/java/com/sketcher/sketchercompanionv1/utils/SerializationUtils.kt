@@ -267,7 +267,7 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     
     val strokeTypeVal = this.strokeType ?: StrokeType.FREEHAND
     val isCad = (this.isCadGeometry ?: false) || (strokeTypeVal != StrokeType.FREEHAND)
-    val isMeshBrush = (this.brushType == "FREEHAND" || this.brushType == "PLUMA" || this.brushType == "PENCIL_CUMULATIVE") && !(this.isFlattened ?: false)
+    val isMeshBrush = (this.brushType == "FREEHAND" || this.brushType == "PEN" || this.brushType == "PLUMA" || this.brushType == "PENCIL_CUMULATIVE") && !(this.isFlattened ?: false)
     
     val resultPath = if (isCad) {
         val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(strokeTypeVal, pts)
@@ -303,7 +303,7 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
                 }
                 if (unique.isNotEmpty()) {
                     val isPaintOrWatercolor = this.brushType == "PAINT" || this.brushType == "WATERCOLOR"
-                    val shouldSmooth = isPaintOrWatercolor || (this.isFlattened ?: false) || this.brushType == "FREEHAND" || this.brushType == "PLUMA" || this.brushType == "PENCIL_CUMULATIVE"
+                    val shouldSmooth = isPaintOrWatercolor || (this.isFlattened ?: false) || this.brushType == "FREEHAND" || this.brushType == "PEN" || this.brushType == "PLUMA" || this.brushType == "PENCIL_CUMULATIVE"
                     if (shouldSmooth && unique.size >= 3) {
                         path.moveTo(unique[0].x, unique[0].y)
                         val n = unique.size
@@ -363,7 +363,7 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
                 com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(strokeTypeVal, pts)
             }
         } else {
-            val shouldCopyResultPath = (this.isFlattened ?: false) || isPaintOrWatercolor || this.brushType == "FREEHAND" || this.brushType == "PLUMA" || this.brushType == "PENCIL_CUMULATIVE"
+            val shouldCopyResultPath = (this.isFlattened ?: false) || isPaintOrWatercolor || this.brushType == "FREEHAND" || this.brushType == "PEN" || this.brushType == "PLUMA" || this.brushType == "PENCIL_CUMULATIVE"
             if (shouldCopyResultPath) {
                 fPath = android.graphics.Path(resultPath)
             } else if (pts.size >= 3) {

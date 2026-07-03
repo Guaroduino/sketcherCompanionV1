@@ -409,8 +409,8 @@ class StrokePipeline(
         val isCad = activeStrokeType != StrokeType.FREEHAND
         if (isCad) {
             val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(activeStrokeType, livePoints)
-            val isMesh = activeTool == ToolType.FREEHAND || activeTool == ToolType.PLUMA || activeTool == ToolType.PENCIL_CUMULATIVE || activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR
-            val isPaintOrWatercolor = activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR
+            val isMesh = activeTool == ToolType.FREEHAND || activeTool == ToolType.PEN || activeTool == ToolType.PLUMA || activeTool == ToolType.PENCIL_CUMULATIVE || activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR || activeTool == ToolType.CUT_ERASER
+            val isPaintOrWatercolor = activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR || activeTool == ToolType.CUT_ERASER
             val drawPath = if (isMesh) generateMeshPathForGeometry(centerline) else centerline
             
             val totalBounds = RectF()
@@ -660,8 +660,8 @@ class StrokePipeline(
         val isCad = activeStrokeType != StrokeType.FREEHAND
         if (isCad) {
             val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(activeStrokeType, finalPointsRaw)
-            val isMesh = activeTool == ToolType.FREEHAND || activeTool == ToolType.PLUMA || activeTool == ToolType.PENCIL_CUMULATIVE || activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR
-            val isPaintOrWatercolor = activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR
+            val isMesh = activeTool == ToolType.FREEHAND || activeTool == ToolType.PEN || activeTool == ToolType.PLUMA || activeTool == ToolType.PENCIL_CUMULATIVE || activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR || activeTool == ToolType.CUT_ERASER
+            val isPaintOrWatercolor = activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR || activeTool == ToolType.CUT_ERASER
             val drawPath = if (isMesh) generateMeshPathForGeometry(centerline) else centerline
             val stroke = VectorStroke(
                 points = finalPointsRaw,
@@ -949,8 +949,8 @@ class StrokePipeline(
         val isCad = activeStrokeType != StrokeType.FREEHAND
         if (isCad) {
             val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(activeStrokeType, finalPointsRaw)
-            val isMesh = activeTool == ToolType.FREEHAND || activeTool == ToolType.PLUMA || activeTool == ToolType.PENCIL_CUMULATIVE || activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR
-            val isPaintOrWatercolor = activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR
+            val isMesh = activeTool == ToolType.FREEHAND || activeTool == ToolType.PEN || activeTool == ToolType.PLUMA || activeTool == ToolType.PENCIL_CUMULATIVE || activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR || activeTool == ToolType.CUT_ERASER
+            val isPaintOrWatercolor = activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR || activeTool == ToolType.CUT_ERASER
             val drawPath = if (isMesh) generateMeshPathForGeometry(centerline) else centerline
             val stroke = VectorStroke(
                 points = finalPointsRaw,

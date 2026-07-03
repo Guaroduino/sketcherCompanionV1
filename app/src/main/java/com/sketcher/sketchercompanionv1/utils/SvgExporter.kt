@@ -165,7 +165,7 @@ object SvgExporter {
         val alpha = (Color.alpha(stroke.strokeColor) / 255f)
         val strokeOpacity = if (alpha < 1f) "stroke-opacity=\"$alpha\"" else ""
         
-        val isMeshBrush = stroke.brushType == "FREEHAND" || stroke.brushType == "PLUMA" || stroke.brushType == "PENCIL_CUMULATIVE"
+        val isMeshBrush = stroke.brushType == "FREEHAND" || stroke.brushType == "PEN" || stroke.brushType == "PLUMA" || stroke.brushType == "PENCIL_CUMULATIVE"
         if (isMeshBrush) {
             sb.append("    <path d=\"$d\" fill=\"$colorHex\" stroke=\"none\" $strokeOpacity />\n")
         } else {

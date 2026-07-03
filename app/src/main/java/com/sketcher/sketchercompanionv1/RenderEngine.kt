@@ -486,7 +486,7 @@ class RenderEngine {
 
         // Pass 2: STROKE (if enabled)
         if (stroke.isStrokeEnabled) {
-            val isMeshBrush = stroke.brushType == "FREEHAND" || stroke.brushType == "PLUMA" || stroke.brushType == "PENCIL_CUMULATIVE"
+            val isMeshBrush = stroke.brushType == "FREEHAND" || stroke.brushType == "PEN" || stroke.brushType == "PLUMA" || stroke.brushType == "PENCIL_CUMULATIVE"
             if (isMeshBrush) {
                 vectorPaint.style = Paint.Style.FILL
                 val origColor = stroke.strokeColor
@@ -775,7 +775,7 @@ class RenderEngine {
              if (isStrokeActive && previewPath != null) {
                  vectorPaint.color = previewColor
                  val width = if (isCad || previewPoints == null) currentLiveGeneratedRadius * 2 else 0f
-                 val isBrushMesh = brushType == "FREEHAND" || brushType == "PLUMA" || brushType == "PENCIL_CUMULATIVE"
+                 val isBrushMesh = brushType == "FREEHAND" || brushType == "PEN" || brushType == "PLUMA" || brushType == "PENCIL_CUMULATIVE"
                  
                  if (isCad && !isBrushMesh) {
                      vectorPaint.style = Paint.Style.STROKE

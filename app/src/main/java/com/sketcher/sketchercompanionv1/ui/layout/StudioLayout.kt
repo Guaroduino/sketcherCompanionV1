@@ -1075,6 +1075,9 @@ fun StudioLayout(
                     onRequestErase = { worldX, worldY, diameterPx ->
                         viewModel.erase(worldX, worldY, diameterPx)
                     }
+                    onRequestCutPath = { path ->
+                        viewModel.cutWithPath(path)
+                    }
                     onEraserDragStarted = {
                         viewModel.startEraserDrag()
                     }
