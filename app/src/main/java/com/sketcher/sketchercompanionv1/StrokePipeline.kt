@@ -760,7 +760,7 @@ class StrokePipeline(
                 watercolorCenterOpacity = activeFreehandSettings.watercolorCenterOpacity,
                 watercolorEdgeRingOpacity = activeFreehandSettings.watercolorEdgeRingOpacity,
                 watercolorEdgeRingWidth = activeFreehandSettings.watercolorEdgeRingWidth,
-                freehandSettings = activeFreehandSettings
+                freehandSettings = activeFreehandSettings.copy(simulatePressure = false, streamline = globalStabilizationLevel * 0.8f)
             )
 
             onStrokeCompleted(stroke, null)
@@ -856,7 +856,7 @@ class StrokePipeline(
                         rightPoints = genResultRightSnap,
                         isFlattened = true,
                         fillStyle = activeFillStyleSnap,
-                        freehandSettings = activeFreehandSettingsSnap
+                        freehandSettings = activeFreehandSettingsSnap.copy(simulatePressure = false, streamline = globalStabilizationLevel * 0.8f)
                     )
 
                     var fill: FillData? = null
@@ -917,7 +917,7 @@ class StrokePipeline(
                 rightPoints = genResult.right,
                 paths = chunkPaths,
                 fillStyle = activeFillStyle,
-                freehandSettings = activeFreehandSettings
+                freehandSettings = activeFreehandSettings.copy(simulatePressure = false, streamline = globalStabilizationLevel * 0.8f)
             )
 
             var fill: FillData? = null
@@ -1035,7 +1035,7 @@ class StrokePipeline(
              rightPoints = genResult.right,
              paths = chunkPaths,
              fillStyle = activeFillStyle,
-             freehandSettings = activeFreehandSettings
+             freehandSettings = activeFreehandSettings.copy(simulatePressure = false, streamline = globalStabilizationLevel * 0.8f)
         )
 
         var fill: FillData? = null

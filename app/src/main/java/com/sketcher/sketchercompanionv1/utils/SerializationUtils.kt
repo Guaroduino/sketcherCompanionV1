@@ -259,7 +259,11 @@ fun LayerJson.toLayer(
 fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     val pts = this.points.map { StrokePoint(it.x, it.y, it.pressure, it.timestamp) }
     val isCumul = this.isCumulative
-    val settings = (this.freehandSettings ?: FreehandSettings()).copy(size = this.maxWidth, isComplete = true)
+    val settings = (this.freehandSettings ?: FreehandSettings()).copy(
+        size = this.maxWidth, 
+        isComplete = true,
+        simulatePressure = false // Prevent double pressure simulation on older files
+    )
     
     val strokeTypeVal = this.strokeType ?: StrokeType.FREEHAND
     val isCad = (this.isCadGeometry ?: false) || (strokeTypeVal != StrokeType.FREEHAND)
