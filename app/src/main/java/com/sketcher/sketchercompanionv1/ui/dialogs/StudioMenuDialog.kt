@@ -169,6 +169,12 @@ fun StudioMenuDialog(
                         }
                     }
                     item {
+                        MenuItem(Icons.Default.SettingsOverscan, "Escala Global", theme.iconColor) { 
+                            actions.onGlobalScale()
+                            onDismiss()
+                        }
+                    }
+                    item {
                         MenuItem(Icons.Default.GridOn, "Grid Settings", theme.iconColor) { 
                             actions.onGridSettings()
                             onDismiss()

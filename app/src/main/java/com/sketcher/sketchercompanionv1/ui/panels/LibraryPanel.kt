@@ -177,7 +177,7 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
         
         // --- ADD TO CANVAS BUTTON (Only shows if a component is selected) ---
         val selectedItem = currentItems.find { it.id == selectedLibraryItemId }
-        if (selectedItem != null && selectedItem is LibraryComponent) {
+        if (selectedItem != null && selectedItem is LibraryComponent && !viewModel.showDashboard) {
             Button(
                 onClick = { viewModel.instantiateFromGlobalLibrary(selectedItem) },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = scaler.smallMargin, vertical = 4.sdp).height(32.sdp),
@@ -310,7 +310,7 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
             state = imgState,
             theme = theme,
             onDismiss = { importImageEditState = null },
-            onConfirm = { processedBmp, _, _, _, _, _, _, _, _ ->
+            onConfirm = { processedBmp, _, _, _, _, _, _, _, _, _ ->
                 viewModel.addImageToGlobalLibrary(context, "Imagen Importada", processedBmp, currentFolderId)
                 importImageEditState = null
             }

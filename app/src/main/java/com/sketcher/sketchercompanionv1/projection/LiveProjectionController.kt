@@ -156,6 +156,8 @@ class LiveProjectionController(
         fillColor: Int,
         isStrokeActive: Boolean,
         isFillActive: Boolean,
+        fillStyle: FillStyle?,
+        strokeStyle: FillStyle?,
         livePoints: List<StrokePoint>?,
         livePath: android.graphics.Path?,
         committedPath: android.graphics.Path?,
@@ -230,7 +232,16 @@ class LiveProjectionController(
                     if (committedPath != null && isStrokeActive) {
                         canvas.save()
                         canvas.concat(fitMatrix)
-                        renderEngine.drawCommittedPreview(canvas, committedPath, strokeColor)
+                        renderEngine.drawCommittedPreview(
+                            canvas = canvas, 
+                            committedPath = committedPath, 
+                            strokeColor = strokeColor,
+                            fillColor = fillColor,
+                            isStrokeActive = isStrokeActive,
+                            isFillActive = isFillActive,
+                            fillStyle = fillStyle,
+                            strokeStyle = strokeStyle
+                        )
                         canvas.restore()
                     }
 
@@ -246,7 +257,9 @@ class LiveProjectionController(
                             isStrokeActive = isStrokeActive,
                             currentLiveGeneratedRadius = liveRadius,
                             viewMatrix = fitMatrix,
-                            isDrawing = true
+                            isDrawing = true,
+                            fillStyle = fillStyle,
+                            strokeStyle = strokeStyle
                         )
                     }
 
@@ -274,6 +287,8 @@ class LiveProjectionController(
         fillColor: Int,
         isStrokeActive: Boolean,
         isFillActive: Boolean,
+        fillStyle: FillStyle?,
+        strokeStyle: FillStyle?,
         livePoints: List<StrokePoint>?,
         livePath: android.graphics.Path?,
         committedPath: android.graphics.Path?,
@@ -356,7 +371,16 @@ class LiveProjectionController(
                 if (committedPath != null && isStrokeActive) {
                     canvas.save()
                     canvas.concat(fitMatrix)
-                    renderEngine.drawCommittedPreview(canvas, committedPath, strokeColor)
+                    renderEngine.drawCommittedPreview(
+                        canvas = canvas, 
+                        committedPath = committedPath, 
+                        strokeColor = strokeColor,
+                        fillColor = fillColor,
+                        isStrokeActive = isStrokeActive,
+                        isFillActive = isFillActive,
+                        fillStyle = fillStyle,
+                        strokeStyle = strokeStyle
+                    )
                     canvas.restore()
                 }
 
@@ -372,7 +396,9 @@ class LiveProjectionController(
                         isStrokeActive = isStrokeActive,
                         currentLiveGeneratedRadius = liveRadius,
                         viewMatrix = fitMatrix,
-                        isDrawing = true
+                        isDrawing = true,
+                        fillStyle = fillStyle,
+                        strokeStyle = strokeStyle
                     )
                 }
 

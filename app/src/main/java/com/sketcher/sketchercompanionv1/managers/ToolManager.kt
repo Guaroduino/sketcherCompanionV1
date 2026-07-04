@@ -65,6 +65,9 @@ class ToolManager(context: Context) {
     private val _strokeColor = MutableStateFlow(AndroidColor.BLACK)
     val strokeColor = _strokeColor.asStateFlow()
 
+    private val _strokeStyle = MutableStateFlow<FillStyle>(FillStyle.Solid(AndroidColor.BLACK))
+    val strokeStyle = _strokeStyle.asStateFlow()
+
     private val _fillColor = MutableStateFlow(AndroidColor.WHITE)
     val fillColor = _fillColor.asStateFlow()
 
@@ -408,7 +411,9 @@ class ToolManager(context: Context) {
                (preset.fillColor != null && _fillColor.value != preset.fillColor) ||
                (preset.isStrokeActive != null && _isStrokeActive.value != preset.isStrokeActive) ||
                (preset.isFillActive != null && _isFillActive.value != preset.isFillActive) ||
-               (preset.fillStyle != null && _fillStyle.value != preset.fillStyle)
+               (preset.isFillActive != null && _isFillActive.value != preset.isFillActive) ||
+               (preset.fillStyle != null && _fillStyle.value != preset.fillStyle) ||
+               (preset.strokeStyle != null && _strokeStyle.value != preset.strokeStyle)
     }
 
     fun updateStrokeType(type: StrokeType) {
@@ -418,10 +423,28 @@ class ToolManager(context: Context) {
 
     fun setStrokeColor(color: Int) {
         _strokeColor.value = color
+        _strokeStyle.value = FillStyle.Solid(color)
         _isStrokeActive.value = true
         if (currentTool == ToolType.PAINT || currentTool == ToolType.WATERCOLOR) {
             _fillColor.value = color
             _fillStyle.value = FillStyle.Solid(color)
+        }
+    }
+
+    fun setStrokeStyle(style: FillStyle) {
+        _strokeStyle.value = style
+        _isStrokeActive.value = true
+        _strokeColor.value = when (style) {
+            is FillStyle.Solid -> style.color
+            is FillStyle.MathTexture -> style.primaryColor
+            else -> {
+                val alpha = (style.opacity * 255f).toInt().coerceIn(0, 255)
+                alpha shl 24
+            }
+        }
+        if (currentTool == ToolType.PAINT || currentTool == ToolType.WATERCOLOR) {
+            _fillColor.value = _strokeColor.value
+            _fillStyle.value = style
         }
     }
 

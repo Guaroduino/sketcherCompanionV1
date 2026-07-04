@@ -8,6 +8,7 @@ import android.widget.FrameLayout
 
 
 import android.graphics.Matrix
+import com.sketcher.sketchercompanionv1.dto.copyWithOpacity
 
 
 import androidx.compose.animation.*
@@ -717,6 +718,7 @@ fun StudioLayout(
 
 
     val strokeColorVal by viewModel.strokeColor.collectAsState()
+    val strokeStyleVal by viewModel.strokeStyle.collectAsState()
 
 
     val brushOpacity by viewModel.brushOpacity.collectAsState()
@@ -1191,6 +1193,7 @@ fun StudioLayout(
 
 
                 view.activeStrokeColor = strokeColorWithAlpha
+                view.activeStrokeStyle = strokeStyleVal.copyWithOpacity(strokeStyleVal.opacity * brushOpacity)
 
 
                 view.activeFillColor = fillColorVal
@@ -1482,32 +1485,26 @@ fun StudioLayout(
 
 
                     // User Profile
+                    val currentUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                    val userName = currentUser?.displayName?.takeIf { it.isNotBlank() } ?: currentUser?.email?.substringBefore("@") ?: "Usuario"
+                    val userInitial = userName.firstOrNull()?.toString()?.uppercase() ?: "U"
 
-
-                    Surface(
-
-
-                        modifier = Modifier.size(32.sdp),
-
-
-                        shape = CircleShape,
-
-
-                        color = theme.buttonColor
-
-
-                    ) {
-
-
-                        Box(contentAlignment = Alignment.Center) {
-
-
-                            Text("U", color = theme.iconColor, style = MaterialTheme.typography.labelMedium)
-
-
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.sdp)) {
+                        Text(
+                            text = userName,
+                            color = theme.iconColor,
+                            fontSize = 12.sp,
+                            maxLines = 1
+                        )
+                        Surface(
+                            modifier = Modifier.size(32.sdp),
+                            shape = CircleShape,
+                            color = theme.buttonColor
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(userInitial, color = theme.iconColor, style = MaterialTheme.typography.labelMedium)
+                            }
                         }
-
-
                     }
 
 
@@ -5548,38 +5545,27 @@ fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
 
 
         if (showStrokeColorPicker) {
-            ColorPickerDialog(
-                initialColor = Color(strokeColorVal),
-                recentColors = theme.recentColors,
+            val fillPresets by viewModel.fillPresets.collectAsState()
+            FillStylePickerDialog(
+                initialStyle = strokeStyleVal,
                 theme = theme,
-
-
-                onColorSelected = { 
-
-
-                    viewModel.setStrokeColor(it.toArgb())
-
-
-                    viewModel.updateLastActiveToolColor(it.toArgb())
-
-
-                    viewModel.setShowStrokeColorPicker(false) 
-
-
+                presets = fillPresets,
+                onPresetOverwritten = { index, style ->
+                    viewModel.saveFillPreset(index, style)
                 },
-
-
                 onDismiss = { viewModel.setShowStrokeColorPicker(false) },
-
-
+                onStyleSelected = { style ->
+                    viewModel.setStrokeStyle(style)
+                    if (style is FillStyle.Solid) {
+                        viewModel.updateLastActiveToolColor(style.color)
+                    }
+                    viewModel.setShowStrokeColorPicker(false)
+                },
                 onDisable = { viewModel.toggleStroke(false); viewModel.setShowStrokeColorPicker(false) },
-
                 onRevertToPreset = {
                     viewModel.revertToPresetColor(isStroke = true)
                     viewModel.setShowStrokeColorPicker(false)
                 }
-
-
             )
 
 
@@ -6659,10 +6645,8 @@ fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
             onDismiss = { viewModel.dismissImageEdits() },
 
 
-            onConfirm = { processedBmp, transColors, tol, cropRect, cropPath, transTols, rotation, flipH, flipV ->
-
-
-                viewModel.applyImageEdits(processedBmp, transColors, tol, cropRect, cropPath, transTols, rotation, flipH, flipV)
+            onConfirm = { processedBmp, transColors, tol, cropRect, cropPath, transTols, rotation, flipH, flipV, scale ->
+                viewModel.applyImageEdits(processedBmp, transColors, tol, cropRect, cropPath, transTols, rotation, flipH, flipV, scale)
 
 
             }

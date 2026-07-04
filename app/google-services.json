@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "860359547302",
+    "project_id": "sketchercompanionapp",
+    "storage_bucket": "sketchercompanionapp.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:860359547302:android:7bf2771c481c1777c19767",
+        "android_client_info": {
+          "package_name": "com.sketcher.sketchercompanionv1"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "860359547302-2blai3q31v8fs3nppqdr94c118b8sn9t.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCyBHjvnNzlkGl4xbmS-YC2AL3T5WOWer4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "860359547302-2blai3q31v8fs3nppqdr94c118b8sn9t.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

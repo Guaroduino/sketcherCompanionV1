@@ -69,6 +69,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 import kotlinx.coroutines.withContext
+import androidx.input.motionprediction.MotionEventPredictor
 
 
 
@@ -768,6 +769,9 @@ class SketcherCanvasView(context: Context) : View(context) {
     // --- RENDER ENGINE & PIPELINE ---
 
     private val renderEngine = RenderEngine()
+    private val backgroundRenderEngine = RenderEngine()
+
+    private val motionEventPredictor = MotionEventPredictor.newInstance(this)
 
     private val strokePipeline: StrokePipeline = StrokePipeline(
 
@@ -880,8 +884,10 @@ class SketcherCanvasView(context: Context) : View(context) {
                 isDrawing = false
                 liveMergedExistingStrokes.clear()
             }
+        },
+        getPredictedEvent = {
+            motionEventPredictor.predict()
         }
-
     )
 
 
@@ -955,37 +961,30 @@ class SketcherCanvasView(context: Context) : View(context) {
         
 
         redrawJob = viewScope.launch {
-
             val job = coroutineContext[Job]
-
             val offscreenBitmap = withContext(Dispatchers.Default) {
-
                 val canvas = android.graphics.Canvas(backBuffer)
-
                 
+                // Keep background engine synchronized with main engine properties
+                backgroundRenderEngine.gridConfig = renderEngine.gridConfig
+                backgroundRenderEngine.scaleConfig = renderEngine.scaleConfig
+                backgroundRenderEngine.currentUnit = renderEngine.currentUnit
+                backgroundRenderEngine.canvasSizeConfig = renderEngine.canvasSizeConfig
+                backgroundRenderEngine.canvasBackgroundStyle = renderEngine.canvasBackgroundStyle
+                backgroundRenderEngine.canvasBackgroundColor = renderEngine.canvasBackgroundColor
+                backgroundRenderEngine.isDebugWireframe = renderEngine.isDebugWireframe
 
-                renderEngine.drawLayers(
-
+                backgroundRenderEngine.drawLayers(
                     canvas, 
-
                     layersSnapshot, 
-
                     currentMatrix, 
-
                     librarySnapshot, 
-
                     selectedElementsSnapshot, 
-
                     isTransformModeActive,
-
                     editingParent = editingParentSnapshot,
-
                     isCancelled = { job?.isCancelled == true }
-
                 )
-
                 backBuffer
-
             }
 
             
@@ -1578,6 +1577,13 @@ class SketcherCanvasView(context: Context) : View(context) {
 
         set(value) { if (field == value) return; field = value; strokePipeline.activeStrokeColor = value }
 
+    var activeStrokeStyle: FillStyle = FillStyle.Solid(android.graphics.Color.BLACK)
+        set(value) {
+            if (field == value) return
+            field = value
+            strokePipeline.activeStrokeStyle = value
+        }
+
     var activeFillColor: Int = android.graphics.Color.TRANSPARENT
         set(value) {
             if (field == value) return
@@ -1882,21 +1888,17 @@ class SketcherCanvasView(context: Context) : View(context) {
 
 
         super.onDraw(canvas)
-
         
+        if (!isCapturingForProjection) {
+            canvas.drawColor(canvasBackgroundColor)
+        }
 
         // 1. Draw Cached Bitmap (Background & Layers)
-
         backingBitmap?.let { bitmap ->
-
             if (viewMatrix == cachedBitmapMatrix) {
-
                 canvas.drawBitmap(bitmap, 0f, 0f, bitmapPaint)
-
             } else {
-
                 // High-performance scaling for intermediate frames (zoom/pan)
-
                 if (cachedBitmapMatrix.invert(drawTransformMatrix)) {
 
                      drawTransformMatrix.postConcat(viewMatrix)
@@ -2067,11 +2069,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                             // 1. Draw fills (underneath)
                             if (isFillActive) {
                                 liveFillPaint.style = android.graphics.Paint.Style.FILL
-                                val fillStyleSnap = activeFillStyle
-                                val relativeFillStyle = when (fillStyleSnap) {
-                                    is FillStyle.Solid -> FillStyle.Solid(fillStyleSnap.color or (0xFF shl 24))
-                                    else -> fillStyleSnap
-                                }
+                                val relativeFillStyle = activeFillStyle.copyWithOpacity(1f)
                                 renderEngine.applyFillStyle(liveFillPaint, relativeFillStyle, alphaMultiplier = relativeFillAlpha)
                                 canvas.drawPath(combinedPath, liveFillPaint)
                                 liveFillPaint.shader = null
@@ -2165,7 +2163,9 @@ class SketcherCanvasView(context: Context) : View(context) {
 
                                     isFillActive, 
 
-                                    activeStrokeType, brushType = currentTool.name
+                                    activeStrokeType, brushType = currentTool.name,
+                                    fillStyle = activeFillStyle,
+                                    strokeStyle = activeStrokeStyle.copyWithOpacity(1f)
 
                                 )
 
@@ -2202,8 +2202,9 @@ class SketcherCanvasView(context: Context) : View(context) {
                                 isCad = isCadDraw,
 
                                 strokeType = activeStrokeType,
-
-                                fillStyle = activeFillStyle, brushType = currentTool.name
+                                fillStyle = activeFillStyle, 
+                                strokeStyle = activeStrokeStyle.copyWithOpacity(1f),
+                                brushType = currentTool.name
 
                             )
 
@@ -2339,7 +2340,9 @@ class SketcherCanvasView(context: Context) : View(context) {
                                     isStrokeActive, 
                                     isFillActive, 
                                     activeStrokeType,
-                                    brushType = currentTool.name
+                                    brushType = currentTool.name,
+                                    fillStyle = activeFillStyle,
+                                    strokeStyle = activeStrokeStyle.copyWithOpacity(activeStrokeStyle.opacity * activeLayerOpacity)
                                 )
                                 canvas.restore()
                             }
@@ -2359,6 +2362,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                                 isCad = isCadDraw,
                                 strokeType = activeStrokeType,
                                 fillStyle = activeFillStyle,
+                                strokeStyle = activeStrokeStyle.copyWithOpacity(activeStrokeStyle.opacity * activeLayerOpacity),
                                 brushType = currentTool.name
                             )
                         }
@@ -2635,6 +2639,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                 points = strokePipeline.currentStrokePointsList,
 
                 strokeColor = activeStrokeColor,
+                strokeStyle = activeStrokeStyle,
 
                 maxWidth = activeSize,
 
@@ -2853,6 +2858,11 @@ class SketcherCanvasView(context: Context) : View(context) {
 
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        try {
+            motionEventPredictor.record(event)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
 
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
 

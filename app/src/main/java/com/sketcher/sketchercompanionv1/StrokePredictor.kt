@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1
+package com.sketcher.sketchercompanionv1
 
 import kotlin.math.sqrt
 
@@ -10,7 +10,7 @@ object StrokePredictor {
      */
     fun getPredictedPoint(
         points: List<StrokePoint>, 
-        predictionLatencyMillis: Long = 35,
+        predictionLatencyMillis: Long = 33,
         currentZoom: Float = 1.0f
     ): StrokePoint? {
         if (points.size < 4) return null
@@ -34,12 +34,15 @@ object StrokePredictor {
             val dot = (rawV1x * rawV2x + rawV1y * rawV2y)
             val cosTheta = (dot / (rawMag1 * rawMag2)).coerceIn(-1f, 1f)
             
-            // Si cosTheta baja de 0.4 (giro mayor a ~66 grados), la predicción cae a 0 rápidamente.
-            zigZagDampening = ((cosTheta - 0.4f) / 0.6f).coerceIn(0f, 1f)
+            // Para pantallas de 60Hz los puntos están más separados.
+            // Hacemos la detección de esquinas más estricta para evitar "ghost lines".
+            // Si cosTheta baja de 0.85 (~31 grados), empezamos a reducir fuertemente.
+            // Si baja de 0.5 (~60 grados), la predicción se anula por completo.
+            zigZagDampening = ((cosTheta - 0.5f) / 0.35f).coerceIn(0f, 1f)
         }
 
-        // Si es una esquina muy cerrada, apagamos la predicción en este frame para evitar picos
-        if (zigZagDampening < 0.05f) return null
+        // Si es una esquina, apagamos la predicción en este frame para evitar la línea fantasma
+        if (zigZagDampening < 0.01f) return null
 
         // 2. Cálculo de Velocidad Estable (Promediada en el tiempo)
         var pStable = p1
@@ -70,7 +73,7 @@ object StrokePredictor {
         // 4. LÍMITE ANTI-OVERSHOOT (Clamp)
         // Evita que la predicción salga "disparada" si hacemos un trazo cortito muy rápido.
         // La distancia predicha no debe exceder un múltiplo de la distancia estable recorrida.
-        val maxExtrapolation = kotlin.math.sqrt((p0.x - pStable.x)*(p0.x - pStable.x) + (p0.y - pStable.y)*(p0.y - pStable.y)) * 2.5f
+        val maxExtrapolation = kotlin.math.sqrt((p0.x - pStable.x)*(p0.x - pStable.x) + (p0.y - pStable.y)*(p0.y - pStable.y)) * 1.8f
         val predMag = kotlin.math.sqrt(predDistanceX * predDistanceX + predDistanceY * predDistanceY)
 
         var finalX = p0.x + predDistanceX

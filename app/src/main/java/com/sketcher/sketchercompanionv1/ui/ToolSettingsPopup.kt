@@ -242,18 +242,6 @@ fun FreehandSettingsContent(
     }
 
     HorizontalDivider()
-    
-    Text("PredicciÃ³n de Entrada", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-
-    // Min/Max prediction
-    SettingSlider(
-        label = "PredicciÃ³n: ${currentSettings.predictionLatency}ms",
-        value = currentSettings.predictionLatency.toFloat(),
-        valueRange = 0f..50f,
-        onValueChange = { onSettingsChanged(currentSettings.copy(predictionLatency = it.toLong())) }
-    )
-
-    HorizontalDivider()
     Text("CompresiÃ³n (Salida)", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
     
     val tolerance = currentSettings.simplificationTolerance

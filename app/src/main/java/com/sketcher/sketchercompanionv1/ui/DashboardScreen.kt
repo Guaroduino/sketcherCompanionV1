@@ -18,6 +18,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -40,11 +42,14 @@ import com.sketcher.sketchercompanionv1.DashboardItem
 import com.sketcher.sketchercompanionv1.SketcherViewModel
 import com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler
 import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
+import com.sketcher.sketchercompanionv1.ui.AppIconButton
+import com.sketcher.sketchercompanionv1.ui.panels.OutlinerActionButton
 import com.sketcher.sketchercompanionv1.utils.toFillStyle
 import com.sketcher.sketchercompanionv1.utils.toFillStyleJson
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,6 +84,8 @@ fun DashboardScreen(
         uri?.let { viewModel.importExternalProject(context, it) }
     }
 
+    val scope = rememberCoroutineScope()
+
     // Refresh items on launch or folder change
     LaunchedEffect(currentDir) {
         viewModel.refreshLocalItems()
@@ -101,41 +108,62 @@ fun DashboardScreen(
                             modifier = Modifier.size(28.dp * scaleFactor)
                         )
                         Spacer(modifier = Modifier.width(8.dp * scaleFactor))
-                        Text(
-                            text = "Sketcher Companion",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp * scaleFactor,
-                            color = Color(0xFF1C1B1F)
-                        )
+                        Column {
+                            Text(
+                                text = "Sketcher Companion",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 20.sp * scaleFactor,
+                                color = Color(0xFF1C1B1F)
+                            )
+                            val currentUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                            val userName = currentUser?.displayName?.takeIf { it.isNotBlank() } ?: currentUser?.email?.substringBefore("@")
+                            if (userName != null) {
+                                Text(
+                                    text = "Hola, $userName",
+                                    fontSize = 12.sp * scaleFactor,
+                                    color = Color(0xFF49454F)
+                                )
+                            }
+                        }
                     }
                 },
                 actions = {
-                    // Minimalist Action Buttons
-                    TextButton(
-                        onClick = { showCreateFolderDialog = true },
-                        modifier = Modifier.padding(horizontal = 4.dp * scaleFactor)
-                    ) {
-                        Icon(Icons.Default.CreateNewFolder, contentDescription = null, modifier = Modifier.size(18.dp * scaleFactor))
-                        Spacer(modifier = Modifier.width(4.dp * scaleFactor))
-                        Text("Nuevo Cuaderno", fontSize = 13.sp * scaleFactor)
-                    }
-
-                    Button(
-                        onClick = { showCreateProjectDialog = true },
-                        modifier = Modifier.padding(horizontal = 4.dp * scaleFactor)
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp * scaleFactor))
-                        Spacer(modifier = Modifier.width(4.dp * scaleFactor))
-                        Text("Nuevo Dibujo", fontSize = 13.sp * scaleFactor)
-                    }
+                    var showSettingsPopup by remember { mutableStateOf(false) }
 
                     IconButton(
-                        onClick = { importLauncher.launch(arrayOf("*/*")) },
+                        onClick = {
+                            val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                            if (user != null) {
+                                viewModel.autoSyncCloud(context)
+                            }
+                        },
                         modifier = Modifier.padding(horizontal = 4.dp * scaleFactor)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.FileUpload,
-                            contentDescription = "Importar externo",
+                            imageVector = Icons.Default.Sync,
+                            contentDescription = "Sincronizar",
+                            modifier = Modifier.size(24.dp * scaleFactor),
+                            tint = Color(0xFF49454F)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = {
+                            com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
+                            scope.launch {
+                                try {
+                                    androidx.credentials.CredentialManager.create(context)
+                                        .clearCredentialState(androidx.credentials.ClearCredentialStateRequest())
+                                } catch (e: Exception) {
+                                    // Ignore
+                                }
+                            }
+                        },
+                        modifier = Modifier.padding(horizontal = 4.dp * scaleFactor)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+                            contentDescription = "Cerrar Sesión",
                             modifier = Modifier.size(24.dp * scaleFactor),
                             tint = Color(0xFF49454F)
                         )
@@ -163,70 +191,61 @@ fun DashboardScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(splitterPosition)
-                    .padding(16.dp * scaleFactor)
             ) {
-                Text(
-                    text = "Cuadernos y Proyectos",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp * scaleFactor,
-                    color = Color(0xFF1C1B1F),
-                    modifier = Modifier.padding(bottom = 8.dp * scaleFactor)
-                )
-
-                // Breadcrumbs / Folder navigation path
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 16.dp * scaleFactor)
+                        .padding(12.dp * scaleFactor),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     val rootDir = File(context.filesDir, "projects")
                     val isAtRoot = currentDir?.absolutePath == rootDir.absolutePath
 
-                    Icon(
-                        imageVector = Icons.Default.Home,
-                        contentDescription = "Raíz",
-                        tint = if (isAtRoot) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                        modifier = Modifier
-                            .size(20.dp * scaleFactor)
-                            .clickable(enabled = !isAtRoot) {
-                                viewModel.navigateToFolder(rootDir)
-                            }
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (!isAtRoot) {
+                            AppIconButton(
+                                onClick = { 
+                                    if (currentDir != null && currentDir.absolutePath != rootDir.absolutePath) {
+                                        viewModel.navigateToFolder(currentDir.parentFile ?: rootDir)
+                                    }
+                                },
+                                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Volver",
+                                tint = theme.iconColor,
+                                buttonSize = 24.dp
+                            )
+                            Spacer(modifier = Modifier.width(4.dp * scaleFactor))
+                        }
+                        Text(
+                            text = if (isAtRoot) "CUADERNOS Y PROYECTOS" else currentDir?.name?.uppercase(Locale.getDefault()) ?: "CUADERNOS Y PROYECTOS",
+                            color = theme.iconColor,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
 
-                    if (!isAtRoot && currentDir != null) {
-                        val relativePath = currentDir.absolutePath.removePrefix(rootDir.absolutePath)
-                        val parts = relativePath.split(File.separator).filter { it.isNotEmpty() }
-                        
-                        var tempPath = rootDir.absolutePath
-                        parts.forEach { part ->
-                            tempPath += File.separator + part
-                            val targetPath = File(tempPath)
-                            
-                            Text(
-                                text = " / ",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                fontSize = 14.sp * scaleFactor
-                            )
-                            Text(
-                                text = part,
-                                color = if (targetPath.absolutePath == currentDir.absolutePath) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                fontSize = 14.sp * scaleFactor,
-                                fontWeight = if (targetPath.absolutePath == currentDir.absolutePath) FontWeight.SemiBold else FontWeight.Normal,
-                                modifier = Modifier.clickable(enabled = targetPath.absolutePath != currentDir.absolutePath) {
-                                    viewModel.navigateToFolder(targetPath)
-                                }
-                            )
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp * scaleFactor), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinerActionButton(Icons.Default.CreateNewFolder, "Nuevo Cuaderno", theme.iconColor) {
+                            showCreateFolderDialog = true
+                        }
+                        OutlinerActionButton(Icons.Default.Add, "Nuevo Dibujo", theme.iconColor) {
+                            showCreateProjectDialog = true
+                        }
+                        OutlinerActionButton(Icons.Default.FileUpload, "Importar", theme.iconColor) {
+                            importLauncher.launch(arrayOf("*/*"))
                         }
                     }
                 }
+                
+                HorizontalDivider(color = theme.iconColor.copy(alpha = 0.1f))
 
-                // Grid of items
+                Box(modifier = Modifier.fillMaxWidth().weight(1f).padding(12.dp * scaleFactor)) {
+                    // Grid of items
                 if (items.isEmpty()) {
                     Box(
                         modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
+                            .fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(
@@ -252,7 +271,7 @@ fun DashboardScreen(
                         columns = GridCells.Adaptive(minSize = 160.dp * scaleFactor),
                         horizontalArrangement = Arrangement.spacedBy(16.dp * scaleFactor),
                         verticalArrangement = Arrangement.spacedBy(16.dp * scaleFactor),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.fillMaxSize()
                     ) {
                         items(items) { item ->
                             when (item) {
@@ -285,7 +304,8 @@ fun DashboardScreen(
                         }
                     }
                 }
-            }
+                } // End of Box
+            } // End of Column
 
             // Draggable splitter
             Row(
@@ -342,13 +362,12 @@ fun DashboardScreen(
     }
 
     if (showCreateProjectDialog) {
-        InputDialog(
-            title = "Nuevo Dibujo",
-            hint = "Nombre del proyecto",
-            initialValue = remember(items) { getUniqueProjectName(items) },
+        com.sketcher.sketchercompanionv1.ui.dialogs.CreateProjectDialog(
+            initialName = remember(items) { getUniqueProjectName(items) },
+            theme = theme,
             onDismiss = { showCreateProjectDialog = false },
-            onConfirm = { name ->
-                viewModel.createLocalProject(context, name)
+            onConfirm = { name, templateFile, scaleRatio ->
+                viewModel.createLocalProject(context, name, templateFile, scaleRatio)
                 showCreateProjectDialog = false
             }
         )
@@ -603,6 +622,27 @@ fun ProjectCard(
                         contentDescription = null,
                         tint = Color(0xFF49454F).copy(alpha = 0.15f),
                         modifier = Modifier.size(48.dp * scaleFactor)
+                    )
+                }
+                
+                // Scale Badge
+                val scaleRatioStr = if (project.globalScaleRatio.rem(1) == 0f) {
+                    project.globalScaleRatio.toInt().toString()
+                } else {
+                    "%.1f".format(project.globalScaleRatio)
+                }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(8.dp * scaleFactor)
+                        .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(4.dp * scaleFactor))
+                        .padding(horizontal = 6.dp * scaleFactor, vertical = 2.dp * scaleFactor)
+                ) {
+                    Text(
+                        text = "Esc: 1:$scaleRatioStr",
+                        color = Color.White,
+                        fontSize = 10.sp * scaleFactor,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }

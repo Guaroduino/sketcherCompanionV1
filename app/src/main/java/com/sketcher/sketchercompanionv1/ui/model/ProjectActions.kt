@@ -16,6 +16,7 @@ data class ProjectActions(
     val onExportPdf: () -> Unit,
     val onExportDxf: () -> Unit,
     val onPaperSize: () -> Unit,
+    val onGlobalScale: () -> Unit,
     val onGridSettings: () -> Unit,
     val onTemplatesSaveTrigger: () -> Unit,
     val onTemplatesLoadTrigger: () -> Unit,

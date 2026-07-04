@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
@@ -86,6 +87,29 @@ class MainActivity : ComponentActivity() {
             var uiCollapsed by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(true) }
             val theme by sketchViewModel.themeConfig.collectAsState()
             
+            val authViewModel: com.sketcher.sketchercompanionv1.ui.auth.AuthViewModel = viewModel()
+            val currentUser by authViewModel.currentUser.collectAsState()
+            var skipLogin by remember { mutableStateOf(false) }
+
+            if (currentUser == null && !skipLogin) {
+                com.sketcher.sketchercompanionv1.ui.theme.SketcherCompanionV1Theme(
+                    theme = theme
+                ) {
+                    com.sketcher.sketchercompanionv1.ui.auth.LoginScreen(
+                        onLoginSuccess = { skipLogin = false },
+                        onSkipLogin = { skipLogin = true },
+                        viewModel = authViewModel
+                    )
+                }
+                return@setContent
+            }
+            
+            LaunchedEffect(currentUser) {
+                if (currentUser != null) {
+                    sketchViewModel.autoSyncCloud(context)
+                }
+            }
+            
             // SWAP STATES (now backed by ViewModel with persistence)
             val swapVertical = sketchViewModel.swapVertical
             val swapHorizontal = sketchViewModel.swapHorizontal
@@ -95,6 +119,7 @@ class MainActivity : ComponentActivity() {
             var showPaperSizeDialog by remember { mutableStateOf(false) }
             var showGridSettings by remember { mutableStateOf(false) }
             var showSaveTemplateDialog by remember { mutableStateOf(false) }
+            var showSaveProjectDialog by remember { mutableStateOf(false) }
             var showLoadTemplateDialog by remember { mutableStateOf(false) }
             var showDxfImportDialog by remember { mutableStateOf(false) }
             var dxfImportUri by remember { mutableStateOf<android.net.Uri?>(null) }
@@ -105,6 +130,7 @@ class MainActivity : ComponentActivity() {
             var showExportPngDialog by remember { mutableStateOf(false) }
             var showExportSvgDialog by remember { mutableStateOf(false) }
             var showPdfExportDialog by remember { mutableStateOf(false) }
+            var showGlobalScaleDialog by remember { mutableStateOf(false) }
 
             // SAF LAUNCHERS (Hoisted)
             val saveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
@@ -145,8 +171,14 @@ class MainActivity : ComponentActivity() {
             val projectActions = remember {
                 com.sketcher.sketchercompanionv1.ui.model.ProjectActions(
                     onNew = { sketchViewModel.clear() },
-                    onSave = { sketchViewModel.saveProject(context, saveLauncher) },
-                    onSaveAs = { saveLauncher.launch("drawing.skc") },
+                    onSave = {
+                        if (sketchViewModel.currentFileUri != null) {
+                            sketchViewModel.saveProjectToZip(context, sketchViewModel.currentFileUri!!)
+                        } else {
+                            showSaveProjectDialog = true
+                        }
+                    },
+                    onSaveAs = { showSaveProjectDialog = true },
                     onLoad = { loadLauncher.launch(arrayOf("*/*")) },
                     onImportImage = { importImageLauncher.launch("image/*") },
                     onImportSvg = { importSvgLauncher.launch("*/*") },
@@ -160,6 +192,7 @@ class MainActivity : ComponentActivity() {
                     },
                     onExportDxf = { showDxfExportDialog = true },
                     onPaperSize = { showPaperSizeDialog = true },
+                    onGlobalScale = { showGlobalScaleDialog = true },
                     onGridSettings = { showGridSettings = true },
                     onTemplatesSaveTrigger = { showSaveTemplateDialog = true },
                     onTemplatesLoadTrigger = { showLoadTemplateDialog = true },
@@ -197,6 +230,20 @@ class MainActivity : ComponentActivity() {
                         androidx.compose.runtime.LaunchedEffect(Unit) {
                             sketchViewModel.initLocalProjects(context)
                         }
+
+                        val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+                        androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+                            val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                                if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE || event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                                    sketchViewModel.saveCurrentProjectLocal(context)
+                                }
+                            }
+                            lifecycleOwner.lifecycle.addObserver(observer)
+                            onDispose {
+                                lifecycleOwner.lifecycle.removeObserver(observer)
+                            }
+                        }
+
 
                         // Intercept back button gestures
                         androidx.activity.compose.BackHandler(enabled = true) {
@@ -250,7 +297,12 @@ class MainActivity : ComponentActivity() {
                                 onBackupPreferences = { sketchViewModel.backupPreferences() },
                                 onRestorePreferences = { sketchViewModel.restorePreferences() },
                                 onResetPreferences = { sketchViewModel.resetPreferencesToDefault() },
-                                hasBackup = sketchViewModel.hasPreferencesBackup
+                                hasBackup = sketchViewModel.hasPreferencesBackup,
+                                onCloudBackup = { sketchViewModel.triggerCloudBackup(context) },
+                                onCloudRestore = { sketchViewModel.triggerCloudRestore(context) },
+                                isSyncingCloud = sketchViewModel.isSyncingCloud,
+                                cloudSyncMessage = sketchViewModel.cloudSyncMessage,
+                                onWipeCloud = { sketchViewModel.wipeCloudProjects(context) }
                             )
                         }
 
@@ -268,6 +320,13 @@ class MainActivity : ComponentActivity() {
                                     showPaperSizeDialog = false
                                 },
                                 onDismiss = { showPaperSizeDialog = false }
+                            )
+                        }
+
+                        if (showGlobalScaleDialog) {
+                            com.sketcher.sketchercompanionv1.ui.dialogs.GlobalScaleDialog(
+                                viewModel = sketchViewModel,
+                                onDismiss = { showGlobalScaleDialog = false }
                             )
                         }
 
@@ -298,6 +357,16 @@ class MainActivity : ComponentActivity() {
                                 onSave = { name -> 
                                     projectActions.onTemplatesSave(name)
                                     showSaveTemplateDialog = false
+                                }
+                            )
+                        }
+
+                        if (showSaveProjectDialog) {
+                            com.sketcher.sketchercompanionv1.ui.SaveProjectDialog(
+                                onDismiss = { showSaveProjectDialog = false },
+                                onSave = { name ->
+                                    sketchViewModel.saveAsLocalProject(context, name)
+                                    showSaveProjectDialog = false
                                 }
                             )
                         }

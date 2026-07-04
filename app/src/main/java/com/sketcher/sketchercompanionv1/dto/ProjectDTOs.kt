@@ -18,7 +18,8 @@ data class ProjectJson(
 
 data class ScaleConfig(
     val unitName: String = "mm",
-    val basePixelsPerMillimeter: Float = 5.0f // Manual calibration
+    val basePixelsPerMillimeter: Float = 5.0f, // Manual calibration
+    val globalScaleRatio: Float = 1.0f // Global scale (e.g., 100 for 1:100)
 )
 
 data class GridConfig(
@@ -45,7 +46,8 @@ data class LayerJson(
     val isVisible: Boolean,
     val opacity: Float,
     val elements: List<LayerElementJson>,
-    val isVisibleOnClient: Boolean? = false
+    val isVisibleOnClient: Boolean? = false,
+    val isLocked: Boolean? = false
 )
 
 data class LayerElementJson(
@@ -73,7 +75,8 @@ data class GroupElementJson(
 
 data class ComponentDefinitionJson(
     val id: String,
-    val elements: List<LayerElementJson>
+    val elements: List<LayerElementJson>,
+    val creationScale: Float = 1.0f
 )
 
 data class SvgElementJson(
@@ -117,6 +120,7 @@ data class VectorStrokeJson(
     val isScreenSpaceWidth: Boolean = false,
     val paintOutlineWidth: Float? = null,
     val fillStyle: FillStyleJson? = null,
+    val strokeStyle: FillStyleJson? = null,
     val watercolorJitterSegment: Float? = null,
     val watercolorJitterDeviation: Float? = null,
     val watercolorBlurRadius: Float? = null,
@@ -124,7 +128,9 @@ data class VectorStrokeJson(
     val watercolorCenterOpacity: Float? = null,
     val watercolorEdgeRingOpacity: Float? = null,
     val watercolorEdgeRingWidth: Float? = null,
-    val freehandSettings: FreehandSettings? = null
+    val freehandSettings: FreehandSettings? = null,
+    val exactSvgPath: String? = null,
+    val exactFillSvgPath: String? = null
 )
 
 data class StrokePointJson(
@@ -156,7 +162,8 @@ data class FillJson(
     val color: Int,
     // Store as list of commands to support curves and moves
     val commands: List<PathCommandJson>,
-    val fillStyle: FillStyleJson? = null
+    val fillStyle: FillStyleJson? = null,
+    val exactSvgPath: String? = null
 )
 
 data class FillStyleJson(
@@ -205,7 +212,7 @@ data class FreehandSettings(
     val isComplete: Boolean = false,
     
     // Custom App Params
-    val predictionLatency: Long = 15L,
+    val predictionLatency: Long = 33L,
     val simplificationTolerance: Float = 0.2f,
 
     // Internal / Extras
@@ -234,7 +241,8 @@ data class BrushPreset(
     val fillColor: Int? = null,
     val isStrokeActive: Boolean? = null,
     val isFillActive: Boolean? = null,
-    val fillStyle: FillStyle? = null
+    val fillStyle: FillStyle? = null,
+    val strokeStyle: FillStyle? = null
 )
 
 enum class ToolType { FREEHAND, PEN, FILL, ERASER, POINT_ERASER, CUT_ERASER, SELECTION, ANDROID_INK, TRIM, EXTEND, EDIT_POINTS, PAINT, PLUMA, MIRROR, MOVE_PT_PT, ALIGN_2_PT, OFFSET, FILLET, CHAMFER, WATERCOLOR, PENCIL_CUMULATIVE }

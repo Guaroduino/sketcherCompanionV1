@@ -44,12 +44,17 @@ object LibraryManager {
                         // Save assets
                         saveAssets(item.definition.elements, assetsDir)
 
+                        val originalDefJson = item.definition.toComponentDefinitionJson()
+                        val strippedDefJson = originalDefJson.copy(
+                            elements = stripOriginalImages(originalDefJson.elements)
+                        )
+
                         LibraryItemJson(
                             type = "COMPONENT",
                             id = item.id,
                             name = item.name,
                             parentId = item.parentId,
-                            componentDefinition = item.definition.toComponentDefinitionJson(),
+                            componentDefinition = strippedDefJson,
                             thumbnailFileName = item.thumbnailFileName
                         )
                     }
@@ -83,19 +88,40 @@ object LibraryManager {
                         val bitmapMap = mutableMapOf<String, Bitmap>()
                         val svgMap = mutableMapOf<String, String>()
                         
-                        defJson.elements.forEach { elJson ->
-                            if (elJson.type == "IMAGE" && elJson.image != null) {
-                                val fileName = elJson.image.fileName
-                                val imgFile = File(assetsDir, fileName)
-                                if (imgFile.exists()) {
-                                    val bitmap = BitmapFactory.decodeFile(imgFile.absolutePath)
-                                    if (bitmap != null) {
-                                        bitmapMap[fileName] = bitmap
+                        fun loadAssetsRecursively(elementsJson: List<com.sketcher.sketchercompanionv1.dto.LayerElementJson>) {
+                            elementsJson.forEach { elJson ->
+                                if (elJson.type == "IMAGE" && elJson.image != null) {
+                                    val fileName = elJson.image.fileName
+                                    val imgFile = File(assetsDir, fileName)
+                                    if (imgFile.exists() && !bitmapMap.containsKey(fileName)) {
+                                        val bitmap = BitmapFactory.decodeFile(imgFile.absolutePath)
+                                        if (bitmap != null) {
+                                            bitmapMap[fileName] = bitmap
+                                        }
                                     }
+                                    val originalFileName = elJson.image.originalFileName
+                                    if (originalFileName != null) {
+                                        val origFile = File(assetsDir, originalFileName)
+                                        if (origFile.exists() && !bitmapMap.containsKey(originalFileName)) {
+                                            val bitmap = BitmapFactory.decodeFile(origFile.absolutePath)
+                                            if (bitmap != null) {
+                                                bitmapMap[originalFileName] = bitmap
+                                            }
+                                        }
+                                    }
+                                } else if (elJson.type == "SVG" && elJson.svg != null) {
+                                    val fileName = elJson.svg.fileName
+                                    val svgFile = File(assetsDir, fileName)
+                                    if (svgFile.exists() && !svgMap.containsKey(fileName)) {
+                                        svgMap[fileName] = svgFile.readText(Charsets.UTF_8)
+                                    }
+                                } else if (elJson.type == "GROUP" && elJson.group != null) {
+                                    loadAssetsRecursively(elJson.group.elements)
                                 }
                             }
-                            // TODO: load SVGs if needed, but we don't have full support in ZipStorageManager for global SVG yet.
                         }
+                        
+                        loadAssetsRecursively(defJson.elements)
                         
                         val definition = defJson.toComponentDefinition(
                             bitmapLoader = { fileName -> bitmapMap[fileName] },
@@ -118,10 +144,41 @@ object LibraryManager {
                         element.bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
                     }
                 }
+            } else if (element is com.sketcher.sketchercompanionv1.SvgElement) {
+                val file = File(assetsDir, element.svgFileName)
+                if (!file.exists()) {
+                    file.writeText(element.svgContent, Charsets.UTF_8)
+                }
             } else if (element is com.sketcher.sketchercompanionv1.GroupElement) {
                 saveAssets(element.elements, assetsDir)
             } else if (element is com.sketcher.sketchercompanionv1.ComponentInstance) {
                 // Not supported to save recursive components right now unless we fetch their definition
+            }
+        }
+    }
+    
+    private fun stripOriginalImages(elements: List<com.sketcher.sketchercompanionv1.dto.LayerElementJson>): List<com.sketcher.sketchercompanionv1.dto.LayerElementJson> {
+        return elements.map { el ->
+            if (el.type == "IMAGE" && el.image != null) {
+                el.copy(
+                    image = el.image.copy(
+                        originalFileName = null,
+                        cropRectLeft = null,
+                        cropRectTop = null,
+                        cropRectRight = null,
+                        cropRectBottom = null,
+                        cropPathPointsX = null,
+                        cropPathPointsY = null
+                    )
+                )
+            } else if (el.type == "GROUP" && el.group != null) {
+                el.copy(
+                    group = el.group.copy(
+                        elements = stripOriginalImages(el.group.elements)
+                    )
+                )
+            } else {
+                el
             }
         }
     }

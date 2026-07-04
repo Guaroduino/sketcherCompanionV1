@@ -27,7 +27,8 @@ import kotlinx.coroutines.sync.withLock
  */
 class StrokePipeline(
     private val onUpdate: (PipelineUpdate) -> Unit,
-    private val onStrokeCompleted: (VectorStroke, FillData?) -> Unit
+    private val onStrokeCompleted: (VectorStroke, FillData?) -> Unit,
+    private val getPredictedEvent: (() -> MotionEvent?)? = null
 ) {
 
     // --- Configuration ---
@@ -37,6 +38,7 @@ class StrokePipeline(
     var activeSize: Float = 10f
     var activeColor: Int = Color.BLACK
     var activeStrokeColor: Int = Color.BLACK
+    var activeStrokeStyle: FillStyle = FillStyle.Solid(Color.BLACK)
     var activeFillColor: Int = Color.TRANSPARENT
     var activeFillStyle: FillStyle = FillStyle.Solid(Color.TRANSPARENT)
     var activeFillOpacity: Float = 0.5f
@@ -137,7 +139,6 @@ class StrokePipeline(
         canvasViewMatrix.invert(reusableInverseMatrix)
 
         // 1. Process Event -> Raw Points
-        val rawEventPoints = inputHandler.processEvent(event)
         stabilizedPoints.clear()
 
         if (action == MotionEvent.ACTION_DOWN) {
@@ -152,10 +153,19 @@ class StrokePipeline(
                combinedPreviewPath.rewind()
                lastPointTimestamp = 0L
            }
+        }
 
-           if (rawEventPoints.isNotEmpty()) {
-               var startX = rawEventPoints.first().x
-               var startY = rawEventPoints.first().y
+        // 2. Apply Stabilization
+        val stabilization = globalStabilizationLevel.coerceIn(0f, 0.98f)
+        val lagAmount = stabilization * 60f
+        val factor = 1f / (1f + lagAmount)
+
+        var isFirstPointInBatch = true
+
+        inputHandler.processEvent(event) { pX, pY, pPressure, pTimestamp ->
+            if (action == MotionEvent.ACTION_DOWN && isFirstPointInBatch) {
+               var startX = pX
+               var startY = pY
                if (isFingerMode) {
                    startX -= fingerOffsetX
                    startY -= fingerOffsetY
@@ -165,18 +175,12 @@ class StrokePipeline(
 
                lastRecordedX = startX
                lastRecordedY = startY
-               lastPointTimestamp = rawEventPoints.first().timestamp
-           }
-        }
+               lastPointTimestamp = pTimestamp
+            }
+            isFirstPointInBatch = false
 
-        // 2. Apply Stabilization
-        val stabilization = globalStabilizationLevel.coerceIn(0f, 0.98f)
-        val lagAmount = stabilization * 60f
-        val factor = 1f / (1f + lagAmount)
-
-        for (p in rawEventPoints) {
-            var targetX = p.x
-            var targetY = p.y
+            var targetX = pX
+            var targetY = pY
             if (isFingerMode) {
                 targetX -= fingerOffsetX
                 targetY -= fingerOffsetY
@@ -205,8 +209,8 @@ class StrokePipeline(
             reusableInverseMatrix.mapPoints(reusablePointBuffer)
             val worldX = reusablePointBuffer[0]
             val worldY = reusablePointBuffer[1]
-            val worldPressure = p.pressure
-            val worldTime = p.timestamp
+            val worldPressure = pPressure
+            val worldTime = pTimestamp
 
             // 2.5 Filter in World Space (Fixed world distance instead of screen pixels)
             val dx = worldX - lastRecordedX
@@ -666,6 +670,7 @@ class StrokePipeline(
             val stroke = VectorStroke(
                 points = finalPointsRaw,
                 strokeColor = activeStrokeColor,
+                strokeStyle = activeStrokeStyle,
                 fillColor = activeFillColor,
                 isStrokeEnabled = isStrokeActive,
                 isFillEnabled = isFillActive,
@@ -742,6 +747,7 @@ class StrokePipeline(
             val stroke = VectorStroke(
                 points = simplifiedPoints,
                 strokeColor = activeStrokeColor,
+                strokeStyle = activeStrokeStyle,
                 fillColor = activeFillColor,
                 isStrokeEnabled = isStrokeActive,
                 isFillEnabled = isFillActive,
@@ -772,6 +778,7 @@ class StrokePipeline(
             val activeToolSnap = activeTool.name
             val activeStrokeTypeSnap = activeStrokeType
             val activeStrokeColorSnap = activeStrokeColor
+            val activeStrokeStyleSnap = activeStrokeStyle
             val activeFillColorSnap = activeFillColor
             val activeFillStyleSnap = activeFillStyle
             val isStrokeActiveSnap = isStrokeActive
@@ -844,6 +851,7 @@ class StrokePipeline(
                     val stroke = VectorStroke(
                         points = simplifiedPoints,
                         strokeColor = activeStrokeColorSnap,
+                        strokeStyle = activeStrokeStyleSnap,
                         fillColor = activeFillColorSnap,
                         isStrokeEnabled = isStrokeActiveSnap,
                         isFillEnabled = false,
@@ -905,6 +913,7 @@ class StrokePipeline(
             val stroke = VectorStroke(
                 points = strokePoints,
                 strokeColor = activeStrokeColor,
+                strokeStyle = activeStrokeStyle,
                 fillColor = activeFillColor,
                 isStrokeEnabled = isStrokeActive,
                 isFillEnabled = false,
@@ -955,6 +964,7 @@ class StrokePipeline(
             val stroke = VectorStroke(
                 points = finalPointsRaw,
                 strokeColor = activeStrokeColor,
+                strokeStyle = activeStrokeStyle,
                 fillColor = activeFillColor,
                 isStrokeEnabled = isStrokeActive,
                 isFillEnabled = isFillActive,
@@ -1023,6 +1033,7 @@ class StrokePipeline(
         val stroke = VectorStroke(
              points = finalPoints,
              strokeColor = activeStrokeColor,
+             strokeStyle = activeStrokeStyle,
              fillColor = activeFillColor,
              isStrokeEnabled = isStrokeActive,
              isFillEnabled = false,
@@ -1126,15 +1137,69 @@ class StrokePipeline(
         return when (activeStrokeType) {
             StrokeType.FREEHAND -> {
                 if (!isFinal) {
-                    val latencyMs = activeFreehandSettings.predictionLatency.toLong()
-                    val predictedPt = predictor.getPredictedPoint(
-                        points = currentStrokePoints,
-                        predictionLatencyMillis = latencyMs,
-                        currentZoom = currentZoom
-                    )
-                    if (predictedPt != null) currentStrokePoints + predictedPt else currentStrokePoints.toList()
+                    var predictedPointsAdded = false
+                    val resultPoints = ArrayList(currentStrokePoints)
+                    
+                    try {
+                        getPredictedEvent?.invoke()?.let { predictedEvent ->
+                            var tempStabilizerX = stabilizerX
+                            var tempStabilizerY = stabilizerY
+                            
+                            val stabilization = globalStabilizationLevel.coerceIn(0f, 0.98f)
+                            val lagAmount = stabilization * 60f
+                            val factor = 1f / (1f + lagAmount)
+                            
+                            val processPoint = { pX: Float, pY: Float, pPressure: Float, pTimestamp: Long ->
+                                var targetX = pX
+                                var targetY = pY
+                                if (isFingerMode) {
+                                    targetX -= fingerOffsetX
+                                    targetY -= fingerOffsetY
+                                }
+                                
+                                if (stabilization > 0f) {
+                                    tempStabilizerX += (targetX - tempStabilizerX) * factor
+                                    tempStabilizerY += (targetY - tempStabilizerY) * factor
+                                } else {
+                                    tempStabilizerX = targetX
+                                    tempStabilizerY = targetY
+                                }
+                                
+                                reusablePointBuffer[0] = tempStabilizerX
+                                reusablePointBuffer[1] = tempStabilizerY
+                                reusableInverseMatrix.mapPoints(reusablePointBuffer)
+                                resultPoints.add(StrokePoint(reusablePointBuffer[0], reusablePointBuffer[1], pPressure, pTimestamp))
+                            }
+
+                            val historySize = predictedEvent.historySize
+                            for (h in 0 until historySize) {
+                                processPoint(predictedEvent.getHistoricalX(h), predictedEvent.getHistoricalY(h), predictedEvent.getHistoricalPressure(h), predictedEvent.getHistoricalEventTime(h))
+                            }
+                            processPoint(predictedEvent.x, predictedEvent.y, predictedEvent.pressure, predictedEvent.eventTime)
+                            
+                            android.util.Log.d("PREDICTOR", "Hardware Predictor Triggered: Added ${historySize + 1} points")
+                            
+                            predictedEvent.recycle()
+                            predictedPointsAdded = true
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("PREDICTOR", "Error using hardware predictor", e)
+                        e.printStackTrace()
+                    }
+                    
+                    if (!predictedPointsAdded) {
+                        val latencyMs = activeFreehandSettings.predictionLatency.toLong()
+                        android.util.Log.d("PREDICTOR", "Fallback to Software Predictor (Latency: $latencyMs ms)")
+                        val predictedPt = predictor.getPredictedPoint(
+                            points = currentStrokePoints,
+                            predictionLatencyMillis = latencyMs,
+                            currentZoom = currentZoom
+                        )
+                        if (predictedPt != null) resultPoints.add(predictedPt)
+                    }
+                    return resultPoints
                 } else {
-                    currentStrokePoints.toList()
+                    return currentStrokePoints.toList()
                 }
             }
             else -> currentStrokePoints.toList()

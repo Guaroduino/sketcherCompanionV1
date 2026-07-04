@@ -66,6 +66,7 @@ fun SizeOpacityPopup(
     val isStrokeActive by viewModel.isStrokeActive.collectAsState()
     val isFillActive by viewModel.isFillActive.collectAsState()
     val strokeColorVal by viewModel.strokeColor.collectAsState()
+    val strokeStyleVal by viewModel.strokeStyle.collectAsState()
     val fillStyleVal by viewModel.fillStyle.collectAsState()
 
     Dialog(onDismissRequest = onDismiss) {
@@ -332,16 +333,22 @@ fun SizeOpacityPopup(
 
                     // Local Color dialog launchers
                     if (showStrokePickerLocal) {
-                        ColorPickerDialog(
-                            initialColor = Color(strokeColorVal),
-                            recentColors = theme.recentColors,
+                        val fillPresets by viewModel.fillPresets.collectAsState()
+                        FillStylePickerDialog(
+                            initialStyle = strokeStyleVal,
                             theme = theme,
-                            onColorSelected = { 
-                                viewModel.setStrokeColor(it.toArgb())
-                                viewModel.updateLastActiveToolColor(it.toArgb())
-                                showStrokePickerLocal = false
+                            presets = fillPresets,
+                            onPresetOverwritten = { index, style ->
+                                viewModel.saveFillPreset(index, style)
                             },
                             onDismiss = { showStrokePickerLocal = false },
+                            onStyleSelected = { style ->
+                                viewModel.setStrokeStyle(style)
+                                if (style is FillStyle.Solid) {
+                                    viewModel.updateLastActiveToolColor(style.color)
+                                }
+                                showStrokePickerLocal = false
+                            },
                             onDisable = { viewModel.toggleStroke(false); showStrokePickerLocal = false },
                             onRevertToPreset = {
                                 viewModel.revertToPresetColor(isStroke = true)
@@ -385,7 +392,8 @@ fun SizeOpacityPopup(
                         onValueChange = { viewModel.updateBrushSize(it) },
                         valueRange = if (unit == com.sketcher.sketchercompanionv1.dto.DistanceUnit.MM) 0.1f..50f else 1f..100f,
                         showValueOnRight = true,
-                        valueFormatter = { "$formattedSize ${unit.symbol}" }
+                        valueFormatter = { "$formattedSize ${unit.symbol}" },
+                        exponent = 2f
                     )
 
                     if (isEraser) {
@@ -451,7 +459,8 @@ fun SizeOpacityPopup(
                             onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(paintOutlineWidth = it)) },
                             valueRange = 0.5f..15f,
                             showValueOnRight = true,
-                            valueFormatter = { String.format("%.1f px", it) }
+                            valueFormatter = { String.format("%.1f px", it) },
+                            exponent = 2f
                         )
                     }
 
@@ -466,7 +475,8 @@ fun SizeOpacityPopup(
                             onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorJitterDeviation = it)) },
                             valueRange = 0f..15f,
                             showValueOnRight = true,
-                            valueFormatter = { String.format("%.1f px", it) }
+                            valueFormatter = { String.format("%.1f px", it) },
+                            exponent = 2f
                         )
                         
                         // Jitter Segment Slider
@@ -477,7 +487,8 @@ fun SizeOpacityPopup(
                             onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorJitterSegment = it)) },
                             valueRange = 3f..50f,
                             showValueOnRight = true,
-                            valueFormatter = { String.format("%.1f px", it) }
+                            valueFormatter = { String.format("%.1f px", it) },
+                            exponent = 2f
                         )
                         
                         // Blur Radius Slider
@@ -488,7 +499,8 @@ fun SizeOpacityPopup(
                             onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorBlurRadius = it)) },
                             valueRange = 0f..25f,
                             showValueOnRight = true,
-                            valueFormatter = { String.format("%.1f px", it) }
+                            valueFormatter = { String.format("%.1f px", it) },
+                            exponent = 2f
                         )
 
                         // Center Opacity Slider

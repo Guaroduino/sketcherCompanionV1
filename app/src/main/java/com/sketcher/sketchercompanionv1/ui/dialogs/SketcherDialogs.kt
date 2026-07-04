@@ -44,6 +44,12 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import com.sketcher.sketchercompanionv1.R
 import com.sketcher.sketchercompanionv1.ui.SettingSlider
@@ -195,7 +201,12 @@ fun SettingsDialog(
     onBackupPreferences: () -> Unit,
     onRestorePreferences: () -> Unit,
     onResetPreferences: () -> Unit,
-    hasBackup: Boolean
+    hasBackup: Boolean,
+    onCloudBackup: () -> Unit,
+    onCloudRestore: () -> Unit,
+    isSyncingCloud: Boolean,
+    cloudSyncMessage: String?,
+    onWipeCloud: () -> Unit
 ) {
     var resolutionText by remember { mutableStateOf(currentScaleConfig.basePixelsPerMillimeter.toString()) }
     var selectedUnit by remember { mutableStateOf(DistanceUnit.fromSymbol(currentScaleConfig.unitName)) }
@@ -447,6 +458,96 @@ fun SettingsDialog(
                         Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(16.sdp))
                         Spacer(modifier = Modifier.width(4.sdp))
                         Text("Restaurar Copia", fontSize = 12.ssp)
+                    }
+                }
+                
+                Button(
+                    onClick = onResetPreferences,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = theme.highlightColor.copy(alpha = 0.7f),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(8.sdp)
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.sdp))
+                    Spacer(modifier = Modifier.width(4.sdp))
+                    Text("Restablecer Valores de Fábrica", fontSize = 12.ssp)
+                }
+
+                HorizontalDivider()
+
+                // --- CLOUD SYNC ---
+                Text(
+                    text = "Sincronización en la Nube (Firebase)",
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 16.ssp),
+                    color = theme.iconColor.copy(alpha = 0.8f)
+                )
+
+                if (isSyncingCloud) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(
+                            color = theme.highlightColor,
+                            modifier = Modifier.size(24.sdp)
+                        )
+                        Spacer(modifier = Modifier.width(8.sdp))
+                        Text(
+                            text = cloudSyncMessage ?: "Sincronizando...",
+                            color = theme.iconColor,
+                            fontSize = 14.ssp
+                        )
+                    }
+                } else {
+                    if (cloudSyncMessage != null) {
+                        Text(
+                            text = cloudSyncMessage,
+                            color = theme.highlightColor,
+                            fontSize = 14.ssp,
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Button(
+                            onClick = onCloudBackup,
+                            enabled = !isSyncingCloud,
+                            modifier = Modifier.weight(1f).padding(end = 4.sdp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                        ) {
+                            Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(16.sdp))
+                            Spacer(modifier = Modifier.width(4.sdp))
+                            Text("Cloud Backup", fontSize = 12.ssp)
+                        }
+                        Button(
+                            onClick = onCloudRestore,
+                            enabled = !isSyncingCloud,
+                            modifier = Modifier.weight(1f).padding(start = 4.sdp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                        ) {
+                            Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(16.sdp))
+                            Spacer(modifier = Modifier.width(4.sdp))
+                            Text("Cloud Restore", fontSize = 12.ssp)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.sdp))
+                    Button(
+                        onClick = onWipeCloud,
+                        enabled = !isSyncingCloud,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFC62828),
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(8.sdp)
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.sdp))
+                        Spacer(modifier = Modifier.width(8.sdp))
+                        Text("Borrar Datos en la Nube", fontSize = 12.ssp)
                     }
                 }
 

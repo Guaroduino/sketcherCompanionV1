@@ -66,6 +66,8 @@ object MathTextureCache {
                 "CHECKERBOARD" -> createCheckerboardTile(spacing, style.primaryColor, style.secondaryColor)
                 "STRIPES" -> createStripesTile(spacing, thickness, style.primaryColor, style.secondaryColor)
                 "DOTS" -> createDotsTile(spacing, thickness, style.primaryColor, style.secondaryColor)
+                "NOISE" -> createNoiseTile(spacing, thickness, style.primaryColor, style.secondaryColor)
+                "SCRATCHES" -> createScratchesTile(spacing, thickness, style.primaryColor, style.secondaryColor)
                 else -> createGridTile(spacing, thickness, style.primaryColor, style.secondaryColor)
             }
             if (bitmap != null) {
@@ -149,6 +151,76 @@ object MathTextureCache {
 
         val center = size / 2f
         canvas.drawCircle(center, center, thickness, paint)
+        return bmp
+    }
+
+    private fun createNoiseTile(spacing: Float, thickness: Float, primaryColor: Int, secondaryColor: Int): Bitmap {
+        val size = spacing.toInt()
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        canvas.drawColor(secondaryColor)
+        
+        val paint = Paint().apply {
+            color = primaryColor
+            style = Paint.Style.FILL
+        }
+        
+        val seed = primaryColor.toLong() xor secondaryColor.toLong() xor spacing.toBits().toLong() xor thickness.toBits().toLong()
+        val rng = java.util.Random(seed)
+        
+        val density = 0.3f
+        val r = thickness.coerceAtLeast(1f)
+        val areaPerDot = Math.PI * r * r
+        val totalArea = size * size
+        val numDots = (totalArea * density / areaPerDot).toInt().coerceAtLeast(1)
+        
+        for (i in 0 until numDots) {
+            val x = rng.nextFloat() * size
+            val y = rng.nextFloat() * size
+            canvas.drawCircle(x, y, r, paint)
+            canvas.drawCircle(x + size, y, r, paint)
+            canvas.drawCircle(x - size, y, r, paint)
+            canvas.drawCircle(x, y + size, r, paint)
+            canvas.drawCircle(x, y - size, r, paint)
+            canvas.drawCircle(x + size, y + size, r, paint)
+            canvas.drawCircle(x - size, y - size, r, paint)
+            canvas.drawCircle(x + size, y - size, r, paint)
+            canvas.drawCircle(x - size, y + size, r, paint)
+        }
+        return bmp
+    }
+
+    private fun createScratchesTile(spacing: Float, thickness: Float, primaryColor: Int, secondaryColor: Int): Bitmap {
+        val size = spacing.toInt()
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        canvas.drawColor(secondaryColor)
+        
+        val paint = Paint().apply {
+            color = primaryColor
+            style = Paint.Style.STROKE
+            strokeWidth = thickness
+            isAntiAlias = true
+        }
+        
+        val seed = primaryColor.toLong() xor secondaryColor.toLong() xor spacing.toBits().toLong() xor thickness.toBits().toLong()
+        val rng = java.util.Random(seed)
+        
+        val numScratches = (size / 10).coerceAtLeast(2)
+        for (i in 0 until numScratches) {
+            val startX = rng.nextFloat() * size
+            val startY = rng.nextFloat() * size
+            val length = rng.nextFloat() * size * 0.8f + size * 0.2f
+            val angle = rng.nextFloat() * Math.PI.toFloat() * 2f
+            val endX = startX + Math.cos(angle.toDouble()).toFloat() * length
+            val endY = startY + Math.sin(angle.toDouble()).toFloat() * length
+            
+            for (dx in -1..1) {
+                for (dy in -1..1) {
+                    canvas.drawLine(startX + dx * size, startY + dy * size, endX + dx * size, endY + dy * size, paint)
+                }
+            }
+        }
         return bmp
     }
 

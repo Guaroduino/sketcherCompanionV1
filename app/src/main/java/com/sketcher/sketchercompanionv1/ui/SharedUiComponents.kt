@@ -32,10 +32,23 @@ fun SettingSlider(
     showValueOnRight: Boolean = false,
     valueFormatter: (Float) -> String = { "${(it * 100).toInt()}%" },
     layoutHorizontal: Boolean = false,
-    onValueChangeFinished: (() -> Unit)? = null
+    onValueChangeFinished: (() -> Unit)? = null,
+    exponent: Float = 1f
 ) {
     val scaler = LocalUiScaler.current
     val scaleFactor = scaler.scaleFactor
+
+    val min = valueRange.start
+    val max = valueRange.endInclusive
+    val clampedValue = value.coerceIn(min, max)
+    val linearProgress = if (max > min) (clampedValue - min) / (max - min) else 0f
+    val internalValue = if (exponent != 1f && linearProgress > 0f) Math.pow(linearProgress.toDouble(), 1.0 / exponent.toDouble()).toFloat() else linearProgress
+
+    val internalOnValueChange: (Float) -> Unit = { newInternal ->
+        val actualProgress = if (exponent != 1f && newInternal > 0f) Math.pow(newInternal.toDouble(), exponent.toDouble()).toFloat() else newInternal
+        val actualVal = min + actualProgress * (max - min)
+        onValueChange(actualVal)
+    }
 
     val scaledLabelStyle = if (labelStyle.fontSize.isSp) {
         labelStyle.copy(fontSize = (labelStyle.fontSize.value * scaleFactor).sp)
@@ -50,9 +63,9 @@ fun SettingSlider(
             horizontalArrangement = Arrangement.spacedBy(12.dp * scaleFactor)
         ) {
             Slider(
-                value = value,
-                onValueChange = onValueChange,
-                valueRange = valueRange,
+                value = internalValue,
+                onValueChange = internalOnValueChange,
+                valueRange = 0f..1f,
                 steps = steps,
                 colors = sliderColors,
                 onValueChangeFinished = onValueChangeFinished,
@@ -88,9 +101,9 @@ fun SettingSlider(
                 }
             }
             Slider(
-                value = value,
-                onValueChange = onValueChange,
-                valueRange = valueRange,
+                value = internalValue,
+                onValueChange = internalOnValueChange,
+                valueRange = 0f..1f,
                 steps = steps,
                 colors = sliderColors,
                 onValueChangeFinished = onValueChangeFinished,

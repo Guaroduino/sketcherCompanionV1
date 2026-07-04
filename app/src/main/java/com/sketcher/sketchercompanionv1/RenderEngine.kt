@@ -390,7 +390,12 @@ class RenderEngine {
              if (!visible) continue
              
              // Setup Layer Paint/Alpha
-             val saveCount = canvas.save()
+             val saveCount = if (layer.opacity < 1f) {
+                 val alphaInt = (layer.opacity * 255).toInt().coerceIn(0, 255)
+                 canvas.saveLayerAlpha(null, alphaInt)
+             } else {
+                 canvas.save()
+             }
              canvas.concat(viewMatrix)
              
              for (element in layer.elements) {
@@ -415,7 +420,7 @@ class RenderEngine {
                       1.0f
                   }
 
-                  drawElementRecursive(canvas, element, componentLibrary, viewMatrix, layer.opacity * alphaMultiplier)
+                  drawElementRecursive(canvas, element, componentLibrary, viewMatrix, alphaMultiplier)
              }
              
              canvas.restoreToCount(saveCount)
@@ -489,10 +494,7 @@ class RenderEngine {
             val isMeshBrush = stroke.brushType == "FREEHAND" || stroke.brushType == "PEN" || stroke.brushType == "PLUMA" || stroke.brushType == "PENCIL_CUMULATIVE"
             if (isMeshBrush) {
                 vectorPaint.style = Paint.Style.FILL
-                val origColor = stroke.strokeColor
-                val origAlpha = Color.alpha(origColor)
-                val newAlpha = (origAlpha * alphaMultiplier).toInt().coerceIn(0, 255)
-                vectorPaint.color = (origColor and 0x00FFFFFF) or (newAlpha shl 24)
+                applyFillStyle(vectorPaint, stroke.strokeStyle, alphaMultiplier)
                 canvas.drawPath(stroke.path, vectorPaint)
                 if (stroke.paths.isNotEmpty()) {
                     for (p in stroke.paths) {
@@ -501,15 +503,11 @@ class RenderEngine {
                 }
             } else if (stroke.brushType == "PAINT") {
                 vectorPaint.style = Paint.Style.STROKE
-                val origColor = stroke.strokeColor
-                val origAlpha = Color.alpha(origColor)
-                val newAlpha = (origAlpha * alphaMultiplier).toInt().coerceIn(0, 255)
-                vectorPaint.color = (origColor and 0x00FFFFFF) or (newAlpha shl 24)
+                applyFillStyle(vectorPaint, stroke.strokeStyle, alphaMultiplier)
                 vectorPaint.strokeWidth = stroke.paintOutlineWidth
                 vectorPaint.pathEffect = null
                 canvas.drawPath(stroke.path, vectorPaint)
             } else if (stroke.brushType == "WATERCOLOR") {
-                val origColor = stroke.strokeColor
                 val baseAlpha = (255 * alphaMultiplier).toInt().coerceIn(0, 255)
 
                 val strokeSeed = stroke.hashCode().toLong()
@@ -517,8 +515,7 @@ class RenderEngine {
 
                 // --- PASADA 1: CUERPO DIFUMINADO (CON CLIPPING) ---
                 vectorPaint.style = Paint.Style.STROKE
-                val bodyAlpha = (255f * stroke.watercolorCenterOpacity * alphaMultiplier).toInt().coerceIn(0, 255)
-                vectorPaint.color = (origColor and 0x00FFFFFF) or (bodyAlpha shl 24)
+                applyFillStyle(vectorPaint, stroke.strokeStyle, alphaMultiplier * stroke.watercolorCenterOpacity)
                 vectorPaint.strokeWidth = stroke.paintOutlineWidth
                 
                 vectorPaint.pathEffect = null
@@ -543,10 +540,7 @@ class RenderEngine {
             } else {
                 // For others, it's a line
                 vectorPaint.style = Paint.Style.STROKE
-                val origColor = stroke.strokeColor
-                val origAlpha = Color.alpha(origColor)
-                val newAlpha = (origAlpha * alphaMultiplier).toInt().coerceIn(0, 255)
-                vectorPaint.color = (origColor and 0x00FFFFFF) or (newAlpha shl 24)
+                applyFillStyle(vectorPaint, stroke.strokeStyle, alphaMultiplier)
                 
                 var width = if (stroke.maxWidth > 0) stroke.maxWidth else 0f
                 if (stroke.isScreenSpaceWidth) {
@@ -693,24 +687,41 @@ class RenderEngine {
         isStrokeActive: Boolean = true, 
         isFillActive: Boolean = false, 
         strokeType: StrokeType = StrokeType.FREEHAND,
-        brushType: String = "FREEHAND"
+        brushType: String = "FREEHAND",
+        fillStyle: FillStyle? = null,
+        strokeStyle: FillStyle? = null
     ) {
         if (brushType == "PAINT" || brushType == "WATERCOLOR") {
             if (isFillActive) {
-                vectorPaint.color = fillColor
                 vectorPaint.style = Paint.Style.FILL
+                if (fillStyle != null) {
+                    applyFillStyle(vectorPaint, fillStyle)
+                } else {
+                    vectorPaint.color = fillColor
+                    vectorPaint.shader = null
+                }
                 canvas.drawPath(committedPath, vectorPaint)
             }
             if (isStrokeActive) {
-                vectorPaint.color = strokeColor
                 vectorPaint.style = Paint.Style.STROKE
                 vectorPaint.strokeWidth = 2f
                 vectorPaint.pathEffect = null
+                if (strokeStyle != null) {
+                    applyFillStyle(vectorPaint, strokeStyle)
+                } else {
+                    vectorPaint.color = strokeColor
+                    vectorPaint.shader = null
+                }
                 canvas.drawPath(committedPath, vectorPaint)
             }
         } else {
-            vectorPaint.color = strokeColor
             vectorPaint.style = Paint.Style.FILL
+            if (strokeStyle != null) {
+                applyFillStyle(vectorPaint, strokeStyle)
+            } else {
+                vectorPaint.color = strokeColor
+                vectorPaint.shader = null
+            }
             canvas.drawPath(committedPath, vectorPaint)
         }
     }
@@ -731,6 +742,7 @@ class RenderEngine {
         lineStyle: String = "SOLID",
         strokeType: StrokeType = StrokeType.FREEHAND,
         fillStyle: FillStyle? = null,
+        strokeStyle: FillStyle? = null,
         brushType: String = "FREEHAND"
     ) {
          if (!isDrawing) return
@@ -753,7 +765,12 @@ class RenderEngine {
              if (isStrokeActive && previewPath != null) {
                  vectorPaint.style = Paint.Style.STROKE
                  vectorPaint.strokeWidth = 2f
-                 vectorPaint.color = previewColor
+                 if (strokeStyle != null) {
+                     applyFillStyle(vectorPaint, strokeStyle)
+                 } else {
+                     vectorPaint.shader = null
+                     vectorPaint.color = previewColor
+                 }
                  vectorPaint.pathEffect = null
                  canvas.drawPath(previewPath, vectorPaint)
              }
@@ -773,7 +790,12 @@ class RenderEngine {
         
              // Pass 2: STROKE
              if (isStrokeActive && previewPath != null) {
-                 vectorPaint.color = previewColor
+                 if (strokeStyle != null) {
+                     applyFillStyle(vectorPaint, strokeStyle)
+                 } else {
+                     vectorPaint.shader = null
+                     vectorPaint.color = previewColor
+                 }
                  val width = if (isCad || previewPoints == null) currentLiveGeneratedRadius * 2 else 0f
                  val isBrushMesh = brushType == "FREEHAND" || brushType == "PEN" || brushType == "PLUMA" || brushType == "PENCIL_CUMULATIVE"
                  

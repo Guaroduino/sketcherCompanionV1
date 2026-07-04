@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.*
 
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.ScrollState
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawWithContent
@@ -744,18 +745,12 @@ fun SolidColorSelector(
 
     var value by remember { mutableFloatStateOf(1f) }
 
-    LaunchedEffect(initialColor) {
-
+    LaunchedEffect(Unit) {
         val hsv = FloatArray(3)
-
         AndroidColor.colorToHSV(initialColor, hsv)
-
         hue = hsv[0]
-
         saturation = hsv[1]
-
         value = hsv[2]
-
     }
 
     val currentColor = remember(hue, saturation, value) {
@@ -776,20 +771,6 @@ fun SolidColorSelector(
         verticalArrangement = Arrangement.spacedBy(8.sdp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-
-        Box(
-
-            modifier = Modifier
-
-                .size(45.sdp)
-
-                .clip(CircleShape)
-
-                .background(currentColor)
-
-                .border(2.sdp, Color.Gray, CircleShape)
-
-        )
 
         ColorWheel(
             hue = hue,
@@ -932,9 +913,8 @@ fun SvgPatternPanel(
 
         Text("Transformations", fontSize = 11.ssp)
 
-        SliderRow(label = "Scale X", value = scaleX, range = 0.2f..5.0f, theme = theme, onValueChange = onScaleXChanged)
-
-        SliderRow(label = "Scale Y", value = scaleY, range = 0.2f..5.0f, theme = theme, onValueChange = onScaleYChanged)
+        SliderRow(label = "Scale X", value = scaleX, range = 0.2f..5.0f, theme = theme, exponent = 2f, onValueChange = onScaleXChanged)
+        SliderRow(label = "Scale Y", value = scaleY, range = 0.2f..5.0f, theme = theme, exponent = 2f, onValueChange = onScaleYChanged)
 
         SliderRow(label = "Rotation", value = rotation, range = 0f..360f, theme = theme, onValueChange = onRotationChanged)
 
@@ -979,7 +959,7 @@ fun MathTexturePanel(
 
     var expanded by remember { mutableStateOf(false) }
 
-    val patterns = listOf("GRID", "CHECKERBOARD", "STRIPES", "DOTS")
+    val patterns = listOf("GRID", "CHECKERBOARD", "STRIPES", "DOTS", "NOISE", "SCRATCHES")
 
     val scrollState = rememberScrollState()
     Column(
@@ -988,7 +968,7 @@ fun MathTexturePanel(
     ) {
 
                 Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.sdp)
         ) {
             patterns.forEach { pattern ->
@@ -1051,6 +1031,21 @@ fun MathTexturePanel(
                                     drawCircle(primary, radius = 2.5.dp.toPx(), center = Offset(size.width / 4f, 3 * size.height / 4f))
                                     drawCircle(primary, radius = 2.5.dp.toPx(), center = Offset(3 * size.width / 4f, 3 * size.height / 4f))
                                     drawCircle(primary, radius = 2.5.dp.toPx(), center = Offset(size.width / 2f, size.height / 2f))
+                                }
+                                "NOISE" -> {
+                                    drawCircle(primary, radius = 1.dp.toPx(), center = Offset(size.width * 0.2f, size.height * 0.3f))
+                                    drawCircle(primary, radius = 1.5.dp.toPx(), center = Offset(size.width * 0.7f, size.height * 0.2f))
+                                    drawCircle(primary, radius = 1.dp.toPx(), center = Offset(size.width * 0.4f, size.height * 0.8f))
+                                    drawCircle(primary, radius = 2.dp.toPx(), center = Offset(size.width * 0.8f, size.height * 0.7f))
+                                    drawCircle(primary, radius = 0.5.dp.toPx(), center = Offset(size.width * 0.1f, size.height * 0.9f))
+                                    drawCircle(primary, radius = 1.dp.toPx(), center = Offset(size.width * 0.5f, size.height * 0.5f))
+                                }
+                                "SCRATCHES" -> {
+                                    val strokeWidth = 1.dp.toPx()
+                                    drawLine(primary, start = Offset(size.width * 0.1f, size.height * 0.2f), end = Offset(size.width * 0.4f, size.height * 0.4f), strokeWidth = strokeWidth)
+                                    drawLine(primary, start = Offset(size.width * 0.6f, size.height * 0.1f), end = Offset(size.width * 0.9f, size.height * 0.3f), strokeWidth = strokeWidth)
+                                    drawLine(primary, start = Offset(size.width * 0.2f, size.height * 0.7f), end = Offset(size.width * 0.5f, size.height * 0.9f), strokeWidth = strokeWidth)
+                                    drawLine(primary, start = Offset(size.width * 0.8f, size.height * 0.6f), end = Offset(size.width * 0.6f, size.height * 0.9f), strokeWidth = strokeWidth)
                                 }
                             }
                         }
@@ -1150,9 +1145,8 @@ fun MathTexturePanel(
 
         HorizontalDivider()
 
-        SliderRow(label = "Spacing", value = spacing, range = 8f..150f, theme = theme, onValueChange = onSpacingChanged)
-
-        SliderRow(label = "Thickness", value = thickness, range = 1f..spacing / 2f, theme = theme, onValueChange = onThicknessChanged)
+        SliderRow(label = "Spacing", value = spacing, range = 8f..150f, theme = theme, exponent = 2f, onValueChange = onSpacingChanged)
+        SliderRow(label = "Thickness", value = thickness, range = 1f..spacing / 2f, theme = theme, exponent = 2f, onValueChange = onThicknessChanged)
 
         SliderRow(label = "Angle", value = angle, range = 0f..360f, theme = theme, onValueChange = onAngleChanged)
 
@@ -1259,8 +1253,8 @@ fun ImageTexturePanel(
 
         HorizontalDivider()
         Text("Image Transformations", fontSize = 11.ssp)
-        SliderRow(label = "Scale X", value = scaleX, range = 0.1f..4.0f, theme = theme, onValueChange = onScaleXChanged)
-        SliderRow(label = "Scale Y", value = scaleY, range = 0.1f..4.0f, theme = theme, onValueChange = onScaleYChanged)
+        SliderRow(label = "Scale X", value = scaleX, range = 0.1f..4.0f, theme = theme, exponent = 2f, onValueChange = onScaleXChanged)
+        SliderRow(label = "Scale Y", value = scaleY, range = 0.1f..4.0f, theme = theme, exponent = 2f, onValueChange = onScaleYChanged)
         SliderRow(label = "Rotation", value = rotation, range = 0f..360f, theme = theme, onValueChange = onRotationChanged)
         SliderRow(label = "Offset X", value = offsetX, range = -200f..200f, theme = theme, onValueChange = onOffsetXChanged)
         SliderRow(label = "Offset Y", value = offsetY, range = -200f..200f, theme = theme, onValueChange = onOffsetYChanged)
@@ -1273,8 +1267,21 @@ fun SliderRow(
     value: Float,
     range: ClosedFloatingPointRange<Float>,
     theme: com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig,
+    exponent: Float = 1f,
     onValueChange: (Float) -> Unit
 ) {
+    val min = range.start
+    val max = range.endInclusive
+    val clampedValue = value.coerceIn(min, max)
+    val linearProgress = if (max > min) (clampedValue - min) / (max - min) else 0f
+    val internalValue = if (exponent != 1f && linearProgress > 0f) Math.pow(linearProgress.toDouble(), 1.0 / exponent.toDouble()).toFloat() else linearProgress
+
+    val internalOnValueChange: (Float) -> Unit = { newInternal ->
+        val actualProgress = if (exponent != 1f && newInternal > 0f) Math.pow(newInternal.toDouble(), exponent.toDouble()).toFloat() else newInternal
+        val actualVal = min + actualProgress * (max - min)
+        onValueChange(actualVal)
+    }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.sdp),
@@ -1287,9 +1294,9 @@ fun SliderRow(
             color = theme.iconColor
         )
         Slider(
-            value = value,
-            valueRange = range,
-            onValueChange = onValueChange,
+            value = internalValue,
+            valueRange = 0f..1f,
+            onValueChange = internalOnValueChange,
             modifier = Modifier.weight(1f).height(24.sdp),
             colors = SliderDefaults.colors(
                 thumbColor = theme.buttonColor,

@@ -53,7 +53,8 @@ import kotlinx.coroutines.withContext
 enum class EditMode {
     CHROMA_KEY,
     CROP_RECT,
-    CROP_FREEHAND
+    CROP_FREEHAND,
+    CALIBRATE_SCALE
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -62,7 +63,7 @@ fun ImageEditDialog(
     state: ImageEditState,
     theme: UiThemeConfig,
     onDismiss: () -> Unit,
-    onConfirm: (Bitmap, List<Int>, Float, RectF?, List<PointF>?, List<Float>, Float, Boolean, Boolean) -> Unit
+    onConfirm: (Bitmap, List<Int>, Float, RectF?, List<PointF>?, List<Float>, Float, Boolean, Boolean, Float) -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
     val scaler = LocalUiScaler.current
@@ -96,6 +97,12 @@ fun ImageEditDialog(
     
     // Live processed bitmap preview
     var processedBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    
+    // Calibration states
+    var calibrationPoint1 by remember { mutableStateOf<Offset?>(null) }
+    var calibrationPoint2 by remember { mutableStateOf<Offset?>(null) }
+    var calibrationScaleFactor by remember { mutableFloatStateOf(1.0f) }
+    var showCalibrationDialog by remember { mutableStateOf(false) }
     
     // Process image in the background when parameters change
     LaunchedEffect(transparentColors, transparentColorTolerances, cropRect, cropPath, rotation, flipHorizontal, flipVertical) {
@@ -316,6 +323,26 @@ fun ImageEditDialog(
                             iconColor = theme.iconColor.copy(alpha = 0.7f)
                         )
                     )
+                    FilterChip(
+                        selected = currentMode == EditMode.CALIBRATE_SCALE,
+                        onClick = { currentMode = EditMode.CALIBRATE_SCALE },
+                        label = { Text("Calibrar Escala", fontSize = (12 * scaler.scaleFactor).sp) },
+                        leadingIcon = { 
+                            Icon(
+                                Icons.Default.AspectRatio, 
+                                contentDescription = null,
+                                modifier = Modifier.size(scaler.smallIconSize)
+                            ) 
+                        },
+                        modifier = Modifier.height(scaler.baseButtonSize),
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = theme.highlightColor.copy(alpha = 0.3f),
+                            selectedLabelColor = theme.iconColor,
+                            selectedLeadingIconColor = theme.iconColor,
+                            labelColor = theme.iconColor.copy(alpha = 0.7f),
+                            iconColor = theme.iconColor.copy(alpha = 0.7f)
+                        )
+                    )
                 }
                 
                 Spacer(modifier = Modifier.height((12 * scaler.scaleFactor).dp))
@@ -367,6 +394,18 @@ fun ImageEditDialog(
                                             }
                                         } catch (e: Exception) {
                                             e.printStackTrace()
+                                        }
+                                    }
+                                } else if (currentMode == EditMode.CALIBRATE_SCALE) {
+                                    val coords = mapScreenToBitmap(offset.x, offset.y)
+                                    if (coords != null) {
+                                        val pt = Offset(coords.first.toFloat(), coords.second.toFloat())
+                                        if (calibrationPoint1 == null || calibrationPoint2 != null) {
+                                            calibrationPoint1 = pt
+                                            calibrationPoint2 = null
+                                        } else {
+                                            calibrationPoint2 = pt
+                                            showCalibrationDialog = true
                                         }
                                     }
                                 }
@@ -493,6 +532,18 @@ fun ImageEditDialog(
                                     color = Color.Red,
                                     style = Stroke(width = 4f)
                                 )
+                            }
+                        } else if (currentMode == EditMode.CALIBRATE_SCALE) {
+                            val p1 = calibrationPoint1
+                            val p2 = calibrationPoint2
+                            if (p1 != null) {
+                                val s1 = mapBitmapToScreen(p1.x, p1.y)
+                                drawCircle(color = Color.Blue, radius = 8f, center = s1)
+                                if (p2 != null) {
+                                    val s2 = mapBitmapToScreen(p2.x, p2.y)
+                                    drawCircle(color = Color.Blue, radius = 8f, center = s2)
+                                    drawLine(color = Color.Blue, start = s1, end = s2, strokeWidth = 4f)
+                                }
                             }
                         }
                     }
@@ -674,7 +725,8 @@ fun ImageEditDialog(
                                     transparentColorTolerances,
                                     rotation,
                                     flipHorizontal,
-                                    flipVertical
+                                    flipVertical,
+                                    calibrationScaleFactor
                                 )
                             } else {
                                 onDismiss()
@@ -687,6 +739,78 @@ fun ImageEditDialog(
                         )
                     ) {
                         Text("Confirmar", fontSize = (13 * scaler.scaleFactor).sp)
+                    }
+                }
+            }
+        }
+    }
+
+    if (showCalibrationDialog) {
+        var realDistanceStr by remember { mutableStateOf("") }
+        Dialog(onDismissRequest = {
+            showCalibrationDialog = false
+            calibrationPoint1 = null
+            calibrationPoint2 = null
+        }) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = theme.barBackgroundColor),
+                modifier = Modifier.fillMaxWidth().padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(24.dp)
+                ) {
+                    Text(
+                        text = "Calibrar Distancia",
+                        fontSize = 18.sp,
+                        color = theme.iconColor,
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = realDistanceStr,
+                        onValueChange = { realDistanceStr = it },
+                        label = { Text("Distancia real en el proyecto", color = theme.iconColor.copy(alpha = 0.5f)) },
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = theme.iconColor,
+                            unfocusedTextColor = theme.iconColor,
+                            focusedBorderColor = theme.highlightColor,
+                            unfocusedBorderColor = theme.iconColor.copy(alpha = 0.5f)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = {
+                            showCalibrationDialog = false
+                            calibrationPoint1 = null
+                            calibrationPoint2 = null
+                        }) {
+                            Text("Cancelar", color = theme.iconColor)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                val realDistance = realDistanceStr.toFloatOrNull()
+                                if (realDistance != null && realDistance > 0 && calibrationPoint1 != null && calibrationPoint2 != null) {
+                                    val dx = calibrationPoint2!!.x - calibrationPoint1!!.x
+                                    val dy = calibrationPoint2!!.y - calibrationPoint1!!.y
+                                    val pixelDistance = kotlin.math.sqrt(dx * dx + dy * dy)
+                                    // Scale factor = (real distance / pixel distance) * (magic factor depending on how ImageElement translates pixels to units)
+                                    // Normally, an image pixel maps 1:1 to canvas pixel, so scale factor is how much we should scale it.
+                                    // For now, let's assume we just want to apply a raw scale. The user wants the image to be the correct size when inserted.
+                                    calibrationScaleFactor = (realDistance * 100f) / pixelDistance // Let's just pass this relative scale and handle it in ViewModel
+                                    showCalibrationDialog = false
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = theme.highlightColor)
+                        ) {
+                            Text("Aplicar", color = Color.White)
+                        }
                     }
                 }
             }

@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import com.google.gson.Gson
+import com.sketcher.sketchercompanionv1.dto.ProjectJson
 import com.sketcher.sketchercompanionv1.Layer
 import com.sketcher.sketchercompanionv1.ImageElement
 import com.sketcher.sketchercompanionv1.ComponentDefinition
@@ -266,6 +267,30 @@ object ZipStorageManager {
             e.printStackTrace()
         }
         return null
+    }
+
+    fun loadGlobalScaleRatio(file: java.io.File): Float {
+        try {
+            if (!file.exists()) return 1.0f
+            java.io.FileInputStream(file).use { fileIn ->
+                ZipInputStream(java.io.BufferedInputStream(fileIn)).use { zipIn ->
+                    var entry: ZipEntry? = zipIn.nextEntry
+                    while (entry != null) {
+                        if (entry.name == "project.json") {
+                            val reader = java.io.InputStreamReader(zipIn, Charsets.UTF_8)
+                            val gson = Gson()
+                            val projectJson = gson.fromJson(reader, ProjectJson::class.java)
+                            return projectJson.scaleConfig?.globalScaleRatio ?: 1.0f
+                        }
+                        zipIn.closeEntry()
+                        entry = zipIn.nextEntry
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return 1.0f
     }
 }
 

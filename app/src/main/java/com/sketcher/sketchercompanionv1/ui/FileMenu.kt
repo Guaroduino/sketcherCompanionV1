@@ -321,6 +321,43 @@ fun SaveTemplateDialog(
 }
 
 @Composable
+fun SaveProjectDialog(
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit
+) {
+    var text by remember { mutableStateOf("") }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Guardar Proyecto") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("Nombre del proyecto") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { if (text.isNotBlank()) onSave(text) },
+                enabled = text.isNotBlank()
+            ) {
+                Text(stringResource(R.string.action_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_cancel))
+            }
+        }
+    )
+}
+
+@Composable
 fun LoadTemplateDialog(
     onDismiss: () -> Unit,
     onTemplateSelected: (File) -> Unit

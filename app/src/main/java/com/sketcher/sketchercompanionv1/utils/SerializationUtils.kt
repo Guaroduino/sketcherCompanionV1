@@ -34,7 +34,8 @@ fun Layer.toLayerJson(): LayerJson {
         isVisible = this.isVisible,
         opacity = this.opacity,
         elements = elementsJson,
-        isVisibleOnClient = this.isVisibleOnClient
+        isVisibleOnClient = this.isVisibleOnClient,
+        isLocked = this.isLocked
     )
 }
 
@@ -192,7 +193,8 @@ fun LayerElementJson.toLayerElement(
 fun ComponentDefinition.toComponentDefinitionJson(): ComponentDefinitionJson {
     return ComponentDefinitionJson(
         id = this.id,
-        elements = this.elements.map { it.toLayerElementJson() }
+        elements = this.elements.map { it.toLayerElementJson() },
+        creationScale = this.creationScale
     )
 }
 
@@ -202,7 +204,8 @@ fun ComponentDefinitionJson.toComponentDefinition(
 ): ComponentDefinition {
     return ComponentDefinition(
         id = this.id,
-        elements = this.elements.map { it.toLayerElement(bitmapLoader, svgLoader) }.toMutableList()
+        elements = this.elements.map { it.toLayerElement(bitmapLoader, svgLoader) }.toMutableList(),
+        creationScale = this.creationScale
     )
 }
 
@@ -226,6 +229,7 @@ fun VectorStroke.toVectorStrokeJson(): VectorStrokeJson {
         isScreenSpaceWidth = this.isScreenSpaceWidth,
         paintOutlineWidth = this.paintOutlineWidth,
         fillStyle = this.fillStyle.toFillStyleJson(),
+        strokeStyle = this.strokeStyle.toFillStyleJson(),
         watercolorJitterSegment = this.watercolorJitterSegment,
         watercolorJitterDeviation = this.watercolorJitterDeviation,
         watercolorBlurRadius = this.watercolorBlurRadius,
@@ -233,7 +237,9 @@ fun VectorStroke.toVectorStrokeJson(): VectorStrokeJson {
         watercolorCenterOpacity = this.watercolorCenterOpacity,
         watercolorEdgeRingOpacity = this.watercolorEdgeRingOpacity,
         watercolorEdgeRingWidth = this.watercolorEdgeRingWidth,
-        freehandSettings = this.freehandSettings
+        freehandSettings = this.freehandSettings,
+        exactSvgPath = ExactPathSerializer.pathToString(this.path),
+        exactFillSvgPath = this.fillPath?.let { ExactPathSerializer.pathToString(it) }
     )
 }
 
@@ -251,6 +257,7 @@ fun LayerJson.toLayer(
         elements = customElements,
         isVisible = this.isVisible,
         opacity = this.opacity,
+        isLocked = this.isLocked ?: false,
         isVisibleOnClient = this.isVisibleOnClient ?: false
     )
 }
@@ -264,12 +271,15 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         isComplete = true,
         simulatePressure = false // Prevent double pressure simulation on older files
     )
+    val useEvenOdd = this.brushType != "PLUMA"
+    val exactPath = ExactPathSerializer.stringToPath(this.exactSvgPath, useEvenOdd)
+    val exactFillPath = ExactPathSerializer.stringToPath(this.exactFillSvgPath, useEvenOdd)
     
     val strokeTypeVal = this.strokeType ?: StrokeType.FREEHAND
     val isCad = (this.isCadGeometry ?: false) || (strokeTypeVal != StrokeType.FREEHAND)
     val isMeshBrush = (this.brushType == "FREEHAND" || this.brushType == "PEN" || this.brushType == "PLUMA" || this.brushType == "PENCIL_CUMULATIVE") && !(this.isFlattened ?: false)
     
-    val resultPath = if (isCad) {
+    val resultPath = if (exactPath != null) exactPath else if (isCad) {
         val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(strokeTypeVal, pts)
         if (isMeshBrush) {
             val pm = android.graphics.PathMeasure(centerline, false)
@@ -336,7 +346,9 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         }
     }
     
-    val chunkPaths = if (isCumul && strokeTypeVal == StrokeType.FREEHAND && !this.isFlattened) {
+    val chunkPaths = if (exactPath != null) {
+        emptyList()
+    } else if (isCumul && strokeTypeVal == StrokeType.FREEHAND && !this.isFlattened) {
         PerfectFreehandGenerator.generateCumulativeChunks(pts, settings, 1.0f)
     } else {
         emptyList()
@@ -355,7 +367,11 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     val fEnabled = if (isPaintOrWatercolor) true else (this.isFillEnabled ?: false)
 
     var fPath: android.graphics.Path? = null
-    if (fEnabled) {
+
+    
+    if (exactFillPath != null) {
+        fPath = exactFillPath
+    } else if (fEnabled) {
         if (isCad) {
             fPath = if (isPaintOrWatercolor) {
                 android.graphics.Path(resultPath)
@@ -387,6 +403,8 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         this.fillStyle
     }
     
+    val loadedStrokeStyle = this.strokeStyle ?: FillStyleJson(type = "SOLID", color = sColor)
+    
     return VectorStroke(
         points = pts,
         strokeColor = sColor,
@@ -407,6 +425,7 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         isScreenSpaceWidth = this.isScreenSpaceWidth ?: false,
         paintOutlineWidth = this.paintOutlineWidth ?: 2.0f,
         fillStyle = loadedFillStyle.toFillStyle(fColor),
+        strokeStyle = loadedStrokeStyle.toFillStyle(sColor),
         watercolorJitterSegment = this.watercolorJitterSegment ?: 12.0f,
         watercolorJitterDeviation = this.watercolorJitterDeviation ?: 3.5f,
         watercolorBlurRadius = this.watercolorBlurRadius ?: 5.0f,
@@ -467,26 +486,29 @@ fun FillData.toFillDataJson(): FillJson {
     return FillJson(
         color = this.color,
         commands = commands,
-        fillStyle = this.fillStyle.toFillStyleJson()
+        fillStyle = this.fillStyle.toFillStyleJson(),
+        exactSvgPath = ExactPathSerializer.pathToString(this.path)
     )
 }
 
 fun FillJson.toFillData(): FillData {
-    val path = Path()
-    if (this.commands.isNotEmpty()) {
-        val first = this.commands.first()
-        if (first.type == "MOVE" && first.params.size >= 2) {
-            path.moveTo(first.params[0], first.params[1])
-        }
-        
-        for (i in 1 until this.commands.size) {
-            val cmd = this.commands[i]
-            when (cmd.type) {
-                "MOVE" -> if (cmd.params.size >= 2) path.moveTo(cmd.params[0], cmd.params[1])
-                "LINE" -> if (cmd.params.size >= 2) path.lineTo(cmd.params[0], cmd.params[1])
-                "QUAD" -> if (cmd.params.size >= 4) path.quadTo(cmd.params[0], cmd.params[1], cmd.params[2], cmd.params[3])
-                "CUBIC" -> if (cmd.params.size >= 6) path.cubicTo(cmd.params[0], cmd.params[1], cmd.params[2], cmd.params[3], cmd.params[4], cmd.params[5])
-                "CLOSE" -> path.close()
+    val exactPath = ExactPathSerializer.stringToPath(this.exactSvgPath)
+    val path = exactPath ?: Path().apply {
+        if (this@toFillData.commands.isNotEmpty()) {
+            val first = this@toFillData.commands.first()
+            if (first.type == "MOVE" && first.params.size >= 2) {
+                moveTo(first.params[0], first.params[1])
+            }
+            
+            for (i in 1 until this@toFillData.commands.size) {
+                val cmd = this@toFillData.commands[i]
+                when (cmd.type) {
+                    "MOVE" -> if (cmd.params.size >= 2) moveTo(cmd.params[0], cmd.params[1])
+                    "LINE" -> if (cmd.params.size >= 2) lineTo(cmd.params[0], cmd.params[1])
+                    "QUAD" -> if (cmd.params.size >= 4) quadTo(cmd.params[0], cmd.params[1], cmd.params[2], cmd.params[3])
+                    "CUBIC" -> if (cmd.params.size >= 6) cubicTo(cmd.params[0], cmd.params[1], cmd.params[2], cmd.params[3], cmd.params[4], cmd.params[5])
+                    "CLOSE" -> close()
+                }
             }
         }
     }

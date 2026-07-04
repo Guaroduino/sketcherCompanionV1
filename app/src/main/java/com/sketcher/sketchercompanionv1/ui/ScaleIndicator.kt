@@ -83,8 +83,18 @@ fun ScaleIndicator(
         // Row 2: Visual Bar
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
              // Label centered above bar
+             val scaledUnits = niceUnits * scaleConfig.globalScaleRatio
+             val niceUnitsStr = "%.2f".format(niceUnits).removeSuffix("0").removeSuffix("0").removeSuffix(".")
+             val scaledUnitsStr = "%.2f".format(scaledUnits).removeSuffix("0").removeSuffix("0").removeSuffix(".")
+             
+             val textToDisplay = if (scaleConfig.globalScaleRatio == 1.0f) {
+                 "$niceUnitsStr ${currentUnit.symbol}"
+             } else {
+                 "$niceUnitsStr ${currentUnit.symbol} (real) / $scaledUnitsStr ${currentUnit.symbol} (esc)"
+             }
+             
              Text(
-                text = "${"%.2f".format(niceUnits).removeSuffix("0").removeSuffix("0").removeSuffix(".")} ${currentUnit.symbol}",
+                text = textToDisplay,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.Black, // Dark text for visibility

@@ -175,7 +175,8 @@ fun ToolPropertiesPanel(
                                     label = "Dispersión del borde (Jitter): ${String.format("%.1f px", jitterDev)}",
                                     value = jitterDev,
                                     onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorJitterDeviation = it)) },
-                                    valueRange = 0f..15f
+                                    valueRange = 0f..15f,
+                                    exponent = 2f
                                 )
                                 
                                 // Jitter Segment Slider
@@ -184,7 +185,8 @@ fun ToolPropertiesPanel(
                                     label = "Frecuencia del borde: ${String.format("%.1f px", jitterSeg)}",
                                     value = jitterSeg,
                                     onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorJitterSegment = it)) },
-                                    valueRange = 3f..50f
+                                    valueRange = 3f..50f,
+                                    exponent = 2f
                                 )
                                 
                                 // Blur Radius Slider
@@ -193,7 +195,8 @@ fun ToolPropertiesPanel(
                                     label = "Difuminado (Blur): ${String.format("%.1f px", blurRad)}",
                                     value = blurRad,
                                     onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorBlurRadius = it)) },
-                                    valueRange = 0f..25f
+                                    valueRange = 0f..25f,
+                                    exponent = 2f
                                 )
 
                                 // Center Opacity Slider
@@ -220,7 +223,8 @@ fun ToolPropertiesPanel(
                                     label = "Grosor de Anillo (Ring Width): ${String.format("%.1f px", ringWidth)}",
                                     value = ringWidth,
                                     onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorEdgeRingWidth = it)) },
-                                    valueRange = 0f..20f
+                                    valueRange = 0f..20f,
+                                    exponent = 2f
                                 )
 
                                 // Edge Mode Selector
