@@ -24,6 +24,12 @@ class ToolbarManager(
     private val _toolbarState = MutableStateFlow<Map<ToolLocation, List<StudioTool>>>(emptyMap())
     val toolbarState: StateFlow<Map<ToolLocation, List<StudioTool>>> = _toolbarState.asStateFlow()
 
+    private val _uiPresetsNames = MutableStateFlow<List<String>>(emptyList())
+    val uiPresetsNames: StateFlow<List<String>> = _uiPresetsNames.asStateFlow()
+
+    private val _activeUiPresetName = MutableStateFlow<String>("Default")
+    val activeUiPresetName: StateFlow<String> = _activeUiPresetName.asStateFlow()
+
     private val _contextualToolbar = MutableStateFlow<List<StudioTool>>(emptyList())
     val contextualToolbar: StateFlow<List<StudioTool>> = _contextualToolbar.asStateFlow()
 
@@ -36,7 +42,11 @@ class ToolbarManager(
     private val _assignedToolColors = MutableStateFlow<Map<String, Int>>(emptyMap())
     val assignedToolColors: StateFlow<Map<String, Int>> = _assignedToolColors.asStateFlow()
 
+    private val _assignedToolStabilization = MutableStateFlow<Map<String, Float>>(emptyMap())
+    val assignedToolStabilization = _assignedToolStabilization.asStateFlow()
+
     var lastActiveColorToolId: String? = null
+    var lastActiveStabilizationToolId: String? = null
 
     fun toggleEditMode() {
         _isEditMode.value = !_isEditMode.value
@@ -49,13 +59,44 @@ class ToolbarManager(
         }
     }
 
+    fun updateLastActiveToolStabilization(stabilization: Float) {
+        lastActiveStabilizationToolId?.let { id ->
+            _assignedToolStabilization.value = _assignedToolStabilization.value + (id to stabilization)
+            saveLayout()
+        }
+    }
+
     fun initLayout() {
-        val loaded = toolbarRepository.loadLayout()
-        val layoutResetV8 = prefs.getInt("layout_reset_v8", 0)
+        _uiPresetsNames.value = toolbarRepository.getUiPresetsNames()
+        _activeUiPresetName.value = toolbarRepository.getActiveUiPresetName()
         
-        if (loaded != null && layoutResetV8 >= 1) {
+        if (_uiPresetsNames.value.isEmpty()) {
+            _uiPresetsNames.value = listOf("Default")
+            val loaded = toolbarRepository.loadLayout()
+            if (loaded != null) {
+                toolbarRepository.saveUiPreset("Default", loaded)
+            } else {
+                initToolbarState()
+                val currentState = com.sketcher.sketchercompanionv1.data.ToolbarStateResult(
+                    tools = _toolbarState.value,
+                    assignedMap = _assignedTools.value,
+                    toolColors = _assignedToolColors.value,
+                    contextualTools = _contextualToolbar.value,
+                    toolStabilization = _assignedToolStabilization.value
+                )
+                toolbarRepository.saveUiPreset("Default", currentState)
+            }
+            toolbarRepository.setActiveUiPresetName("Default")
+            _activeUiPresetName.value = "Default"
+        }
+
+        val loaded = toolbarRepository.loadLayout()
+        val layoutResetV9 = prefs.getInt("layout_reset_v9", 0)
+        
+        if (loaded != null && layoutResetV9 >= 1) {
             _assignedTools.value = loaded.assignedMap
             _assignedToolColors.value = loaded.toolColors
+            _assignedToolStabilization.value = loaded.toolStabilization
             
             val toolsWithActions = loaded.tools.mapValues { (_, list) ->
                 list.map { tool -> bindToolActions(tool) }
@@ -65,7 +106,7 @@ class ToolbarManager(
         } else {
             initToolbarState()
             saveLayout()
-            prefs.edit().putInt("layout_reset_v8", 1).apply()
+            prefs.edit().putInt("layout_reset_v9", 1).apply()
         }
     }
 
@@ -81,6 +122,7 @@ class ToolbarManager(
         "watercolor" -> ToolPayload.WATERCOLOR
         "pluma" -> ToolPayload.PLUMA
         "pencil_cumulative" -> ToolPayload.PENCIL_CUMULATIVE
+        "quick_stabilization" -> ToolPayload.STABILIZE
         else -> null
     }
 
@@ -91,6 +133,8 @@ class ToolbarManager(
             _assignedToolColors.value = _assignedToolColors.value + (toolId to getDefaultStrokeColor())
         } else if (payload == ToolPayload.FILL_COLOR) {
             _assignedToolColors.value = _assignedToolColors.value + (toolId to getDefaultFillColor())
+        } else if (payload == ToolPayload.STABILIZE) {
+            _assignedToolStabilization.value = _assignedToolStabilization.value + (toolId to 0f)
         }
 
         val updatedToolbar = _toolbarState.value.mapValues { (_, list) ->
@@ -127,11 +171,13 @@ class ToolbarManager(
         val payload = _assignedTools.value[uniqueId]
         
         val iconToUse = payload?.icon ?: tool.icon
+        val iconResToUse = payload?.iconResId ?: tool.iconResId
         val descToUse = payload?.label ?: tool.contentDescription
         val isPlaceholderToUse = if (payload != null) false else tool.isPlaceholder
 
         return tool.copy(
             icon = iconToUse,
+            iconResId = iconResToUse,
             contentDescription = descToUse,
             isPlaceholder = isPlaceholderToUse,
             subTools = boundSubTools,
@@ -565,12 +611,87 @@ class ToolbarManager(
         saveLayout()
     }
 
+    fun saveUiPreset(name: String) {
+        val currentState = com.sketcher.sketchercompanionv1.data.ToolbarStateResult(
+            tools = _toolbarState.value,
+            assignedMap = _assignedTools.value,
+            toolColors = _assignedToolColors.value,
+            contextualTools = _contextualToolbar.value,
+            toolStabilization = _assignedToolStabilization.value
+        )
+        toolbarRepository.saveUiPreset(name, currentState)
+        _uiPresetsNames.value = toolbarRepository.getUiPresetsNames()
+        _activeUiPresetName.value = name
+        toolbarRepository.setActiveUiPresetName(name)
+        saveLayout()
+    }
+
+    fun loadUiPreset(name: String) {
+        val loaded = toolbarRepository.loadUiPreset(name)
+        if (loaded != null) {
+            _assignedTools.value = loaded.assignedMap
+            _assignedToolColors.value = loaded.toolColors
+            _assignedToolStabilization.value = loaded.toolStabilization
+            
+            val toolsWithActions = loaded.tools.mapValues { (_, list) ->
+                list.map { tool -> bindToolActions(tool) }
+            }
+            _toolbarState.value = toolsWithActions
+            _contextualToolbar.value = loaded.contextualTools.map { bindToolActions(it) }
+            
+            _activeUiPresetName.value = name
+            toolbarRepository.setActiveUiPresetName(name)
+            
+            saveLayout()
+        }
+    }
+
+    fun deleteUiPreset(name: String) {
+        if (name == "Default") return
+        toolbarRepository.deleteUiPreset(name)
+        _uiPresetsNames.value = toolbarRepository.getUiPresetsNames()
+        
+        if (_activeUiPresetName.value == name) {
+            loadUiPreset("Default")
+        }
+    }
+
+    fun onProjectUiPresetLoaded(name: String) {
+        val exists = toolbarRepository.getUiPresetsNames().contains(name)
+        if (!exists) {
+            val currentLayout = toolbarRepository.loadLayout()
+            if (currentLayout != null) {
+                toolbarRepository.saveUiPreset(name, currentLayout)
+            }
+        }
+        _uiPresetsNames.value = toolbarRepository.getUiPresetsNames()
+        _activeUiPresetName.value = name
+        toolbarRepository.setActiveUiPresetName(name)
+    }
+
+    fun onProjectUiPresetCleared() {
+        _activeUiPresetName.value = "Default"
+        toolbarRepository.setActiveUiPresetName("Default")
+    }
+
     private fun saveLayout() {
         toolbarRepository.saveLayout(
             _toolbarState.value,
             _assignedTools.value,
             _assignedToolColors.value,
+            _assignedToolStabilization.value,
             _contextualToolbar.value
         )
+        val activeName = _activeUiPresetName.value
+        if (activeName.isNotEmpty()) {
+            val currentState = com.sketcher.sketchercompanionv1.data.ToolbarStateResult(
+                tools = _toolbarState.value,
+                assignedMap = _assignedTools.value,
+                toolColors = _assignedToolColors.value,
+                contextualTools = _contextualToolbar.value,
+                toolStabilization = _assignedToolStabilization.value
+            )
+            toolbarRepository.saveUiPreset(activeName, currentState)
+        }
     }
 }

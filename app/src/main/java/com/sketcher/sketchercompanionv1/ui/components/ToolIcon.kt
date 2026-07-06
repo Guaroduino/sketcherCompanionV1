@@ -82,13 +82,27 @@ fun ToolIcon(
                 modifier = modifier.size(iconSize)
             )
         } else {
-            Icon(
-                imageVector = tool.icon,
-                contentDescription = tool.contentDescription,
-                tint = tint,
-                modifier = modifier.size(iconSize)
-            )
+            RenderFallbackIcon(tool, tint, modifier, iconSize)
         }
+    } else {
+        RenderFallbackIcon(tool, tint, modifier, iconSize)
+    }
+}
+
+@Composable
+private fun RenderFallbackIcon(
+    tool: StudioTool,
+    tint: Color,
+    modifier: Modifier,
+    iconSize: Dp
+) {
+    if (tool.iconResId != null) {
+        Icon(
+            painter = androidx.compose.ui.res.painterResource(id = tool.iconResId),
+            contentDescription = tool.contentDescription,
+            tint = tint,
+            modifier = modifier.size(iconSize)
+        )
     } else {
         Icon(
             imageVector = tool.icon,

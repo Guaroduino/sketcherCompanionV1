@@ -23,5 +23,6 @@ data class ProjectActions(
     val onTemplatesSave: (String) -> Unit,
     val onTemplatesLoad: (File) -> Unit,
     val onSettings: () -> Unit,
-    val onZoomFit: () -> Unit
+    val onZoomFit: () -> Unit,
+    val onRender: () -> Unit
 )

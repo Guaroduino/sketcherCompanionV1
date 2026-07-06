@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.sketcher.sketchercompanionv1.ComponentInstance
 import com.sketcher.sketchercompanionv1.LibraryComponent
 import com.sketcher.sketchercompanionv1.LibraryFolder
@@ -150,6 +151,12 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
             }
             
             Row(horizontalArrangement = Arrangement.spacedBy(4.sdp), verticalAlignment = Alignment.CenterVertically) {
+                if (!viewModel.showDashboard && canAddToLibrary) {
+                    OutlinerActionButton(Icons.Default.Add, "Añadir a Librería", theme.iconColor, backgroundColor = theme.buttonColor) {
+                        viewModel.addToGlobalLibrary(context, "Nuevo Componente", currentFolderId)
+                    }
+                }
+
                 AppIconButton(
                     onClick = { isGridView = !isGridView },
                     icon = if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
@@ -158,17 +165,13 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
                     buttonSize = 24.dp
                 )
                 
-                OutlinerActionButton(Icons.Default.CreateNewFolder, "Nueva Carpeta", theme.iconColor) {
+                OutlinerActionButton(Icons.Default.CreateNewFolder, "Nueva Carpeta", theme.iconColor, backgroundColor = theme.buttonColor) {
                     showNewFolderDialog = true
                     newName = "Nueva Carpeta"
                 }
 
-                OutlinerActionButton(Icons.Default.CloudUpload, "Subir", theme.iconColor) {
+                OutlinerActionButton(Icons.Default.FileUpload, "Subir", theme.iconColor, backgroundColor = theme.buttonColor) {
                     uploadLauncher.launch(arrayOf("*/*"))
-                }
-                
-                OutlinerActionButton(Icons.Default.Add, "Añadir a Librería", theme.iconColor, enabled = canAddToLibrary) {
-                    viewModel.addToGlobalLibrary(context, "Nuevo Componente", currentFolderId)
                 }
             }
         }
@@ -260,12 +263,16 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
     if (showNewFolderDialog) {
         AlertDialog(
             onDismissRequest = { showNewFolderDialog = false },
-            title = { Text("Nueva Carpeta") },
+            title = { Text("Nueva Carpeta", color = Color(0xFF1C1B1F)) },
             text = {
-                TextField(
+                OutlinedTextField(
                     value = newName,
                     onValueChange = { newName = it },
-                    singleLine = true
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color(0xFF1C1B1F),
+                        unfocusedTextColor = Color(0xFF1C1B1F)
+                    )
                 )
             },
             confirmButton = {
@@ -276,19 +283,24 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
             },
             dismissButton = {
                 TextButton(onClick = { showNewFolderDialog = false }) { Text("Cancelar") }
-            }
+            },
+            containerColor = Color.White
         )
     }
     
     showRenameDialog?.let { item ->
         AlertDialog(
             onDismissRequest = { showRenameDialog = null },
-            title = { Text("Renombrar") },
+            title = { Text("Renombrar", color = Color(0xFF1C1B1F)) },
             text = {
-                TextField(
+                OutlinedTextField(
                     value = newName,
                     onValueChange = { newName = it },
-                    singleLine = true
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color(0xFF1C1B1F),
+                        unfocusedTextColor = Color(0xFF1C1B1F)
+                    )
                 )
             },
             confirmButton = {
@@ -299,7 +311,8 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
             },
             dismissButton = {
                 TextButton(onClick = { showRenameDialog = null }) { Text("Cancelar") }
-            }
+            },
+            containerColor = Color.White
         )
     }
     
@@ -425,12 +438,20 @@ fun LibraryItemGridCell(
                 touchSize = 24.dp
             )
             
+            val scaleFactor = scaler.scaleFactor
             DropdownMenu(
                 expanded = showMenu,
-                onDismissRequest = { showMenu = false }
+                onDismissRequest = { showMenu = false },
+                modifier = Modifier.background(Color.White)
             ) {
-                DropdownMenuItem(text = { Text("Renombrar") }, onClick = { showMenu = false; onRename() })
-                DropdownMenuItem(text = { Text("Eliminar") }, onClick = { showMenu = false; onDelete() })
+                DropdownMenuItem(
+                    text = { Text("Renombrar", fontSize = 13.sp * scaleFactor, color = Color(0xFF1C1B1F)) },
+                    onClick = { showMenu = false; onRename() }
+                )
+                DropdownMenuItem(
+                    text = { Text("Eliminar", fontSize = 13.sp * scaleFactor, color = MaterialTheme.colorScheme.error) },
+                    onClick = { showMenu = false; onDelete() }
+                )
             }
         }
     }
@@ -511,12 +532,20 @@ fun LibraryItemListCell(
                 buttonSize = 24.dp
             )
             
+            val scaleFactor = scaler.scaleFactor
             DropdownMenu(
                 expanded = showMenu,
-                onDismissRequest = { showMenu = false }
+                onDismissRequest = { showMenu = false },
+                modifier = Modifier.background(Color.White)
             ) {
-                DropdownMenuItem(text = { Text("Renombrar") }, onClick = { showMenu = false; onRename() })
-                DropdownMenuItem(text = { Text("Eliminar") }, onClick = { showMenu = false; onDelete() })
+                DropdownMenuItem(
+                    text = { Text("Renombrar", fontSize = 13.sp * scaleFactor, color = Color(0xFF1C1B1F)) },
+                    onClick = { showMenu = false; onRename() }
+                )
+                DropdownMenuItem(
+                    text = { Text("Eliminar", fontSize = 13.sp * scaleFactor, color = MaterialTheme.colorScheme.error) },
+                    onClick = { showMenu = false; onDelete() }
+                )
             }
         }
     }

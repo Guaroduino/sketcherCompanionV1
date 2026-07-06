@@ -5,6 +5,9 @@ import android.graphics.Color as AndroidColor
 import androidx.compose.runtime.*
 import com.google.gson.Gson
 import com.sketcher.sketchercompanionv1.dto.*
+import com.sketcher.sketchercompanionv1.tools.*
+import com.sketcher.sketchercompanionv1.utils.toFillStyle
+import com.sketcher.sketchercompanionv1.utils.toFillStyleJson
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -90,7 +93,19 @@ class ToolManager(context: Context) {
     var globalStabilizationLevel by mutableFloatStateOf(prefs.getFloat("global_stabilization", 0f))
         private set
 
-    var currentFreehandSettings by mutableStateOf(loadFreehandSettings())
+    // Active tools map containing concrete BrushTool implementations
+    private val activeTools = mutableMapOf<ToolType, com.sketcher.sketchercompanionv1.tools.BrushTool>(
+        ToolType.FREEHAND to com.sketcher.sketchercompanionv1.tools.PencilTool(settings = loadFreehandSettings()),
+        ToolType.PEN to com.sketcher.sketchercompanionv1.tools.PenTool(settings = loadPenSettings()),
+        ToolType.PLUMA to com.sketcher.sketchercompanionv1.tools.PlumaTool(settings = loadPlumaSettings()),
+        ToolType.PAINT to com.sketcher.sketchercompanionv1.tools.PaintTool(settings = loadPaintSettings()),
+        ToolType.WATERCOLOR to com.sketcher.sketchercompanionv1.tools.WatercolorTool(settings = loadWatercolorSettings()),
+        ToolType.PENCIL_CUMULATIVE to com.sketcher.sketchercompanionv1.tools.PencilCumulativeTool(settings = loadPencilCumulativeSettings())
+    )
+
+    var currentFreehandSettings by mutableStateOf<com.sketcher.sketchercompanionv1.tools.ToolSettings>(
+        activeTools[currentTool]?.settings ?: com.sketcher.sketchercompanionv1.tools.PencilSettings()
+    )
         private set
 
     var currentEraserShape by mutableStateOf(EraserShape.CIRCLE)
@@ -103,8 +118,9 @@ class ToolManager(context: Context) {
     fun toggleFlattenedOuterStroke() {
         val newVal = !isFlattenedOuterStrokeEnabled
         isFlattenedOuterStrokeEnabled = newVal
-        if (newVal && currentFreehandSettings.isCumulativeOpacity) {
-            updateFreehandSettings(currentFreehandSettings.copy(isCumulativeOpacity = false))
+        val current = currentFreehandSettings
+        if (newVal && current is com.sketcher.sketchercompanionv1.tools.PencilSettings && current.isCumulativeOpacity) {
+            updateFreehandSettings(current.copy(isCumulativeOpacity = false))
         }
     }
 
@@ -116,45 +132,81 @@ class ToolManager(context: Context) {
     var fingerOffsetYValue by mutableFloatStateOf(50f)
         private set
 
-    private val toolConfigs: MutableMap<ToolType, ToolConfig> = mutableStateMapOf<ToolType, ToolConfig>().apply {
-        val savedFreehand = loadFreehandSettings()
-        val savedPen = loadPenSettings()
-        val savedPaint = loadPaintSettings()
-        val savedPluma = loadPlumaSettings()
-        val savedWatercolor = loadWatercolorSettings()
-        val savedPencilCumulative = loadPencilCumulativeSettings()
-        
-        fun loadConfig(type: ToolType, defSize: Float, defOpacity: Float): ToolConfig {
-            val s = prefs.getFloat("tool_size_${type.name}", defSize)
-            val o = prefs.getFloat("tool_alpha_${type.name}", defOpacity)
-            val shapeName = prefs.getString("tool_eraser_shape_${type.name}", EraserShape.CIRCLE.name) ?: EraserShape.CIRCLE.name
-            val shape = try { EraserShape.valueOf(shapeName) } catch (e: Exception) { EraserShape.CIRCLE }
-            val settings = when(type) {
-                ToolType.FREEHAND -> savedFreehand
-                ToolType.PEN -> savedPen
-                ToolType.PAINT -> savedPaint
-                ToolType.PLUMA -> savedPluma
-                ToolType.WATERCOLOR -> savedWatercolor
-                ToolType.PENCIL_CUMULATIVE -> savedPencilCumulative
-                else -> FreehandSettings()
-            }
-            return ToolConfig(size = s, opacity = o, freehandSettings = settings, eraserShape = shape)
-        }
+    private fun loadToolConfig(type: ToolType, defSize: Float, defOpacity: Float, settings: ToolSettings): ToolConfig {
+        val s = prefs.getFloat("tool_size_${type.name}", defSize)
+        val o = prefs.getFloat("tool_alpha_${type.name}", defOpacity)
+        val shapeName = prefs.getString("tool_eraser_shape_${type.name}", EraserShape.CIRCLE.name) ?: EraserShape.CIRCLE.name
+        val shape = try { EraserShape.valueOf(shapeName) } catch (e: Exception) { EraserShape.CIRCLE }
 
-        put(ToolType.FREEHAND, loadConfig(ToolType.FREEHAND, 2f, 1f))
-        put(ToolType.PEN, loadConfig(ToolType.PEN, 2f, 1f))
-        put(ToolType.PAINT, loadConfig(ToolType.PAINT, 10f, 1f))
-        put(ToolType.PLUMA, loadConfig(ToolType.PLUMA, 2.5f, 1f))
-        put(ToolType.WATERCOLOR, loadConfig(ToolType.WATERCOLOR, 20f, 0.4f))
-        put(ToolType.PENCIL_CUMULATIVE, loadConfig(ToolType.PENCIL_CUMULATIVE, 2f, 0.5f))
-        put(ToolType.FILL, loadConfig(ToolType.FILL, 1f, 1.0f))
-        put(ToolType.ERASER, loadConfig(ToolType.ERASER, 10f, 1f))
-        put(ToolType.POINT_ERASER, loadConfig(ToolType.POINT_ERASER, 10f, 1f))
-        put(ToolType.CUT_ERASER, loadConfig(ToolType.CUT_ERASER, 10f, 1f))
-        put(ToolType.SELECTION, loadConfig(ToolType.SELECTION, 1f, 1f))
-        put(ToolType.TRIM, loadConfig(ToolType.TRIM, 1f, 1f))
-        put(ToolType.EXTEND, loadConfig(ToolType.EXTEND, 1f, 1f))
-        put(ToolType.EDIT_POINTS, loadConfig(ToolType.EDIT_POINTS, 1f, 1f))
+        val defaultStrokeColor = AndroidColor.BLACK
+        val defaultFillColor = if (type == ToolType.PAINT || type == ToolType.WATERCOLOR) AndroidColor.BLACK else AndroidColor.WHITE
+        val defaultStrokeActive = true
+        val defaultFillActive = (type == ToolType.PAINT || type == ToolType.WATERCOLOR)
+        val defaultStabilization = if (type == ToolType.FREEHAND || type == ToolType.PENCIL_CUMULATIVE) 0.07f else 0f
+
+        val sc = prefs.getInt("tool_stroke_color_${type.name}", defaultStrokeColor)
+        val fc = prefs.getInt("tool_fill_color_${type.name}", defaultFillColor)
+        val sa = prefs.getBoolean("tool_stroke_active_${type.name}", defaultStrokeActive)
+        val fa = prefs.getBoolean("tool_fill_active_${type.name}", defaultFillActive)
+        val stab = prefs.getFloat("tool_stabilization_${type.name}", defaultStabilization)
+        
+        val fsJsonStr = prefs.getString("tool_fill_style_v2_${type.name}", null)
+        val ssJsonStr = prefs.getString("tool_stroke_style_v2_${type.name}", null)
+        
+        val fsJson = if (fsJsonStr != null) {
+            try { gson.fromJson(fsJsonStr, FillStyleJson::class.java) } catch (e: Exception) { null }
+        } else null
+        
+        val ssJson = if (ssJsonStr != null) {
+            try { gson.fromJson(ssJsonStr, FillStyleJson::class.java) } catch (e: Exception) { null }
+        } else null
+
+        return ToolConfig(
+            size = s,
+            opacity = o,
+            settings = settings,
+            eraserShape = shape,
+            strokeColor = sc,
+            fillColor = fc,
+            isStrokeActive = sa,
+            isFillActive = fa,
+            fillStyle = fsJson,
+            strokeStyle = ssJson,
+            stabilization = stab
+        )
+    }
+
+    private fun persistToolConfigColorState(type: ToolType, config: ToolConfig) {
+        prefs.edit().apply {
+            putInt("tool_stroke_color_${type.name}", config.strokeColor)
+            putInt("tool_fill_color_${type.name}", config.fillColor)
+            putBoolean("tool_stroke_active_${type.name}", config.isStrokeActive)
+            putBoolean("tool_fill_active_${type.name}", config.isFillActive)
+            putFloat("tool_stabilization_${type.name}", config.stabilization)
+            
+            val fsStr = config.fillStyle?.let { gson.toJson(it) }
+            val ssStr = config.strokeStyle?.let { gson.toJson(it) }
+            putString("tool_fill_style_v2_${type.name}", fsStr)
+            putString("tool_stroke_style_v2_${type.name}", ssStr)
+            apply()
+        }
+    }
+
+    private val toolConfigs: MutableMap<ToolType, ToolConfig> = mutableStateMapOf<ToolType, ToolConfig>().apply {
+        put(ToolType.FREEHAND, loadToolConfig(ToolType.FREEHAND, 2f, 1f, activeTools[ToolType.FREEHAND]?.settings ?: PencilSettings()))
+        put(ToolType.PEN, loadToolConfig(ToolType.PEN, 2f, 1f, activeTools[ToolType.PEN]?.settings ?: PenSettings()))
+        put(ToolType.PAINT, loadToolConfig(ToolType.PAINT, 10f, 1f, activeTools[ToolType.PAINT]?.settings ?: PaintSettings()))
+        put(ToolType.PLUMA, loadToolConfig(ToolType.PLUMA, 2.5f, 1f, activeTools[ToolType.PLUMA]?.settings ?: PlumaSettings()))
+        put(ToolType.WATERCOLOR, loadToolConfig(ToolType.WATERCOLOR, 20f, 0.4f, activeTools[ToolType.WATERCOLOR]?.settings ?: WatercolorSettings()))
+        put(ToolType.PENCIL_CUMULATIVE, loadToolConfig(ToolType.PENCIL_CUMULATIVE, 2f, 0.5f, activeTools[ToolType.PENCIL_CUMULATIVE]?.settings ?: PencilSettings(isCumulativeOpacity = true)))
+        put(ToolType.FILL, loadToolConfig(ToolType.FILL, 1f, 1.0f, PencilSettings()))
+        put(ToolType.ERASER, loadToolConfig(ToolType.ERASER, 10f, 1f, PencilSettings()))
+        put(ToolType.POINT_ERASER, loadToolConfig(ToolType.POINT_ERASER, 10f, 1f, PencilSettings()))
+        put(ToolType.CUT_ERASER, loadToolConfig(ToolType.CUT_ERASER, 10f, 1f, PencilSettings()))
+        put(ToolType.SELECTION, loadToolConfig(ToolType.SELECTION, 1f, 1f, PencilSettings()))
+        put(ToolType.TRIM, loadToolConfig(ToolType.TRIM, 1f, 1f, PencilSettings()))
+        put(ToolType.EXTEND, loadToolConfig(ToolType.EXTEND, 1f, 1f, PencilSettings()))
+        put(ToolType.EDIT_POINTS, loadToolConfig(ToolType.EDIT_POINTS, 1f, 1f, PencilSettings()))
     }
 
     init {
@@ -175,46 +227,29 @@ class ToolManager(context: Context) {
         }
         currentTool = type
         prefs.edit().putString("current_tool", type.name).apply()
-
-
         
         val config = toolConfigs[type] ?: toolConfigs[ToolType.FREEHAND]!!
-        var settings = config.freehandSettings
+        val settings = activeTools[type]?.settings ?: com.sketcher.sketchercompanionv1.tools.PencilSettings()
         
-        // Enforce tool-specific constraints
+        // Enforce tool-specific constraints for outer stroke flattening
         when (type) {
             ToolType.FREEHAND -> {
                 isFlattenedOuterStrokeEnabled = true
-                settings = settings.copy(isCumulativeOpacity = false)
             }
             ToolType.PENCIL_CUMULATIVE -> {
                 isFlattenedOuterStrokeEnabled = false
             }
             ToolType.PAINT -> {
                 isFlattenedOuterStrokeEnabled = true
-                settings = settings.copy(
-                    capStart = true,
-                    capEnd = true,
-                    useCurveForPolygon = true,
-                    isCumulativeOpacity = false
-                )
             }
             ToolType.WATERCOLOR -> {
                 isFlattenedOuterStrokeEnabled = true
-                settings = settings.copy(
-                    capStart = true,
-                    capEnd = true,
-                    useCurveForPolygon = true,
-                    isCumulativeOpacity = false
-                )
             }
             ToolType.PEN -> {
                 isFlattenedOuterStrokeEnabled = false
-                settings = settings.copy(isCumulativeOpacity = false)
             }
             ToolType.PLUMA -> {
                 isFlattenedOuterStrokeEnabled = false
-                settings = settings.copy(isCumulativeOpacity = false)
             }
             else -> {}
         }
@@ -225,25 +260,29 @@ class ToolManager(context: Context) {
         _brushOpacity.value = config.opacity
         currentFreehandSettings = settings
         currentEraserShape = config.eraserShape
-        toolConfigs[type] = config.copy(freehandSettings = settings)
         
-        if (settings.isCumulativeOpacity) {
+        // Restore color/style states from tool config!
+        _strokeColor.value = config.strokeColor
+        _fillColor.value = config.fillColor
+        _isStrokeActive.value = config.isStrokeActive
+        _isFillActive.value = config.isFillActive
+        _fillStyle.value = config.fillStyle?.toFillStyle(config.fillColor) ?: FillStyle.Solid(config.fillColor)
+        _strokeStyle.value = config.strokeStyle?.toFillStyle(config.strokeColor) ?: FillStyle.Solid(config.strokeColor)
+
+        // Restore stabilization!
+        val targetStab = config.stabilization
+        globalStabilizationLevel = targetStab
+        _smoothing.value = targetStab
+
+        toolConfigs[type] = config.copy(settings = settings)
+        
+        if (settings is com.sketcher.sketchercompanionv1.tools.PencilSettings && settings.isCumulativeOpacity) {
             isFlattenedOuterStrokeEnabled = false
         }
 
         // Load presets for this specific tool
         _brushPresets.value = loadBrushPresetsForTool(type)
         _selectedPresetIndex.value = null
-
-        if (type == ToolType.PAINT || type == ToolType.WATERCOLOR) {
-            _isStrokeActive.value = true
-            _isFillActive.value = true
-            _fillColor.value = _strokeColor.value
-            _fillStyle.value = FillStyle.Solid(_strokeColor.value)
-        } else if (type == ToolType.FREEHAND || type == ToolType.PEN || type == ToolType.PLUMA || type == ToolType.PENCIL_CUMULATIVE) {
-            _isStrokeActive.value = true
-            _isFillActive.value = false
-        }
     }
 
     fun setEraserShape(shape: EraserShape) {
@@ -278,21 +317,42 @@ class ToolManager(context: Context) {
 
     private fun loadBrushPresetsForTool(type: ToolType): List<BrushPreset> {
         val prefKey = when(type) {
-            ToolType.FREEHAND -> "pencil_presets_v1"
-            ToolType.PENCIL_CUMULATIVE -> "pencil_cumulative_presets_v1"
-            ToolType.PEN -> "pen_presets_v1"
-            ToolType.PAINT -> "paint_presets_v1"
-            ToolType.PLUMA -> "pluma_presets_v1"
-            ToolType.WATERCOLOR -> "watercolor_presets_v1"
-            else -> "brush_presets_v1"
+            ToolType.FREEHAND -> "pencil_presets_v2"
+            ToolType.PENCIL_CUMULATIVE -> "pencil_cumulative_presets_v2"
+            ToolType.PEN -> "pen_presets_v2"
+            ToolType.PAINT -> "paint_presets_v2"
+            ToolType.PLUMA -> "pluma_presets_v2"
+            ToolType.WATERCOLOR -> "watercolor_presets_v2"
+            else -> "brush_presets_v2"
         }
         val json = prefs.getString(prefKey, null)
         if (json != null) {
             try {
-                val tokenType = object : com.google.gson.reflect.TypeToken<List<BrushPreset>>() {}.type
-                val loaded: List<BrushPreset> = gson.fromJson(json, tokenType)
+                val tokenType = object : com.google.gson.reflect.TypeToken<List<BrushPresetJson>>() {}.type
+                val loaded: List<BrushPresetJson> = gson.fromJson(json, tokenType)
                 if (loaded.size >= 5) {
-                    return loaded
+                    return loaded.map { pJson ->
+                        val settings = when (pJson.settingsType) {
+                            "PencilSettings" -> gson.fromJson(pJson.settingsJson, PencilSettings::class.java)
+                            "PenSettings" -> gson.fromJson(pJson.settingsJson, PenSettings::class.java)
+                            "PlumaSettings" -> gson.fromJson(pJson.settingsJson, PlumaSettings::class.java)
+                            "PaintSettings" -> gson.fromJson(pJson.settingsJson, PaintSettings::class.java)
+                            "WatercolorSettings" -> gson.fromJson(pJson.settingsJson, WatercolorSettings::class.java)
+                            else -> PencilSettings()
+                        }
+                        BrushPreset(
+                            size = pJson.size,
+                            opacity = pJson.opacity,
+                            settings = settings,
+                            strokeColor = pJson.strokeColor,
+                            fillColor = pJson.fillColor,
+                            isStrokeActive = pJson.isStrokeActive,
+                            isFillActive = pJson.isFillActive,
+                            fillStyle = pJson.fillStyle?.toFillStyle(pJson.fillColor ?: 0),
+                            strokeStyle = pJson.strokeStyle?.toFillStyle(pJson.strokeColor ?: 0),
+                            stabilization = pJson.stabilization
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -303,61 +363,76 @@ class ToolManager(context: Context) {
 
     private fun saveBrushPresetsForTool(type: ToolType, list: List<BrushPreset>) {
         val prefKey = when(type) {
-            ToolType.FREEHAND -> "pencil_presets_v1"
-            ToolType.PENCIL_CUMULATIVE -> "pencil_cumulative_presets_v1"
-            ToolType.PEN -> "pen_presets_v1"
-            ToolType.PAINT -> "paint_presets_v1"
-            ToolType.PLUMA -> "pluma_presets_v1"
-            ToolType.WATERCOLOR -> "watercolor_presets_v1"
-            else -> "brush_presets_v1"
+            ToolType.FREEHAND -> "pencil_presets_v2"
+            ToolType.PENCIL_CUMULATIVE -> "pencil_cumulative_presets_v2"
+            ToolType.PEN -> "pen_presets_v2"
+            ToolType.PAINT -> "paint_presets_v2"
+            ToolType.PLUMA -> "pluma_presets_v2"
+            ToolType.WATERCOLOR -> "watercolor_presets_v2"
+            else -> "brush_presets_v2"
         }
-        val json = gson.toJson(list)
+        val jsonList = list.map { preset ->
+            BrushPresetJson(
+                size = preset.size,
+                opacity = preset.opacity,
+                settingsType = preset.settings::class.java.simpleName,
+                settingsJson = gson.toJson(preset.settings),
+                strokeColor = preset.strokeColor,
+                fillColor = preset.fillColor,
+                isStrokeActive = preset.isStrokeActive,
+                isFillActive = preset.isFillActive,
+                fillStyle = preset.fillStyle?.toFillStyleJson(),
+                strokeStyle = preset.strokeStyle?.toFillStyleJson(),
+                stabilization = preset.stabilization
+            )
+        }
+        val json = gson.toJson(jsonList)
         prefs.edit().putString(prefKey, json).apply()
     }
 
     private fun getDefaultPresetsForTool(type: ToolType): List<BrushPreset> {
         return when(type) {
             ToolType.PENCIL_CUMULATIVE -> listOf(
-                BrushPreset(size = 2f, opacity = 0.3f, freehandSettings = FreehandSettings(thinning = 0.4f, smoothing = 0.3f, isCumulativeOpacity = true)),
-                BrushPreset(size = 5f, opacity = 0.4f, freehandSettings = FreehandSettings(thinning = 0.5f, smoothing = 0.4f, isCumulativeOpacity = true)),
-                BrushPreset(size = 12f, opacity = 0.5f, freehandSettings = FreehandSettings(thinning = 0.6f, smoothing = 0.5f, isCumulativeOpacity = true)),
-                BrushPreset(size = 20f, opacity = 0.6f, freehandSettings = FreehandSettings(thinning = 0.7f, smoothing = 0.6f, simulatePressure = true, taperStart = 20f, taperEnd = 20f, isCumulativeOpacity = true)),
-                BrushPreset(size = 35f, opacity = 0.4f, freehandSettings = FreehandSettings(thinning = 0f, smoothing = 0.4f, isCumulativeOpacity = true))
+                BrushPreset(size = 2f, opacity = 0.3f, settings = PencilSettings(thinning = 0.4f, smoothing = 0.3f, isCumulativeOpacity = true), strokeColor = AndroidColor.BLACK, fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.BLACK), stabilization = 0.07f),
+                BrushPreset(size = 5f, opacity = 0.4f, settings = PencilSettings(thinning = 0.5f, smoothing = 0.4f, isCumulativeOpacity = true), strokeColor = AndroidColor.DKGRAY, fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.DKGRAY), stabilization = 0.07f),
+                BrushPreset(size = 12f, opacity = 0.5f, settings = PencilSettings(thinning = 0.6f, smoothing = 0.5f, isCumulativeOpacity = true), strokeColor = AndroidColor.rgb(233, 30, 99), fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.rgb(233, 30, 99)), stabilization = 0.07f),
+                BrushPreset(size = 20f, opacity = 0.6f, settings = PencilSettings(thinning = 0.7f, smoothing = 0.6f, simulatePressure = true, taperStart = 20f, taperEnd = 20f, isCumulativeOpacity = true), strokeColor = AndroidColor.rgb(33, 150, 243), fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.rgb(33, 150, 243)), stabilization = 0.15f),
+                BrushPreset(size = 35f, opacity = 0.4f, settings = PencilSettings(thinning = 0f, smoothing = 0.4f, isCumulativeOpacity = true), strokeColor = AndroidColor.rgb(76, 175, 80), fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.rgb(76, 175, 80)), stabilization = 0.07f)
             )
             ToolType.PEN -> listOf(
-                BrushPreset(size = 1f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0f, smoothing = 0f)),
-                BrushPreset(size = 2f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0f, smoothing = 0f)),
-                BrushPreset(size = 4f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0f, smoothing = 0f)),
-                BrushPreset(size = 8f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0f, smoothing = 0f)),
-                BrushPreset(size = 15f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0f, smoothing = 0f))
+                BrushPreset(size = 1f, opacity = 1f, settings = PenSettings(smoothing = 0f), strokeColor = AndroidColor.BLACK, fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.BLACK), stabilization = 0f),
+                BrushPreset(size = 2f, opacity = 1f, settings = PenSettings(smoothing = 0f), strokeColor = AndroidColor.rgb(26, 35, 126), fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.rgb(26, 35, 126)), stabilization = 0f),
+                BrushPreset(size = 4f, opacity = 1f, settings = PenSettings(smoothing = 0f), strokeColor = AndroidColor.rgb(183, 28, 28), fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.rgb(183, 28, 28)), stabilization = 0f),
+                BrushPreset(size = 8f, opacity = 1f, settings = PenSettings(smoothing = 0f), strokeColor = AndroidColor.rgb(76, 175, 80), fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.rgb(76, 175, 80)), stabilization = 0f),
+                BrushPreset(size = 15f, opacity = 1f, settings = PenSettings(smoothing = 0f), strokeColor = AndroidColor.rgb(156, 39, 176), fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.rgb(156, 39, 176)), stabilization = 0f)
             )
             ToolType.PLUMA -> listOf(
-                BrushPreset(size = 1.5f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.1f, smoothing = 0.5f)),
-                BrushPreset(size = 3f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.2f, smoothing = 0.5f)),
-                BrushPreset(size = 6f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.3f, smoothing = 0.5f)),
-                BrushPreset(size = 10f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.4f, smoothing = 0.5f)),
-                BrushPreset(size = 18f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.5f, smoothing = 0.5f))
+                BrushPreset(size = 1.5f, opacity = 1f, settings = PlumaSettings(thinning = 0.1f, smoothing = 0.5f), strokeColor = AndroidColor.BLACK, fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.BLACK), stabilization = 0.3f),
+                BrushPreset(size = 3f, opacity = 1f, settings = PlumaSettings(thinning = 0.2f, smoothing = 0.5f), strokeColor = AndroidColor.rgb(121, 85, 72), fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.rgb(121, 85, 72)), stabilization = 0.3f),
+                BrushPreset(size = 6f, opacity = 1f, settings = PlumaSettings(thinning = 0.3f, smoothing = 0.5f), strokeColor = AndroidColor.rgb(26, 35, 126), fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.rgb(26, 35, 126)), stabilization = 0.4f),
+                BrushPreset(size = 10f, opacity = 1f, settings = PlumaSettings(thinning = 0.4f, smoothing = 0.5f), strokeColor = AndroidColor.rgb(183, 28, 28), fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.rgb(183, 28, 28)), stabilization = 0.5f),
+                BrushPreset(size = 18f, opacity = 1f, settings = PlumaSettings(thinning = 0.5f, smoothing = 0.5f), strokeColor = AndroidColor.rgb(255, 152, 0), fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.rgb(255, 152, 0)), stabilization = 0.6f)
             )
             ToolType.PAINT -> listOf(
-                BrushPreset(size = 8f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 1.5f)),
-                BrushPreset(size = 15f, opacity = 0.8f, freehandSettings = FreehandSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 2.0f)),
-                BrushPreset(size = 25f, opacity = 0.6f, freehandSettings = FreehandSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 3.0f)),
-                BrushPreset(size = 40f, opacity = 0.4f, freehandSettings = FreehandSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 4.0f)),
-                BrushPreset(size = 60f, opacity = 0.2f, freehandSettings = FreehandSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 5.0f))
+                BrushPreset(size = 8f, opacity = 1f, settings = PaintSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 1.5f), strokeColor = AndroidColor.rgb(233, 30, 99), fillColor = AndroidColor.rgb(233, 30, 99), isStrokeActive = true, isFillActive = true, fillStyle = FillStyle.Solid(AndroidColor.rgb(233, 30, 99)), strokeStyle = FillStyle.Solid(AndroidColor.rgb(233, 30, 99)), stabilization = 0.1f),
+                BrushPreset(size = 15f, opacity = 0.8f, settings = PaintSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 2.0f), strokeColor = AndroidColor.rgb(33, 150, 243), fillColor = AndroidColor.rgb(33, 150, 243), isStrokeActive = true, isFillActive = true, fillStyle = FillStyle.Solid(AndroidColor.rgb(33, 150, 243)), strokeStyle = FillStyle.Solid(AndroidColor.rgb(33, 150, 243)), stabilization = 0.15f),
+                BrushPreset(size = 25f, opacity = 0.6f, settings = PaintSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 3.0f), strokeColor = AndroidColor.rgb(255, 235, 59), fillColor = AndroidColor.rgb(255, 235, 59), isStrokeActive = true, isFillActive = true, fillStyle = FillStyle.Solid(AndroidColor.rgb(255, 235, 59)), strokeStyle = FillStyle.Solid(AndroidColor.rgb(255, 235, 59)), stabilization = 0.2f),
+                BrushPreset(size = 40f, opacity = 0.4f, settings = PaintSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 4.0f), strokeColor = AndroidColor.rgb(76, 175, 80), fillColor = AndroidColor.rgb(76, 175, 80), isStrokeActive = true, isFillActive = true, fillStyle = FillStyle.Solid(AndroidColor.rgb(76, 175, 80)), strokeStyle = FillStyle.Solid(AndroidColor.rgb(76, 175, 80)), stabilization = 0.25f),
+                BrushPreset(size = 60f, opacity = 0.2f, settings = PaintSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 5.0f), strokeColor = AndroidColor.rgb(156, 39, 176), fillColor = AndroidColor.rgb(156, 39, 176), isStrokeActive = true, isFillActive = true, fillStyle = FillStyle.Solid(AndroidColor.rgb(156, 39, 176)), strokeStyle = FillStyle.Solid(AndroidColor.rgb(156, 39, 176)), stabilization = 0.3f)
             )
             ToolType.WATERCOLOR -> listOf(
-                BrushPreset(size = 15f, opacity = 0.3f, freehandSettings = FreehandSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 2.0f, watercolorJitterSegment = 10f, watercolorJitterDeviation = 3f, watercolorBlurRadius = 4f, watercolorEdgeMode = com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.BOTH, watercolorCenterOpacity = 0.8f, watercolorEdgeRingOpacity = 0.5f, watercolorEdgeRingWidth = 1f)),
-                BrushPreset(size = 25f, opacity = 0.35f, freehandSettings = FreehandSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 2.5f, watercolorJitterSegment = 12f, watercolorJitterDeviation = 4f, watercolorBlurRadius = 6f, watercolorEdgeMode = com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.BOTH, watercolorCenterOpacity = 0.6f, watercolorEdgeRingOpacity = 0.8f, watercolorEdgeRingWidth = 1.5f)),
-                BrushPreset(size = 40f, opacity = 0.4f, freehandSettings = FreehandSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 3.0f, watercolorJitterSegment = 15f, watercolorJitterDeviation = 5f, watercolorBlurRadius = 8f, watercolorEdgeMode = com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.BOTH, watercolorCenterOpacity = 0.4f, watercolorEdgeRingOpacity = 1.0f, watercolorEdgeRingWidth = 2.0f)),
-                BrushPreset(size = 60f, opacity = 0.3f, freehandSettings = FreehandSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 4.0f, watercolorJitterSegment = 18f, watercolorJitterDeviation = 6f, watercolorBlurRadius = 10f, watercolorEdgeMode = com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.BOTH, watercolorCenterOpacity = 0.2f, watercolorEdgeRingOpacity = 1.0f, watercolorEdgeRingWidth = 2.5f)),
-                BrushPreset(size = 80f, opacity = 0.25f, freehandSettings = FreehandSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 5.0f, watercolorJitterSegment = 20f, watercolorJitterDeviation = 7f, watercolorBlurRadius = 12f, watercolorEdgeMode = com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.BOTH, watercolorCenterOpacity = 0.8f, watercolorEdgeRingOpacity = 0f, watercolorEdgeRingWidth = 0f))
+                BrushPreset(size = 15f, opacity = 0.3f, settings = WatercolorSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 2.0f, watercolorJitterSegment = 10f, watercolorJitterDeviation = 3f, watercolorBlurRadius = 4f, watercolorEdgeMode = WatercolorEdgeMode.BOTH, watercolorCenterOpacity = 0.8f, watercolorEdgeRingOpacity = 0.5f, watercolorEdgeRingWidth = 1f), strokeColor = AndroidColor.rgb(0, 188, 212), fillColor = AndroidColor.rgb(0, 188, 212), isStrokeActive = true, isFillActive = true, fillStyle = FillStyle.Solid(AndroidColor.rgb(0, 188, 212)), strokeStyle = FillStyle.Solid(AndroidColor.rgb(0, 188, 212)), stabilization = 0.2f),
+                BrushPreset(size = 25f, opacity = 0.35f, settings = WatercolorSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 2.5f, watercolorJitterSegment = 12f, watercolorJitterDeviation = 4f, watercolorBlurRadius = 6f, watercolorEdgeMode = WatercolorEdgeMode.BOTH, watercolorCenterOpacity = 0.6f, watercolorEdgeRingOpacity = 0.8f, watercolorEdgeRingWidth = 1.5f), strokeColor = AndroidColor.rgb(232, 30, 99), fillColor = AndroidColor.rgb(232, 30, 99), isStrokeActive = true, isFillActive = true, fillStyle = FillStyle.Solid(AndroidColor.rgb(232, 30, 99)), strokeStyle = FillStyle.Solid(AndroidColor.rgb(232, 30, 99)), stabilization = 0.25f),
+                BrushPreset(size = 40f, opacity = 0.4f, settings = WatercolorSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 3.0f, watercolorJitterSegment = 15f, watercolorJitterDeviation = 5f, watercolorBlurRadius = 8f, watercolorEdgeMode = WatercolorEdgeMode.BOTH, watercolorCenterOpacity = 0.4f, watercolorEdgeRingOpacity = 1.0f, watercolorEdgeRingWidth = 2.0f), strokeColor = AndroidColor.rgb(255, 235, 59), fillColor = AndroidColor.rgb(255, 235, 59), isStrokeActive = true, isFillActive = true, fillStyle = FillStyle.Solid(AndroidColor.rgb(255, 235, 59)), strokeStyle = FillStyle.Solid(AndroidColor.rgb(255, 235, 59)), stabilization = 0.3f),
+                BrushPreset(size = 60f, opacity = 0.3f, settings = WatercolorSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 4.0f, watercolorJitterSegment = 18f, watercolorJitterDeviation = 6f, watercolorBlurRadius = 10f, watercolorEdgeMode = WatercolorEdgeMode.BOTH, watercolorCenterOpacity = 0.2f, watercolorEdgeRingOpacity = 1.0f, watercolorEdgeRingWidth = 2.5f), strokeColor = AndroidColor.rgb(255, 152, 0), fillColor = AndroidColor.rgb(255, 152, 0), isStrokeActive = true, isFillActive = true, fillStyle = FillStyle.Solid(AndroidColor.rgb(255, 152, 0)), strokeStyle = FillStyle.Solid(AndroidColor.rgb(255, 152, 0)), stabilization = 0.35f),
+                BrushPreset(size = 80f, opacity = 0.25f, settings = WatercolorSettings(thinning = 0.5f, smoothing = 0.5f, paintOutlineWidth = 5.0f, watercolorJitterSegment = 20f, watercolorJitterDeviation = 7f, watercolorBlurRadius = 12f, watercolorEdgeMode = WatercolorEdgeMode.BOTH, watercolorCenterOpacity = 0.8f, watercolorEdgeRingOpacity = 0f, watercolorEdgeRingWidth = 0f), strokeColor = AndroidColor.rgb(233, 30, 99), fillColor = AndroidColor.rgb(233, 30, 99), isStrokeActive = true, isFillActive = true, fillStyle = FillStyle.Solid(AndroidColor.rgb(233, 30, 99)), strokeStyle = FillStyle.Solid(AndroidColor.rgb(233, 30, 99)), stabilization = 0.4f)
             )
-            else -> listOf(
-                BrushPreset(size = 2f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.4f, smoothing = 0.3f)),
-                BrushPreset(size = 5f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.5f, smoothing = 0.4f)),
-                BrushPreset(size = 12f, opacity = 1f, freehandSettings = FreehandSettings(thinning = 0.6f, smoothing = 0.5f)),
-                BrushPreset(size = 20f, opacity = 0.8f, freehandSettings = FreehandSettings(thinning = 0.7f, smoothing = 0.6f, simulatePressure = true, taperStart = 20f, taperEnd = 20f)),
-                BrushPreset(size = 35f, opacity = 0.4f, freehandSettings = FreehandSettings(thinning = 0f, smoothing = 0.4f))
+            else -> listOf( // FREEHAND / Pencil
+                BrushPreset(size = 2f, opacity = 1f, settings = PencilSettings(thinning = 0.4f, smoothing = 0.3f), strokeColor = AndroidColor.BLACK, fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.BLACK), stabilization = 0.07f),
+                BrushPreset(size = 5f, opacity = 1f, settings = PencilSettings(thinning = 0.5f, smoothing = 0.4f), strokeColor = AndroidColor.DKGRAY, fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.DKGRAY), stabilization = 0.07f),
+                BrushPreset(size = 12f, opacity = 1f, settings = PencilSettings(thinning = 0.6f, smoothing = 0.5f), strokeColor = AndroidColor.rgb(233, 30, 99), fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.rgb(233, 30, 99)), stabilization = 0.07f),
+                BrushPreset(size = 20f, opacity = 0.8f, settings = PencilSettings(thinning = 0.7f, smoothing = 0.6f, simulatePressure = true, taperStart = 20f, taperEnd = 20f), strokeColor = AndroidColor.rgb(33, 150, 243), fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.rgb(33, 150, 243)), stabilization = 0.15f),
+                BrushPreset(size = 35f, opacity = 0.4f, settings = PencilSettings(thinning = 0f, smoothing = 0.4f), strokeColor = AndroidColor.rgb(76, 175, 80), fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.rgb(76, 175, 80)), stabilization = 0.07f)
             )
         }
     }
@@ -366,12 +441,14 @@ class ToolManager(context: Context) {
         val currentPreset = BrushPreset(
             size = currentSize,
             opacity = currentOpacity,
-            freehandSettings = currentFreehandSettings,
+            settings = currentFreehandSettings,
             strokeColor = _strokeColor.value,
             fillColor = _fillColor.value,
             isStrokeActive = _isStrokeActive.value,
             isFillActive = _isFillActive.value,
-            fillStyle = _fillStyle.value
+            fillStyle = _fillStyle.value,
+            strokeStyle = _strokeStyle.value,
+            stabilization = globalStabilizationLevel
         )
         val currentList = _brushPresets.value.toMutableList()
         if (index in 0 until currentList.size) {
@@ -388,16 +465,57 @@ class ToolManager(context: Context) {
             val preset = list[index]
             setToolSize(preset.size)
             setToolOpacity(preset.opacity)
-            updateFreehandSettings(preset.freehandSettings)
+            updateFreehandSettings(preset.settings)
             
-            preset.strokeColor?.let { _strokeColor.value = it }
-            preset.fillColor?.let { _fillColor.value = it }
-            preset.isStrokeActive?.let { _isStrokeActive.value = it }
-            preset.isFillActive?.let { _isFillActive.value = it }
-            preset.fillStyle?.let { _fillStyle.value = it }
+            val sc = preset.strokeColor ?: _strokeColor.value
+            val fc = preset.fillColor ?: _fillColor.value
+            val sa = preset.isStrokeActive ?: _isStrokeActive.value
+            val fa = preset.isFillActive ?: _isFillActive.value
+            val fs = preset.fillStyle ?: FillStyle.Solid(fc)
+            val ss = preset.strokeStyle ?: FillStyle.Solid(sc)
+            val defaultStab = if (currentTool == ToolType.FREEHAND || currentTool == ToolType.PENCIL_CUMULATIVE) 0.07f else 0f
+            val stab = preset.stabilization ?: defaultStab
+
+            _strokeColor.value = sc
+            _fillColor.value = fc
+            _isStrokeActive.value = sa
+            _isFillActive.value = fa
+            _fillStyle.value = fs
+            _strokeStyle.value = ss
+            setGlobalStabilization(stab)
+
+            // Update and persist the tool config with the preset values!
+            val config = toolConfigs[currentTool]!!
+            val updated = config.copy(
+                size = preset.size,
+                opacity = preset.opacity,
+                strokeColor = sc,
+                fillColor = fc,
+                isStrokeActive = sa,
+                isFillActive = fa,
+                fillStyle = fs.toFillStyleJson(),
+                strokeStyle = ss.toFillStyleJson(),
+                stabilization = stab
+            )
+            toolConfigs[currentTool] = updated
+            persistToolConfigColorState(currentTool, updated)
 
             _selectedPresetIndex.value = index
         }
+    }
+
+    fun restoreStabilizationToPreset() {
+        val index = _selectedPresetIndex.value
+        val list = _brushPresets.value
+        val defaultStab = if (currentTool == ToolType.FREEHAND || currentTool == ToolType.PENCIL_CUMULATIVE) 0.07f else 0f
+        val presetStab = if (index != null && index in list.indices) {
+            list[index].stabilization ?: defaultStab
+        } else if (list.isNotEmpty()) {
+            list[0].stabilization ?: defaultStab
+        } else {
+            defaultStab
+        }
+        setGlobalStabilization(presetStab)
     }
 
     fun isPresetModified(index: Int): Boolean {
@@ -406,14 +524,14 @@ class ToolManager(context: Context) {
         val preset = list[index]
         return _brushSize.value != preset.size ||
                _brushOpacity.value != preset.opacity ||
-               currentFreehandSettings != preset.freehandSettings ||
+               currentFreehandSettings != preset.settings ||
                (preset.strokeColor != null && _strokeColor.value != preset.strokeColor) ||
                (preset.fillColor != null && _fillColor.value != preset.fillColor) ||
                (preset.isStrokeActive != null && _isStrokeActive.value != preset.isStrokeActive) ||
                (preset.isFillActive != null && _isFillActive.value != preset.isFillActive) ||
-               (preset.isFillActive != null && _isFillActive.value != preset.isFillActive) ||
                (preset.fillStyle != null && _fillStyle.value != preset.fillStyle) ||
-               (preset.strokeStyle != null && _strokeStyle.value != preset.strokeStyle)
+               (preset.strokeStyle != null && _strokeStyle.value != preset.strokeStyle) ||
+               (preset.stabilization != null && globalStabilizationLevel != preset.stabilization)
     }
 
     fun updateStrokeType(type: StrokeType) {
@@ -425,16 +543,29 @@ class ToolManager(context: Context) {
         _strokeColor.value = color
         _strokeStyle.value = FillStyle.Solid(color)
         _isStrokeActive.value = true
-        if (currentTool == ToolType.PAINT || currentTool == ToolType.WATERCOLOR) {
+        val isPaintOrWatercolor = (currentTool == ToolType.PAINT || currentTool == ToolType.WATERCOLOR)
+        if (isPaintOrWatercolor) {
             _fillColor.value = color
             _fillStyle.value = FillStyle.Solid(color)
         }
+        
+        val config = toolConfigs[currentTool]!!
+        val updated = config.copy(
+            strokeColor = color,
+            strokeStyle = FillStyle.Solid(color).toFillStyleJson(),
+            isStrokeActive = true,
+            fillColor = if (isPaintOrWatercolor) color else config.fillColor,
+            fillStyle = if (isPaintOrWatercolor) FillStyle.Solid(color).toFillStyleJson() else config.fillStyle,
+            isFillActive = if (isPaintOrWatercolor) true else config.isFillActive
+        )
+        toolConfigs[currentTool] = updated
+        persistToolConfigColorState(currentTool, updated)
     }
 
     fun setStrokeStyle(style: FillStyle) {
         _strokeStyle.value = style
         _isStrokeActive.value = true
-        _strokeColor.value = when (style) {
+        val color = when (style) {
             is FillStyle.Solid -> style.color
             is FillStyle.MathTexture -> style.primaryColor
             else -> {
@@ -442,22 +573,45 @@ class ToolManager(context: Context) {
                 alpha shl 24
             }
         }
-        if (currentTool == ToolType.PAINT || currentTool == ToolType.WATERCOLOR) {
-            _fillColor.value = _strokeColor.value
+        _strokeColor.value = color
+        val isPaintOrWatercolor = (currentTool == ToolType.PAINT || currentTool == ToolType.WATERCOLOR)
+        if (isPaintOrWatercolor) {
+            _fillColor.value = color
             _fillStyle.value = style
         }
+        
+        val config = toolConfigs[currentTool]!!
+        val updated = config.copy(
+            strokeColor = color,
+            strokeStyle = style.toFillStyleJson(),
+            isStrokeActive = true,
+            fillColor = if (isPaintOrWatercolor) color else config.fillColor,
+            fillStyle = if (isPaintOrWatercolor) style.toFillStyleJson() else config.fillStyle,
+            isFillActive = if (isPaintOrWatercolor) true else config.isFillActive
+        )
+        toolConfigs[currentTool] = updated
+        persistToolConfigColorState(currentTool, updated)
     }
 
     fun setFillColor(color: Int) {
         _fillColor.value = color
         _fillStyle.value = FillStyle.Solid(color)
         _isFillActive.value = true
+        
+        val config = toolConfigs[currentTool]!!
+        val updated = config.copy(
+            fillColor = color,
+            fillStyle = FillStyle.Solid(color).toFillStyleJson(),
+            isFillActive = true
+        )
+        toolConfigs[currentTool] = updated
+        persistToolConfigColorState(currentTool, updated)
     }
 
     fun setFillStyle(style: FillStyle) {
         _fillStyle.value = style
         _isFillActive.value = true
-        _fillColor.value = when (style) {
+        val color = when (style) {
             is FillStyle.Solid -> style.color
             is FillStyle.MathTexture -> style.primaryColor
             else -> {
@@ -465,10 +619,33 @@ class ToolManager(context: Context) {
                 alpha shl 24
             }
         }
+        _fillColor.value = color
+        
+        val config = toolConfigs[currentTool]!!
+        val updated = config.copy(
+            fillColor = color,
+            fillStyle = style.toFillStyleJson(),
+            isFillActive = true
+        )
+        toolConfigs[currentTool] = updated
+        persistToolConfigColorState(currentTool, updated)
     }
 
-    fun toggleStroke(enabled: Boolean) { _isStrokeActive.value = enabled }
-    fun toggleFill(enabled: Boolean) { _isFillActive.value = enabled }
+    fun toggleStroke(enabled: Boolean) { 
+        _isStrokeActive.value = enabled
+        val config = toolConfigs[currentTool]!!
+        val updated = config.copy(isStrokeActive = enabled)
+        toolConfigs[currentTool] = updated
+        persistToolConfigColorState(currentTool, updated)
+    }
+
+    fun toggleFill(enabled: Boolean) { 
+        _isFillActive.value = enabled
+        val config = toolConfigs[currentTool]!!
+        val updated = config.copy(isFillActive = enabled)
+        toolConfigs[currentTool] = updated
+        persistToolConfigColorState(currentTool, updated)
+    }
 
     fun setGlobalStabilization(level: Float) {
         val clamped = level.coerceIn(0f, 1f)
@@ -477,58 +654,33 @@ class ToolManager(context: Context) {
             _smoothing.value = clamped
             prefs.edit().putFloat("global_stabilization", clamped).apply()
         }
+        
+        val config = toolConfigs[currentTool]
+        if (config != null && config.stabilization != clamped) {
+            val updated = config.copy(stabilization = clamped)
+            toolConfigs[currentTool] = updated
+            persistToolConfigColorState(currentTool, updated)
+        }
     }
 
     fun updateSmoothing(value: Float) = setGlobalStabilization(value)
 
-    fun updateFreehandSettings(newSettings: FreehandSettings) {
-        var settings = newSettings
-        when (currentTool) {
-            ToolType.FREEHAND -> {
-                isFlattenedOuterStrokeEnabled = true
-                settings = settings.copy(isCumulativeOpacity = false)
-            }
-            ToolType.PENCIL_CUMULATIVE -> {
-                isFlattenedOuterStrokeEnabled = false
-            }
-            ToolType.PAINT -> {
-                isFlattenedOuterStrokeEnabled = true
-                settings = settings.copy(
-                    capStart = true,
-                    capEnd = true,
-                    useCurveForPolygon = true,
-                    isCumulativeOpacity = false
-                )
-            }
-            ToolType.WATERCOLOR -> {
-                isFlattenedOuterStrokeEnabled = true
-                settings = settings.copy(
-                    capStart = true,
-                    capEnd = true,
-                    useCurveForPolygon = true,
-                    isCumulativeOpacity = false
-                )
-            }
-            ToolType.PEN -> {
-                isFlattenedOuterStrokeEnabled = false
-                settings = settings.copy(isCumulativeOpacity = false)
-            }
-            ToolType.PLUMA -> {
-                isFlattenedOuterStrokeEnabled = false
-                settings = settings.copy(isCumulativeOpacity = false)
-            }
-            else -> {}
+
+    fun updateFreehandSettings(settings: com.sketcher.sketchercompanionv1.tools.ToolSettings) {
+        val tool = activeTools[currentTool]
+        if (tool != null) {
+            tool.settings = settings
         }
         currentFreehandSettings = settings
         val config = toolConfigs[currentTool]!!
-        toolConfigs[currentTool] = config.copy(freehandSettings = settings)
+        toolConfigs[currentTool] = config.copy(settings = settings)
         when (currentTool) {
-            ToolType.PEN -> savePenSettings(settings)
-            ToolType.FREEHAND -> saveFreehandSettings(settings)
-            ToolType.PAINT -> savePaintSettings(settings)
-            ToolType.PLUMA -> savePlumaSettings(settings)
-            ToolType.WATERCOLOR -> saveWatercolorSettings(settings)
-            ToolType.PENCIL_CUMULATIVE -> savePencilCumulativeSettings(settings)
+            ToolType.PEN -> savePenSettings(settings as com.sketcher.sketchercompanionv1.tools.PenSettings)
+            ToolType.FREEHAND -> saveFreehandSettings(settings as com.sketcher.sketchercompanionv1.tools.PencilSettings)
+            ToolType.PAINT -> savePaintSettings(settings as com.sketcher.sketchercompanionv1.tools.PaintSettings)
+            ToolType.PLUMA -> savePlumaSettings(settings as com.sketcher.sketchercompanionv1.tools.PlumaSettings)
+            ToolType.WATERCOLOR -> saveWatercolorSettings(settings as com.sketcher.sketchercompanionv1.tools.WatercolorSettings)
+            ToolType.PENCIL_CUMULATIVE -> savePencilCumulativeSettings(settings as com.sketcher.sketchercompanionv1.tools.PencilSettings)
             else -> {}
         }
     }
@@ -552,75 +704,64 @@ class ToolManager(context: Context) {
         }
     }
 
-    private fun loadFreehandSettings(): FreehandSettings {
-        val json = prefs.getString("freehand_settings_v3", null) ?: return FreehandSettings()
-        return try { gson.fromJson(json, FreehandSettings::class.java) } catch (e: Exception) { FreehandSettings() }
+    private fun loadFreehandSettings(): com.sketcher.sketchercompanionv1.tools.PencilSettings {
+        val json = prefs.getString("freehand_settings_v4", null) ?: return com.sketcher.sketchercompanionv1.tools.PencilSettings()
+        return try { gson.fromJson(json, com.sketcher.sketchercompanionv1.tools.PencilSettings::class.java) } catch (e: Exception) { com.sketcher.sketchercompanionv1.tools.PencilSettings() }
     }
 
-    private fun saveFreehandSettings(settings: FreehandSettings) {
+    private fun saveFreehandSettings(settings: com.sketcher.sketchercompanionv1.tools.PencilSettings) {
         val json = gson.toJson(settings)
-        prefs.edit().putString("freehand_settings_v3", json).apply()
+        prefs.edit().putString("freehand_settings_v4", json).apply()
     }
 
-    private fun loadPaintSettings(): FreehandSettings {
-        val json = prefs.getString("paint_settings_v3", null) ?: return FreehandSettings(thinning = 0.5f, smoothing = 0.5f, simulatePressure = true)
-        return try { gson.fromJson(json, FreehandSettings::class.java) } catch (e: Exception) { FreehandSettings() }
+    private fun loadPaintSettings(): com.sketcher.sketchercompanionv1.tools.PaintSettings {
+        val json = prefs.getString("paint_settings_v4", null) ?: return com.sketcher.sketchercompanionv1.tools.PaintSettings()
+        return try { gson.fromJson(json, com.sketcher.sketchercompanionv1.tools.PaintSettings::class.java) } catch (e: Exception) { com.sketcher.sketchercompanionv1.tools.PaintSettings() }
     }
 
-    private fun savePaintSettings(settings: FreehandSettings) {
+    private fun savePaintSettings(settings: com.sketcher.sketchercompanionv1.tools.PaintSettings) {
         val json = gson.toJson(settings)
-        prefs.edit().putString("paint_settings_v3", json).apply()
+        prefs.edit().putString("paint_settings_v4", json).apply()
     }
 
-    private fun loadPenSettings(): FreehandSettings {
-        val json = prefs.getString("pen_settings_v3", null) ?: return FreehandSettings(thinning = 0f, smoothing = 0f, simulatePressure = false)
-        return try { gson.fromJson(json, FreehandSettings::class.java) } catch (e: Exception) { FreehandSettings() }
+    private fun loadPenSettings(): com.sketcher.sketchercompanionv1.tools.PenSettings {
+        val json = prefs.getString("pen_settings_v4", null) ?: return com.sketcher.sketchercompanionv1.tools.PenSettings()
+        return try { gson.fromJson(json, com.sketcher.sketchercompanionv1.tools.PenSettings::class.java) } catch (e: Exception) { com.sketcher.sketchercompanionv1.tools.PenSettings() }
     }
 
-    private fun savePenSettings(settings: FreehandSettings) {
+    private fun savePenSettings(settings: com.sketcher.sketchercompanionv1.tools.PenSettings) {
         val json = gson.toJson(settings)
-        prefs.edit().putString("pen_settings_v3", json).apply()
+        prefs.edit().putString("pen_settings_v4", json).apply()
     }
 
-    private fun loadPlumaSettings(): FreehandSettings {
-        val json = prefs.getString("pluma_settings_v3", null) ?: return FreehandSettings()
-        return try { gson.fromJson(json, FreehandSettings::class.java) } catch (e: Exception) { FreehandSettings() }
+    private fun loadPlumaSettings(): com.sketcher.sketchercompanionv1.tools.PlumaSettings {
+        val json = prefs.getString("pluma_settings_v4", null) ?: return com.sketcher.sketchercompanionv1.tools.PlumaSettings()
+        return try { gson.fromJson(json, com.sketcher.sketchercompanionv1.tools.PlumaSettings::class.java) } catch (e: Exception) { com.sketcher.sketchercompanionv1.tools.PlumaSettings() }
     }
 
-    private fun savePlumaSettings(settings: FreehandSettings) {
+    private fun savePlumaSettings(settings: com.sketcher.sketchercompanionv1.tools.PlumaSettings) {
         val json = gson.toJson(settings)
-        prefs.edit().putString("pluma_settings_v3", json).apply()
+        prefs.edit().putString("pluma_settings_v4", json).apply()
     }
 
-    private fun loadPencilCumulativeSettings(): FreehandSettings {
-        val json = prefs.getString("pencil_cumulative_settings_v1", null) ?: return FreehandSettings(isCumulativeOpacity = true)
-        return try { gson.fromJson(json, FreehandSettings::class.java) } catch (e: Exception) { FreehandSettings(isCumulativeOpacity = true) }
+    private fun loadPencilCumulativeSettings(): com.sketcher.sketchercompanionv1.tools.PencilSettings {
+        val json = prefs.getString("pencil_cumulative_settings_v2", null) ?: return com.sketcher.sketchercompanionv1.tools.PencilSettings(isCumulativeOpacity = true)
+        return try { gson.fromJson(json, com.sketcher.sketchercompanionv1.tools.PencilSettings::class.java) } catch (e: Exception) { com.sketcher.sketchercompanionv1.tools.PencilSettings(isCumulativeOpacity = true) }
     }
 
-    private fun savePencilCumulativeSettings(settings: FreehandSettings) {
+    private fun savePencilCumulativeSettings(settings: com.sketcher.sketchercompanionv1.tools.PencilSettings) {
         val json = gson.toJson(settings)
-        prefs.edit().putString("pencil_cumulative_settings_v1", json).apply()
+        prefs.edit().putString("pencil_cumulative_settings_v2", json).apply()
     }
 
-    private fun loadWatercolorSettings(): FreehandSettings {
-        val json = prefs.getString("watercolor_settings_v1", null) ?: return FreehandSettings(
-            thinning = 0.5f,
-            smoothing = 0.5f,
-            simulatePressure = true,
-            watercolorJitterSegment = 12.0f,
-            watercolorJitterDeviation = 3.5f,
-            watercolorBlurRadius = 5.0f,
-            watercolorEdgeMode = com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.BOTH,
-            watercolorCenterOpacity = 0.8f,
-            watercolorEdgeRingOpacity = 1.0f,
-            watercolorEdgeRingWidth = 2.0f
-        )
-        return try { gson.fromJson(json, FreehandSettings::class.java) } catch (e: Exception) { FreehandSettings() }
+    private fun loadWatercolorSettings(): com.sketcher.sketchercompanionv1.tools.WatercolorSettings {
+        val json = prefs.getString("watercolor_settings_v2", null) ?: return com.sketcher.sketchercompanionv1.tools.WatercolorSettings()
+        return try { gson.fromJson(json, com.sketcher.sketchercompanionv1.tools.WatercolorSettings::class.java) } catch (e: Exception) { com.sketcher.sketchercompanionv1.tools.WatercolorSettings() }
     }
 
-    private fun saveWatercolorSettings(settings: FreehandSettings) {
+    private fun saveWatercolorSettings(settings: com.sketcher.sketchercompanionv1.tools.WatercolorSettings) {
         val json = gson.toJson(settings)
-        prefs.edit().putString("watercolor_settings_v1", json).apply()
+        prefs.edit().putString("watercolor_settings_v2", json).apply()
     }
 
     fun getToolConfigMap(): Map<ToolType, ToolConfig> = toolConfigs.toMap()
@@ -670,36 +811,21 @@ class ToolManager(context: Context) {
         val savedPluma = loadPlumaSettings()
         val savedWatercolor = loadWatercolorSettings()
         val savedPencilCumulative = loadPencilCumulativeSettings()
-        
-        fun loadConfig(type: ToolType, defSize: Float, defOpacity: Float): ToolConfig {
-            val s = prefs.getFloat("tool_size_${type.name}", defSize)
-            val o = prefs.getFloat("tool_alpha_${type.name}", defOpacity)
-            val settings = when(type) {
-                ToolType.FREEHAND -> savedFreehand
-                ToolType.PEN -> savedPen
-                ToolType.PAINT -> savedPaint
-                ToolType.PLUMA -> savedPluma
-                ToolType.WATERCOLOR -> savedWatercolor
-                ToolType.PENCIL_CUMULATIVE -> savedPencilCumulative
-                else -> FreehandSettings()
-            }
-            return ToolConfig(size = s, opacity = o, freehandSettings = settings)
-        }
 
-        toolConfigs[ToolType.FREEHAND] = loadConfig(ToolType.FREEHAND, 2f, 1f)
-        toolConfigs[ToolType.PEN] = loadConfig(ToolType.PEN, 2f, 1f)
-        toolConfigs[ToolType.PAINT] = loadConfig(ToolType.PAINT, 10f, 1f)
-        toolConfigs[ToolType.PLUMA] = loadConfig(ToolType.PLUMA, 2.5f, 1f)
-        toolConfigs[ToolType.WATERCOLOR] = loadConfig(ToolType.WATERCOLOR, 20f, 0.4f)
-        toolConfigs[ToolType.PENCIL_CUMULATIVE] = loadConfig(ToolType.PENCIL_CUMULATIVE, 2f, 0.5f)
-        toolConfigs[ToolType.FILL] = loadConfig(ToolType.FILL, 1f, 1.0f)
-        toolConfigs[ToolType.ERASER] = loadConfig(ToolType.ERASER, 10f, 1f)
-        toolConfigs[ToolType.POINT_ERASER] = loadConfig(ToolType.POINT_ERASER, 10f, 1f)
-        toolConfigs[ToolType.CUT_ERASER] = loadConfig(ToolType.CUT_ERASER, 10f, 1f)
-        toolConfigs[ToolType.SELECTION] = loadConfig(ToolType.SELECTION, 1f, 1f)
-        toolConfigs[ToolType.TRIM] = loadConfig(ToolType.TRIM, 1f, 1f)
-        toolConfigs[ToolType.EXTEND] = loadConfig(ToolType.EXTEND, 1f, 1f)
-        toolConfigs[ToolType.EDIT_POINTS] = loadConfig(ToolType.EDIT_POINTS, 1f, 1f)
+        toolConfigs[ToolType.FREEHAND] = loadToolConfig(ToolType.FREEHAND, 2f, 1f, savedFreehand)
+        toolConfigs[ToolType.PEN] = loadToolConfig(ToolType.PEN, 2f, 1f, savedPen)
+        toolConfigs[ToolType.PAINT] = loadToolConfig(ToolType.PAINT, 10f, 1f, savedPaint)
+        toolConfigs[ToolType.PLUMA] = loadToolConfig(ToolType.PLUMA, 2.5f, 1f, savedPluma)
+        toolConfigs[ToolType.WATERCOLOR] = loadToolConfig(ToolType.WATERCOLOR, 20f, 0.4f, savedWatercolor)
+        toolConfigs[ToolType.PENCIL_CUMULATIVE] = loadToolConfig(ToolType.PENCIL_CUMULATIVE, 2f, 0.5f, savedPencilCumulative)
+        toolConfigs[ToolType.FILL] = loadToolConfig(ToolType.FILL, 1f, 1.0f, PencilSettings())
+        toolConfigs[ToolType.ERASER] = loadToolConfig(ToolType.ERASER, 10f, 1f, PencilSettings())
+        toolConfigs[ToolType.POINT_ERASER] = loadToolConfig(ToolType.POINT_ERASER, 10f, 1f, PencilSettings())
+        toolConfigs[ToolType.CUT_ERASER] = loadToolConfig(ToolType.CUT_ERASER, 10f, 1f, PencilSettings())
+        toolConfigs[ToolType.SELECTION] = loadToolConfig(ToolType.SELECTION, 1f, 1f, PencilSettings())
+        toolConfigs[ToolType.TRIM] = loadToolConfig(ToolType.TRIM, 1f, 1f, PencilSettings())
+        toolConfigs[ToolType.EXTEND] = loadToolConfig(ToolType.EXTEND, 1f, 1f, PencilSettings())
+        toolConfigs[ToolType.EDIT_POINTS] = loadToolConfig(ToolType.EDIT_POINTS, 1f, 1f, PencilSettings())
 
         val freehandConfig = toolConfigs[ToolType.FREEHAND]!!
         fingerModeActive = freehandConfig.isFingerMode

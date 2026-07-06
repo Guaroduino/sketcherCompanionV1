@@ -15,8 +15,8 @@ android {
         applicationId = "com.sketcher.sketchercompanionv1"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 23
+        versionName = "1.0.22"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -74,6 +74,9 @@ dependencies {
     implementation("org.nanohttpd:nanohttpd-websocket:2.3.1")
     implementation("androidx.graphics:graphics-path:1.0.1")
     implementation("androidx.graphics:graphics-core:1.0.1")
+    
+    // OkHttp Client
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     
     // Firebase
     implementation(platform(libs.firebase.bom))

@@ -2,6 +2,7 @@ package com.sketcher.sketchercompanionv1.ui.components
 
 import com.sketcher.sketchercompanionv1.dto.FillStyle
 import android.graphics.Color as AndroidColor
+import com.sketcher.sketchercompanionv1.R
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Timeline
 import android.util.Log
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -51,18 +53,19 @@ import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
 import com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler
 
 // Define ToolPayload as requested
-enum class ToolPayload(val label: String, val icon: ImageVector) {
-    PENCIL("Pencil", Icons.Default.Edit),
-    PEN("Pen", Icons.Default.Gesture),
-    ERASER("Eraser", Icons.Default.AutoFixNormal),
-    POINT_ERASER("Borrador de Puntos", Icons.Default.AutoFixNormal),
-    CUT_ERASER("Borrador de Corte", Icons.Default.AutoFixNormal),
-    STROKE_COLOR("Stroke Color", Icons.Default.BorderColor),
-    FILL_COLOR("Fill Color", Icons.Default.FormatColorFill),
-    PAINT("Paint", Icons.Default.Brush),
-    WATERCOLOR("Acuarela", Icons.Default.Palette),
-    PLUMA("Pluma", Icons.Default.Gesture),
-    PENCIL_CUMULATIVE("Pencil Acumulativo", Icons.Default.Edit)
+enum class ToolPayload(val label: String, val icon: ImageVector, val iconResId: Int? = null) {
+    PENCIL("Pencil", Icons.Default.Edit, R.drawable.ic_tabler_pencil),
+    PEN("Pen", Icons.Default.Gesture, R.drawable.ic_tabler_pen),
+    ERASER("Eraser", Icons.Default.AutoFixNormal, R.drawable.ic_tabler_eraser),
+    POINT_ERASER("Borrador de Puntos", Icons.Default.AutoFixNormal, R.drawable.ic_tabler_point_eraser),
+    CUT_ERASER("Borrador de Corte", Icons.Default.AutoFixNormal, R.drawable.ic_tabler_cut_eraser),
+    STROKE_COLOR("Stroke Color", Icons.Default.BorderColor, R.drawable.ic_tabler_stroke_color),
+    FILL_COLOR("Fill Color", Icons.Default.FormatColorFill, R.drawable.ic_tabler_fill_color),
+    PAINT("Paint", Icons.Default.Brush, R.drawable.ic_tabler_paint),
+    WATERCOLOR("Acuarela", Icons.Default.Palette, R.drawable.ic_tabler_watercolor),
+    PLUMA("Pluma", Icons.Default.Gesture, R.drawable.ic_tabler_pluma),
+    PENCIL_CUMULATIVE("Pencil Acumulativo", Icons.Default.Edit, R.drawable.ic_tabler_pencil_cumulative),
+    STABILIZE("Estabilización", Icons.Default.Timeline, R.drawable.ic_tabler_edit_points)
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -88,7 +91,8 @@ fun AssignableToolButton(
     isNone: Boolean = false,
     subTools: List<StudioTool> = emptyList(),
     onSubToolClick: ((StudioTool) -> Unit)? = null,
-    tool: StudioTool? = null
+    tool: StudioTool? = null,
+    stabilizationPreview: Float? = null
 ) {
     val scaler = LocalUiScaler.current
     val scaleFactor = scaler.scaleFactor
@@ -160,6 +164,23 @@ fun AssignableToolButton(
                         end = androidx.compose.ui.geometry.Offset(cx + dx, cy - dy),
                         strokeWidth = strokeWidth,
                         cap = StrokeCap.Round
+                    )
+                }
+            } else if (payload == ToolPayload.STABILIZE && stabilizationPreview != null) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = contentDescription,
+                        tint = iconColor.copy(alpha = 0.35f),
+                        modifier = Modifier
+                            .size(iconSize)
+                            .then(if (isEditMode) Modifier.alpha(0.6f) else Modifier)
+                    )
+                    Text(
+                        text = "${(stabilizationPreview * 100).toInt()}",
+                        color = iconColor,
+                        fontSize = 10.sp * scaleFactor,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                     )
                 }
             } else if (colorPreview != null || fillStylePreview != null) {

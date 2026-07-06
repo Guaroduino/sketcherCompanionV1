@@ -10,6 +10,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
@@ -23,9 +24,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import com.sketcher.sketchercompanionv1.utils.UpdateManager
+import com.sketcher.sketchercompanionv1.utils.UpdateInfo
 import com.sketcher.sketchercompanionv1.ui.dialogs.DxfImportDialog
 import com.sketcher.sketchercompanionv1.ui.dialogs.DxfExportDialog
-import com.sketcher.sketchercompanionv1.ui.dialogs.StudioMenuDialog
 import com.sketcher.sketchercompanionv1.dto.FillStyle
 import java.io.File
 
@@ -48,6 +52,46 @@ class MainActivity : ComponentActivity() {
             
             val sketchViewModel: SketcherViewModel = viewModel()
             val context = LocalContext.current
+
+            // Wireless Projection Manager initialization & lifecycle binding
+            val wirelessProjectionManager = remember { com.sketcher.sketchercompanionv1.projection.WirelessProjectionManager(context) }
+            sketchViewModel.wirelessProjectionManager = wirelessProjectionManager
+
+            val isWirelessProjectionActive = sketchViewModel.isWirelessProjectionActive
+            LaunchedEffect(isWirelessProjectionActive) {
+                if (isWirelessProjectionActive) {
+                    wirelessProjectionManager.start()
+                } else {
+                    wirelessProjectionManager.stop()
+                }
+            }
+
+            DisposableEffect(Unit) {
+                onDispose {
+                    wirelessProjectionManager.stop()
+                    sketchViewModel.wirelessProjectionManager = null
+                }
+            }
+            
+            // Check for updates
+            var updateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
+            var showUpdateDialog by remember { mutableStateOf(false) }
+            var isDownloadingUpdate by remember { mutableStateOf(false) }
+            var downloadProgress by remember { mutableStateOf(0f) }
+            val updateManager = remember { UpdateManager(context) }
+            val coroutineScope = rememberCoroutineScope()
+            
+            LaunchedEffect(Unit) {
+                try {
+                    val info = updateManager.checkForUpdates()
+                    if (info != null) {
+                        updateInfo = info
+                        showUpdateDialog = true
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
             
             val interfaceScale by androidx.compose.runtime.remember { 
                 androidx.compose.runtime.derivedStateOf { sketchViewModel.interfaceScale } 
@@ -81,6 +125,65 @@ class MainActivity : ComponentActivity() {
                         }) { androidx.compose.material3.Text("Descartar") }
                     }
                 )
+            }
+
+            // Update Dialog
+            if (showUpdateDialog) {
+                updateInfo?.let { info ->
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { 
+                            if (!info.forceUpdate && !isDownloadingUpdate) {
+                                showUpdateDialog = false 
+                            }
+                        },
+                        title = { androidx.compose.material3.Text("Actualización Disponible (v${info.versionName})") },
+                        text = {
+                            Column {
+                                androidx.compose.material3.Text(info.releaseNotes)
+                                if (isDownloadingUpdate) {
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    androidx.compose.material3.LinearProgressIndicator(
+                                        progress = { downloadProgress },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    androidx.compose.material3.Text(
+                                        text = "Descargando: ${(downloadProgress * 100).toInt()}%",
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            if (!isDownloadingUpdate) {
+                                androidx.compose.material3.TextButton(onClick = {
+                                    isDownloadingUpdate = true
+                                    coroutineScope.launch {
+                                        val file = updateManager.downloadApk(info.apkUrl) { progress ->
+                                            downloadProgress = progress
+                                        }
+                                        isDownloadingUpdate = false
+                                        if (file != null) {
+                                            updateManager.installApk(file)
+                                            showUpdateDialog = false
+                                        } else {
+                                            android.widget.Toast.makeText(context, "Error al descargar la actualización", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }) {
+                                    androidx.compose.material3.Text("Descargar e Instalar")
+                                }
+                            }
+                        },
+                        dismissButton = {
+                            if (!info.forceUpdate && !isDownloadingUpdate) {
+                                androidx.compose.material3.TextButton(onClick = { showUpdateDialog = false }) {
+                                    androidx.compose.material3.Text("Más Tarde")
+                                }
+                            }
+                        }
+                    )
+                }
             }
             
             // HOISTED STATE
@@ -131,6 +234,7 @@ class MainActivity : ComponentActivity() {
             var showExportSvgDialog by remember { mutableStateOf(false) }
             var showPdfExportDialog by remember { mutableStateOf(false) }
             var showGlobalScaleDialog by remember { mutableStateOf(false) }
+            var showRenderBottomSheet by remember { mutableStateOf(false) }
 
             // SAF LAUNCHERS (Hoisted)
             val saveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
@@ -199,7 +303,8 @@ class MainActivity : ComponentActivity() {
                     onTemplatesSave = { name -> sketchViewModel.saveTemplate(context, name) },
                     onTemplatesLoad = { file -> sketchViewModel.loadFromTemplate(context, file) },
                     onSettings = { showSettingsPopup = true },
-                    onZoomFit = { sketchViewModel.fitContent() }
+                    onZoomFit = { sketchViewModel.fitContent() },
+                    onRender = { showRenderBottomSheet = true }
                 )
             }
   
@@ -245,10 +350,16 @@ class MainActivity : ComponentActivity() {
                         }
 
 
+                        var showExitDialog by remember { mutableStateOf(false) }
+
                         // Intercept back button gestures
                         androidx.activity.compose.BackHandler(enabled = true) {
                             if (!sketchViewModel.showDashboard) {
-                                sketchViewModel.exitEditorToDashboard(context)
+                                if (sketchViewModel.hasUnsavedChangesSinceLastAutosave) {
+                                    showExitDialog = true
+                                } else {
+                                    sketchViewModel.exitEditorWithoutSaving(context)
+                                }
                             } else {
                                 val handled = sketchViewModel.navigateUp(context)
                                 if (!handled) {
@@ -257,12 +368,58 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
+                        if (showExitDialog) {
+                            androidx.compose.material3.AlertDialog(
+                                onDismissRequest = { showExitDialog = false },
+                                title = { androidx.compose.material3.Text("Cambios sin guardar") },
+                                text = { androidx.compose.material3.Text("¿Deseas guardar los cambios antes de salir?") },
+                                confirmButton = {
+                                    Row {
+                                        androidx.compose.material3.TextButton(onClick = { 
+                                            sketchViewModel.exitEditorToDashboard(context)
+                                            showExitDialog = false
+                                        }) { androidx.compose.material3.Text("Guardar") }
+                                        
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        
+                                        androidx.compose.material3.TextButton(onClick = { 
+                                            sketchViewModel.exitEditorWithoutSaving(context)
+                                            showExitDialog = false
+                                        }) { androidx.compose.material3.Text("Descartar") }
+                                    }
+                                },
+                                dismissButton = {
+                                    androidx.compose.material3.TextButton(onClick = { showExitDialog = false }) { 
+                                        androidx.compose.material3.Text("Cancelar") 
+                                    }
+                                }
+                            )
+                        }
+
                         if (sketchViewModel.showDashboard) {
                             com.sketcher.sketchercompanionv1.ui.DashboardScreen(
                                 viewModel = sketchViewModel,
                                 theme = theme,
                                 onOpenProject = { project ->
                                     sketchViewModel.loadLocalProject(context, project)
+                                },
+                                versionName = updateManager.getCurrentVersionName(),
+                                updateAvailable = (updateInfo != null),
+                                onUpdateClick = {
+                                    coroutineScope.launch {
+                                        try {
+                                            val info = updateManager.checkForUpdates()
+                                            if (info != null) {
+                                                updateInfo = info
+                                                showUpdateDialog = true
+                                            } else {
+                                                android.widget.Toast.makeText(context, "No hay actualizaciones disponibles", android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                            android.widget.Toast.makeText(context, "Error al buscar actualizaciones", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
                                 }
                             )
                         } else {
@@ -446,6 +603,14 @@ class MainActivity : ComponentActivity() {
                                      exportPdfLauncher.launch("drawing.pdf")
                                      showPdfExportDialog = false
                                 }
+                            )
+                        }
+
+                        if (showRenderBottomSheet) {
+                            com.sketcher.sketchercompanionv1.ui.dialogs.RenderOptionsBottomSheet(
+                                viewModel = sketchViewModel,
+                                currentUserUid = currentUser?.uid,
+                                onDismiss = { showRenderBottomSheet = false }
                             )
                         }
                     }

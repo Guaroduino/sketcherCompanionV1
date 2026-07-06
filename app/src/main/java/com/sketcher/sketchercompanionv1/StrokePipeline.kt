@@ -34,7 +34,7 @@ class StrokePipeline(
     // --- Configuration ---
     var activeTool: ToolType = ToolType.FREEHAND
     var activeStrokeType: StrokeType = StrokeType.FREEHAND
-    var activeFreehandSettings: FreehandSettings = FreehandSettings()
+    var activeFreehandSettings: com.sketcher.sketchercompanionv1.tools.ToolSettings = com.sketcher.sketchercompanionv1.tools.PencilSettings()
     var activeSize: Float = 10f
     var activeColor: Int = Color.BLACK
     var activeStrokeColor: Int = Color.BLACK
@@ -64,8 +64,21 @@ class StrokePipeline(
     // --- Object Pooling & Caching ---
     private val reusablePreviewPath = Path().apply { fillType = Path.FillType.EVEN_ODD }
     private val reusableFillPath = Path().apply { fillType = Path.FillType.EVEN_ODD }
-    private var liveSettingsCache = FreehandSettings()
-    private var lastBaseSettings: FreehandSettings? = null
+    private var liveSettingsCache: com.sketcher.sketchercompanionv1.tools.ToolSettings = com.sketcher.sketchercompanionv1.tools.PencilSettings()
+    private var lastBaseSettings: com.sketcher.sketchercompanionv1.tools.ToolSettings? = null
+
+    private fun toFreehandSettingsShim(settings: com.sketcher.sketchercompanionv1.tools.ToolSettings, toolType: ToolType): FreehandSettings {
+        val brushTool = when (toolType) {
+            ToolType.FREEHAND -> com.sketcher.sketchercompanionv1.tools.PencilTool(settings = settings)
+            ToolType.PEN -> com.sketcher.sketchercompanionv1.tools.PenTool(settings = settings)
+            ToolType.PLUMA -> com.sketcher.sketchercompanionv1.tools.PlumaTool(settings = settings)
+            ToolType.PAINT -> com.sketcher.sketchercompanionv1.tools.PaintTool(settings = settings)
+            ToolType.WATERCOLOR -> com.sketcher.sketchercompanionv1.tools.WatercolorTool(settings = settings)
+            ToolType.PENCIL_CUMULATIVE -> com.sketcher.sketchercompanionv1.tools.PencilCumulativeTool(settings = settings)
+            else -> com.sketcher.sketchercompanionv1.tools.PencilTool(settings = settings)
+        }
+        return brushTool.toFreehandSettings(currentZoom)
+    }
 
     // --- Incremental Live Preview ---
     // Instead of re-running PerfectFreehandGenerator on all N points every frame,
@@ -453,7 +466,8 @@ class StrokePipeline(
             committedIntersections.clear()
         }
 
-        val settings = liveSettingsCache.copy(size = activeSize, isComplete = false, streamline = globalStabilizationLevel * 0.8f)
+        val shimSettings = toFreehandSettingsShim(liveSettingsCache, activeTool)
+        val settings = shimSettings.copy(size = activeSize, isComplete = false, streamline = shimSettings.streamline)
 
         // 2. Incremental preview for FREEHAND only when stroke is long enough
         val result: PerfectFreehandGenerator.FreehandResult
@@ -481,7 +495,7 @@ class StrokePipeline(
                 val segmentBounds = RectF()
                 segmentPath.computeBounds(segmentBounds, true)
                 
-                if (activeFreehandSettings.isCumulativeOpacity && activeStrokeType == StrokeType.FREEHAND) {
+                if (settings.isCumulativeOpacity && activeStrokeType == StrokeType.FREEHAND) {
                     val numPrev = committedChunks.size
                     for (i in 0 until numPrev - 2) { // ignore the last two chunks (adjacent + near)
                         val prev = committedChunks[i]
@@ -566,7 +580,7 @@ class StrokePipeline(
         }
 
         val liveIntersections = mutableListOf<Path>()
-        if (activeFreehandSettings.isCumulativeOpacity && activeStrokeType == StrokeType.FREEHAND) {
+        if (settings.isCumulativeOpacity && activeStrokeType == StrokeType.FREEHAND) {
             if (livePoints.size < INCREMENTAL_MIN_POINTS) {
                 // Short stroke: run the full check (fast because points list is short)
                 liveIntersections.addAll(PerfectFreehandGenerator.generateCumulativeChunks(livePoints, settings, currentZoom))
@@ -661,6 +675,8 @@ class StrokePipeline(
              return
         }
 
+        val fs = toFreehandSettingsShim(activeFreehandSettings, activeTool)
+
         val isCad = activeStrokeType != StrokeType.FREEHAND
         if (isCad) {
             val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(activeStrokeType, finalPointsRaw)
@@ -683,7 +699,7 @@ class StrokePipeline(
                 strokeType = activeStrokeType,
                 isCadGeometry = true,
                 fillStyle = activeFillStyle,
-                freehandSettings = activeFreehandSettings
+                settings = activeFreehandSettings
             )
             val fill = null
             onStrokeCompleted(stroke, fill)
@@ -691,27 +707,23 @@ class StrokePipeline(
             return
         }
 
-        // Pre-simulate pressure on finalPointsRaw if simulatePressure is true
-        val finalPointsWithPressure = if (activeFreehandSettings.simulatePressure && activeFreehandSettings.thinning > 0f) {
-            simulatePressureOnPoints(finalPointsRaw, activeSize)
-        } else {
-            finalPointsRaw
-        }
+        // Do not pre-simulate pressure on raw points, let PerfectFreehandGenerator handle it to match the live stroke
+        val finalPointsWithPressure = finalPointsRaw
 
         // Simplify
-        val tolerance = activeFreehandSettings.simplificationTolerance.coerceAtLeast(0.01f)
-        val isSimplified = activeFreehandSettings.isSimplificationEnabled
+        val tolerance = fs.simplificationTolerance.coerceAtLeast(0.01f)
+        val isSimplified = fs.isSimplificationEnabled
 
         val finalPoints = if (isSimplified && finalPointsWithPressure.size > 2) {
              StrokeSimplifier.simplify(finalPointsWithPressure, tolerance, activeSize * 2.0f)
-        } else {
-             finalPointsWithPressure
-        }
+         } else {
+              finalPointsWithPressure
+         }
 
-        // Generate High Fidelity Path (pass simulatePressure = false since we pre-simulated it!)
+        // Generate High Fidelity Path matching live settings
         val genResult = PerfectFreehandGenerator.generate(
             finalPoints, 
-            activeFreehandSettings.copy(size = activeSize, isComplete = true, simulatePressure = false, streamline = globalStabilizationLevel * 0.8f), 
+            fs.copy(size = activeSize, isComplete = true, simulatePressure = fs.simulatePressure, streamline = fs.streamline), 
             currentZoom
         )
         val rawPath = Path(genResult.path)
@@ -757,16 +769,8 @@ class StrokePipeline(
                 brushType = activeTool.name,
                 strokeType = activeStrokeType,
                 isFlattened = true,
-                paintOutlineWidth = activeFreehandSettings.paintOutlineWidth,
                 fillStyle = activeFillStyle,
-                watercolorJitterSegment = activeFreehandSettings.watercolorJitterSegment,
-                watercolorJitterDeviation = activeFreehandSettings.watercolorJitterDeviation,
-                watercolorBlurRadius = activeFreehandSettings.watercolorBlurRadius,
-                watercolorEdgeMode = activeFreehandSettings.watercolorEdgeMode,
-                watercolorCenterOpacity = activeFreehandSettings.watercolorCenterOpacity,
-                watercolorEdgeRingOpacity = activeFreehandSettings.watercolorEdgeRingOpacity,
-                watercolorEdgeRingWidth = activeFreehandSettings.watercolorEdgeRingWidth,
-                freehandSettings = activeFreehandSettings.copy(simulatePressure = false, streamline = globalStabilizationLevel * 0.8f)
+                settings = activeFreehandSettings
             )
 
             onStrokeCompleted(stroke, null)
@@ -774,7 +778,7 @@ class StrokePipeline(
             return
         }
 
-        if (isFlattenedOuterStrokeEnabled && activeStrokeType == StrokeType.FREEHAND && !activeFreehandSettings.isCumulativeOpacity) {
+        if (isFlattenedOuterStrokeEnabled && activeStrokeType == StrokeType.FREEHAND && !fs.isCumulativeOpacity) {
             val activeToolSnap = activeTool.name
             val activeStrokeTypeSnap = activeStrokeType
             val activeStrokeColorSnap = activeStrokeColor
@@ -864,7 +868,7 @@ class StrokePipeline(
                         rightPoints = genResultRightSnap,
                         isFlattened = true,
                         fillStyle = activeFillStyleSnap,
-                        freehandSettings = activeFreehandSettingsSnap.copy(simulatePressure = false, streamline = globalStabilizationLevel * 0.8f)
+                        settings = activeFreehandSettingsSnap
                     )
 
                     var fill: FillData? = null
@@ -900,10 +904,10 @@ class StrokePipeline(
                  fPath.close()
             }
 
-            val chunkPaths = if (activeFreehandSettings.isCumulativeOpacity && activeStrokeType == StrokeType.FREEHAND) {
+            val chunkPaths = if (fs.isCumulativeOpacity && activeStrokeType == StrokeType.FREEHAND) {
                 PerfectFreehandGenerator.generateCumulativeChunks(
                     finalPoints,
-                    activeFreehandSettings.copy(size = activeSize, isComplete = true, simulatePressure = false, streamline = globalStabilizationLevel * 0.8f),
+                    fs.copy(size = activeSize, isComplete = true, simulatePressure = fs.simulatePressure, streamline = fs.streamline),
                     currentZoom
                 )
             } else {
@@ -926,7 +930,7 @@ class StrokePipeline(
                 rightPoints = genResult.right,
                 paths = chunkPaths,
                 fillStyle = activeFillStyle,
-                freehandSettings = activeFreehandSettings.copy(simulatePressure = false, streamline = globalStabilizationLevel * 0.8f)
+                settings = activeFreehandSettings
             )
 
             var fill: FillData? = null
@@ -955,6 +959,8 @@ class StrokePipeline(
             return
         }
         
+        val fs = toFreehandSettingsShim(activeFreehandSettings, activeTool)
+
         val isCad = activeStrokeType != StrokeType.FREEHAND
         if (isCad) {
             val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(activeStrokeType, finalPointsRaw)
@@ -977,7 +983,7 @@ class StrokePipeline(
                 strokeType = activeStrokeType,
                 isCadGeometry = true,
                 fillStyle = activeFillStyle,
-                freehandSettings = activeFreehandSettings
+                settings = activeFreehandSettings
             )
             val fill = null
             onStrokeCompleted(stroke, fill)
@@ -985,27 +991,23 @@ class StrokePipeline(
             return
         }
         
-        // Pre-simulate pressure on finalPointsRaw if simulatePressure is true
-        val finalPointsWithPressure = if (activeFreehandSettings.simulatePressure && activeFreehandSettings.thinning > 0f) {
-            simulatePressureOnPoints(finalPointsRaw, activeSize)
-        } else {
-            finalPointsRaw
-        }
+        // Do not pre-simulate pressure on raw points, let PerfectFreehandGenerator handle it to match the live stroke
+        val finalPointsWithPressure = finalPointsRaw
 
         // Simplify if enabled
-        val tolerance = activeFreehandSettings.simplificationTolerance.coerceAtLeast(0.01f)
-        val isSimplified = activeFreehandSettings.isSimplificationEnabled
+        val tolerance = fs.simplificationTolerance.coerceAtLeast(0.01f)
+        val isSimplified = fs.isSimplificationEnabled
 
         val finalPoints = if (isSimplified && finalPointsWithPressure.size > 2) {
              StrokeSimplifier.simplify(finalPointsWithPressure, tolerance, activeSize * 2.0f)
-        } else {
-             finalPointsWithPressure
-        }
+         } else {
+              finalPointsWithPressure
+         }
 
-        // Duplicate Logic (pass simulatePressure = false since we pre-simulated it!)
+        // Duplicate Logic matching live settings
         val genResult = PerfectFreehandGenerator.generate(
              finalPoints, 
-             activeFreehandSettings.copy(size = activeSize, isComplete = true, simulatePressure = false, streamline = globalStabilizationLevel * 0.8f), 
+             fs.copy(size = activeSize, isComplete = true, simulatePressure = fs.simulatePressure, streamline = fs.streamline), 
              currentZoom
         )
         val path = Path(genResult.path)
@@ -1020,10 +1022,10 @@ class StrokePipeline(
              fPath.close()
         }
 
-        val chunkPaths = if (activeFreehandSettings.isCumulativeOpacity && activeStrokeType == StrokeType.FREEHAND) {
+        val chunkPaths = if (fs.isCumulativeOpacity && activeStrokeType == StrokeType.FREEHAND) {
             PerfectFreehandGenerator.generateCumulativeChunks(
                 finalPoints,
-                activeFreehandSettings.copy(size = activeSize, isComplete = true, simulatePressure = false, streamline = globalStabilizationLevel * 0.8f),
+                fs.copy(size = activeSize, isComplete = true, simulatePressure = fs.simulatePressure, streamline = fs.streamline),
                 currentZoom
             )
         } else {
@@ -1046,7 +1048,7 @@ class StrokePipeline(
              rightPoints = genResult.right,
              paths = chunkPaths,
              fillStyle = activeFillStyle,
-             freehandSettings = activeFreehandSettings.copy(simulatePressure = false, streamline = globalStabilizationLevel * 0.8f)
+             settings = activeFreehandSettings
         )
 
         var fill: FillData? = null
@@ -1188,7 +1190,7 @@ class StrokePipeline(
                     }
                     
                     if (!predictedPointsAdded) {
-                        val latencyMs = activeFreehandSettings.predictionLatency.toLong()
+                        val latencyMs = toFreehandSettingsShim(activeFreehandSettings, activeTool).predictionLatency.toLong()
                         android.util.Log.d("PREDICTOR", "Fallback to Software Predictor (Latency: $latencyMs ms)")
                         val predictedPt = predictor.getPredictedPoint(
                             points = currentStrokePoints,
@@ -1360,7 +1362,8 @@ class StrokePipeline(
         }
         val meshPath = Path()
         if (densePoints.isNotEmpty()) {
-            val settings = liveSettingsCache.copy(size = activeSize, isComplete = true, streamline = globalStabilizationLevel * 0.8f)
+            val shimSettings = toFreehandSettingsShim(liveSettingsCache, activeTool)
+            val settings = shimSettings.copy(size = activeSize, isComplete = true, streamline = shimSettings.streamline)
             PerfectFreehandGenerator.generate(densePoints, settings, currentZoom, meshPath)
         }
         return meshPath
@@ -1372,66 +1375,13 @@ class StrokePipeline(
         center: List<PointF>,
         rawPath: Path
     ): Path {
-        if (left.size < 100 || right.size < 100 || center.size < 2) {
-            val cleanPath = Path()
+        val cleanPath = Path()
+        try {
             cleanPath.op(rawPath, rawPath, Path.Op.UNION)
-            return cleanPath
+        } catch (e: Exception) {
+            return rawPath
         }
-
-        val numChunks = (left.size / 50).coerceIn(2, 20)
-        val unionedChunks = mutableListOf<Path>()
-        
-        val startRadius = kotlin.math.hypot(left[0].x - center[0].x, left[0].y - center[0].y)
-        val endRadius = kotlin.math.hypot(left.last().x - center.last().x, left.last().y - center.last().y)
-        
-        for (j in 0 until numChunks) {
-            val tStart = j.toFloat() / numChunks
-            val tEnd = (j + 1).toFloat() / numChunks
-            
-            val startLeftIdx = (tStart * (left.size - 1)).toInt().coerceIn(0, left.size - 1)
-            val endLeftIdx = (tEnd * (left.size - 1)).toInt().coerceIn(startLeftIdx + 1, left.size - 1)
-            
-            val startRightIdx = (tStart * (right.size - 1)).toInt().coerceIn(0, right.size - 1)
-            val endRightIdx = (tEnd * (right.size - 1)).toInt().coerceIn(startRightIdx + 1, right.size - 1)
-            
-            val chunkPath = Path()
-            
-            val lStart = startLeftIdx
-            val lEnd = endLeftIdx
-            val rStart = startRightIdx
-            val rEnd = endRightIdx
-            
-            chunkPath.moveTo(left[lStart].x, left[lStart].y)
-            for (i in lStart + 1..lEnd) {
-                chunkPath.lineTo(left[i].x, left[i].y)
-            }
-            chunkPath.lineTo(right[rEnd].x, right[rEnd].y)
-            for (i in rEnd - 1 downTo rStart) {
-                chunkPath.lineTo(right[i].x, right[i].y)
-            }
-            chunkPath.close()
-            
-            if (j == 0) {
-                chunkPath.addCircle(center[0].x, center[0].y, startRadius, Path.Direction.CW)
-            }
-            if (j == numChunks - 1) {
-                chunkPath.addCircle(center.last().x, center.last().y, endRadius, Path.Direction.CW)
-            }
-            
-            val unionedChunk = Path()
-            unionedChunk.op(chunkPath, chunkPath, Path.Op.UNION)
-            unionedChunks.add(unionedChunk)
-        }
-        
-        val finalUnion = Path()
-        for (chunk in unionedChunks) {
-            if (finalUnion.isEmpty) {
-                finalUnion.set(chunk)
-            } else {
-                finalUnion.op(finalUnion, chunk, Path.Op.UNION)
-            }
-        }
-        return finalUnion
+        return if (cleanPath.isEmpty) rawPath else cleanPath
     }
 
     private fun flattenOuterStroke(outlinePath: Path): Path {

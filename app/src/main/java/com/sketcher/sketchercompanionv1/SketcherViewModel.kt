@@ -73,6 +73,7 @@ import kotlinx.coroutines.withContext
 import com.google.gson.Gson
 
 import com.sketcher.sketchercompanionv1.dto.*
+import com.sketcher.sketchercompanionv1.tools.*
 
 import com.sketcher.sketchercompanionv1.utils.TemplateManager
 import com.sketcher.sketchercompanionv1.utils.toFillStyle
@@ -198,6 +199,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         prefs.edit().putBoolean("show_performance_stats", showPerformanceStats).apply()
 
+    }
+
+    var showPublicLibrary by mutableStateOf(prefs.getBoolean("show_public_library", false))
+        private set
+
+    fun togglePublicLibrary() {
+        showPublicLibrary = !showPublicLibrary
+        prefs.edit().putBoolean("show_public_library", showPublicLibrary).apply()
     }
 
     private val _showExperimentalTools = MutableStateFlow(prefs.getBoolean("show_experimental_tools", false))
@@ -542,34 +551,51 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
 
     val assignedToolColors = toolbarManager.assignedToolColors
+    val assignedToolStabilization = toolbarManager.assignedToolStabilization
 
     var lastActiveColorToolId: String?
         get() = toolbarManager.lastActiveColorToolId
         set(value) { toolbarManager.lastActiveColorToolId = value }
 
+    var lastActiveStabilizationToolId: String?
+        get() = toolbarManager.lastActiveStabilizationToolId
+        set(value) { toolbarManager.lastActiveStabilizationToolId = value }
+
     fun updateLastActiveToolColor(color: Int) {
-
         toolbarManager.updateLastActiveToolColor(color)
-
     }
 
+    fun updateLastActiveToolStabilization(stabilization: Float) {
+        toolbarManager.updateLastActiveToolStabilization(stabilization)
+    }
 
+    fun restoreStabilizationToPreset() {
+        val defaultStab = if (toolManager.currentTool == ToolType.FREEHAND || toolManager.currentTool == ToolType.PENCIL_CUMULATIVE) 0.07f else 0f
+        val idx = toolManager.selectedPresetIndex.value
+        val list = toolManager.brushPresets.value
+        val presetStab = if (idx != null && idx in list.indices) {
+            list[idx].stabilization ?: defaultStab
+        } else if (list.isNotEmpty()) {
+            list[0].stabilization ?: defaultStab
+        } else {
+            defaultStab
+        }
+        toolManager.restoreStabilizationToPreset()
+        updateLastActiveToolStabilization(presetStab)
+    }
 
     private val _showStrokeColorPicker = MutableStateFlow(false)
-
     val showStrokeColorPicker = _showStrokeColorPicker.asStateFlow()
 
-
-
     private val _showFillColorPicker = MutableStateFlow(false)
-
     val showFillColorPicker = _showFillColorPicker.asStateFlow()
 
-
+    private val _showStabilizePicker = MutableStateFlow(false)
+    val showStabilizePicker = _showStabilizePicker.asStateFlow()
 
     fun setShowStrokeColorPicker(show: Boolean) { _showStrokeColorPicker.value = show }
-
     fun setShowFillColorPicker(show: Boolean) { _showFillColorPicker.value = show }
+    fun setShowStabilizePicker(show: Boolean) { _showStabilizePicker.value = show }
 
 
 
@@ -627,6 +653,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             ToolPayload.CUT_ERASER -> {
                 selectTool(ToolType.CUT_ERASER)
             }
+            ToolPayload.STABILIZE -> {
+                lastActiveStabilizationToolId = toolId
+                toolId?.let { id ->
+                    assignedToolStabilization.value[id]?.let { setGlobalStabilization(it) }
+                }
+            }
 
         }
 
@@ -638,9 +670,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         if (payload == ToolPayload.STROKE_COLOR || payload == ToolPayload.FILL_COLOR) {
             lastActiveColorToolId = toolId
         }
+        if (payload == ToolPayload.STABILIZE) {
+            lastActiveStabilizationToolId = toolId
+        }
         when(payload) {
             ToolPayload.STROKE_COLOR -> _showStrokeColorPicker.value = true
             ToolPayload.FILL_COLOR -> _showFillColorPicker.value = true
+            ToolPayload.STABILIZE -> _showStabilizePicker.value = true
             else -> {} // Other tools might not have edit dialogs yet
         }
     }
@@ -924,6 +960,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         showPerformanceStats = prefs.getBoolean("show_performance_stats", false)
 
+        showPublicLibrary = prefs.getBoolean("show_public_library", false)
+
         showExperimentalTools = prefs.getBoolean("show_experimental_tools", false)
         _showExperimentalTools.value = showExperimentalTools
         ToolRegistry.showExperimental = showExperimentalTools
@@ -1156,6 +1194,25 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     var projectId by mutableStateOf(UUID.randomUUID().toString())
 
+    val pages = mutableStateListOf<CanvasPage>().apply {
+        add(CanvasPage(
+            id = java.util.UUID.randomUUID().toString(),
+            name = "Página 1",
+            layers = mutableStateListOf(Layer("l_${System.currentTimeMillis()}", "Capa 1", mutableStateListOf())),
+            activeLayerIndex = 0,
+            backgroundColor = android.graphics.Color.WHITE,
+            backgroundStyle = FillStyle.Solid(android.graphics.Color.WHITE),
+            gridConfig = GridConfig(),
+            canvasSizeConfig = null,
+            cameraMatrixValues = FloatArray(9).apply { Matrix().getValues(this) },
+            scaleConfig = ScaleConfig(),
+            currentUnit = DistanceUnit.MM
+        ))
+    }
+
+    var activePageIndex by mutableIntStateOf(0)
+        private set
+
     var currentFileUri: android.net.Uri? by mutableStateOf(null)
 
     var hasUnsavedChanges: Boolean = false
@@ -1205,7 +1262,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     val brushOpacity = toolManager.brushOpacity
     val currentSize: Float get() = toolManager.currentSize
     val currentOpacity: Float get() = toolManager.currentOpacity
-    val currentFreehandSettings: FreehandSettings get() = toolManager.currentFreehandSettings
+    val currentFreehandSettings: com.sketcher.sketchercompanionv1.tools.ToolSettings get() = toolManager.currentFreehandSettings
 
     val strokeColor = toolManager.strokeColor
     val strokeStyle = toolManager.strokeStyle
@@ -1252,7 +1309,17 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     val brushPresets = toolManager.brushPresets
     val selectedPresetIndex = toolManager.selectedPresetIndex
     fun saveBrushPreset(index: Int) = toolManager.saveBrushPreset(index)
-    fun selectBrushPreset(index: Int) = toolManager.selectBrushPreset(index)
+    fun selectBrushPreset(index: Int) {
+        toolManager.selectBrushPreset(index)
+        val defaultStab = if (toolManager.currentTool == ToolType.FREEHAND || toolManager.currentTool == ToolType.PENCIL_CUMULATIVE) 0.07f else 0f
+        val list = toolManager.brushPresets.value
+        val presetStab = if (index in list.indices) {
+            list[index].stabilization ?: defaultStab
+        } else {
+            defaultStab
+        }
+        updateLastActiveToolStabilization(presetStab)
+    }
     fun isPresetModified(index: Int): Boolean = toolManager.isPresetModified(index)
     fun revertToPresetColor(isStroke: Boolean) {
         val index = selectedPresetIndex.value ?: 0
@@ -1875,112 +1942,88 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     // --- GLOBAL STABILIZER ---
 
-    private val _globalStabilization = MutableStateFlow(prefs.getFloat("global_stabilization", 0.07f))
-
-    val globalStabilization = _globalStabilization.asStateFlow()
-
-
+    val globalStabilization = toolManager.smoothing
 
     fun updateGlobalStabilization(value: Float) {
-
-        val clamped = value.coerceIn(0f, 1f)
-
-        _globalStabilization.value = clamped
-
-        setGlobalStabilization(clamped)
-
+        toolManager.setGlobalStabilization(value)
     }
 
-
-
-    var globalStabilizationLevel by mutableFloatStateOf(prefs.getFloat("global_stabilization", 0.07f))
-
-        private set
-
-
+    var globalStabilizationLevel: Float
+        get() = toolManager.globalStabilizationLevel
+        set(value) {
+            toolManager.setGlobalStabilization(value)
+        }
 
     fun setGlobalStabilization(level: Float) {
-
-        val clamped = level.coerceIn(0f, 1f)
-
-        if (globalStabilizationLevel != clamped) {
-
-            globalStabilizationLevel = clamped
-
-            _globalStabilization.value = clamped // Keep StateFlow in sync
-
-            prefs.edit().putFloat("global_stabilization", clamped).apply()
-
-        }
-
+        toolManager.setGlobalStabilization(level)
     }
 
 
 
-    fun updateFreehandSettings(newSettings: FreehandSettings) {
-
+    fun updateFreehandSettings(newSettings: com.sketcher.sketchercompanionv1.tools.ToolSettings) {
         toolManager.updateFreehandSettings(newSettings)
-
     }
-
-
 
     fun setFreehandSmoothing(value: Float) {
-
-        if (currentFreehandSettings.smoothing != value) {
-
-            updateFreehandSettings(currentFreehandSettings.copy(smoothing = value))
-
+        val curr = currentFreehandSettings
+        when (curr) {
+            is com.sketcher.sketchercompanionv1.tools.PencilSettings -> {
+                if (curr.smoothing != value) {
+                    updateFreehandSettings(curr.copy(smoothing = value))
+                }
+            }
+            is com.sketcher.sketchercompanionv1.tools.PenSettings -> {
+                if (curr.smoothing != value) {
+                    updateFreehandSettings(curr.copy(smoothing = value))
+                }
+            }
+            is com.sketcher.sketchercompanionv1.tools.PlumaSettings -> {
+                if (curr.smoothing != value) {
+                    updateFreehandSettings(curr.copy(smoothing = value))
+                }
+            }
+            is com.sketcher.sketchercompanionv1.tools.PaintSettings -> {
+                if (curr.smoothing != value) {
+                    updateFreehandSettings(curr.copy(smoothing = value))
+                }
+            }
+            is com.sketcher.sketchercompanionv1.tools.WatercolorSettings -> {
+                if (curr.smoothing != value) {
+                    updateFreehandSettings(curr.copy(smoothing = value))
+                }
+            }
         }
-
     }
-
-
 
     fun setFreehandTolerance(value: Float) {
-
-         if (currentFreehandSettings.simplificationTolerance != value) {
-
-            val enabled = value > 0f
-
-            updateFreehandSettings(currentFreehandSettings.copy(
-
-                simplificationTolerance = value,
-
-                isSimplificationEnabled = enabled
-
-            ))
-
+        val curr = currentFreehandSettings
+        if (curr is com.sketcher.sketchercompanionv1.tools.PencilSettings) {
+            if (curr.simplificationTolerance != value) {
+                val enabled = value > 0f
+                updateFreehandSettings(curr.copy(
+                    simplificationTolerance = value,
+                    isSimplificationEnabled = enabled
+                ))
+            }
         }
-
     }
-
-
 
     fun setFreehandPredictionLatency(ms: Float) {
-
-         if (currentFreehandSettings.predictionLatency != ms.toLong()) {
-
-            updateFreehandSettings(currentFreehandSettings.copy(predictionLatency = ms.toLong()))
-
+        val curr = currentFreehandSettings
+        if (curr is com.sketcher.sketchercompanionv1.tools.PencilSettings) {
+            if (curr.predictionLatency != ms.toLong()) {
+                updateFreehandSettings(curr.copy(predictionLatency = ms.toLong()))
+            }
         }
-
     }
 
-
-
-
-
-
-
     fun setFreehandMinWidth(ratio: Float) {
-
-        if (currentFreehandSettings.minWidthRatio != ratio) {
-
-            updateFreehandSettings(currentFreehandSettings.copy(minWidthRatio = ratio))
-
+        val curr = currentFreehandSettings
+        if (curr is com.sketcher.sketchercompanionv1.tools.PencilSettings) {
+            if (curr.minWidthRatio != ratio) {
+                updateFreehandSettings(curr.copy(minWidthRatio = ratio))
+            }
         }
-
     }
 
 
@@ -2274,7 +2317,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                         "WATERCOLOR" -> com.sketcher.sketchercompanionv1.dto.ToolType.WATERCOLOR
                         else -> com.sketcher.sketchercompanionv1.dto.ToolType.FREEHAND
                     }
-                    val settings = toolManager.getToolConfigMap()[toolType]?.freehandSettings ?: com.sketcher.sketchercompanionv1.dto.FreehandSettings()
+                    val settings = toolManager.getToolConfigMap()[toolType]?.settings?.toFreehandSettings(toolType) ?: com.sketcher.sketchercompanionv1.dto.FreehandSettings()
                     com.sketcher.sketchercompanionv1.PerfectFreehandGenerator.generate(densePoints, settings.copy(size = stroke.maxWidth, isComplete = true), outPath = meshPath)
                 }
                 meshPath
@@ -2300,7 +2343,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                         "WATERCOLOR" -> com.sketcher.sketchercompanionv1.dto.ToolType.WATERCOLOR
                         else -> com.sketcher.sketchercompanionv1.dto.ToolType.FREEHAND
                     }
-                    val settings = toolManager.getToolConfigMap()[toolType]?.freehandSettings ?: com.sketcher.sketchercompanionv1.dto.FreehandSettings()
+                    val settings = toolManager.getToolConfigMap()[toolType]?.settings?.toFreehandSettings(toolType) ?: com.sketcher.sketchercompanionv1.dto.FreehandSettings()
                     com.sketcher.sketchercompanionv1.PerfectFreehandGenerator.generate(newPoints, settings.copy(size = stroke.maxWidth, isComplete = true)).path
                 }
             } else {
@@ -2530,6 +2573,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         editingParent?.invalidateCache()
 
         layerUpdateTrigger++
+
+        liveProjectionController.markDirty()
 
     }
 
@@ -2772,6 +2817,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     val cameraMatrix = _cameraMatrix.asStateFlow()
 
+    private var isProjectCameraLoaded = false
+
 
 
     private val homeCameraMatrixValues = FloatArray(9).apply {
@@ -2830,6 +2877,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         _cameraMatrix.value = Matrix(matrix)
 
+        liveProjectionController.markDirty()
+
     }
 
     fun saveDimensions(w: Float, h: Float) {
@@ -2844,11 +2893,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
             liveProjectionController.updateViewportDimensions(w, h)
 
-            if (isHomeCameraDefaultOrIdentity()) {
+            if (isHomeCameraDefaultOrIdentity() && !isProjectCameraLoaded) {
 
                 centerPaperAsHomeCamera()
 
             }
+
+            isProjectCameraLoaded = false
 
         }
 
@@ -3326,13 +3377,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     }
 
-
-
-    private fun getExportSource(useHomeView: Boolean): Pair<RectF, Float> {
+    private fun getExportSource(
+        useHomeView: Boolean,
+        transparentBackground: Boolean = false,
+        sizeConfig: com.sketcher.sketchercompanionv1.dto.CanvasSizeConfig? = null,
+        targetLayers: List<Layer>? = null
+    ): Pair<RectF, Float> {
 
         val bounds = RectF()
-
-        
 
         if (useHomeView) {
 
@@ -3340,51 +3392,99 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         } else {
 
-             val visibleBounds = calculateVisibleBounds()
+             val sizeCfg = sizeConfig ?: canvasSizeConfig
 
-             if (visibleBounds.isEmpty) return Pair(RectF(0f,0f,100f,100f), 1f)
+             if (sizeCfg != null && !transparentBackground) {
 
-             val padding = kotlin.math.max(visibleBounds.width(), visibleBounds.height()) * 0.05f
+                 val halfW = sizeCfg.widthInPixels / 2f
 
-             visibleBounds.inset(-padding, -padding)
+                 val halfH = sizeCfg.heightInPixels / 2f
 
-             bounds.set(visibleBounds)
+                 val left = if (sizeCfg.origin == com.sketcher.sketchercompanionv1.dto.CoordinateOrigin.CENTER) -halfW else 0f
+
+                 val top = if (sizeCfg.origin == com.sketcher.sketchercompanionv1.dto.CoordinateOrigin.CENTER) -halfH else 0f
+
+                 val right = left + sizeCfg.widthInPixels
+
+                 val bottom = top + sizeCfg.heightInPixels
+
+                 val paperBounds = RectF(left, top, right, bottom)
+
+                 // Add 5% padding so shadow/border are fully visible
+
+                 val paddingX = paperBounds.width() * 0.05f
+
+                 val paddingY = paperBounds.height() * 0.05f
+
+                 paperBounds.inset(-paddingX, -paddingY)
+
+                 bounds.set(paperBounds)
+
+             } else {
+
+                 val layersToUse = targetLayers ?: layers
+
+                 val visibleBounds = calculateVisibleBounds(layersToUse)
+
+                 if (visibleBounds.isEmpty) return Pair(RectF(0f, 0f, 100f, 100f), 1f)
+
+                 val padding = kotlin.math.max(visibleBounds.width(), visibleBounds.height()) * 0.05f
+
+                 visibleBounds.inset(-padding, -padding)
+
+                 bounds.set(visibleBounds)
+
+             }
 
         }
 
         return Pair(bounds, 1f)
 
     }
-
-
-
-    fun renderExportBitmap(config: ExportPngConfig): Bitmap? {
+    fun renderExportBitmap(
+        config: ExportPngConfig,
+        customLayers: List<Layer>? = null,
+        customBgColor: Int? = null,
+        customBgStyle: com.sketcher.sketchercompanionv1.dto.FillStyle? = null,
+        customSizeConfig: com.sketcher.sketchercompanionv1.dto.CanvasSizeConfig? = null,
+        customGridConfig: com.sketcher.sketchercompanionv1.dto.GridConfig? = null,
+        customScaleConfig: com.sketcher.sketchercompanionv1.dto.ScaleConfig? = null,
+        customUnit: DistanceUnit? = null,
+        cropBounds: android.graphics.RectF? = null
+    ): Bitmap? {
 
         try {
 
-             val (sourceBounds, _) = getExportSource(config.useHomeView)
+             val targetLayers = customLayers ?: layers
+
+             val targetBgColor = customBgColor ?: backgroundColor
+
+             val targetBgStyle = customBgStyle ?: backgroundStyle
+
+             val targetSizeConfig = customSizeConfig ?: canvasSizeConfig
+
+             val targetGridConfig = customGridConfig ?: gridConfig
+
+             val targetScaleConfig = customScaleConfig ?: scaleConfig
+
+             val targetUnit = customUnit ?: currentUnit
+
+             var (sourceBounds, _) = getExportSource(
+                 useHomeView = config.useHomeView,
+                 transparentBackground = config.transparentBackground,
+                 sizeConfig = targetSizeConfig,
+                 targetLayers = targetLayers
+             )
+
+             if (cropBounds != null) {
+                 sourceBounds = cropBounds
+             }
 
              if (config.width <= 0 || config.height <= 0) return null
-
-             
 
              val bitmap = Bitmap.createBitmap(config.width, config.height, Bitmap.Config.ARGB_8888)
 
              val canvas = Canvas(bitmap)
-
-             
-
-             if (!config.transparentBackground) {
-
-                 canvas.drawColor(backgroundColor)
-
-             } else {
-
-                 canvas.drawColor(AndroidColor.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
-
-             }
-
-             
 
              val matrix = Matrix()
 
@@ -3410,35 +3510,75 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
              }
 
-             
+             if (config.transparentBackground) {
 
-             canvas.save()
+                 canvas.drawColor(AndroidColor.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
 
-             canvas.concat(matrix)
+                 canvas.save()
 
-             for (layer in layers) {
+                 canvas.concat(matrix)
 
-                 if (!layer.isVisible) continue
+                 for (layer in targetLayers) {
 
-                 val layerAlpha = if (layer.opacity < 1f) (layer.opacity * 255).toInt() else 255
+                     if (!layer.isVisible) continue
 
-                 val saveCount = if (layerAlpha < 255) canvas.saveLayerAlpha(null, layerAlpha) else canvas.save()
+                     val layerAlpha = if (layer.opacity < 1f) (layer.opacity * 255).toInt() else 255
 
-                 for (element in layer.elements) RenderHelper.drawElementRecursive(canvas, element, componentLibrary)
+                     val saveCount = if (layerAlpha < 255) canvas.saveLayerAlpha(null, layerAlpha) else canvas.save()
 
-                 canvas.restoreToCount(saveCount)
+                     for (element in layer.elements) RenderHelper.drawElementRecursive(canvas, element, componentLibrary)
+
+                     canvas.restoreToCount(saveCount)
+
+                 }
+
+                 canvas.restore()
+
+             } else {
+
+                 val renderEngine = RenderEngine().apply {
+
+                     this.canvasSizeConfig = targetSizeConfig
+
+                     this.canvasBackgroundStyle = targetBgStyle
+
+                     this.canvasBackgroundColor = targetBgColor
+
+                     this.gridConfig = targetGridConfig
+
+                     this.scaleConfig = targetScaleConfig
+
+                     this.currentUnit = targetUnit
+
+                 }
+
+                 renderEngine.drawLayers(
+
+                     canvas = canvas,
+
+                     layers = targetLayers,
+
+                     viewMatrix = matrix,
+
+                     componentLibrary = componentLibrary,
+
+                     selectedElements = null,
+
+                     isTransformActive = false,
+
+                     drawGrid = renderEngine.gridConfig.isVisible
+
+                 )
 
              }
-
-             canvas.restore()
 
              return bitmap
 
         } catch (e: Exception) {
 
-            e.printStackTrace()
+             e.printStackTrace()
 
-            return null
+             return null
 
         }
 
@@ -3484,6 +3624,43 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
 
 
+    fun renderSelectionExportBitmap(transparent: Boolean = false, maxDimension: Int = 1024): Bitmap? {
+        val bounds = selectionManager.getSelectionBounds()
+        if (bounds.isEmpty || bounds.width() <= 0f || bounds.height() <= 0f) return null
+
+        val w = bounds.width()
+        val h = bounds.height()
+        val targetWidth: Int
+        val targetHeight: Int
+        if (w >= h) {
+            targetWidth = maxDimension
+            targetHeight = (maxDimension * (h / w)).toInt().coerceAtLeast(1)
+        } else {
+            targetHeight = maxDimension
+            targetWidth = (maxDimension * (w / h)).toInt().coerceAtLeast(1)
+        }
+
+        val config = ExportPngConfig(
+            transparentBackground = transparent,
+            useHomeView = false,
+            width = targetWidth,
+            height = targetHeight
+        )
+
+        return renderExportBitmap(config = config, cropBounds = bounds)
+    }
+
+    fun importRenderedBitmap(bitmap: Bitmap, filename: String) {
+        activeImageEditState = com.sketcher.sketchercompanionv1.dto.ImageEditState(
+            isNewImport = true,
+            elementId = null,
+            originalBitmap = bitmap,
+            filename = filename
+        )
+    }
+
+
+
     // --- ADD METHODS (Missing from Step 93 truncation) ---
 
     // Note: Step 33 had addInkStroke, addVectorStroke etc.
@@ -3516,8 +3693,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         var shouldJoin = true
         if (isPaintOrWatercolor) {
             val toolType = if (stroke.brushType == "PAINT") ToolType.PAINT else ToolType.WATERCOLOR
-            val toolSettings = toolManager.getToolConfigMap()[toolType]?.freehandSettings ?: FreehandSettings()
-            shouldJoin = toolSettings.paintJoinPrevious
+            val toolSettings = toolManager.getToolConfigMap()[toolType]?.settings
+            shouldJoin = when (toolSettings) {
+                is com.sketcher.sketchercompanionv1.tools.PaintSettings -> toolSettings.paintJoinPrevious
+                is com.sketcher.sketchercompanionv1.tools.WatercolorSettings -> toolSettings.paintJoinPrevious
+                else -> true
+            }
         }
 
         if (isPaintOrWatercolor && shouldJoin) {
@@ -4144,7 +4325,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     fun saveProjectToZip(context: Context, uri: android.net.Uri, isAutosave: Boolean = false) {
 
-        val currentLayersSnapshot = layers.map { it.copy(elements = it.elements.toMutableStateList()) } // Shallow-ish copy
+        saveCurrentPageState()
+        val currentPagesJson = pages.map { it.toPageJson() }
+        val currentActivePageIndex = activePageIndex
+        val allPagesLayersSnapshot = pages.flatMap { page ->
+            page.layers.map { layer -> layer.copy(elements = layer.elements.toMutableStateList()) }
+        }
 
         val currentComponentLibrary = componentLibrary.toMap()
 
@@ -4169,17 +4355,25 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
 
         // Generate thumbnail on Main thread (safe from ConcurrentModificationException)
-
         val thumbnailBmp = try {
-
-            renderExportBitmap(ExportPngConfig(transparentBackground = false, useHomeView = false, width = 256, height = 256))
-
+            val firstPage = pages.firstOrNull()
+            if (firstPage != null) {
+                renderExportBitmap(
+                    config = ExportPngConfig(transparentBackground = false, useHomeView = false, width = 256, height = 256),
+                    customLayers = firstPage.layers,
+                    customBgColor = firstPage.backgroundColor,
+                    customBgStyle = firstPage.backgroundStyle,
+                    customSizeConfig = firstPage.canvasSizeConfig,
+                    customGridConfig = firstPage.gridConfig,
+                    customScaleConfig = firstPage.scaleConfig,
+                    customUnit = firstPage.currentUnit
+                )
+            } else {
+                renderExportBitmap(ExportPngConfig(transparentBackground = false, useHomeView = false, width = 256, height = 256))
+            }
         } catch (e: Exception) {
-
             e.printStackTrace()
-
             null
-
         }
 
         // Cache thumbnail in memory immediately
@@ -4203,9 +4397,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                     id = savedProjectId,
 
-                    layers = currentLayersSnapshot.map { it.toLayerJson() },
+                    layers = pages.firstOrNull()?.layers?.map { it.toLayerJson() } ?: emptyList(),
 
-                    backgroundConfig = BackgroundConfig(color = savedBgColor, gridConfig = savedGridConfig, fillStyle = savedBgStyle.toFillStyleJson()),
+                    backgroundConfig = BackgroundConfig(
+                        color = pages.firstOrNull()?.backgroundColor ?: savedBgColor,
+                        gridConfig = pages.firstOrNull()?.gridConfig ?: savedGridConfig,
+                        fillStyle = (pages.firstOrNull()?.backgroundStyle ?: savedBgStyle).toFillStyleJson()
+                    ),
 
                     paletteColors = emptyList(),
 
@@ -4215,15 +4413,21 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                         width = savedViewportW, height = savedViewportH, 
 
-                        cameraMatrix = savedCameraMatrix,
+                        cameraMatrix = pages.firstOrNull()?.cameraMatrixValues?.toList() ?: savedCameraMatrix,
 
-                        scaleConfig = savedScaleConfig.copy(unitName = savedUnit.symbol)
+                        scaleConfig = (pages.firstOrNull()?.scaleConfig ?: savedScaleConfig).copy(unitName = (pages.firstOrNull()?.currentUnit ?: savedUnit).symbol)
 
                     ),
 
                     componentLibrary = currentComponentLibrary.mapValues { it.value.toComponentDefinitionJson() },
 
-                    canvasSizeConfig = canvasSizeConfig
+                    canvasSizeConfig = pages.firstOrNull()?.canvasSizeConfig ?: canvasSizeConfig,
+
+                    uiPresetName = toolbarManager.activeUiPresetName.value,
+
+                    pages = currentPagesJson,
+
+                    activePageIndex = currentActivePageIndex
 
                 )
 
@@ -4233,7 +4437,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                     projectData = projectData,
 
-                    layers = currentLayersSnapshot,
+                    layers = allPagesLayersSnapshot,
 
                     uri = uri,
 
@@ -4277,6 +4481,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                             } catch (e: Exception) {
                                 localFile.name
                             }
+                            val fileTimestamp = if (localFile.exists()) localFile.lastModified() else System.currentTimeMillis()
 
                             cloudSyncRepository.uploadProject(
                                 projectId = savedProjectId,
@@ -4284,7 +4489,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                                 projectFileUri = uri,
                                 relativePath = relativePath,
                                 thumbnailUri = thumbUri,
-                                metadata = mapOf("lastModified" to System.currentTimeMillis())
+                                timestamp = fileTimestamp,
+                                metadata = mapOf("lastModified" to fileTimestamp)
                             )
                         }
                     }
@@ -4374,18 +4580,6 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     private fun restoreProjectState(data: ProjectData, bitmaps: Map<String, android.graphics.Bitmap>, svgs: Map<String, String>) {
 
-        val newLayers = mutableListOf<Layer>()
-
-        
-
-        val activeLayer = layers[activeLayerIndex]
-
-        activeLayer.elements.clear()
-
-        layers[activeLayerIndex] = activeLayer.copy()
-
-        
-
         undoStack.clear()
 
         redoStack.clear()
@@ -4409,13 +4603,76 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         }
 
+        pages.clear()
+        if (data.pages != null && data.pages.isNotEmpty()) {
+            data.pages.forEach { pageJson ->
+                val pageLayers = mutableStateListOf<Layer>()
+                pageJson.layers.forEach { l -> pageLayers.add(l.toLayer( { bitmaps[it] }, { svgs[it] } )) }
 
+                val page = CanvasPage(
+                    id = pageJson.id,
+                    name = pageJson.name,
+                    layers = pageLayers,
+                    activeLayerIndex = 0,
+                    backgroundColor = pageJson.backgroundConfig.color,
+                    backgroundStyle = pageJson.backgroundConfig.fillStyle.toFillStyle(pageJson.backgroundConfig.color),
+                    gridConfig = pageJson.backgroundConfig.gridConfig ?: GridConfig(),
+                    canvasSizeConfig = pageJson.canvasSizeConfig,
+                    cameraMatrixValues = FloatArray(9).apply {
+                        if (pageJson.canvasMetadata.cameraMatrix.size == 9) {
+                            for (i in 0..8) this[i] = pageJson.canvasMetadata.cameraMatrix[i]
+                        } else {
+                            Matrix().getValues(this)
+                        }
+                    },
+                    scaleConfig = pageJson.canvasMetadata.scaleConfig ?: ScaleConfig(),
+                    currentUnit = DistanceUnit.fromSymbol(pageJson.canvasMetadata.scaleConfig?.unitName ?: "mm")
+                )
+                pages.add(page)
+            }
+            activePageIndex = data.activePageIndex.coerceIn(pages.indices)
+        } else {
+            // Legacy project support
+            val pageLayers = mutableStateListOf<Layer>()
+            data.layers.forEach { l -> pageLayers.add(l.toLayer( { bitmaps[it] }, { svgs[it] } )) }
 
-        data.layers.forEach { l -> newLayers.add(l.toLayer( { bitmaps[it] }, { svgs[it] } )) }
+            val page = CanvasPage(
+                id = UUID.randomUUID().toString(),
+                name = "Página 1",
+                layers = pageLayers,
+                activeLayerIndex = 0,
+                backgroundColor = data.backgroundConfig.color,
+                backgroundStyle = data.backgroundConfig.fillStyle.toFillStyle(data.backgroundConfig.color),
+                gridConfig = data.backgroundConfig.gridConfig ?: GridConfig(),
+                canvasSizeConfig = data.canvasSizeConfig,
+                cameraMatrixValues = FloatArray(9).apply {
+                    if (data.canvasMetadata.cameraMatrix.size == 9) {
+                        for (i in 0..8) this[i] = data.canvasMetadata.cameraMatrix[i]
+                    } else {
+                        Matrix().getValues(this)
+                    }
+                },
+                scaleConfig = data.canvasMetadata.scaleConfig ?: ScaleConfig(),
+                currentUnit = DistanceUnit.fromSymbol(data.canvasMetadata.scaleConfig?.unitName ?: "mm")
+            )
+            pages.add(page)
+            activePageIndex = 0
+        }
 
-        layerManager.internalUpdateLayers(newLayers, 0)
+        // Apply active page state to ViewModel
+        val targetPage = pages[activePageIndex]
+        layerManager.internalUpdateLayers(targetPage.layers, targetPage.activeLayerIndex)
+        backgroundColor = targetPage.backgroundColor
+        backgroundStyle = targetPage.backgroundStyle
+        gridConfig = targetPage.gridConfig
+        canvasSizeConfig = targetPage.canvasSizeConfig
+        scaleConfig = targetPage.scaleConfig
+        currentUnit = targetPage.currentUnit
 
-        
+        targetPage.cameraMatrixValues.copyInto(cameraMatrixValues)
+        _cameraMatrix.value = Matrix().apply { setValues(cameraMatrixValues) }
+        isProjectCameraLoaded = true
+        cameraUpdateTrigger++
 
         // Restore ToolConfigs (Cleaned)
 
@@ -4425,43 +4682,15 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         
 
-        backgroundColor = data.backgroundConfig.color
-        backgroundStyle = data.backgroundConfig.fillStyle.toFillStyle(data.backgroundConfig.color)
-
-        val loadedGrid = data.backgroundConfig.gridConfig
-
-        gridConfig = loadedGrid ?: GridConfig()
-
-        
-
-        canvasSizeConfig = data.canvasSizeConfig
-
-        // Restore scale config
-        val loadedScaleConfig = data.canvasMetadata.scaleConfig
-        if (loadedScaleConfig != null) {
-            scaleConfig = loadedScaleConfig
-            val unit = DistanceUnit.fromSymbol(loadedScaleConfig.unitName)
-            currentUnit = unit
-        }
-
-        // Camera
-
-        if (data.canvasMetadata.cameraMatrix.size == 9) {
-
-             for(i in 0..8) cameraMatrixValues[i] = data.canvasMetadata.cameraMatrix[i]
-
-        }
-
-        cameraUpdateTrigger++
-
-
-
-        if (isHomeCameraDefaultOrIdentity() && lastViewportWidth > 0f && lastViewportHeight > 0f) {
-
+        if (isHomeCameraDefaultOrIdentity() && !isProjectCameraLoaded && lastViewportWidth > 0f && lastViewportHeight > 0f) {
             centerPaperAsHomeCamera()
-
         }
 
+        if (data.uiPresetName != null) {
+            toolbarManager.onProjectUiPresetLoaded(data.uiPresetName)
+        } else {
+            toolbarManager.onProjectUiPresetCleared()
+        }
     }
 
     
@@ -4472,21 +4701,176 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     // --- MISSING METHODS ---
 
+    fun saveCurrentPageState() {
+        val index = activePageIndex
+        if (index in pages.indices) {
+            val page = pages[index]
+            page.layers.clear()
+            page.layers.addAll(layers)
+            page.activeLayerIndex = activeLayerIndex
+            page.backgroundColor = backgroundColor
+            page.backgroundStyle = backgroundStyle
+            page.gridConfig = gridConfig
+            page.canvasSizeConfig = canvasSizeConfig
+            page.scaleConfig = scaleConfig
+            page.currentUnit = currentUnit
+            cameraMatrixValues.copyInto(page.cameraMatrixValues)
+            page.undoStack.clear()
+            page.undoStack.addAll(undoStack)
+            page.redoStack.clear()
+            page.redoStack.addAll(redoStack)
+        }
+    }
+
+    fun loadPage(index: Int) {
+        if (index !in pages.indices) return
+        
+        saveCurrentPageState()
+        
+        activePageIndex = index
+        val targetPage = pages[index]
+        
+        layerManager.internalUpdateLayers(targetPage.layers, targetPage.activeLayerIndex)
+        backgroundColor = targetPage.backgroundColor
+        backgroundStyle = targetPage.backgroundStyle
+        gridConfig = targetPage.gridConfig
+        canvasSizeConfig = targetPage.canvasSizeConfig
+        scaleConfig = targetPage.scaleConfig
+        currentUnit = targetPage.currentUnit
+        
+        targetPage.cameraMatrixValues.copyInto(cameraMatrixValues)
+        _cameraMatrix.value = Matrix().apply { setValues(cameraMatrixValues) }
+        
+        undoStack.clear()
+        undoStack.addAll(targetPage.undoStack)
+        redoStack.clear()
+        redoStack.addAll(targetPage.redoStack)
+        updateUndoRedoSupport()
+
+        cameraUpdateTrigger++
+        notifyLayersChanged()
+    }
+
+    fun addPage() {
+        saveCurrentPageState()
+        val firstPage = pages.firstOrNull()
+        val newPageId = UUID.randomUUID().toString()
+        val newPage = CanvasPage(
+            id = newPageId,
+            name = "Página ${pages.size + 1}",
+            layers = mutableStateListOf(Layer("l_${System.currentTimeMillis()}", "Capa 1", mutableStateListOf())),
+            activeLayerIndex = 0,
+            backgroundColor = firstPage?.backgroundColor ?: android.graphics.Color.WHITE,
+            backgroundStyle = firstPage?.backgroundStyle ?: FillStyle.Solid(android.graphics.Color.WHITE),
+            gridConfig = firstPage?.gridConfig ?: GridConfig(),
+            canvasSizeConfig = firstPage?.canvasSizeConfig ?: canvasSizeConfig,
+            cameraMatrixValues = FloatArray(9).apply { Matrix().getValues(this) },
+            scaleConfig = firstPage?.scaleConfig ?: scaleConfig,
+            currentUnit = firstPage?.currentUnit ?: currentUnit
+        )
+        pages.add(newPage)
+        loadPage(pages.lastIndex)
+        hasUnsavedChanges = true
+    }
+
+    fun removePage(index: Int) {
+        if (pages.size <= 1) return
+        if (index !in pages.indices) return
+        
+        pages.removeAt(index)
+        
+        if (activePageIndex >= pages.size) {
+            activePageIndex = pages.size - 1
+        }
+        loadPage(activePageIndex)
+        hasUnsavedChanges = true
+    }
+
+    fun duplicatePage(index: Int) {
+        if (index !in pages.indices) return
+        saveCurrentPageState()
+        val source = pages[index]
+        
+        val copiedLayers = mutableStateListOf<Layer>()
+        source.layers.forEach { layer ->
+            val copiedElements = mutableStateListOf<LayerElement>()
+            layer.elements.forEach { el -> copiedElements.add(el.copyElement()) }
+            copiedLayers.add(layer.copy(
+                id = "l_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}",
+                elements = copiedElements
+            ))
+        }
+
+        val copy = CanvasPage(
+            id = UUID.randomUUID().toString(),
+            name = "${source.name} (Copy)",
+            layers = copiedLayers,
+            activeLayerIndex = source.activeLayerIndex,
+            backgroundColor = source.backgroundColor,
+            backgroundStyle = source.backgroundStyle,
+            gridConfig = source.gridConfig,
+            canvasSizeConfig = source.canvasSizeConfig,
+            cameraMatrixValues = source.cameraMatrixValues.clone(),
+            scaleConfig = source.scaleConfig,
+            currentUnit = source.currentUnit
+        )
+        
+        pages.add(index + 1, copy)
+        loadPage(index + 1)
+        hasUnsavedChanges = true
+    }
+
+    fun renamePage(index: Int, newName: String) {
+        if (index in pages.indices) {
+            pages[index] = pages[index].copy(name = newName)
+            hasUnsavedChanges = true
+        }
+    }
+
+    fun movePage(fromIndex: Int, toIndex: Int) {
+        if (fromIndex in pages.indices && toIndex in pages.indices && fromIndex != toIndex) {
+            saveCurrentPageState()
+            val item = pages.removeAt(fromIndex)
+            pages.add(toIndex, item)
+            
+            if (activePageIndex == fromIndex) {
+                activePageIndex = toIndex
+            } else if (fromIndex < activePageIndex && toIndex >= activePageIndex) {
+                activePageIndex--
+            } else if (fromIndex > activePageIndex && toIndex <= activePageIndex) {
+                activePageIndex++
+            }
+            hasUnsavedChanges = true
+        }
+    }
+
+    fun movePageUp(index: Int) {
+        if (index < pages.lastIndex) {
+            movePage(index, index + 1)
+        }
+    }
+
+    fun movePageDown(index: Int) {
+        if (index > 0) {
+            movePage(index, index - 1)
+        }
+    }
 
 
 
 
 
 
-    private fun calculateVisibleBounds(): RectF {
+
+    private fun calculateVisibleBounds(customLayers: List<Layer>? = null): RectF {
 
         val totalBounds = RectF()
 
         var first = true
 
-        
+        val targetLayers = customLayers ?: layers
 
-        for (layer in layers) {
+        for (layer in targetLayers) {
 
             if (!layer.isVisible) continue
 
@@ -4542,8 +4926,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
             ),
 
-            componentLibrary = componentLibrary.mapValues { it.value.toComponentDefinitionJson() }
-
+            componentLibrary = componentLibrary.mapValues { it.value.toComponentDefinitionJson() },
+            uiPresetName = toolbarManager.activeUiPresetName.value
         )
 
         return SvgExporter.export(projectData, layers, config)
@@ -4691,7 +5075,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                     ),
 
-                    componentLibrary = currentComponentLibrary.mapValues { it.value.toComponentDefinitionJson() }
+                    componentLibrary = currentComponentLibrary.mapValues { it.value.toComponentDefinitionJson() },
+
+                    uiPresetName = toolbarManager.activeUiPresetName.value
 
                 )
 
@@ -5056,7 +5442,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                                             "WATERCOLOR" -> ToolType.WATERCOLOR
                                             else -> ToolType.FREEHAND
                                         }
-                                        val settings = toolManager.getToolConfigMap()[toolType]?.freehandSettings ?: FreehandSettings()
+                                        val settings = toolManager.getToolConfigMap()[toolType]?.settings?.toFreehandSettings(toolType) ?: FreehandSettings()
                                         val genResult = PerfectFreehandGenerator.generate(
                                             segment,
                                             settings.copy(size = element.maxWidth, isComplete = true),
@@ -5148,6 +5534,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         backgroundColor = android.graphics.Color.WHITE
         backgroundStyle = FillStyle.Solid(android.graphics.Color.WHITE)
+        canvasSizeConfig = null
 
         gridConfig = GridConfig()
 
@@ -5169,6 +5556,23 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         val newLayer = Layer("l_${System.currentTimeMillis()}", "Capa 1", androidx.compose.runtime.mutableStateListOf())
 
+        pages.clear()
+        val defaultPage = CanvasPage(
+            id = java.util.UUID.randomUUID().toString(),
+            name = "Página 1",
+            layers = mutableStateListOf(newLayer),
+            activeLayerIndex = 0,
+            backgroundColor = android.graphics.Color.WHITE,
+            backgroundStyle = FillStyle.Solid(android.graphics.Color.WHITE),
+            gridConfig = GridConfig(),
+            canvasSizeConfig = null,
+            cameraMatrixValues = FloatArray(9).apply { identity.getValues(this) },
+            scaleConfig = ScaleConfig(),
+            currentUnit = DistanceUnit.MM
+        )
+        pages.add(defaultPage)
+        activePageIndex = 0
+
         layerManager.internalUpdateLayers(mutableListOf(newLayer), 0)
 
         selectionManager.clearSelection()
@@ -5181,7 +5585,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     fun saveTemplate(context: Context, name: String) {
 
-         val currentLayersSnapshot = layers.map { it.copy(elements = it.elements.toMutableStateList()) }
+         saveCurrentPageState()
+         val currentPagesJson = pages.map { it.toPageJson() }
+         val currentActivePageIndex = activePageIndex
+         val allPagesLayersSnapshot = pages.flatMap { page ->
+             page.layers.map { layer -> layer.copy(elements = layer.elements.toMutableStateList()) }
+         }
 
          val currentComponentLibrary = componentLibrary.values.toList()
 
@@ -5204,7 +5613,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                  id = savedProjectId,
 
-                 layers = currentLayersSnapshot.map { it.toLayerJson() },
+                 layers = pages.firstOrNull()?.layers?.map { it.toLayerJson() } ?: emptyList(),
 
                  backgroundConfig = com.sketcher.sketchercompanionv1.dto.BackgroundConfig(savedBgColor, savedGridConfig, savedBgStyle.toFillStyleJson()),
 
@@ -5218,12 +5627,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                      height = 2000f,
 
-                     cameraMatrix = emptyList(), // Simplify
+                     cameraMatrix = pages.firstOrNull()?.cameraMatrixValues?.toList() ?: emptyList(), // Simplify
 
                      scaleConfig = savedScaleConfig
 
-                 )
-
+                 ),
+                 uiPresetName = toolbarManager.activeUiPresetName.value,
+                 pages = currentPagesJson,
+                 activePageIndex = currentActivePageIndex
              )
 
              
@@ -5234,7 +5645,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                  projectData = projectData,
 
-                 layers = currentLayersSnapshot,
+                 layers = allPagesLayersSnapshot,
 
                  components = currentComponentLibrary,
 
@@ -5644,6 +6055,21 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         projectionMode = liveProjectionController.projectionMode
     }
 
+    // ── WIRELESS SECONDARY DISPLAY PROJECTION ───────────────────────────
+
+    @Volatile var wirelessProjectionManager: com.sketcher.sketchercompanionv1.projection.WirelessProjectionManager? = null
+
+    var isWirelessProjectionActive by mutableStateOf(false)
+        private set
+
+    fun startWirelessProjection() {
+        isWirelessProjectionActive = true
+    }
+
+    fun stopWirelessProjection() {
+        isWirelessProjectionActive = false
+    }
+
     fun startProjection() {
         liveProjectionController.start()
     }
@@ -5727,6 +6153,29 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun saveGlobalLibrary(context: Context) {
         viewModelScope.launch {
             LibraryManager.saveLibrary(context, _globalLibraryItems.value)
+            if (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null) {
+                launchIO {
+                    try {
+                        val libraryItems = _globalLibraryItems.value
+                        val libraryJson = com.google.gson.Gson().toJson(com.sketcher.sketchercompanionv1.dto.LibraryStateJson(
+                            libraryItems.map { item ->
+                                when (item) {
+                                    is com.sketcher.sketchercompanionv1.LibraryFolder -> com.sketcher.sketchercompanionv1.dto.LibraryItemJson("FOLDER", item.id, item.name, item.parentId)
+                                    is com.sketcher.sketchercompanionv1.LibraryComponent -> com.sketcher.sketchercompanionv1.dto.LibraryItemJson("COMPONENT", item.id, item.name, item.parentId, item.definition.toComponentDefinitionJson(), item.thumbnailFileName)
+                                    else -> com.sketcher.sketchercompanionv1.dto.LibraryItemJson("UNKNOWN", item.id, item.name, item.parentId)
+                                }
+                            }
+                        ))
+                        val localLibraryFile = java.io.File(context.filesDir, "global_library.json")
+                        localLibraryFile.writeText(libraryJson)
+                        val timestamp = localLibraryFile.lastModified()
+                        val assetsDir = java.io.File(context.filesDir, "library_assets")
+                        cloudSyncRepository.backupLibrary(libraryJson, timestamp, assetsDir)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
         }
     }
 
@@ -6080,6 +6529,16 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         return false
     }
 
+    fun getProjectDisplayName(fileNameWithoutExtension: String): String {
+        if (fileNameWithoutExtension.length > 37 && fileNameWithoutExtension[fileNameWithoutExtension.length - 37] == '_') {
+            val possibleUuid = fileNameWithoutExtension.substring(fileNameWithoutExtension.length - 36)
+            if (possibleUuid.contains('-')) {
+                return fileNameWithoutExtension.substring(0, fileNameWithoutExtension.length - 37)
+            }
+        }
+        return fileNameWithoutExtension
+    }
+
     fun refreshLocalItems() {
         val dir = currentDirectory ?: return
         viewModelScope.launch(Dispatchers.IO) {
@@ -6106,12 +6565,22 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                         metadata = metadata
                     )
                 } else if (file.isFile && file.extension == "skc") {
-                    val scaleRatio = com.sketcher.sketchercompanionv1.utils.ZipStorageManager.loadGlobalScaleRatio(file)
+                    var finalFile = file
+                    val nameWithoutExt = file.nameWithoutExtension
+                    val hasUuid = nameWithoutExt.length > 37 && nameWithoutExt[nameWithoutExt.length - 37] == '_' && nameWithoutExt.substring(nameWithoutExt.length - 36).contains('-')
+                    if (!hasUuid) {
+                        val pid = getProjectIdFromZip(file) ?: UUID.randomUUID().toString()
+                        val newFile = java.io.File(file.parentFile, "${nameWithoutExt}_$pid.skc")
+                        if (file.renameTo(newFile)) {
+                            finalFile = newFile
+                        }
+                    }
+                    val scaleRatio = com.sketcher.sketchercompanionv1.utils.ZipStorageManager.loadGlobalScaleRatio(finalFile)
                     DashboardItem.Project(
-                        name = file.nameWithoutExtension,
-                        path = file.absolutePath,
-                        lastModified = file.lastModified(),
-                        sizeBytes = file.length(),
+                        name = getProjectDisplayName(finalFile.nameWithoutExtension),
+                        path = finalFile.absolutePath,
+                        lastModified = finalFile.lastModified(),
+                        sizeBytes = finalFile.length(),
                         globalScaleRatio = scaleRatio
                     )
                 } else {
@@ -6152,9 +6621,18 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun createLocalProject(context: Context, name: String, templateFile: java.io.File? = null, scaleRatio: Float = 1.0f) {
+    fun createLocalProject(
+        context: Context,
+        name: String,
+        templateFile: java.io.File? = null,
+        scaleRatio: Float = 1.0f,
+        canvasSizeConfig: com.sketcher.sketchercompanionv1.dto.CanvasSizeConfig? = null,
+        backgroundStyle: com.sketcher.sketchercompanionv1.dto.FillStyle? = null
+    ) {
         val dir = currentDirectory ?: return
-        val file = java.io.File(dir, "$name.skc")
+        val pid = UUID.randomUUID().toString()
+        projectId = pid
+        val file = java.io.File(dir, "${name}_$pid.skc")
         if (file.exists()) {
             android.widget.Toast.makeText(context, "El archivo ya existe", android.widget.Toast.LENGTH_SHORT).show()
             return
@@ -6166,12 +6644,25 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             val newScaleConfig = projectData.canvasMetadata.scaleConfig?.copy(globalScaleRatio = scaleRatio) 
                 ?: com.sketcher.sketchercompanionv1.dto.ScaleConfig(globalScaleRatio = scaleRatio)
             val newMetadata = projectData.canvasMetadata.copy(scaleConfig = newScaleConfig)
-            val newProjectData = projectData.copy(canvasMetadata = newMetadata)
+            val newProjectData = projectData.copy(id = pid, canvasMetadata = newMetadata)
             
             restoreProjectState(newProjectData, bitmaps, svgs)
         } else {
             clear()
+            projectId = pid
             updateGlobalScaleRatio(scaleRatio)
+            this.canvasSizeConfig = canvasSizeConfig
+            if (backgroundStyle != null) {
+                this.backgroundStyle = backgroundStyle
+                if (backgroundStyle is com.sketcher.sketchercompanionv1.dto.FillStyle.Solid) {
+                    this.backgroundColor = backgroundStyle.color
+                } else {
+                    this.backgroundColor = android.graphics.Color.WHITE
+                }
+            } else {
+                this.backgroundStyle = com.sketcher.sketchercompanionv1.dto.FillStyle.Solid(android.graphics.Color.WHITE)
+                this.backgroundColor = android.graphics.Color.WHITE
+            }
         }
         
         currentFileUri = android.net.Uri.fromFile(file)
@@ -6182,7 +6673,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun saveAsLocalProject(context: Context, name: String) {
         val rootDir = java.io.File(context.filesDir, "projects")
         val dir = currentDirectory ?: rootDir
-        val file = java.io.File(dir, "$name.skc")
+        val newPid = UUID.randomUUID().toString()
+        projectId = newPid
+        val file = java.io.File(dir, "${name}_$newPid.skc")
         if (file.exists()) {
             android.widget.Toast.makeText(context, "El archivo ya existe", android.widget.Toast.LENGTH_SHORT).show()
             return
@@ -6191,7 +6684,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         saveProjectToZip(context, currentFileUri!!)
     }
 
-    fun createLocalFolder(context: Context, name: String) {
+    fun createLocalFolder(
+        context: Context,
+        name: String,
+        coverStyle: String = "classic",
+        coverFill: com.sketcher.sketchercompanionv1.dto.FillStyleJson? = null,
+        coverProject: String? = null
+    ) {
         val dir = currentDirectory ?: return
         val folder = java.io.File(dir, name)
         if (folder.exists()) {
@@ -6199,14 +6698,28 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             return
         }
         folder.mkdirs()
+        
+        // Write metadata
+        val metadataFile = java.io.File(folder, ".metadata.json")
+        val metadata = FolderMetadata(coverStyle = coverStyle, coverFill = coverFill, coverProject = coverProject)
+        try {
+            metadataFile.writeText(Gson().toJson(metadata))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        
         refreshLocalItems()
     }
 
     fun renameLocalItem(context: Context, item: DashboardItem, newName: String) {
         val oldFile = java.io.File(item.path)
         val parent = oldFile.parentFile ?: return
-        val extension = if (item is DashboardItem.Project) ".skc" else ""
-        val newFile = java.io.File(parent, "$newName$extension")
+        val newFile = if (item is DashboardItem.Project) {
+            val pid = getProjectIdFromZip(oldFile) ?: UUID.randomUUID().toString()
+            java.io.File(parent, "${newName}_$pid.skc")
+        } else {
+            java.io.File(parent, newName)
+        }
         if (newFile.exists()) {
             android.widget.Toast.makeText(context, "Ya existe un elemento con ese nombre", android.widget.Toast.LENGTH_SHORT).show()
             return
@@ -6298,7 +6811,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     fun importExternalProject(context: Context, uri: android.net.Uri) {
         val dir = currentDirectory ?: return
-        val fileName = com.sketcher.sketchercompanionv1.utils.BitmapUtils.getFileNameFromUri(context, uri) ?: "imported_drawing.skc"
+        val fileName = com.sketcher.sketchercompanionv1.utils.BitmapUtils.getFileNameFromUri(context, uri) ?: ""
+        if (!fileName.endsWith(".skc", ignoreCase = true)) {
+            android.widget.Toast.makeText(context, "Error: Solo se pueden importar archivos .skc", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
         var baseName = fileName.substringBeforeLast(".")
         val ext = "skc"
         var destFile = java.io.File(dir, "$baseName.$ext")
@@ -6338,14 +6855,22 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             val dir = currentDirectory ?: rootDir
             val formatter = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault())
             val defaultName = "Dibujo_" + formatter.format(java.util.Date())
-            val file = java.io.File(dir, "$defaultName.skc")
+            val file = java.io.File(dir, "${defaultName}_$projectId.skc")
             currentFileUri = android.net.Uri.fromFile(file)
             saveProjectToZip(context, currentFileUri!!)
         }
     }
 
     fun exitEditorToDashboard(context: Context) {
+        hasUnsavedChangesSinceLastAutosave = true
         saveCurrentProjectLocal(context)
+        showDashboard = true
+        refreshLocalItems()
+        autoSyncCloud(context)
+    }
+
+    fun exitEditorWithoutSaving(context: Context) {
+        hasUnsavedChangesSinceLastAutosave = false
         showDashboard = true
         refreshLocalItems()
     }
@@ -6390,8 +6915,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                         }
                     }
                 ))
+                // Write to local file first to establish a local timestamp
+                val localLibraryFile = java.io.File(context.filesDir, "global_library.json")
+                localLibraryFile.writeText(libraryJson)
+                val timestamp = localLibraryFile.lastModified()
+
                 val assetsDir = java.io.File(context.filesDir, "library_assets")
-                val libResult = cloudSyncRepository.backupLibrary(libraryJson, assetsDir)
+                val libResult = cloudSyncRepository.backupLibrary(libraryJson, timestamp, assetsDir)
                 if (libResult.isFailure) {
                     cloudSyncMessage = "Error respaldando librería"
                     isSyncingCloud = false
@@ -6470,11 +7000,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 val assetsDir = java.io.File(context.filesDir, "library_assets")
                 val libResult = cloudSyncRepository.restoreLibrary(assetsDir)
                 if (libResult.isSuccess) {
-                    val jsonStr = libResult.getOrNull()
-                    if (jsonStr != null) {
+                    val pair = libResult.getOrNull()
+                    if (pair != null) {
+                        val (jsonStr, timestamp) = pair
                         // Guardar el JSON descargado en local
                         val file = java.io.File(context.filesDir, "global_library.json")
                         file.writeText(jsonStr)
+                        file.setLastModified(timestamp)
                         // Recargar
                         loadGlobalLibrary(context)
                     }
@@ -6537,15 +7069,17 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 if (cloudLibTimestamp > localLibTimestamp + 5000) {
                     val libResult = cloudSyncRepository.restoreLibrary(assetsDir)
                     if (libResult.isSuccess) {
-                        val jsonStr = libResult.getOrNull()
-                        if (jsonStr != null) {
+                        val pair = libResult.getOrNull()
+                        if (pair != null) {
+                            val (jsonStr, timestamp) = pair
                             localLibraryFile.writeText(jsonStr)
+                            localLibraryFile.setLastModified(timestamp)
                             loadGlobalLibrary(context)
                         }
                     }
                 } else if (localLibTimestamp > cloudLibTimestamp + 5000) {
                     if (localLibraryFile.exists()) {
-                        cloudSyncRepository.backupLibrary(localLibraryFile.readText(), assetsDir)
+                        cloudSyncRepository.backupLibrary(localLibraryFile.readText(), localLibTimestamp, assetsDir)
                     }
                 }
 
@@ -6579,16 +7113,48 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                         val pId = p["id"] as? String ?: continue
                         val relativePath = p["relativePath"] as? String ?: (p["name"] as? String)?.let { "$it.skc" } ?: continue
                         val cloudTimestamp = (p["timestamp"] as? Number)?.toLong() ?: 0L
+                        val isDeleted = p["deleted"] as? Boolean == true
                         
                         processedCloudIds.add(pId)
 
                         val localFile = localProjectsMap[pId]
-                        val destFile = java.io.File(rootDir, relativePath)
+                        
+                        val baseName = relativePath.substringBeforeLast(".")
+                        val ext = relativePath.substringAfterLast(".", "")
+                        val hasUuid = baseName.length > 37 && baseName[baseName.length - 37] == '_' && baseName.substring(baseName.length - 36).contains('-')
+                        val destRelativePath = if (hasUuid) {
+                            relativePath
+                        } else {
+                            if (relativePath.contains("/")) {
+                                val parentPath = relativePath.substringBeforeLast("/")
+                                val fileName = relativePath.substringAfterLast("/")
+                                val fileBase = fileName.substringBeforeLast(".")
+                                val fileExt = fileName.substringAfterLast(".", "")
+                                "$parentPath/${fileBase}_$pId.$fileExt"
+                            } else {
+                                "${baseName}_$pId.$ext"
+                            }
+                        }
+                        val destFile = java.io.File(rootDir, destRelativePath)
+
+                        if (isDeleted) {
+                            // If deleted in cloud, delete locally
+                            if (localFile != null && localFile.exists()) {
+                                localFile.delete()
+                                withContext(Dispatchers.Main) {
+                                    thumbnailCache.remove(localFile.absolutePath)
+                                }
+                            }
+                            continue
+                        }
 
                         if (localFile == null) {
                             // Missing locally -> Download
                             destFile.parentFile?.mkdirs()
-                            cloudSyncRepository.downloadProject(pId, destFile)
+                            val downloadRes = cloudSyncRepository.downloadProject(pId, destFile)
+                            if (downloadRes.isSuccess) {
+                                destFile.setLastModified(cloudTimestamp)
+                            }
                             downloadThumbnailSilently(context, p, pId)
                         } else {
                             // Exists locally
@@ -6599,7 +7165,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                                     localFile.delete() // Project moved or renamed
                                 }
                                 destFile.parentFile?.mkdirs()
-                                cloudSyncRepository.downloadProject(pId, destFile)
+                                val downloadRes = cloudSyncRepository.downloadProject(pId, destFile)
+                                if (downloadRes.isSuccess) {
+                                    destFile.setLastModified(cloudTimestamp)
+                                }
                                 downloadThumbnailSilently(context, p, pId)
                             } else if (localTimestamp > cloudTimestamp + 5000) {
                                 // Local is newer
@@ -6651,19 +7220,21 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         } catch (e: Exception) {
             file.name
         }
-        val name = file.nameWithoutExtension.ifEmpty { "Project" }
+        val name = getProjectDisplayName(file.nameWithoutExtension).ifEmpty { "Project" }
         
         val thumbCacheDir = java.io.File(context.cacheDir, "thumbnails")
         val thumbFile = java.io.File(thumbCacheDir, "$pId.png")
         val thumbUri = if (thumbFile.exists()) android.net.Uri.fromFile(thumbFile) else null
 
+        val fileTimestamp = if (file.exists()) file.lastModified() else System.currentTimeMillis()
         cloudSyncRepository.uploadProject(
             projectId = pId,
             projectName = name,
             projectFileUri = android.net.Uri.fromFile(file),
             relativePath = relativePath,
             thumbnailUri = thumbUri,
-            metadata = mapOf("lastModified" to System.currentTimeMillis())
+            timestamp = fileTimestamp,
+            metadata = mapOf("lastModified" to fileTimestamp)
         )
     }
 

@@ -22,3 +22,5 @@ build_output.txt
 errors.txt
 output.txt
 .FullName
+/service-account.json
+

@@ -84,19 +84,14 @@ object RenderHelper {
 
         // Pass 2: STROKE (if enabled)
         if (vStroke.isStrokeEnabled) {
-            val isMeshBrush = vStroke.brushType == "FREEHAND" || vStroke.brushType == "PEN" || vStroke.brushType == "PLUMA" || vStroke.brushType == "PENCIL_CUMULATIVE"
+            val isMeshBrush = vStroke.brushType == "FREEHAND" || vStroke.brushType == "PEN" || vStroke.brushType == "PLUMA" || vStroke.brushType == "PENCIL_CUMULATIVE" || vStroke.brushType == "PAINT" || vStroke.brushType == "WATERCOLOR"
             if (isMeshBrush) {
-                vectorPaint.style = Paint.Style.FILL
-                vectorPaint.color = vStroke.strokeColor
-                canvas.drawPath(vStroke.path, vectorPaint)
-                if (vStroke.paths.isNotEmpty()) {
-                    for (p in vStroke.paths) {
-                        canvas.drawPath(p, vectorPaint)
-                    }
+                vStroke.getBrushRenderer().draw(canvas, vStroke, vectorPaint, 1f) { p, alpha ->
+                    val color = vStroke.strokeColor
+                    p.color = (color and 0x00FFFFFF) or ((android.graphics.Color.alpha(color) * alpha).toInt().coerceIn(0, 255) shl 24)
                 }
             } else {
                 vectorPaint.style = Paint.Style.STROKE
-                val isWatercolor = vStroke.brushType == "WATERCOLOR"
                 
                 // Apply dash path effect for CAD styles
                 if (vStroke.isCadGeometry) {
@@ -122,43 +117,9 @@ object RenderHelper {
                     }
                     canvas.drawPath(vStroke.path, vectorPaint)
                     vectorPaint.pathEffect = null
-                } else if (isWatercolor) {
-                    val origColor = vStroke.strokeColor
-                    val origAlpha = android.graphics.Color.alpha(origColor)
-                    
-                    val strokeSeed = vStroke.hashCode().toLong()
-                    val jitteredPath = vStroke.getJitteredPath(strokeSeed)
- 
-                    // --- PASADA 1: CUERPO DIFUMINADO (CON CLIPPING) ---
-                    val bodyAlpha = (255f * vStroke.watercolorCenterOpacity).toInt().coerceIn(0, 255)
-                    vectorPaint.color = (origColor and 0x00FFFFFF) or (bodyAlpha shl 24)
-                    vectorPaint.strokeWidth = vStroke.paintOutlineWidth
-                    
-                    vectorPaint.pathEffect = null
-                    vectorPaint.maskFilter = android.graphics.BlurMaskFilter(
-                        vStroke.watercolorBlurRadius.coerceAtLeast(0.01f),
-                        android.graphics.BlurMaskFilter.Blur.NORMAL
-                    )
- 
-                    if (vStroke.watercolorEdgeMode == com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.INSIDE) {
-                        canvas.save()
-                        canvas.clipPath(vStroke.path)
-                        canvas.drawPath(jitteredPath, vectorPaint)
-                        canvas.restore()
-                    } else if (vStroke.watercolorEdgeMode == com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.OUTSIDE) {
-                        canvas.save()
-                        canvas.clipOutPath(vStroke.path)
-                        canvas.drawPath(jitteredPath, vectorPaint)
-                        canvas.restore()
-                    } else {
-                        canvas.drawPath(jitteredPath, vectorPaint)
-                    }
- 
-                    vectorPaint.pathEffect = null
-                    vectorPaint.maskFilter = null
                 } else {
                     vectorPaint.color = vStroke.strokeColor
-                    val width = if (vStroke.brushType == "PAINT") vStroke.paintOutlineWidth else (if (vStroke.maxWidth > 0) vStroke.maxWidth else 0f)
+                    val width = if (vStroke.maxWidth > 0) vStroke.maxWidth else 0f
                     vectorPaint.strokeWidth = width
                     vectorPaint.pathEffect = null
                     vectorPaint.maskFilter = null

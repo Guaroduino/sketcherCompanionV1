@@ -213,12 +213,9 @@ import com.sketcher.sketchercompanionv1.ui.model.StudioTool
 
 
 import com.sketcher.sketchercompanionv1.ui.model.ToolLocation
-
+import com.sketcher.sketchercompanionv1.ui.components.ToolPayload
 
 import com.sketcher.sketchercompanionv1.ui.dialogs.ToolPickerDialog
-
-
-import com.sketcher.sketchercompanionv1.ui.components.ToolPayload
 
 
 import com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton
@@ -267,6 +264,7 @@ import com.sketcher.sketchercompanionv1.ui.components.ContextActionBar
 
 
 import com.sketcher.sketchercompanionv1.ui.panels.OutlinerPanel
+import com.sketcher.sketchercompanionv1.ui.panels.PagesPanel
 import com.sketcher.sketchercompanionv1.ui.panels.LibraryPanel
 
 
@@ -334,7 +332,8 @@ fun StudioLayout(
 
 
     val assignedColorsMap by viewModel.assignedToolColors.collectAsState()
-
+    val assignedStabMap by viewModel.assignedToolStabilization.collectAsState()
+    val globalStabilizationVal by viewModel.globalStabilization.collectAsState()
 
     val isEditMode by viewModel.isEditMode.collectAsState()
 
@@ -347,6 +346,8 @@ fun StudioLayout(
 
     val currentStrokeType = viewModel.toolManager.currentStrokeType
 
+
+    val brushSizeVal by viewModel.brushSize.collectAsState()
 
     val resolveIsActive: (StudioTool) -> Boolean = { tool ->
 
@@ -442,6 +443,11 @@ fun StudioLayout(
 
             payload == ToolPayload.CUT_ERASER || tool.registryId == "cut_eraser" -> {
                 currentTool == ToolType.CUT_ERASER
+            }
+
+            payload == ToolPayload.STABILIZE -> {
+                val buttonStab = assignedStabMap[tool.id] ?: 0f
+                globalStabilizationVal == buttonStab
             }
 
 
@@ -701,6 +707,41 @@ fun StudioLayout(
 
     }
 
+    val isWirelessProjectionActive = viewModel.isWirelessProjectionActive
+    LaunchedEffect(isWirelessProjectionActive) {
+        if (!isWirelessProjectionActive) return@LaunchedEffect
+        while (viewModel.isWirelessProjectionActive) {
+            canvasViewRef.value?.let { view ->
+                val livePoints = view.getLiveStrokePoints()
+                val livePath = view.getLiveStrokePath()?.let { android.graphics.Path(it) }
+                val committedPath = view.getLiveCommittedPath()
+                val liveFillPath = view.getLiveFillPath()?.let { android.graphics.Path(it) }
+                val liveRadius = view.getLiveGeneratedRadius()
+
+                viewModel.wirelessProjectionManager?.updateCanvas(
+                    layers = viewModel.layers,
+                    componentLibrary = viewModel.componentLibrary,
+                    backgroundStyle = viewModel.backgroundStyle,
+                    cameraMatrixValues = viewModel.cameraMatrixValues,
+                    phoneW = view.width.toFloat(),
+                    phoneH = view.height.toFloat(),
+                    strokeColor = viewModel.strokeColor.value,
+                    fillColor = viewModel.fillColor.value,
+                    isStrokeActive = viewModel.isStrokeActive.value,
+                    isFillActive = viewModel.isFillActive.value,
+                    fillStyle = viewModel.fillStyle.value,
+                    strokeStyle = viewModel.strokeStyle.value,
+                    livePoints = livePoints,
+                    livePath = livePath,
+                    committedPath = committedPath,
+                    liveFillPath = liveFillPath,
+                    liveRadius = liveRadius
+                )
+            }
+            kotlinx.coroutines.delay(16)
+        }
+    }
+
 
     // Panel Internal States (Independent Folding)
 
@@ -780,7 +821,10 @@ fun StudioLayout(
     var rightPanelWidth by remember(scaler) { mutableStateOf(scaler.sidePanelWidth * 1.4f) }
 
 
-    var layersPanelWeight by remember { mutableFloatStateOf(0.5f) }
+    var outlinerPanelWeight by remember { mutableFloatStateOf(0.4f) }
+
+
+    var pagesPanelWeight by remember { mutableFloatStateOf(0.25f) }
 
 
     var showPersonalizationDialog by remember { mutableStateOf(false) }
@@ -1678,17 +1722,14 @@ fun StudioLayout(
 
                 Column(modifier = Modifier.fillMaxSize()) {
 
-
                     // TOP: LAYERS
 
-
                     Box(
-
 
                         modifier = Modifier
 
 
-                            .weight(layersPanelWeight)
+                            .weight(outlinerPanelWeight)
 
 
                             .fillMaxWidth()
@@ -1708,12 +1749,93 @@ fun StudioLayout(
 
                     }
 
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(24.sdp)
+                            .background(theme.iconColor.copy(alpha = 0.05f)),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Horizontal Grip (Width)
+                        Box(
+                            modifier = Modifier
+                                .width(32.sdp)
+                                .fillMaxHeight()
+                                .clickable { } // Consume clicks
+                                .draggable(
+                                    orientation = Orientation.Horizontal,
+                                    state = rememberDraggableState { delta ->
+                                        val adjustedDelta = if (swapHorizontal) with(density) { delta.toDp() } else -with(density) { delta.toDp() }
+                                        val newWidth = rightPanelWidth + adjustedDelta
+                                        val minWidth = 200.dp * interfaceScale
+                                        val maxWidth = 630.dp * interfaceScale
+                                        rightPanelWidth = newWidth.coerceIn(minWidth, maxWidth)
+                                    }
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                             Icon(Icons.Default.DragHandle, "Resize Width", tint = theme.iconColor.copy(alpha = 0.5f), modifier = Modifier.size(16.sdp))
+                        }
 
-                    // DIVIDER (RESIZE HANDLES)
+                        // Vertical Grip (Split Weight)
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .draggable(
+                                    orientation = Orientation.Vertical,
+                                    state = rememberDraggableState { delta ->
+                                        val totalHeightPx = with(density) { (config.screenHeightDp.dp - (scaler.baseBarHeight * 2)).toPx() }
+                                        if (totalHeightPx > 0) {
+                                            val change = delta / totalHeightPx
+                                            val newOutliner = outlinerPanelWeight + change
+                                            val newPages = pagesPanelWeight - change
+                                            if (newOutliner in 0.15f..0.6f && newPages in 0.15f..0.5f) {
+                                                outlinerPanelWeight = newOutliner
+                                                pagesPanelWeight = newPages
+                                            }
+                                        }
+                                    }
+                                )
+                                .background(Color.Transparent), // Hit area
+                            contentAlignment = Alignment.Center
+                        ) {
+                             Box(modifier = Modifier.fillMaxWidth().height(1.sdp).background(theme.iconColor.copy(alpha = 0.2f)))
+                        }
+                    }
 
+
+                    // MIDDLE: PAGES
+
+                    Box(
+
+                        modifier = Modifier
+
+
+                            .weight(pagesPanelWeight)
+
+
+                            .fillMaxWidth()
+
+
+                            .padding(scaler.smallMargin)
+
+
+                            .border(1.sdp, theme.iconColor.copy(alpha = 0.2f), RoundedCornerShape(4.sdp))
+
+
+                    ) {
+
+
+                        PagesPanel(viewModel)
+
+
+                    }
+
+
+                    // DIVIDER 2 (RESIZE HANDLES BETWEEN PAGES AND LIBRARY)
 
                     Row(
-
 
                         modifier = Modifier
 
@@ -1732,12 +1854,9 @@ fun StudioLayout(
 
                     ) {
 
-
                         // Horizontal Grip (Width)
 
-
                         Box(
-
 
                             modifier = Modifier
 
@@ -1759,54 +1878,39 @@ fun StudioLayout(
 
                                     state = rememberDraggableState { delta ->
 
-
                                         // If swapped (Start), dragging right (+) increases width. 
-
 
                                         // If not swapped (End), dragging left (-) increases width.
 
-
                                         val adjustedDelta = if (swapHorizontal) with(density) { delta.toDp() } else -with(density) { delta.toDp() }
-
 
                                         val newWidth = rightPanelWidth + adjustedDelta
 
-
                                         // Apply scale to min/max limits
-
 
                                         val minWidth = 200.dp * interfaceScale
 
-
                                         val maxWidth = 630.dp * interfaceScale
 
-
                                         rightPanelWidth = newWidth.coerceIn(minWidth, maxWidth)
-
 
                                     }
 
 
                                 ),
 
-
                             contentAlignment = Alignment.Center
-
 
                         ) {
 
-
                              Icon(Icons.Default.DragHandle, "Resize Width", tint = theme.iconColor.copy(alpha = 0.5f), modifier = Modifier.size(16.sdp))
-
 
                         }
 
 
                         // Vertical Grip (Split Weight)
 
-
                         Box(
-
 
                             modifier = Modifier
 
@@ -1825,21 +1929,18 @@ fun StudioLayout(
 
                                     state = rememberDraggableState { delta ->
 
-
                                         val totalHeightPx = with(density) { (config.screenHeightDp.dp - (scaler.baseBarHeight * 2)).toPx() }
-
 
                                         if (totalHeightPx > 0) {
 
-
                                             val change = delta / totalHeightPx
 
-
-                                            layersPanelWeight = (layersPanelWeight + change).coerceIn(0.2f, 0.8f)
-
+                                            val newPages = pagesPanelWeight + change
+                                            if (1f - outlinerPanelWeight - newPages >= 0.15f && newPages in 0.15f..0.5f) {
+                                                pagesPanelWeight = newPages
+                                            }
 
                                         }
-
 
                                     }
 
@@ -1849,32 +1950,26 @@ fun StudioLayout(
 
                                 .background(Color.Transparent), // Hit area
 
-
                             contentAlignment = Alignment.Center
 
 
                         ) {
 
-
                              Box(modifier = Modifier.fillMaxWidth().height(1.sdp).background(theme.iconColor.copy(alpha = 0.2f)))
 
-
                         }
-
 
                     }
 
 
                     // BOTTOM: LIBRARY
 
-
                     Box(
-
 
                         modifier = Modifier
 
 
-                            .weight(1f - layersPanelWeight) // Fill remaining
+                            .weight(1f - outlinerPanelWeight - pagesPanelWeight) // Fill remaining
 
 
                             .fillMaxWidth()
@@ -1893,7 +1988,6 @@ fun StudioLayout(
 
 
                     }
-
 
                 }
 
@@ -2221,1938 +2315,288 @@ fun StudioLayout(
 
         val topLeftTool = tools[ToolLocation.TopLeftCorner]?.firstOrNull()
 
-
         if (topLeftTool != null || isEditMode) {
-
-
-            BigTouchBox(
-
-
+            Box(
                 modifier = Modifier
-
-
                     .align(Alignment.TopStart)
-
-
                     .padding(
-
-
                         top = ((if (swapVertical) animBottomOffset else animTopOffset) - touchCorrection).coerceAtLeast(0.dp), 
-
-
                         start = (startPadding - touchCorrection).coerceAtLeast(0.dp)
-
-
-                    ),
-
-
-                onClick = { 
-
-
-                    if (isEditMode) toolPickerTarget = ToolLocation.TopLeftCorner to 0
-
-
-                    else {
-
-
-                        if (topLeftTool?.id == "menu") showStudioMenu = true
-
-
-                        else topLeftTool?.onClick?.invoke()
-
-
-                    }
-
-
-                },
-
-
-                touchSize = 64.dp
-
-
+                    )
             ) {
-
-
-                Box(
-
-
-                    modifier = Modifier
-
-
-                        .size(scaler.baseButtonSize)
-
-
-                        .advancedShadow(
-
-
-                            color = Color.Black,
-
-
-                            alpha = shadowAlpha,
-
-
-                            cornersRadius = if (theme.isRound) scaler.baseButtonSize / 2 else 8.dp,
-
-
-                            shadowBlurRadius = shadowBlur,
-
-
-                            offsetX = shadowOffsetX,
-
-
-                            offsetY = shadowOffsetY
-
-
-                        )
-
-
-                        .then(
-
-
-                            if (topLeftTool?.isActive == true || isEditMode || topLeftTool?.isPlaceholder == true) {
-
-
-                                Modifier.clip(theme.floatingShape()).background(
-
-
-                                    when {
-
-
-                                        topLeftTool?.isActive == true -> theme.highlightColor
-
-
-                                        isEditMode -> theme.barBackgroundColor.copy(alpha = 0.5f)
-
-
-                                        topLeftTool?.isPlaceholder == true -> Color.Red.copy(alpha = 0.3f)
-
-
-                                        else -> theme.barBackgroundColor
-
-
-                                    }
-
-
-                                )
-
-
-                            } else {
-
-
-                                Modifier.glassmorphicBackground(theme, theme.floatingShape())
-
-
-                            }
-
-
-                        )
-
-
-                        .then(
-
-
-                            if (isEditMode) Modifier.border(1.dp, theme.iconColor, theme.floatingShape())
-
-
-                            else Modifier
-
-
-                        ),
-
-
-                    contentAlignment = Alignment.Center
-
-
+                BigTouchBox(
+                    onClick = { 
+                        if (isEditMode) toolPickerTarget = ToolLocation.TopLeftCorner to 0
+                        else {
+                            if (topLeftTool?.id == "menu") showStudioMenu = true
+                            else topLeftTool?.onClick?.invoke()
+                        }
+                    },
+                    touchSize = 64.dp
                 ) {
-
-
-                    if (topLeftTool != null) {
-
-
-                        com.sketcher.sketchercompanionv1.ui.components.ToolIcon(tool = topLeftTool, theme = theme, tint = theme.iconColor)
-
-
-                    } else if (isEditMode) {
-
-
-                        Icon(Icons.Default.Add, "Add Tool", tint = theme.iconColor)
-
-
-                    }
-
-
+                    StudioCornerButton(
+                        tool = topLeftTool,
+                        location = ToolLocation.TopLeftCorner,
+                        isEditMode = isEditMode,
+                        theme = theme,
+                        scaler = scaler,
+                        shadowAlpha = shadowAlpha,
+                        shadowBlur = shadowBlur,
+                        shadowOffsetX = shadowOffsetX,
+                        shadowOffsetY = shadowOffsetY
+                    )
                 }
 
-
+                if (showStudioMenu && topLeftTool?.id == "menu") {
+                    com.sketcher.sketchercompanionv1.ui.dialogs.StudioMenu(
+                        expanded = showStudioMenu,
+                        onDismiss = { showStudioMenu = false },
+                        viewModel = viewModel,
+                        actions = projectActions
+                    )
+                }
             }
-
-
         }
-
-
-        // 2. Top-Right Button (Settings)
-
 
         val topRightTool = tools[ToolLocation.TopRightCorner]?.firstOrNull()
 
-
         if (topRightTool != null || isEditMode) {
-
-
-            BigTouchBox(
-
-
+            Box(
                 modifier = Modifier
-
-
                     .align(Alignment.TopEnd)
-
-
                     .padding(
-
-
                         top = ((if (swapVertical) animBottomOffset else animTopOffset) - touchCorrection).coerceAtLeast(0.dp), 
-
-
                         end = (endPadding - touchCorrection).coerceAtLeast(0.dp)
-
-
-                    ),
-
-
-                onClick = { 
-
-
-                    if (isEditMode) toolPickerTarget = ToolLocation.TopRightCorner to 0
-
-
-                    else if (topRightTool?.id == "settings") showPersonalizationDialog = true 
-
-
-                    else topRightTool?.onClick?.invoke()
-
-
-                },
-
-
-                touchSize = 64.dp
-
-
+                    )
             ) {
-
-
-                Box(
-
-
-                    modifier = Modifier
-
-
-                        .size(scaler.baseButtonSize)
-
-
-                        .advancedShadow(
-
-
-                            color = Color.Black,
-
-
-                            alpha = shadowAlpha,
-
-
-                            cornersRadius = if (theme.isRound) scaler.baseButtonSize / 2 else 8.dp,
-
-
-                            shadowBlurRadius = shadowBlur,
-
-
-                            offsetX = shadowOffsetX,
-
-
-                            offsetY = shadowOffsetY
-
-
-                        )
-
-
-                        .then(
-
-
-                            if (topRightTool?.isActive == true || isEditMode || topRightTool?.isPlaceholder == true) {
-
-
-                                Modifier.clip(theme.floatingShape()).background(
-
-
-                                    when {
-
-
-                                        topRightTool?.isActive == true -> theme.highlightColor
-
-
-                                        isEditMode -> theme.barBackgroundColor.copy(alpha = 0.5f)
-
-
-                                        topRightTool?.isPlaceholder == true -> Color.Red.copy(alpha = 0.3f)
-
-
-                                        else -> theme.barBackgroundColor
-
-
-                                    }
-
-
-                                )
-
-
-                            } else {
-
-
-                                Modifier.glassmorphicBackground(theme, theme.floatingShape())
-
-
-                            }
-
-
-                        )
-
-
-                        .then(
-
-
-                            if (isEditMode) Modifier.border(1.dp, theme.iconColor, theme.floatingShape())
-
-
-                            else Modifier
-
-
-                        ),
-
-
-                    contentAlignment = Alignment.Center
-
-
+                BigTouchBox(
+                    onClick = { 
+                        if (isEditMode) toolPickerTarget = ToolLocation.TopRightCorner to 0
+                        else if (topRightTool?.id == "settings") showPersonalizationDialog = true 
+                        else topRightTool?.onClick?.invoke()
+                    },
+                    touchSize = 64.dp
                 ) {
-
-
-                    if (topRightTool != null) {
-
-
-                        com.sketcher.sketchercompanionv1.ui.components.ToolIcon(tool = topRightTool, theme = theme, tint = theme.iconColor)
-
-
-                    } else if (isEditMode) {
-
-
-                        Icon(Icons.Default.Add, "Add Tool", tint = theme.iconColor)
-
-
-                    }
-
-
+                    StudioCornerButton(
+                        tool = topRightTool,
+                        location = ToolLocation.TopRightCorner,
+                        isEditMode = isEditMode,
+                        theme = theme,
+                        scaler = scaler,
+                        shadowAlpha = shadowAlpha,
+                        shadowBlur = shadowBlur,
+                        shadowOffsetX = shadowOffsetX,
+                        shadowOffsetY = shadowOffsetY
+                    )
                 }
 
-
+                if (showPersonalizationDialog && topRightTool?.id == "settings") {
+                    com.sketcher.sketchercompanionv1.ui.dialogs.PersonalizationMenu(
+                        expanded = showPersonalizationDialog,
+                        onDismiss = { showPersonalizationDialog = false },
+                        viewModel = viewModel,
+                        swapVertical = swapVertical,
+                        swapHorizontal = swapHorizontal,
+                        interfaceScale = interfaceScale,
+                        onShowIconEditor = {
+                            showIconEditorDialog = true
+                            showPersonalizationDialog = false
+                        }
+                    )
+                }
             }
-
-
         }
-
-
-        // 3. Bottom-Left Button (Undo)
-
 
         val bottomLeftTool = tools[ToolLocation.BottomLeftCorner]?.firstOrNull()
 
-
         if (bottomLeftTool != null || isEditMode) {
-
-
             BigTouchBox(
-
-
                 modifier = Modifier
-
-
                     .align(Alignment.BottomStart)
-
-
                     .padding(
-
-
                         bottom = ((if (swapVertical) animTopOffset else animBottomOffset) - touchCorrection).coerceAtLeast(0.dp), 
-
-
                         start = (startPadding - touchCorrection).coerceAtLeast(0.dp)
-
-
                     ),
-
-
                 onClick = { 
-
-
                     if (isEditMode) toolPickerTarget = ToolLocation.BottomLeftCorner to 0
-
-
                     else bottomLeftTool?.onClick?.invoke()
-
-
                 },
-
-
                 touchSize = 64.dp
-
-
             ) {
-
-
-                Box(
-
-
-                    modifier = Modifier
-
-
-                        .size(scaler.baseButtonSize)
-
-
-                        .advancedShadow(
-
-
-                            color = Color.Black,
-
-
-                            alpha = shadowAlpha,
-
-
-                            cornersRadius = if (theme.isRound) scaler.baseButtonSize / 2 else 8.dp,
-
-
-                            shadowBlurRadius = shadowBlur,
-
-
-                            offsetX = shadowOffsetX,
-
-
-                            offsetY = shadowOffsetY
-
-
-                        )
-
-
-                        .then(
-
-
-                            if (bottomLeftTool?.isActive == true || isEditMode || bottomLeftTool?.isPlaceholder == true) {
-
-
-                                Modifier.clip(theme.floatingShape()).background(
-
-
-                                    when {
-
-
-                                        bottomLeftTool?.isActive == true -> theme.highlightColor
-
-
-                                        isEditMode -> theme.barBackgroundColor.copy(alpha = 0.5f)
-
-
-                                        bottomLeftTool?.isPlaceholder == true -> Color.Red.copy(alpha = 0.3f)
-
-
-                                        else -> theme.barBackgroundColor
-
-
-                                    }
-
-
-                                )
-
-
-                            } else {
-
-
-                                Modifier.glassmorphicBackground(theme, theme.floatingShape())
-
-
-                            }
-
-
-                        )
-
-
-                        .then(
-
-
-                            if (isEditMode) Modifier.border(1.dp, theme.iconColor, theme.floatingShape())
-
-
-                            else Modifier
-
-
-                        ),
-
-
-                    contentAlignment = Alignment.Center
-
-
-                ) {
-
-
-                    if (bottomLeftTool != null) {
-
-
-                        com.sketcher.sketchercompanionv1.ui.components.ToolIcon(tool = bottomLeftTool, theme = theme, tint = theme.iconColor)
-
-
-                    } else if (isEditMode) {
-
-
-                        Icon(Icons.Default.Add, "Add Tool", tint = theme.iconColor)
-
-
-                    }
-
-
-                }
-
-
+                StudioCornerButton(
+                    tool = bottomLeftTool,
+                    location = ToolLocation.BottomLeftCorner,
+                    isEditMode = isEditMode,
+                    theme = theme,
+                    scaler = scaler,
+                    shadowAlpha = shadowAlpha,
+                    shadowBlur = shadowBlur,
+                    shadowOffsetX = shadowOffsetX,
+                    shadowOffsetY = shadowOffsetY
+                )
             }
-
-
         }
-
-
-        // 4. Bottom-Right Button (Redo)
-
 
         val bottomRightTool = tools[ToolLocation.BottomRightCorner]?.firstOrNull()
 
-
         if (bottomRightTool != null || isEditMode) {
-
-
             BigTouchBox(
-
-
                 modifier = Modifier
-
-
                     .align(Alignment.BottomEnd)
-
-
                     .padding(
-
-
                         bottom = ((if (swapVertical) animTopOffset else animBottomOffset) - touchCorrection).coerceAtLeast(0.dp), 
-
-
                         end = (endPadding - touchCorrection).coerceAtLeast(0.dp)
-
-
                     ),
-
-
                 onClick = { 
-
-
                     if (isEditMode) toolPickerTarget = ToolLocation.BottomRightCorner to 0
-
-
                     else bottomRightTool?.onClick?.invoke()
-
-
                 },
-
-
                 touchSize = 64.dp
-
-
             ) {
-
-
-                Box(
-
-
-                    modifier = Modifier
-
-
-                        .size(scaler.baseButtonSize)
-
-
-                        .advancedShadow(
-
-
-                            color = Color.Black,
-
-
-                            alpha = shadowAlpha,
-
-
-                            cornersRadius = if (theme.isRound) scaler.baseButtonSize / 2 else 8.dp,
-
-
-                            shadowBlurRadius = shadowBlur,
-
-
-                            offsetX = shadowOffsetX,
-
-
-                            offsetY = shadowOffsetY
-
-
-                        )
-
-
-                        .then(
-
-
-                            if (bottomRightTool?.isActive == true || isEditMode || bottomRightTool?.isPlaceholder == true) {
-
-
-                                Modifier.clip(theme.floatingShape()).background(
-
-
-                                    when {
-
-
-                                        bottomRightTool?.isActive == true -> theme.highlightColor
-
-
-                                        isEditMode -> theme.barBackgroundColor.copy(alpha = 0.5f)
-
-
-                                        bottomRightTool?.isPlaceholder == true -> Color.Red.copy(alpha = 0.3f)
-
-
-                                        else -> theme.barBackgroundColor
-
-
-                                    }
-
-
-                                )
-
-
-                            } else {
-
-
-                                Modifier.glassmorphicBackground(theme, theme.floatingShape())
-
-
-                            }
-
-
-                        )
-
-
-                        .then(
-
-
-                            if (isEditMode) Modifier.border(1.dp, theme.iconColor, theme.floatingShape())
-
-
-                            else Modifier
-
-
-                        ),
-
-
-                    contentAlignment = Alignment.Center
-
-
-                ) {
-
-
-                    if (bottomRightTool != null) {
-
-
-                        com.sketcher.sketchercompanionv1.ui.components.ToolIcon(tool = bottomRightTool, theme = theme, tint = theme.iconColor)
-
-
-                    } else if (isEditMode) {
-
-
-                        Icon(Icons.Default.Add, "Add Tool", tint = theme.iconColor)
-
-
-                    }
-
-
-                }
-
-
+                StudioCornerButton(
+                    tool = bottomRightTool,
+                    location = ToolLocation.BottomRightCorner,
+                    isEditMode = isEditMode,
+                    theme = theme,
+                    scaler = scaler,
+                    shadowAlpha = shadowAlpha,
+                    shadowBlur = shadowBlur,
+                    shadowOffsetX = shadowOffsetX,
+                    shadowOffsetY = shadowOffsetY
+                )
             }
-
-
         }
-
-
-        // 5. Side Floating Bar 1 (Tools) - LeftBar
-
 
         val leftTools = tools[ToolLocation.LeftBar] ?: emptyList()
-
-
-        if (leftTools.isNotEmpty() || isEditMode) {
-
-
-            Box(
-
-
-                modifier = Modifier
-
-
-                    .padding(start = if (swapHorizontal) 0.dp else startPadding, end = if (swapHorizontal) endPadding else 0.dp)
-
-
-                    .width(scaler.floatingBarWidth)
-
-
-                    .align(oppositePanelAlign)
-
-
-                    .advancedShadow(
-
-
-                        color = Color.Black,
-
-
-                        alpha = shadowAlpha,
-
-
-                        cornersRadius = if (theme.isRound) (scaler.floatingBarWidth / 2) else 8.dp, 
-
-
-                        shadowBlurRadius = shadowBlur,
-
-
-                        offsetX = shadowOffsetX,
-
-
-                        offsetY = shadowOffsetY
-
-
-                    )
-
-
-                    .glassmorphicBackground(theme, theme.floatingShape())
-
-
-            ) {
-
-
-                Column(
-
-
-                    modifier = Modifier.padding(vertical = scaler.smallMargin),
-
-
-                    verticalArrangement = Arrangement.spacedBy(scaler.buttonSpacing),
-
-
-                    horizontalAlignment = Alignment.CenterHorizontally
-
-
-                ) {
-
-
-                    leftTools.forEachIndexed { idx, tool ->
-
-
-                         val isActionButton = resolveIsActionButton(tool)
-
-
-                         val isRealAction = !tool.isPlaceholder || isActionButton
-
-
-                         if (tool.registryId == "divider") {
-
-
-                             Box(
-
-
-                                 modifier = Modifier
-
-
-                                     .height(2.dp)
-
-
-                                     .width(24.dp)
-
-
-                                     .background(theme.iconColor.copy(alpha = 0.3f))
-
-
-                                     .clickable { if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx }
-
-
-                             )
-
-
-                         } else {
-
-
-                             if (tool.registryId == StudioTool.SIZE_OPACITY_TOOL_ID) {
-
-
-                                 val currentSizeVal by viewModel.brushSize.collectAsState()
-
-
-                                 DynamicSizeButton(
-
-
-                                     onClick = {
-
-
-                                         if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx
-
-
-                                         else showSizeOpacityPopup = true
-
-
-                                     },
-
-
-                                     brushSize = currentSizeVal,
-
-
-                                     isActive = resolveIsActive(tool),
-
-
-                                     isEditMode = isEditMode,
-
-
-                                     backgroundColorOverride = if (tool.isPlaceholder) Color.Red.copy(alpha = 0.3f) else null,
-
-
-                                     highlightColor = theme.highlightColor,
-
-
-                                     buttonColor = theme.buttonColor,
-
-
-                                     iconColor = theme.iconColor,
-
-
-                                     shape = theme.floatingShape()
-
-
-                                 )
-
-
-                             } else if (tool.isPlaceholder || tool.registryId.contains("zoom") || tool.registryId == "home_view") {
-
-
-                                   val isActionButton = resolveIsActionButton(tool); val isRealAction = !tool.isPlaceholder || isActionButton
-
-
-                                   val bgColor = if (isActionButton) null else androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.3f)
-
-
-                                   com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
-
-
-                                       onClick = {
-
-
-                                           if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx
-
-
-                                           else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
-
-
-                                           else if (isRealAction) handleToolClick(tool)
-
-
-                                       },
-
-
-                                       icon = tool.icon,
-
-
-                                       contentDescription = tool.contentDescription,
-
-
-                                       isActive = resolveIsActive(tool),
-
-
-                                       isEditMode = isEditMode,
-
-
-                                       backgroundColorOverride = bgColor,
-
-
-                                       highlightColor = theme.highlightColor,
-
-
-                                       buttonColor = theme.buttonColor,
-
-
-                                       iconColor = theme.iconColor,
-
-
-                                       shape = theme.floatingShape(),
-
-
-                                       iconSize = scaler.smallIconSize, tool = tool, theme = theme
-
-
-                                   )
-
-
-                              } else {
-
-
-                                  com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
-
-
-                                      onClick = {
-
-
-                                          if (isEditMode) toolPickerTarget = ToolLocation.LeftBar to idx
-
-
-                                          else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
-
-
-                                          else if (isRealAction) handleToolClick(tool)
-
-
-                                      },
-
-
-                                      onLongClick = {
-
-
-                                          if (!isEditMode) {
-
-
-                                              if (tool.registryId == "toggle_snap") {
-
-
-                                                  showSnapConfigDialog = true
-
-
-                                              } else {
-
-
-                                                  val p = assignedToolsMap[tool.id]
-
-
-                                                  if (p != null) viewModel.editTool(p, tool.id)
-
-
-                                              }
-
-
-                                          }
-
-
-                                      },
-
-
-                                      icon = tool.icon,
-
-
-                                      contentDescription = tool.contentDescription,
-
-
-                                      isActive = resolveIsActive(tool),
-
-
-                                      isEditMode = isEditMode,
-
-
-                                      highlightColor = theme.highlightColor,
-
-
-                                      buttonColor = theme.buttonColor,
-
-
-                                      iconColor = theme.iconColor,
-
-
-                                      shape = theme.floatingShape(),
-
-
-                                      iconSize = scaler.smallIconSize,
-
-
-                                      location = ToolLocation.LeftBar,
-
-
-                                      theme = theme, tool = tool,
-
-
-                                      payload = assignedToolsMap[tool.id],
-
-
-                                      colorPreview = when (assignedToolsMap[tool.id]) {
-
-
-                                          ToolPayload.STROKE_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(strokeColorVal)
-
-
-                                          ToolPayload.FILL_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(fillColorVal)
-
-
-                                          else -> null
-
-
-                                      },
-fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
-    if (tool.id == viewModel.lastActiveColorToolId || (viewModel.lastActiveColorToolId == null && isFillActiveVal)) fillStyleVal else null
-} else null,
-
-
-                                      isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && isStrokeActiveVal) ||
-
-
-                                                   (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && isFillActiveVal),
-
-
-                                      isNone = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && !isStrokeActiveVal) ||
-
-
-                                               (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && !isFillActiveVal),
-
-
-                                      subTools = if (!isEditMode) {
-
-
-                                           if (tool.subTools.isNotEmpty()) tool.subTools 
-
-
-                                           else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId)
-
-
-                                       } else emptyList(),
-
-
-                                       onSubToolClick = { subTool -> 
-
-
-                                           if (viewModel.isMultiStepStrokeInProgress) {
-
-
-                                               canvasViewRef.value?.finishGeometricStroke()
-
-
-                                           }
-
-
-                                           val displayedSubTools = if (tool.subTools.isNotEmpty()) tool.subTools 
-
-
-                                                                   else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId)
-
-
-                                           val subIdx = displayedSubTools.indexOfFirst { it.id == subTool.id }
-
-
-                                           if (subIdx != -1) {
-
-
-                                               viewModel.swapSubToolToMain(ToolLocation.LeftBar, idx, subIdx)
-
-
-                                           }
-
-
-                                        }
-
-
-                                    )
-
-
-                               }
-
-
-                          }
-
-
-                     }
-
-
-                     if (isEditMode) {
-
-
-                        BigTouchBox(
-
-
-                            onClick = { toolPickerTarget = ToolLocation.LeftBar to null },
-
-
-                            touchSize = 48.dp
-
-
-                        ) {
-
-
-                            Icon(Icons.Default.AddCircleOutline, "Add", tint = theme.iconColor.copy(alpha = 0.5f))
-
-
-                        }
-
-
-                    }
-
-
-                }
-
-
-            }
-
-
-        }
-
-
-        // 6. Side Floating Bar 2 (Properties) - RightBar
-
-
+        val topTools = tools[ToolLocation.TopBar] ?: emptyList()
         val rightTools = tools[ToolLocation.RightBar] ?: emptyList()
 
-
-        if (rightTools.isNotEmpty() || isEditMode) {
-
-
-            Box(
-
-
-                modifier = Modifier
-
-
-                    .padding(end = if (swapHorizontal) 0.dp else endPadding, start = if (swapHorizontal) startPadding else 0.dp)
-
-
-                    .width(scaler.floatingBarWidth)
-
-
-                    .align(panelAlign)
-
-
-                    .advancedShadow(
-
-
-                        color = Color.Black,
-
-
-                        alpha = shadowAlpha,
-
-
-                        cornersRadius = if (theme.isRound) (scaler.floatingBarWidth / 2) else 8.dp, 
-
-
-                        shadowBlurRadius = shadowBlur,
-
-
-                        offsetX = shadowOffsetX,
-
-
-                        offsetY = shadowOffsetY
-
-
-                    )
-
-
-                    .glassmorphicBackground(theme, theme.floatingShape())
-
-
-            ) {
-
-
-                 Column(
-
-
-                    modifier = Modifier.padding(vertical = scaler.smallMargin),
-
-
-                    verticalArrangement = Arrangement.spacedBy(scaler.buttonSpacing),
-
-
-                    horizontalAlignment = Alignment.CenterHorizontally
-
-
-                ) {
-
-
-                    rightTools.forEachIndexed { idx, tool ->
-
-
-                         val isActionButton = resolveIsActionButton(tool)
-
-
-                         val isRealAction = !tool.isPlaceholder || isActionButton
-
-
-                         if (tool.registryId == "divider") {
-
-
-                             Box(
-
-
-                                 modifier = Modifier
-
-
-                                     .height(2.dp)
-
-
-                                     .width(24.dp)
-
-
-                                     .background(theme.iconColor.copy(alpha = 0.3f))
-
-
-                                     .clickable { if (isEditMode) toolPickerTarget = ToolLocation.RightBar to idx }
-
-
-                             )
-
-
-                         } else {
-
-
-                             if (tool.registryId == StudioTool.SIZE_OPACITY_TOOL_ID) {
-
-
-                                 val currentSizeVal by viewModel.brushSize.collectAsState()
-
-
-                                 DynamicSizeButton(
-
-
-                                     onClick = {
-
-
-                                         if (isEditMode) toolPickerTarget = ToolLocation.RightBar to idx
-
-
-                                         else showSizeOpacityPopup = true
-
-
-                                     },
-
-
-                                     brushSize = currentSizeVal,
-
-
-                                     isActive = resolveIsActive(tool),
-
-
-                                     isEditMode = isEditMode,
-
-
-                                     backgroundColorOverride = if (tool.isPlaceholder) Color.Red.copy(alpha = 0.3f) else null,
-
-
-                                     highlightColor = theme.highlightColor,
-
-
-                                     buttonColor = theme.buttonColor,
-
-
-                                     iconColor = theme.iconColor,
-
-
-                                     shape = theme.floatingShape()
-
-
-                                 )
-
-
-                             } else if (tool.isPlaceholder || tool.registryId.contains("zoom") || tool.registryId == "home_view") {
-
-
-                                  val isActionButton = resolveIsActionButton(tool); val isRealAction = !tool.isPlaceholder || isActionButton
-
-
-                                  val bgColor = if (isActionButton) null else androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.3f)
-
-
-                                  com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
-
-
-                                      onClick = {
-
-
-                                          if (isEditMode) toolPickerTarget = ToolLocation.RightBar to idx
-
-
-                                          else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
-
-
-                                          else if (isRealAction) handleToolClick(tool)
-
-
-                                      },
-
-
-                                      icon = tool.icon,
-
-
-                                      contentDescription = tool.contentDescription,
-
-
-                                      isActive = resolveIsActive(tool),
-
-
-                                      isEditMode = isEditMode,
-
-
-                                      backgroundColorOverride = bgColor,
-
-
-                                      highlightColor = theme.highlightColor,
-
-
-                                      buttonColor = theme.buttonColor,
-
-
-                                      iconColor = theme.iconColor,
-
-
-                                      shape = theme.floatingShape(),
-
-
-                                      iconSize = scaler.smallIconSize, tool = tool, theme = theme
-
-
-                                   )
-
-
-                             } else {
-
-
-                                 com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
-
-
-                                     onClick = {
-
-
-                                         if (isEditMode) toolPickerTarget = ToolLocation.RightBar to idx
-
-
-                                         else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
-
-
-                                         else if (isRealAction) handleToolClick(tool)
-
-
-                                     },
-
-
-                                     onLongClick = {
-
-
-                                          if (!isEditMode) {
-
-
-                                              if (tool.registryId == "toggle_snap") {
-
-
-                                                  showSnapConfigDialog = true
-
-
-                                              } else {
-
-
-                                                  val p = assignedToolsMap[tool.id]
-
-
-                                                  if (p != null) viewModel.editTool(p, tool.id)
-
-
-                                              }
-
-
-                                          }
-
-
-                                      },
-
-
-                                     icon = tool.icon,
-
-
-                                     contentDescription = tool.contentDescription,
-
-
-                                     isActive = resolveIsActive(tool),
-
-
-                                     isEditMode = isEditMode,
-
-
-                                     highlightColor = theme.highlightColor,
-
-
-                                     buttonColor = theme.buttonColor,
-
-
-                                     iconColor = theme.iconColor,
-
-
-                                     shape = theme.floatingShape(),
-
-
-                                     iconSize = scaler.smallIconSize,
-
-
-                                      location = ToolLocation.RightBar,
-
-
-                                      theme = theme, tool = tool,
-
-
-                                      payload = assignedToolsMap[tool.id],
-
-
-                                       colorPreview = when (assignedToolsMap[tool.id]) {
-
-
-                                           ToolPayload.STROKE_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(strokeColorVal)
-
-
-                                           ToolPayload.FILL_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(fillColorVal)
-
-
-                                           else -> null
-
-
-                                       },
-fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
-    if (tool.id == viewModel.lastActiveColorToolId || (viewModel.lastActiveColorToolId == null && isFillActiveVal)) fillStyleVal else null
-} else null,
-
-
-                                       isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && isStrokeActiveVal) ||
-
-
-                                                    (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && isFillActiveVal),
-
-
-                                       isNone = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && !isStrokeActiveVal) ||
-
-
-                                                (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && !isFillActiveVal),
-
-
-                                      subTools = if (!isEditMode) {
-
-
-                                           if (tool.subTools.isNotEmpty()) tool.subTools 
-
-
-                                           else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId)
-
-
-                                       } else emptyList(),
-
-
-                                       onSubToolClick = { subTool -> 
-
-
-                                           if (viewModel.isMultiStepStrokeInProgress) {
-
-
-                                               canvasViewRef.value?.finishGeometricStroke()
-
-
-                                           }
-
-
-                                           val displayedSubTools = if (tool.subTools.isNotEmpty()) tool.subTools 
-
-
-                                                                   else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId)
-
-
-                                           val subIdx = displayedSubTools.indexOfFirst { it.id == subTool.id }
-
-
-                                           if (subIdx != -1) {
-
-
-                                               viewModel.swapSubToolToMain(ToolLocation.RightBar, idx, subIdx)
-
-
-                                           }
-
-
-                                       }
-
-
-                                   )
-
-
-                             }
-
-
-                         }
-
-
-                    }
-
-
-                    if (isEditMode) {
-
-
-                        BigTouchBox(
-
-
-                            onClick = { toolPickerTarget = ToolLocation.RightBar to null },
-
-
-                            touchSize = 48.dp
-
-
-                        ) {
-
-
-                            Icon(Icons.Default.AddCircleOutline, "Add", tint = theme.iconColor.copy(alpha = 0.5f))
-
-
-                        }
-
-
-                    }
-
-
-                }
-
-
+        val handleSubToolClick = { location: ToolLocation, mainIdx: Int, subTool: StudioTool ->
+            if (viewModel.isMultiStepStrokeInProgress) {
+                canvasViewRef.value?.finishGeometricStroke()
             }
-
-
+            val toolsList = when (location) {
+                ToolLocation.TopBar -> topTools
+                ToolLocation.LeftBar -> leftTools
+                ToolLocation.RightBar -> rightTools
+                else -> emptyList()
+            }
+            val tool = toolsList.getOrNull(mainIdx)
+            if (tool != null) {
+                val displayedSubTools = if (tool.subTools.isNotEmpty()) tool.subTools 
+                                        else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId)
+                val subIdx = displayedSubTools.indexOfFirst { it.id == subTool.id }
+                if (subIdx != -1) {
+                    viewModel.swapSubToolToMain(location, mainIdx, subIdx)
+                }
+            }
         }
 
-
-        // 7. Top Floating Bar (Center) - TopBar
-
-
-        val topTools = tools[ToolLocation.TopBar] ?: emptyList()
-
-
-        if (topTools.isNotEmpty() || isEditMode) {
-
-
-            Box(
-
-
-                modifier = Modifier
-
-
-                    .offset(x = if (swapHorizontal) (animHorizontalOffset / 2) else -(animHorizontalOffset / 2))
-
-
-                    .padding(top = if (swapVertical) animBottomOffset else animTopOffset)
-
-
-                    .height(scaler.floatingBarWidth)
-
-
-                    .align(if (swapVertical) Alignment.BottomCenter else Alignment.TopCenter)
-
-
-                    .advancedShadow(
-
-
-                        color = Color.Black,
-
-
-                        alpha = shadowAlpha,
-
-
-                        cornersRadius = if (theme.isRound) (scaler.floatingBarWidth / 2) else 8.dp, 
-
-
-                        shadowBlurRadius = shadowBlur,
-
-
-                        offsetX = shadowOffsetX,
-
-
-                        offsetY = shadowOffsetY
-
-
-                    )
-
-
-                    .glassmorphicBackground(theme, theme.floatingShape())
-
-
-            ) {
-
-
-                Row(
-
-
-                    modifier = Modifier.padding(horizontal = scaler.smallMargin, vertical = 4.dp), 
-
-
-                    horizontalArrangement = Arrangement.spacedBy(scaler.buttonSpacing),
-
-
-                    verticalAlignment = Alignment.CenterVertically
-
-
-                ) {
-
-
-                    topTools.forEachIndexed { idx, tool ->
-
-
-                         val isActionButton = resolveIsActionButton(tool)
-
-
-                         val isRealAction = !tool.isPlaceholder || isActionButton
-
-
-                         if (tool.registryId == "divider") {
-
-
-                             Box(
-
-
-                                 modifier = Modifier
-
-
-                                     .width(2.dp)
-
-
-                                     .height(24.dp)
-
-
-                                     .background(theme.iconColor.copy(alpha = 0.3f))
-
-
-                                     .clickable { if (isEditMode) toolPickerTarget = ToolLocation.TopBar to idx }
-
-
-                             )
-
-
-                         } else {
-
-
-                             if (tool.registryId == StudioTool.SIZE_OPACITY_TOOL_ID) {
-
-
-                                 val currentSizeVal by viewModel.brushSize.collectAsState()
-
-
-                                 DynamicSizeButton(
-
-
-                                     onClick = {
-
-
-                                         if (isEditMode) toolPickerTarget = ToolLocation.TopBar to idx
-
-
-                                         else showSizeOpacityPopup = true
-
-
-                                     },
-
-
-                                     brushSize = currentSizeVal,
-
-
-                                     isActive = resolveIsActive(tool),
-
-
-                                     isEditMode = isEditMode,
-
-
-                                     backgroundColorOverride = if (tool.isPlaceholder) Color.Red.copy(alpha = 0.3f) else null,
-
-
-                                     highlightColor = theme.highlightColor,
-
-
-                                     buttonColor = theme.buttonColor,
-
-
-                                     iconColor = theme.iconColor,
-
-
-                                     shape = theme.floatingShape()
-
-
-                                 )
-
-
-                             } else if (tool.isPlaceholder || tool.registryId.contains("zoom") || tool.registryId == "home_view") {
-
-
-                                  val isActionButton = resolveIsActionButton(tool); val isRealAction = !tool.isPlaceholder || isActionButton
-
-
-                                  val bgColor = if (isActionButton) null else androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.3f)
-
-
-                                  com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
-
-
-                                      onClick = {
-
-
-                                          if (isEditMode) toolPickerTarget = ToolLocation.TopBar to idx
-
-
-                                          else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
-
-
-                                          else if (isRealAction) handleToolClick(tool)
-
-
-                                      },
-
-
-                                      icon = tool.icon,
-
-
-                                      contentDescription = tool.contentDescription,
-
-
-                                      isActive = resolveIsActive(tool),
-
-
-                                      isEditMode = isEditMode,
-
-
-                                      backgroundColorOverride = bgColor,
-
-
-                                      highlightColor = theme.highlightColor,
-
-
-                                      buttonColor = theme.buttonColor,
-
-
-                                      iconColor = theme.iconColor,
-
-
-                                      shape = theme.floatingShape(),
-
-
-                                      iconSize = scaler.smallIconSize, tool = tool, theme = theme
-
-
-                                  )
-
-
-                             } else {
-
-
-                                 com.sketcher.sketchercompanionv1.ui.components.AssignableToolButton(
-
-
-                                     onClick = {
-
-
-                                         if (isEditMode) toolPickerTarget = ToolLocation.TopBar to idx
-
-
-                                         else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
-
-
-                                         else if (isRealAction) handleToolClick(tool)
-
-
-                                     },
-
-
-                                     onLongClick = {
-
-
-                                          if (!isEditMode) {
-
-
-                                              if (tool.registryId == "toggle_snap") {
-
-
-                                                  showSnapConfigDialog = true
-
-
-                                              } else {
-
-
-                                                  val p = assignedToolsMap[tool.id]
-
-
-                                                  if (p != null) viewModel.editTool(p, tool.id)
-
-
-                                              }
-
-
-                                          }
-
-
-                                      },
-
-
-                                     icon = tool.icon,
-
-
-                                     contentDescription = tool.contentDescription,
-
-
-                                     isActive = resolveIsActive(tool),
-
-
-                                     isEditMode = isEditMode,
-
-
-                                     highlightColor = theme.highlightColor,
-
-
-                                     buttonColor = theme.buttonColor,
-
-
-                                     iconColor = theme.iconColor,
-
-
-                                     shape = theme.floatingShape(),
-
-
-                                     iconSize = scaler.smallIconSize,
-
-
-                                      location = ToolLocation.TopBar,
-
-
-                                      theme = theme, tool = tool,
-
-
-                                      payload = assignedToolsMap[tool.id],
-
-
-                                       colorPreview = when (assignedToolsMap[tool.id]) {
-
-
-                                           ToolPayload.STROKE_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(strokeColorVal)
-
-
-                                           ToolPayload.FILL_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(fillColorVal)
-
-
-                                           else -> null
-
-
-                                       },
-fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
-    if (tool.id == viewModel.lastActiveColorToolId || (viewModel.lastActiveColorToolId == null && isFillActiveVal)) fillStyleVal else null
-} else null,
-
-
-                                       isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && isStrokeActiveVal) ||
-
-
-                                                    (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && isFillActiveVal),
-
-
-                                       isNone = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && !isStrokeActiveVal) ||
-
-
-                                                (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && !isFillActiveVal),
-
-
-                                      subTools = if (!isEditMode) {
-
-
-                                           if (tool.subTools.isNotEmpty()) tool.subTools 
-
-
-                                           else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId)
-
-
-                                       } else emptyList(),
-
-
-                                       onSubToolClick = { subTool -> 
-
-
-                                           if (viewModel.isMultiStepStrokeInProgress) {
-
-
-                                               canvasViewRef.value?.finishGeometricStroke()
-
-
-                                           }
-
-
-                                           val displayedSubTools = if (tool.subTools.isNotEmpty()) tool.subTools 
-
-
-                                                                   else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId)
-
-
-                                           val subIdx = displayedSubTools.indexOfFirst { it.id == subTool.id }
-
-
-                                           if (subIdx != -1) {
-
-
-                                               viewModel.swapSubToolToMain(ToolLocation.TopBar, idx, subIdx)
-
-
-                                           }
-
-
-                                       }
-
-
-                                   )
-
-
-                             }
-
-
-                         }
-
-
-                    }
-
-
-                    if (isEditMode) {
-
-
-                        BigTouchBox(
-
-
-                            onClick = { toolPickerTarget = ToolLocation.TopBar to null },
-
-
-                            touchSize = 48.dp
-
-
-                        ) {
-
-
-                            Icon(Icons.Default.AddCircleOutline, "Add", tint = theme.iconColor.copy(alpha = 0.5f))
-
-
-                        }
-
-
-                    }
-
-
-                }
-
-
-            }
-
-
-        }
-
-
-        // 8. Bottom Floating Bar (Center) - BottomBar
-
+        StudioLeftBar(
+            leftTools = leftTools,
+            isEditMode = isEditMode,
+            swapHorizontal = swapHorizontal,
+            startPadding = startPadding,
+            endPadding = endPadding,
+            scaler = scaler,
+            oppositePanelAlign = oppositePanelAlign,
+            shadowAlpha = shadowAlpha,
+            shadowBlur = shadowBlur,
+            shadowOffsetX = shadowOffsetX,
+            shadowOffsetY = shadowOffsetY,
+            theme = theme,
+            assignedToolsMap = assignedToolsMap,
+            assignedColorsMap = assignedColorsMap,
+            strokeColorVal = strokeColorVal,
+            fillColorVal = fillColorVal,
+            isStrokeActiveVal = isStrokeActiveVal,
+            isFillActiveVal = isFillActiveVal,
+            fillStyleVal = fillStyleVal,
+            lastActiveColorToolId = viewModel.lastActiveColorToolId,
+            brushSizeVal = brushSizeVal,
+            resolveIsActive = resolveIsActive,
+            resolveIsActionButton = resolveIsActionButton,
+            onEditSlot = { idx -> toolPickerTarget = ToolLocation.LeftBar to idx },
+            onShowSizeOpacity = { id ->
+                if (id == StudioTool.STABILIZATION_TOOL_ID) viewModel.setShowStabilizePicker(true)
+                else showSizeOpacityPopup = true
+            },
+            onShowSnapConfig = { showSnapConfigDialog = true },
+            onToolClick = { t -> handleToolClick(t) },
+            onEditTool = { p, id -> viewModel.editTool(p, id) },
+            onSubToolClick = handleSubToolClick
+        )
+
+        StudioRightBar(
+            rightTools = rightTools,
+            isEditMode = isEditMode,
+            swapHorizontal = swapHorizontal,
+            startPadding = startPadding,
+            endPadding = endPadding,
+            scaler = scaler,
+            panelAlign = panelAlign,
+            shadowAlpha = shadowAlpha,
+            shadowBlur = shadowBlur,
+            shadowOffsetX = shadowOffsetX,
+            shadowOffsetY = shadowOffsetY,
+            theme = theme,
+            assignedToolsMap = assignedToolsMap,
+            assignedColorsMap = assignedColorsMap,
+            strokeColorVal = strokeColorVal,
+            fillColorVal = fillColorVal,
+            isStrokeActiveVal = isStrokeActiveVal,
+            isFillActiveVal = isFillActiveVal,
+            fillStyleVal = fillStyleVal,
+            lastActiveColorToolId = viewModel.lastActiveColorToolId,
+            brushSizeVal = brushSizeVal,
+            resolveIsActive = resolveIsActive,
+            resolveIsActionButton = resolveIsActionButton,
+            onEditSlot = { idx -> toolPickerTarget = ToolLocation.RightBar to idx },
+            onShowSizeOpacity = { id ->
+                if (id == StudioTool.STABILIZATION_TOOL_ID) viewModel.setShowStabilizePicker(true)
+                else showSizeOpacityPopup = true
+            },
+            onShowSnapConfig = { showSnapConfigDialog = true },
+            onToolClick = { t -> handleToolClick(t) },
+            onEditTool = { p, id -> viewModel.editTool(p, id) },
+            onSubToolClick = handleSubToolClick
+        )
+
+        StudioTopBar(
+            topTools = topTools,
+            isEditMode = isEditMode,
+            swapHorizontal = swapHorizontal,
+            swapVertical = swapVertical,
+            animHorizontalOffset = animHorizontalOffset,
+            animTopOffset = animTopOffset,
+            animBottomOffset = animBottomOffset,
+            scaler = scaler,
+            shadowAlpha = shadowAlpha,
+            shadowBlur = shadowBlur,
+            shadowOffsetX = shadowOffsetX,
+            shadowOffsetY = shadowOffsetY,
+            theme = theme,
+            assignedToolsMap = assignedToolsMap,
+            assignedColorsMap = assignedColorsMap,
+            strokeColorVal = strokeColorVal,
+            fillColorVal = fillColorVal,
+            isStrokeActiveVal = isStrokeActiveVal,
+            isFillActiveVal = isFillActiveVal,
+            fillStyleVal = fillStyleVal,
+            lastActiveColorToolId = viewModel.lastActiveColorToolId,
+            brushSizeVal = brushSizeVal,
+            resolveIsActive = resolveIsActive,
+            resolveIsActionButton = resolveIsActionButton,
+            onEditSlot = { idx -> toolPickerTarget = ToolLocation.TopBar to idx },
+            onShowSizeOpacity = { id ->
+                if (id == StudioTool.STABILIZATION_TOOL_ID) viewModel.setShowStabilizePicker(true)
+                else showSizeOpacityPopup = true
+            },
+            onShowSnapConfig = { showSnapConfigDialog = true },
+            onToolClick = { t -> handleToolClick(t) },
+            onEditTool = { p, id -> viewModel.editTool(p, id) },
+            onSubToolClick = handleSubToolClick
+        )
 
         val bottomTools = tools[ToolLocation.BottomBar] ?: emptyList()
 
@@ -4440,7 +2884,7 @@ fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
                                           if (isEditMode) toolPickerTarget = ToolLocation.BottomBar to idx
 
 
-                                          else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
+                                          else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) viewModel.setShowStabilizePicker(true)
 
 
                                           else if (isRealAction) tool.onClick()
@@ -4581,22 +3025,31 @@ fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
                                           else -> null
 
 
-                                      },
-fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
+                                      },fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
+
+
     if (tool.id == viewModel.lastActiveColorToolId || (viewModel.lastActiveColorToolId == null && isFillActiveVal)) fillStyleVal else null
+
+
 } else null,
 
 
                                       isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && isStrokeActiveVal) ||
 
 
-                                                   (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && isFillActiveVal),
+                                                   (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && isFillActiveVal) ||
+
+
+                                                   (assignedToolsMap[tool.id] == ToolPayload.STABILIZE && (assignedStabMap[tool.id] ?: 0f) == globalStabilizationVal),
 
 
                                       isNone = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && !isStrokeActiveVal) ||
 
 
                                                (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && !isFillActiveVal),
+
+
+                                      stabilizationPreview = if (assignedToolsMap[tool.id] == ToolPayload.STABILIZE) (assignedStabMap[tool.id] ?: 0f) else null,
 
 
                                       subTools = if (!isEditMode) {
@@ -5598,6 +4051,25 @@ fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
         }
 
 
+        val showStabilizePicker by viewModel.showStabilizePicker.collectAsState()
+        if (showStabilizePicker) {
+            val lastActiveStabId = viewModel.lastActiveStabilizationToolId
+            val currentVal = lastActiveStabId?.let { assignedStabMap[it] } ?: globalStabilizationVal
+            QuickStabilizationPopup(
+                value = currentVal,
+                onValueChange = { newValue ->
+                    viewModel.updateLastActiveToolStabilization(newValue)
+                    viewModel.setGlobalStabilization(newValue)
+                },
+                onRestorePreset = {
+                    viewModel.restoreStabilizationToPreset()
+                },
+                onDismiss = { viewModel.setShowStabilizePicker(false) },
+                theme = theme
+            )
+        }
+
+
         if (showSnapConfigDialog) {
 
 
@@ -5877,739 +4349,10 @@ fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
     }
 
 
-    if (showPersonalizationDialog) {
+    // PersonalizationMenu is now anchored to the top-right settings button layout
 
 
-        Dialog(onDismissRequest = { showPersonalizationDialog = false }) {
-
-
-             Card(
-
-
-                shape = RoundedCornerShape(16.dp),
-
-
-                colors = CardDefaults.cardColors(
-
-
-                    containerColor = theme.barBackgroundColor.copy(alpha = 0.98f),
-
-
-                    contentColor = theme.iconColor
-
-
-                ),
-
-
-                border = androidx.compose.foundation.BorderStroke(1.dp, theme.iconColor.copy(alpha = 0.1f)),
-
-
-                modifier = Modifier.padding(16.dp).width(300.sdp)
-
-
-            ) {
-
-
-                Column(
-
-
-                    modifier = Modifier
-
-
-                        .padding(24.dp)
-
-
-                        .verticalScroll(rememberScrollState()),
-
-
-                    horizontalAlignment = Alignment.CenterHorizontally
-
-
-                ) {
-
-
-                    Text("Customize Theme", style = MaterialTheme.typography.titleLarge, color = theme.iconColor)
-
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-
-                    // Shape Switch
-
-
-                    Row(
-
-
-                        modifier = Modifier.fillMaxWidth(),
-
-
-                        horizontalArrangement = Arrangement.SpaceBetween,
-
-
-                        verticalAlignment = Alignment.CenterVertically
-
-
-                    ) {
-
-
-                        Text("Round Shapes", color = theme.iconColor)
-
-
-                        Switch(
-
-
-                            checked = theme.isRound,
-
-
-                            onCheckedChange = { viewModel.updateTheme(theme.copy(isRound = it)) }
-
-
-                        )
-
-
-                    }
-
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-
-                    // Edit Toolbars Switch
-
-
-                    val isEditModeByVM by viewModel.isEditMode.collectAsState()
-
-
-                    Row(
-
-
-                        modifier = Modifier.fillMaxWidth(),
-
-
-                        horizontalArrangement = Arrangement.SpaceBetween,
-
-
-                        verticalAlignment = Alignment.CenterVertically
-
-
-                    ) {
-
-
-                        Text("Edit Toolbars", color = theme.iconColor)
-
-
-                        Switch(
-
-
-                            checked = isEditModeByVM,
-
-
-                            onCheckedChange = { viewModel.toggleEditMode() }
-
-
-                        )
-
-
-                    }
-
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-
-                    // UI Scale Slider
-                    var tempScale by remember { mutableStateOf(interfaceScale) }
-                    SettingSlider(
-                        label = "UI Scale",
-                        value = tempScale,
-                        onValueChange = { tempScale = it },
-                        onValueChangeFinished = { viewModel.updateInterfaceScale(tempScale) },
-                        valueRange = 0.5f..1.5f,
-                        labelStyle = MaterialTheme.typography.labelMedium,
-                        labelColor = theme.iconColor,
-                        showValueOnRight = true,
-                        valueFormatter = { String.format("%.1f", it) + "x" }
-                    )
-
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-
-                    // Button Spacing Slider
-                    var tempSpacing by remember { mutableStateOf(viewModel.buttonSpacingFactor) }
-                    LaunchedEffect(viewModel.buttonSpacingFactor) {
-                        tempSpacing = viewModel.buttonSpacingFactor
-                    }
-                    SettingSlider(
-                        label = "Button Spacing",
-                        value = tempSpacing,
-                        onValueChange = { tempSpacing = it },
-                        onValueChangeFinished = { viewModel.updateButtonSpacingFactor(tempSpacing) },
-                        valueRange = 0.15f..2.0f,
-                        labelStyle = MaterialTheme.typography.labelMedium,
-                        labelColor = theme.iconColor,
-                        showValueOnRight = true,
-                        valueFormatter = { "${(it * 100).toInt()}%" }
-                    )
-
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-
-                    // --- SEPARATE COLOR PICKERS ---
-
-
-                    var pickingColorFor by remember { mutableStateOf<String?>(null) }
-
-
-                    ColorPreviewRow(
-
-
-                        label = "Bar Color",
-
-
-                        color = theme.barBackgroundColor,
-
-
-                        labelColor = theme.iconColor,
-
-
-                        onClick = { pickingColorFor = "bar" }
-
-
-                    )
-
-
-                    ColorPreviewRow(
-
-
-                        label = "Button Color",
-
-
-                        color = theme.buttonColor,
-
-
-                        labelColor = theme.iconColor,
-
-
-                        onClick = { pickingColorFor = "button" }
-
-
-                    )
-
-
-                    ColorPreviewRow(
-
-
-                        label = "Icon Color",
-
-
-                        color = theme.iconColor,
-
-
-                        labelColor = theme.iconColor,
-
-
-                        onClick = { pickingColorFor = "icon" }
-
-
-                    )
-
-
-                    ColorPreviewRow(
-
-
-                        label = "Highlight Color",
-
-
-                        color = theme.highlightColor,
-
-
-                        labelColor = theme.iconColor,
-
-
-                        onClick = { pickingColorFor = "highlight" }
-
-
-                    )
-
-
-                    if (pickingColorFor != null) {
-
-
-                        val initialColor = when(pickingColorFor) {
-
-
-                            "bar" -> theme.barBackgroundColor
-
-
-                            "button" -> theme.buttonColor
-
-
-                            "icon" -> theme.iconColor
-
-
-                            "highlight" -> theme.highlightColor
-
-
-                            else -> Color.Transparent
-
-
-                        }
-
-
-                        ColorPickerDialog(
-                            initialColor = initialColor,
-                            recentColors = theme.recentColors,
-                            theme = theme,
-
-
-                            onDismiss = { pickingColorFor = null },
-
-
-                            onColorSelected = { newColor ->
-
-
-                                // Update recent colors
-
-
-                                val newRecents = (listOf(newColor) + theme.recentColors)
-
-
-                                    .distinct()
-
-
-                                    .take(12)
-
-
-                                when(pickingColorFor) {
-
-
-                                    "bar" -> viewModel.updateTheme(theme.copy(barBackgroundColor = newColor, recentColors = newRecents))
-
-
-                                    "button" -> viewModel.updateTheme(theme.copy(buttonColor = newColor, recentColors = newRecents))
-
-
-                                    "icon" -> viewModel.updateTheme(theme.copy(iconColor = newColor, recentColors = newRecents))
-
-
-                                    "highlight" -> viewModel.updateTheme(theme.copy(highlightColor = newColor, recentColors = newRecents))
-
-
-                                }
-
-
-                                pickingColorFor = null
-
-
-                            }
-
-
-                        )
-
-
-                    }
-
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-
-                    // Opacity Slider (Optional now since color picker has alpha, but keeping for direct access)
-                    SettingSlider(
-                        label = "Bar Opacity",
-                        value = theme.barBackgroundColor.alpha,
-                        onValueChange = { 
-                            viewModel.updateTheme(theme.copy(barBackgroundColor = theme.barBackgroundColor.copy(alpha = it))) 
-                        },
-                        valueRange = 0f..1f,
-                        labelStyle = MaterialTheme.typography.labelMedium,
-                        labelColor = theme.iconColor,
-                        showValueOnRight = true,
-                        valueFormatter = { "${(it * 100).toInt()}%" }
-                    )
-
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-
-                    // --- SHADOW CONTROLS ---
-
-
-                    Row(
-
-
-                        modifier = Modifier.fillMaxWidth(),
-
-
-                        horizontalArrangement = Arrangement.SpaceBetween,
-
-
-                        verticalAlignment = Alignment.CenterVertically
-
-
-                    ) {
-
-
-                        Text("Enable Shadows", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
-
-
-                        Switch(
-
-
-                            checked = theme.isShadowEnabled,
-
-
-                            onCheckedChange = { viewModel.updateTheme(theme.copy(isShadowEnabled = it)) }
-
-
-                        )
-
-
-                    }
-
-
-                    // Shadow Options UI: Only show if shadows enabled AND opacity is 100%
-
-
-                    val canShowShadowOptions = theme.isShadowEnabled && theme.barBackgroundColor.alpha == 1f
-
-
-                    AnimatedVisibility(visible = canShowShadowOptions) {
-
-
-                        Column {
-
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-
-                            // Shadow Opacity Slider
-                            SettingSlider(
-                                label = "Shadow Opacity",
-                                value = theme.shadowOpacity,
-                                onValueChange = { 
-                                    viewModel.updateTheme(theme.copy(shadowOpacity = it)) 
-                                },
-                                valueRange = 0f..1f,
-                                labelStyle = MaterialTheme.typography.labelMedium,
-                                labelColor = theme.iconColor,
-                                showValueOnRight = true,
-                                valueFormatter = { "${(it * 100).toInt()}%" }
-                            )
-
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-
-                            // Shadow Blur Slider
-                            SettingSlider(
-                                label = "Shadow Blur",
-                                value = theme.shadowBlur.value,
-                                onValueChange = { 
-                                    viewModel.updateTheme(theme.copy(shadowBlur = it.dp)) 
-                                },
-                                valueRange = 0f..24f,
-                                labelStyle = MaterialTheme.typography.labelMedium,
-                                labelColor = theme.iconColor,
-                                showValueOnRight = true,
-                                valueFormatter = { "${it.toInt()} dp" }
-                            )
-
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-
-                            // Angle Slider
-                            SettingSlider(
-                                label = "Shadow Angle",
-                                value = theme.shadowAngle,
-                                onValueChange = { 
-                                    viewModel.updateTheme(theme.copy(shadowAngle = it)) 
-                                },
-                                valueRange = 0f..360f,
-                                labelStyle = MaterialTheme.typography.labelMedium,
-                                labelColor = theme.iconColor,
-                                showValueOnRight = true,
-                                valueFormatter = { "${it.toInt()}°" }
-                            )
-
-
-                        }
-
-
-                    }
-
-
-                    if (theme.isShadowEnabled && theme.barBackgroundColor.alpha < 1f) {
-
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-
-                        Text(
-
-
-                            "Shadows hidden because Opacity < 100%", 
-
-
-                            style = MaterialTheme.typography.labelSmall,
-
-
-                            color = MaterialTheme.colorScheme.error.copy(alpha=0.7f)
-
-
-                        )
-
-
-                    }
-
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-
-                    // --- INTERFACE MIRROR ---
-
-
-                    Box(
-
-
-                        modifier = Modifier
-
-
-                            .fillMaxWidth()
-
-
-                            .background(theme.buttonColor.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
-
-
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-
-
-                    ) {
-
-
-                        Column {
-
-
-                            Text(
-
-
-                                "Interface Mirror",
-
-
-                                style = MaterialTheme.typography.labelSmall,
-
-
-                                color = theme.iconColor.copy(alpha = 0.6f),
-
-
-                                modifier = Modifier.padding(bottom = 8.dp)
-
-
-                            )
-
-
-                            Row(
-
-
-                                modifier = Modifier.fillMaxWidth(),
-
-
-                                horizontalArrangement = Arrangement.SpaceBetween,
-
-
-                                verticalAlignment = Alignment.CenterVertically
-
-
-                            ) {
-
-
-                                Text("Swap Vertical", color = theme.iconColor)
-
-
-                                Switch(
-
-
-                                    checked = swapVertical,
-
-
-                                    onCheckedChange = { viewModel.toggleSwapVertical() }
-
-
-                                )
-
-
-                            }
-
-
-                            Row(
-
-
-                                modifier = Modifier.fillMaxWidth(),
-
-
-                                horizontalArrangement = Arrangement.SpaceBetween,
-
-
-                                verticalAlignment = Alignment.CenterVertically
-
-
-                            ) {
-
-
-                                Text("Swap Horizontal", color = theme.iconColor)
-
-
-                                Switch(
-
-
-                                    checked = swapHorizontal,
-
-
-                                    onCheckedChange = { viewModel.toggleSwapHorizontal() }
-
-
-                                )
-
-
-                            }
-
-
-                        }
-
-
-                    }
-
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-
-                    Button(
-
-
-                        onClick = { 
-
-
-                            showIconEditorDialog = true
-
-
-                            showPersonalizationDialog = false
-
-
-                        },
-
-
-                        modifier = Modifier.fillMaxWidth(),
-
-
-                        colors = ButtonDefaults.buttonColors(
-
-
-                            containerColor = theme.buttonColor,
-
-
-                            contentColor = theme.iconColor
-
-
-                        ),
-
-
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
-
-
-                    ) {
-
-
-                        Icon(
-
-
-                            imageVector = Icons.Default.Edit,
-
-
-                            contentDescription = null,
-
-
-                            tint = theme.iconColor,
-
-
-                            modifier = Modifier.padding(end = 8.dp)
-
-
-                        )
-
-
-                        Text("Edit Button Icons")
-
-
-                    }
-
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-
-                    Button(
-
-
-                        onClick = { showPersonalizationDialog = false },
-
-
-                        modifier = Modifier.fillMaxWidth(),
-
-
-                        colors = ButtonDefaults.buttonColors(
-
-
-                            containerColor = theme.buttonColor,
-
-
-                            contentColor = theme.iconColor
-
-
-                        )
-
-
-                    ) {
-
-
-                        Text("Close")
-
-
-                    }
-
-
-                }
-
-
-            }
-
-
-        }
-
-
-    }
-
-
-    if (showStudioMenu) {
-
-
-        com.sketcher.sketchercompanionv1.ui.dialogs.StudioMenuDialog(
-
-
-            viewModel = viewModel,
-
-
-            actions = projectActions,
-
-
-            onDismiss = { showStudioMenu = false }
-
-
-        )
-
-
-    }
+    // StudioMenu is now anchored to the top-left menu button layout
 
 
     if (showIconEditorDialog) {

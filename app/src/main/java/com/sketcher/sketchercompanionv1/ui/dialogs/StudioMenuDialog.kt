@@ -11,6 +11,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,229 +31,196 @@ import com.sketcher.sketchercompanionv1.ui.theme.sdp
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.animation.AnimatedVisibility
+import com.sketcher.sketchercompanionv1.ui.SettingSlider
+import com.sketcher.sketchercompanionv1.ui.components.ColorPreviewRow
+import com.sketcher.sketchercompanionv1.ui.components.ColorPickerDialog
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.LaunchedEffect
 
 @Composable
-fun StudioMenuDialog(
+fun StudioMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
     viewModel: SketcherViewModel,
-    actions: ProjectActions,
-    onDismiss: () -> Unit
+    actions: ProjectActions
 ) {
     val theme by viewModel.themeConfig.collectAsState()
     val scaler = LocalUiScaler.current
     val context = androidx.compose.ui.platform.LocalContext.current
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
-    val maxCardHeight = (configuration.screenHeightDp * 0.85f).dp
+    val maxMenuHeight = (configuration.screenHeightDp * 0.8f).dp
 
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
+    var isImportExpanded by remember { mutableStateOf(false) }
+    var isExportExpanded by remember { mutableStateOf(false) }
+
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss,
+        modifier = Modifier
+            .width(260.sdp)
+            .heightIn(max = maxMenuHeight)
+            .background(Color.White)
+            .border(BorderStroke(1.dp, theme.iconColor.copy(alpha = 0.15f)), RoundedCornerShape(8.dp))
+    ) {
+        Column(
             modifier = Modifier
-                .width(300.sdp)
-                .heightIn(max = maxCardHeight),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = theme.barBackgroundColor.copy(alpha = 0.98f),
-                contentColor = theme.iconColor
-            ),
-            border = BorderStroke(1.dp, theme.iconColor.copy(alpha = 0.1f)),
-            elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
+                .fillMaxWidth()
+                .padding(12.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                Text(
-                    text = "MENU",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = theme.iconColor.copy(alpha = 0.5f),
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
+            Text(
+                text = "MENÚ",
+                style = MaterialTheme.typography.labelLarge,
+                color = theme.iconColor.copy(alpha = 0.5f),
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
 
-                LazyColumn(
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                MenuSectionHeader("PROYECTO", theme.iconColor)
+                MenuItem(Icons.Default.Home, "Volver al Inicio", theme.iconColor) { 
+                    viewModel.exitEditorToDashboard(context)
+                    onDismiss()
+                }
+                MenuItem(Icons.Default.Refresh, "Nuevo Dibujo", theme.iconColor) { 
+                    actions.onNew()
+                    onDismiss()
+                }
+                MenuItem(Icons.Default.Save, "Guardar Proyecto", theme.iconColor) { 
+                    actions.onSave()
+                    onDismiss()
+                }
+                MenuItem(Icons.Default.SaveAs, "Guardar Proyecto Como...", theme.iconColor) { 
+                    actions.onSaveAs()
+                    onDismiss()
+                }
+                MenuItem(Icons.Default.FolderOpen, "Cargar Proyecto", theme.iconColor) { 
+                    actions.onLoad()
+                    onDismiss()
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                ExpandableMenuItem(
+                    icon = Icons.Default.FolderOpen,
+                    label = "Importar...",
+                    tint = theme.iconColor,
+                    expanded = isImportExpanded,
+                    onToggle = { isImportExpanded = !isImportExpanded }
+                )
+                if (isImportExpanded) {
+                    SubMenuItem("Importar Imagen", theme.iconColor) {
+                        actions.onImportImage()
+                        onDismiss()
+                    }
+                    SubMenuItem("Importar SVG", theme.iconColor) {
+                        actions.onImportSvg()
+                        onDismiss()
+                    }
+                    SubMenuItem("Importar DXF (CAD)", theme.iconColor) {
+                        actions.onImportDxf()
+                        onDismiss()
+                    }
+                    SubMenuItem("Importar PDF", theme.iconColor) {
+                        actions.onImportPdf()
+                        onDismiss()
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                ExpandableMenuItem(
+                    icon = Icons.Default.Share,
+                    label = "Exportar...",
+                    tint = theme.iconColor,
+                    expanded = isExportExpanded,
+                    onToggle = { isExportExpanded = !isExportExpanded }
+                )
+                if (isExportExpanded) {
+                    SubMenuItem("Exportar PNG", theme.iconColor) {
+                        actions.onExportPng()
+                        onDismiss()
+                    }
+                    SubMenuItem("Exportar SVG", theme.iconColor) {
+                        actions.onExportSvg()
+                        onDismiss()
+                    }
+                    SubMenuItem("Exportar PDF", theme.iconColor) {
+                        actions.onExportPdf()
+                        onDismiss()
+                    }
+                    SubMenuItem("Exportar DXF", theme.iconColor) {
+                        actions.onExportDxf()
+                        onDismiss()
+                    }
+                    SubMenuItem("Generar Render (IA)", theme.iconColor) {
+                        actions.onRender()
+                        onDismiss()
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                MenuSectionHeader("HERRAMIENTAS", theme.iconColor)
+                MenuItem(Icons.Default.Description, "Tamaño de Papel", theme.iconColor) { 
+                    actions.onPaperSize()
+                    onDismiss()
+                }
+                MenuItem(Icons.Default.SettingsOverscan, "Escala Global", theme.iconColor) { 
+                    actions.onGlobalScale()
+                    onDismiss()
+                }
+                MenuItem(Icons.Default.Style, "Guardar como Plantilla", theme.iconColor) {
+                    actions.onTemplatesSaveTrigger()
+                    onDismiss()
+                }
+                MenuItem(Icons.Default.Description, "Nuevo desde Plantilla", theme.iconColor) {
+                    actions.onTemplatesLoadTrigger()
+                    onDismiss()
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                MenuSectionHeader("PROYECCIÓN", theme.iconColor)
+                ProjectionControlItem(viewModel, theme, onDismiss)
+                Spacer(modifier = Modifier.height(8.dp))
+                WirelessProjectionControlItem(viewModel, theme, onDismiss)
+
+                Spacer(modifier = Modifier.height(8.dp))
+                MenuSectionHeader("APLICACIÓN", theme.iconColor)
+                val showExp = viewModel.showExperimentalTools
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f, fill = false),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { viewModel.toggleExperimentalTools() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    item { MenuSectionHeader("PROJECT", theme.iconColor) }
-                    item {
-                        MenuItem(Icons.Default.Home, "Volver al Inicio", theme.iconColor) { 
-                            viewModel.exitEditorToDashboard(context)
-                            onDismiss()
-                        }
-                    }
-                    item {
-                        MenuItem(Icons.Default.Refresh, "New Drawing", theme.iconColor) { 
-                            actions.onNew()
-                            onDismiss()
-                        }
-                    }
-                    item {
-                        MenuItem(Icons.Default.Save, "Save Project", theme.iconColor) { 
-                            actions.onSave()
-                            onDismiss()
-                        }
-                    }
-                    item {
-                        MenuItem(Icons.Default.SaveAs, "Save Project As...", theme.iconColor) { 
-                            actions.onSaveAs()
-                            onDismiss()
-                        }
-                    }
-                    item {
-                        MenuItem(Icons.Default.FolderOpen, "Load Project", theme.iconColor) { 
-                            actions.onLoad()
-                            onDismiss()
-                        }
-                    }
-
-                    item { Spacer(modifier = Modifier.height(8.dp)) }
-                    item { MenuSectionHeader("IMPORT", theme.iconColor) }
-                    item {
-                        MenuItem(Icons.Default.Image, "Import Image", theme.iconColor) { 
-                            actions.onImportImage()
-                            onDismiss()
-                        }
-                    }
-                    item {
-                        MenuItem(Icons.Default.Extension, "Import SVG", theme.iconColor) { 
-                            actions.onImportSvg()
-                            onDismiss()
-                        }
-                    }
-                    item {
-                        MenuItem(Icons.Default.Architecture, "Import DXF (CAD)", theme.iconColor) { 
-                            actions.onImportDxf()
-                            onDismiss()
-                        }
-                    }
-                    item {
-                        MenuItem(Icons.Default.PictureAsPdf, "Import PDF", theme.iconColor) { 
-                            actions.onImportPdf()
-                            onDismiss()
-                        }
-                    }
-
-                    item { Spacer(modifier = Modifier.height(8.dp)) }
-                    item { MenuSectionHeader("EXPORT", theme.iconColor) }
-
-                    // Legacy has sub-dialogs for export. Let's make them direct items here.
-                    item {
-                        MenuItem(Icons.Default.Image, "Export PNG", theme.iconColor) { 
-                            actions.onExportPng()
-                            onDismiss()
-                        }
-                    }
-                    item {
-                        MenuItem(Icons.Default.Extension, "Export SVG", theme.iconColor) { 
-                            actions.onExportSvg()
-                            onDismiss()
-                        }
-                    }
-                    item {
-                        MenuItem(Icons.Default.Description, "Export PDF", theme.iconColor) { 
-                            actions.onExportPdf()
-                            onDismiss()
-                        }
-                    }
-                    item {
-                        MenuItem(Icons.Default.Architecture, "Export DXF", theme.iconColor) { 
-                            actions.onExportDxf()
-                            onDismiss()
-                        }
-                    }
-
-                    item { Spacer(modifier = Modifier.height(8.dp)) }
-                    item { MenuSectionHeader("TOOLS", theme.iconColor) }
-                    item {
-                        MenuItem(Icons.Default.Description, "Paper Size", theme.iconColor) { 
-                            actions.onPaperSize()
-                            onDismiss()
-                        }
-                    }
-                    item {
-                        MenuItem(Icons.Default.SettingsOverscan, "Escala Global", theme.iconColor) { 
-                            actions.onGlobalScale()
-                            onDismiss()
-                        }
-                    }
-                    item {
-                        MenuItem(Icons.Default.GridOn, "Grid Settings", theme.iconColor) { 
-                            actions.onGridSettings()
-                            onDismiss()
-                        }
-                    }
-                    item {
-                         MenuItem(Icons.Default.Style, "Save as Template", theme.iconColor) {
-                             actions.onTemplatesSaveTrigger()
-                             onDismiss()
-                         }
-                    }
-                    item {
-                         MenuItem(Icons.Default.Description, "New from Template", theme.iconColor) {
-                             actions.onTemplatesLoadTrigger()
-                             onDismiss()
-                         }
-                    }
-
-                    item { Spacer(modifier = Modifier.height(8.dp)) }
-                    item { MenuSectionHeader("VIEW", theme.iconColor) }
-                    item {
-                        MenuItem(Icons.Default.AspectRatio, "Zoom to Fit", theme.iconColor) { 
-                            actions.onZoomFit()
-                            onDismiss()
-                        }
-                    }
-                    
-                    item { Spacer(modifier = Modifier.height(8.dp)) }
-                    item { MenuSectionHeader("PROJECTION", theme.iconColor) }
-                    item {
-                        ProjectionControlItem(viewModel, theme, onDismiss)
-                    }
-
-                    item { Spacer(modifier = Modifier.height(8.dp)) }
-                    item { MenuSectionHeader("APP", theme.iconColor) }
-                    item {
-                        val showExp = viewModel.showExperimentalTools
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable { viewModel.toggleExperimentalTools() }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.Science, null, tint = theme.iconColor, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text("Herramientas Experimentales", color = theme.iconColor, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                            Switch(
-                                checked = showExp,
-                                onCheckedChange = { viewModel.toggleExperimentalTools() },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Color.White,
-                                    checkedTrackColor = theme.highlightColor,
-                                    uncheckedThumbColor = theme.iconColor.copy(alpha = 0.5f),
-                                    uncheckedTrackColor = theme.iconColor.copy(alpha = 0.1f)
-                                )
-                            )
-                        }
-                    }
-                    item {
-                        val showStats = viewModel.showPerformanceStats
-                        MenuItem(
-                            icon = Icons.Default.Speed,
-                            label = if (showStats) "Ocultar Rendimiento" else "Mostrar Rendimiento",
-                            tint = theme.iconColor
-                        ) {
-                            viewModel.togglePerformanceStats()
-                        }
-                    }
-                    item {
-                        MenuItem(Icons.Default.Settings, "Settings", theme.iconColor) { 
-                            actions.onSettings()
-                            onDismiss()
-                        }
-                    }
+                    Icon(Icons.Default.Science, null, tint = theme.iconColor, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text("Herramientas Experimentales", color = theme.iconColor, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = showExp,
+                        onCheckedChange = { viewModel.toggleExperimentalTools() },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = theme.highlightColor,
+                            uncheckedThumbColor = theme.iconColor.copy(alpha = 0.5f),
+                            uncheckedTrackColor = theme.iconColor.copy(alpha = 0.1f)
+                        )
+                    )
+                }
+                val showStats = viewModel.showPerformanceStats
+                MenuItem(
+                    icon = Icons.Default.Speed,
+                    label = if (showStats) "Ocultar Rendimiento" else "Mostrar Rendimiento",
+                    tint = theme.iconColor
+                ) {
+                    viewModel.togglePerformanceStats()
+                }
+                MenuItem(Icons.Default.Settings, "Configuración", theme.iconColor) { 
+                    actions.onSettings()
+                    onDismiss()
                 }
             }
         }
@@ -286,6 +256,60 @@ fun MenuItem(
         Icon(icon, null, tint = tint, modifier = Modifier.size(18.dp))
         Spacer(modifier = Modifier.width(12.dp))
         Text(label, color = tint, fontSize = 14.sp)
+    }
+}
+
+@Composable
+fun ExpandableMenuItem(
+    icon: ImageVector,
+    label: String,
+    tint: Color,
+    expanded: Boolean,
+    onToggle: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onToggle)
+            .padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, null, tint = tint, modifier = Modifier.size(18.dp))
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(label, color = tint, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        Icon(
+            imageVector = if (expanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+            contentDescription = null,
+            tint = tint.copy(alpha = 0.5f),
+            modifier = Modifier.size(20.dp)
+        )
+    }
+}
+
+@Composable
+fun SubMenuItem(
+    label: String,
+    tint: Color,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 24.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp, horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(4.dp)
+                .clip(CircleShape)
+                .background(tint.copy(alpha = 0.4f))
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(label, color = tint, fontSize = 13.sp)
     }
 }
 
@@ -496,6 +520,581 @@ fun ProjectionControlItem(
                 Icon(Icons.Default.Stop, null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Stop Projection", fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
+fun WirelessProjectionControlItem(
+    viewModel: SketcherViewModel,
+    theme: com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig,
+    onDismiss: () -> Unit
+) {
+    val isWirelessActive = viewModel.isWirelessProjectionActive
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    if (!isWirelessActive) {
+        MenuItem(
+            icon = Icons.Default.Tv,
+            label = "Proyección Pantalla Inalámbrica",
+            tint = theme.iconColor
+        ) {
+            viewModel.startWirelessProjection()
+        }
+    } else {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color(0xFF2E7D32).copy(alpha = 0.15f))
+                .border(1.dp, Color(0xFF4CAF50), RoundedCornerShape(8.dp))
+                .padding(12.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF4CAF50))
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "Proyección Inalámbrica Activa",
+                        color = Color(0xFF4CAF50),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(10.dp))
+            
+            Text(
+                "Transmite a una pantalla secundaria (TV/Proyector) desde los ajustes de Android.",
+                color = theme.iconColor.copy(alpha = 0.8f),
+                fontSize = 11.sp
+            )
+            
+            Spacer(modifier = Modifier.height(10.dp))
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = {
+                        try {
+                            val intent = android.content.Intent(android.provider.Settings.ACTION_CAST_SETTINGS)
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            try {
+                                val intent = android.content.Intent(android.provider.Settings.ACTION_DISPLAY_SETTINGS)
+                                context.startActivity(intent)
+                            } catch (ex: Exception) {
+                                android.widget.Toast.makeText(context, "No se pudo abrir la configuración", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = theme.menuButtonColor.copy(alpha = 0.8f),
+                        contentColor = theme.iconColor
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp),
+                    modifier = Modifier.weight(1f).height(32.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Settings,
+                        null,
+                        modifier = Modifier.size(16.dp),
+                        tint = theme.iconColor
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Configurar", fontSize = 11.sp)
+                }
+
+                Button(
+                    onClick = { viewModel.stopWirelessProjection() },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFC62828),
+                        contentColor = Color.White
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp),
+                    modifier = Modifier.weight(1f).height(32.dp)
+                ) {
+                    Icon(Icons.Default.Stop, null, modifier = Modifier.size(16.dp), tint = Color.White)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Detener", fontSize = 11.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PersonalizationMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    viewModel: SketcherViewModel,
+    swapVertical: Boolean,
+    swapHorizontal: Boolean,
+    interfaceScale: Float,
+    onShowIconEditor: () -> Unit
+) {
+    val theme by viewModel.themeConfig.collectAsState()
+    val scaler = LocalUiScaler.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val maxMenuHeight = (configuration.screenHeightDp * 0.8f).dp
+
+    var pickingColorFor by remember { mutableStateOf<String?>(null) }
+
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss,
+        modifier = Modifier
+            .width(280.sdp)
+            .heightIn(max = maxMenuHeight)
+            .background(Color.White)
+            .border(BorderStroke(1.dp, theme.iconColor.copy(alpha = 0.15f)), RoundedCornerShape(8.dp))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Text(
+                text = "Personalización",
+                style = MaterialTheme.typography.titleLarge,
+                color = theme.iconColor,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Shape Switch
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Round Shapes", color = theme.iconColor)
+                    Switch(
+                        checked = theme.isRound,
+                        onCheckedChange = { viewModel.updateTheme(theme.copy(isRound = it)) }
+                    )
+                }
+
+                // Edit Toolbars Switch
+                val isEditModeByVM by viewModel.isEditMode.collectAsState()
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Edit Toolbars", color = theme.iconColor)
+                    Switch(
+                        checked = isEditModeByVM,
+                        onCheckedChange = { viewModel.toggleEditMode() }
+                    )
+                }
+
+                // UI Preset Selection & Controls
+                val uiPresets by viewModel.toolbarManager.uiPresetsNames.collectAsState()
+                val activeUiPreset by viewModel.toolbarManager.activeUiPresetName.collectAsState()
+                var expandedPresetDropdown by remember { mutableStateOf(false) }
+                var showAddPresetDialog by remember { mutableStateOf(false) }
+                var newPresetName by remember { mutableStateOf("") }
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "UI Presets (Workspace)",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = theme.iconColor.copy(alpha = 0.7f)
+                    )
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Dropdown selection box
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .background(theme.buttonColor.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                                .border(1.dp, theme.iconColor.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                                .clickable { expandedPresetDropdown = true }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = activeUiPreset,
+                                    color = theme.iconColor,
+                                    fontSize = 14.sp
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDropDown,
+                                    contentDescription = null,
+                                    tint = theme.iconColor
+                                )
+                            }
+                            
+                            DropdownMenu(
+                                expanded = expandedPresetDropdown,
+                                onDismissRequest = { expandedPresetDropdown = false },
+                                modifier = Modifier.background(Color.White)
+                            ) {
+                                uiPresets.forEach { presetName ->
+                                    DropdownMenuItem(
+                                        text = { Text(presetName, color = theme.iconColor) },
+                                        onClick = {
+                                            viewModel.toolbarManager.loadUiPreset(presetName)
+                                            expandedPresetDropdown = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Delete button
+                        IconButton(
+                            onClick = {
+                                viewModel.toolbarManager.deleteUiPreset(activeUiPreset)
+                            },
+                            enabled = activeUiPreset != "Default",
+                            modifier = Modifier
+                                .size(36.dp)
+                                .border(
+                                    1.dp, 
+                                    theme.iconColor.copy(alpha = if (activeUiPreset != "Default") 0.2f else 0.05f), 
+                                    RoundedCornerShape(8.dp)
+                                )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Delete Preset",
+                                tint = if (activeUiPreset != "Default") MaterialTheme.colorScheme.error else theme.iconColor.copy(alpha = 0.3f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    // Save Current UI Layout as Preset Button
+                    Button(
+                        onClick = {
+                            newPresetName = ""
+                            showAddPresetDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = theme.buttonColor.copy(alpha = 0.15f),
+                            contentColor = theme.iconColor
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null,
+                            tint = theme.iconColor,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Save Workspace as UI Preset...", fontSize = 12.sp)
+                    }
+                }
+
+                // Add Preset dialog popup
+                if (showAddPresetDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showAddPresetDialog = false },
+                        title = { Text("Save Workspace", color = Color.Black) },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Enter a name for this UI Preset (Workspace layout):", color = Color.Gray, fontSize = 14.sp)
+                                OutlinedTextField(
+                                    value = newPresetName,
+                                    onValueChange = { newPresetName = it },
+                                    placeholder = { Text("e.g. Technical Drawing") },
+                                    singleLine = true,
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = Color.Black,
+                                        unfocusedTextColor = Color.Black,
+                                        focusedBorderColor = theme.highlightColor,
+                                        unfocusedBorderColor = Color.LightGray
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    val trimmed = newPresetName.trim()
+                                    if (trimmed.isNotEmpty()) {
+                                        viewModel.toolbarManager.saveUiPreset(trimmed)
+                                    }
+                                    showAddPresetDialog = false
+                                },
+                                enabled = newPresetName.trim().isNotEmpty(),
+                                colors = ButtonDefaults.buttonColors(containerColor = theme.highlightColor)
+                            ) {
+                                Text("Save", color = Color.White)
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(
+                                onClick = { showAddPresetDialog = false }
+                            ) {
+                                Text("Cancel", color = Color.DarkGray)
+                            }
+                        },
+                        containerColor = Color.White
+                    )
+                }
+
+                // UI Scale Slider
+                var tempScale by remember { mutableStateOf(interfaceScale) }
+                SettingSlider(
+                    label = "UI Scale",
+                    value = tempScale,
+                    onValueChange = { tempScale = it },
+                    onValueChangeFinished = { viewModel.updateInterfaceScale(tempScale) },
+                    valueRange = 0.5f..1.5f,
+                    labelStyle = MaterialTheme.typography.labelMedium,
+                    labelColor = theme.iconColor,
+                    showValueOnRight = true,
+                    valueFormatter = { String.format("%.1f", it) + "x" }
+                )
+
+                // Button Spacing Slider
+                var tempSpacing by remember { mutableStateOf(viewModel.buttonSpacingFactor) }
+                LaunchedEffect(viewModel.buttonSpacingFactor) {
+                    tempSpacing = viewModel.buttonSpacingFactor
+                }
+                SettingSlider(
+                    label = "Button Spacing",
+                    value = tempSpacing,
+                    onValueChange = { tempSpacing = it },
+                    onValueChangeFinished = { viewModel.updateButtonSpacingFactor(tempSpacing) },
+                    valueRange = 0.15f..2.0f,
+                    labelStyle = MaterialTheme.typography.labelMedium,
+                    labelColor = theme.iconColor,
+                    showValueOnRight = true,
+                    valueFormatter = { "${(it * 100).toInt()}%" }
+                )
+
+                // Color Previews
+                ColorPreviewRow(
+                    label = "Bar Color",
+                    color = theme.barBackgroundColor,
+                    labelColor = theme.iconColor,
+                    onClick = { pickingColorFor = "bar" }
+                )
+                ColorPreviewRow(
+                    label = "Button Color",
+                    color = theme.buttonColor,
+                    labelColor = theme.iconColor,
+                    onClick = { pickingColorFor = "button" }
+                )
+                ColorPreviewRow(
+                    label = "Icon Color",
+                    color = theme.iconColor,
+                    labelColor = theme.iconColor,
+                    onClick = { pickingColorFor = "icon" }
+                )
+                ColorPreviewRow(
+                    label = "Highlight Color",
+                    color = theme.highlightColor,
+                    labelColor = theme.iconColor,
+                    onClick = { pickingColorFor = "highlight" }
+                )
+
+                if (pickingColorFor != null) {
+                    val initialColor = when(pickingColorFor) {
+                        "bar" -> theme.barBackgroundColor
+                        "button" -> theme.buttonColor
+                        "icon" -> theme.iconColor
+                        "highlight" -> theme.highlightColor
+                        else -> Color.Transparent
+                    }
+                    ColorPickerDialog(
+                        initialColor = initialColor,
+                        recentColors = theme.recentColors,
+                        theme = theme,
+                        onDismiss = { pickingColorFor = null },
+                        onColorSelected = { newColor ->
+                            val newRecents = (listOf(newColor) + theme.recentColors)
+                                .distinct()
+                                .take(12)
+                            when(pickingColorFor) {
+                                "bar" -> viewModel.updateTheme(theme.copy(barBackgroundColor = newColor, recentColors = newRecents))
+                                "button" -> viewModel.updateTheme(theme.copy(buttonColor = newColor, recentColors = newRecents))
+                                "icon" -> viewModel.updateTheme(theme.copy(iconColor = newColor, recentColors = newRecents))
+                                "highlight" -> viewModel.updateTheme(theme.copy(highlightColor = newColor, recentColors = newRecents))
+                            }
+                            pickingColorFor = null
+                        }
+                    )
+                }
+
+                // Opacity Slider
+                SettingSlider(
+                    label = "Bar Opacity",
+                    value = theme.barBackgroundColor.alpha,
+                    onValueChange = { 
+                        viewModel.updateTheme(theme.copy(barBackgroundColor = theme.barBackgroundColor.copy(alpha = it))) 
+                    },
+                    valueRange = 0f..1f,
+                    labelStyle = MaterialTheme.typography.labelMedium,
+                    labelColor = theme.iconColor,
+                    showValueOnRight = true,
+                    valueFormatter = { "${(it * 100).toInt()}%" }
+                )
+
+                // Shadows Switch
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Enable Shadows", style = MaterialTheme.typography.labelMedium, color = theme.iconColor)
+                    Switch(
+                        checked = theme.isShadowEnabled,
+                        onCheckedChange = { viewModel.updateTheme(theme.copy(isShadowEnabled = it)) }
+                    )
+                }
+
+                val canShowShadowOptions = theme.isShadowEnabled && theme.barBackgroundColor.alpha == 1f
+                AnimatedVisibility(visible = canShowShadowOptions) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        SettingSlider(
+                            label = "Shadow Opacity",
+                            value = theme.shadowOpacity,
+                            onValueChange = { viewModel.updateTheme(theme.copy(shadowOpacity = it)) },
+                            valueRange = 0f..1f,
+                            labelStyle = MaterialTheme.typography.labelMedium,
+                            labelColor = theme.iconColor,
+                            showValueOnRight = true,
+                            valueFormatter = { "${(it * 100).toInt()}%" }
+                        )
+
+                        SettingSlider(
+                            label = "Shadow Blur",
+                            value = theme.shadowBlur.value,
+                            onValueChange = { viewModel.updateTheme(theme.copy(shadowBlur = it.dp)) },
+                            valueRange = 0f..24f,
+                            labelStyle = MaterialTheme.typography.labelMedium,
+                            labelColor = theme.iconColor,
+                            showValueOnRight = true,
+                            valueFormatter = { "${it.toInt()} dp" }
+                        )
+
+                        SettingSlider(
+                            label = "Shadow Angle",
+                            value = theme.shadowAngle,
+                            onValueChange = { viewModel.updateTheme(theme.copy(shadowAngle = it)) },
+                            valueRange = 0f..360f,
+                            labelStyle = MaterialTheme.typography.labelMedium,
+                            labelColor = theme.iconColor,
+                            showValueOnRight = true,
+                            valueFormatter = { "${it.toInt()}°" }
+                        )
+                    }
+                }
+
+                if (theme.isShadowEnabled && theme.barBackgroundColor.alpha < 1f) {
+                    Text(
+                        "Shadows hidden because Opacity < 100%", 
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error.copy(alpha=0.7f)
+                    )
+                }
+
+                // Interface Mirror Box
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(theme.buttonColor.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "Interface Mirror",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = theme.iconColor.copy(alpha = 0.6f),
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Swap Vertical", color = theme.iconColor)
+                            Switch(
+                                checked = swapVertical,
+                                onCheckedChange = { viewModel.toggleSwapVertical() }
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Swap Horizontal", color = theme.iconColor)
+                            Switch(
+                                checked = swapHorizontal,
+                                onCheckedChange = { viewModel.toggleSwapHorizontal() }
+                            )
+                        }
+                    }
+                }
+
+                // Edit Button Icons Button
+                Button(
+                    onClick = onShowIconEditor,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = theme.buttonColor,
+                        contentColor = theme.iconColor
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = null,
+                        tint = theme.iconColor,
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                    Text("Edit Button Icons")
+                }
+
+                // Close Button
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = theme.buttonColor,
+                        contentColor = theme.iconColor
+                    )
+                ) {
+                    Text("Cerrar")
+                }
             }
         }
     }

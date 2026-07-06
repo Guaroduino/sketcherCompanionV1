@@ -211,7 +211,8 @@ fun ComponentDefinitionJson.toComponentDefinition(
 
 
 fun VectorStroke.toVectorStrokeJson(): VectorStrokeJson {
-    // Basic mapping
+    val sType = this.settings::class.java.simpleName
+    val sJson = com.google.gson.Gson().toJson(this.settings)
     return VectorStrokeJson(
         points = this.points.map { StrokePointJson(it.x, it.y, it.pressure, it.timestamp) },
         color = this.strokeColor,
@@ -227,17 +228,10 @@ fun VectorStroke.toVectorStrokeJson(): VectorStrokeJson {
         lineStyle = this.lineStyle,
         isCadGeometry = this.isCadGeometry,
         isScreenSpaceWidth = this.isScreenSpaceWidth,
-        paintOutlineWidth = this.paintOutlineWidth,
         fillStyle = this.fillStyle.toFillStyleJson(),
         strokeStyle = this.strokeStyle.toFillStyleJson(),
-        watercolorJitterSegment = this.watercolorJitterSegment,
-        watercolorJitterDeviation = this.watercolorJitterDeviation,
-        watercolorBlurRadius = this.watercolorBlurRadius,
-        watercolorEdgeMode = this.watercolorEdgeMode.name,
-        watercolorCenterOpacity = this.watercolorCenterOpacity,
-        watercolorEdgeRingOpacity = this.watercolorEdgeRingOpacity,
-        watercolorEdgeRingWidth = this.watercolorEdgeRingWidth,
-        freehandSettings = this.freehandSettings,
+        settingsType = sType,
+        settingsJson = sJson,
         exactSvgPath = ExactPathSerializer.pathToString(this.path),
         exactFillSvgPath = this.fillPath?.let { ExactPathSerializer.pathToString(it) }
     )
@@ -266,11 +260,63 @@ fun LayerJson.toLayer(
 fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     val pts = this.points.map { StrokePoint(it.x, it.y, it.pressure, it.timestamp) }
     val isCumul = this.isCumulative
-    val settings = (this.freehandSettings ?: FreehandSettings()).copy(
-        size = this.maxWidth, 
+    
+    val settings = when (this.settingsType) {
+        "PencilSettings" -> com.google.gson.Gson().fromJson(this.settingsJson ?: "", com.sketcher.sketchercompanionv1.tools.PencilSettings::class.java)
+        "PenSettings" -> com.google.gson.Gson().fromJson(this.settingsJson ?: "", com.sketcher.sketchercompanionv1.tools.PenSettings::class.java)
+        "PlumaSettings" -> com.google.gson.Gson().fromJson(this.settingsJson ?: "", com.sketcher.sketchercompanionv1.tools.PlumaSettings::class.java)
+        "PaintSettings" -> com.google.gson.Gson().fromJson(this.settingsJson ?: "", com.sketcher.sketchercompanionv1.tools.PaintSettings::class.java)
+        "WatercolorSettings" -> com.google.gson.Gson().fromJson(this.settingsJson ?: "", com.sketcher.sketchercompanionv1.tools.WatercolorSettings::class.java)
+        else -> {
+            // Fallback for older formats / default
+            com.sketcher.sketchercompanionv1.tools.PencilSettings()
+        }
+    }
+
+    // Bridge ToolSettings to FreehandSettings for PerfectFreehandGenerator
+    val freehandSettings = when (val s = settings) {
+        is com.sketcher.sketchercompanionv1.tools.PencilSettings -> FreehandSettings(
+            size = s.size, thinning = s.thinning, smoothing = s.smoothing, streamline = s.streamline,
+            simulatePressure = s.simulatePressure, taperStart = s.taperStart, taperEnd = s.taperEnd,
+            capStart = s.capStart, capEnd = s.capEnd, isComplete = s.isComplete,
+            predictionLatency = s.predictionLatency, simplificationTolerance = s.simplificationTolerance,
+            velocityThinning = s.velocityThinning, velocityMaxInput = s.velocityMaxInput,
+            useCurveForPolygon = s.useCurveForPolygon, isSimplificationEnabled = s.isSimplificationEnabled,
+            minWidthRatio = s.minWidthRatio, isCumulativeOpacity = s.isCumulativeOpacity
+        )
+        is com.sketcher.sketchercompanionv1.tools.PenSettings -> FreehandSettings(
+            size = s.size, thinning = 0f, smoothing = s.smoothing, streamline = 0f,
+            simulatePressure = false, taperStart = 0f, taperEnd = 0f, capStart = true, capEnd = true,
+            isComplete = false, useCurveForPolygon = true, isSimplificationEnabled = false
+        )
+        is com.sketcher.sketchercompanionv1.tools.PlumaSettings -> FreehandSettings(
+            size = s.size, thinning = s.thinning, smoothing = s.smoothing, streamline = s.smoothing * 0.8f,
+            simulatePressure = true, taperStart = s.taperStart, taperEnd = s.taperEnd,
+            capStart = s.capStart, capEnd = s.capEnd, isComplete = false,
+            useCurveForPolygon = s.useCurveForPolygon, simplificationTolerance = s.simplificationTolerance,
+            isSimplificationEnabled = s.isSimplificationEnabled, minWidthRatio = s.minWidthRatio
+        )
+        is com.sketcher.sketchercompanionv1.tools.PaintSettings -> FreehandSettings(
+            size = s.size, thinning = s.thinning, smoothing = s.smoothing, streamline = s.smoothing * 0.8f,
+            simulatePressure = false, capStart = false, capEnd = false,
+            paintOutlineWidth = s.paintOutlineWidth, paintJoinPrevious = s.paintJoinPrevious
+        )
+        is com.sketcher.sketchercompanionv1.tools.WatercolorSettings -> FreehandSettings(
+            size = s.size, thinning = s.thinning, smoothing = s.smoothing, streamline = s.smoothing * 0.8f,
+            simulatePressure = false, capStart = false, capEnd = false,
+            paintOutlineWidth = s.paintOutlineWidth, watercolorJitterSegment = s.watercolorJitterSegment,
+            watercolorJitterDeviation = s.watercolorJitterDeviation, watercolorBlurRadius = s.watercolorBlurRadius,
+            watercolorEdgeMode = s.watercolorEdgeMode, watercolorCenterOpacity = s.watercolorCenterOpacity,
+            watercolorEdgeRingOpacity = s.watercolorEdgeRingOpacity, watercolorEdgeRingWidth = s.watercolorEdgeRingWidth,
+            paintJoinPrevious = s.paintJoinPrevious
+        )
+        else -> FreehandSettings()
+    }.copy(
+        size = this.maxWidth,
         isComplete = true,
-        simulatePressure = false // Prevent double pressure simulation on older files
+        simulatePressure = false
     )
+
     val useEvenOdd = this.brushType != "PLUMA"
     val exactPath = ExactPathSerializer.stringToPath(this.exactSvgPath, useEvenOdd)
     val exactFillPath = ExactPathSerializer.stringToPath(this.exactFillSvgPath, useEvenOdd)
@@ -296,7 +342,7 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
             }
             val meshPath = android.graphics.Path()
             if (densePoints.isNotEmpty()) {
-                PerfectFreehandGenerator.generate(densePoints, settings, 1.0f, meshPath)
+                PerfectFreehandGenerator.generate(densePoints, freehandSettings, 1.0f, meshPath)
             }
             meshPath
         } else {
@@ -304,7 +350,7 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         }
     } else {
         if (isMeshBrush) {
-            PerfectFreehandGenerator.generate(rawPoints = pts, settings = settings).path
+            PerfectFreehandGenerator.generate(rawPoints = pts, settings = freehandSettings).path
         } else {
             val path = android.graphics.Path()
             if (pts.isNotEmpty()) {
@@ -349,7 +395,7 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     val chunkPaths = if (exactPath != null) {
         emptyList()
     } else if (isCumul && strokeTypeVal == StrokeType.FREEHAND && !this.isFlattened) {
-        PerfectFreehandGenerator.generateCumulativeChunks(pts, settings, 1.0f)
+        PerfectFreehandGenerator.generateCumulativeChunks(pts, freehandSettings, 1.0f)
     } else {
         emptyList()
     }
@@ -367,7 +413,6 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     val fEnabled = if (isPaintOrWatercolor) true else (this.isFillEnabled ?: false)
 
     var fPath: android.graphics.Path? = null
-
     
     if (exactFillPath != null) {
         fPath = exactFillPath
@@ -416,28 +461,16 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         fillPath = fPath,
         brushType = this.brushType,
         strokeType = strokeTypeVal,
-        leftPoints = emptyList(), // Not perfectly restorable, but usually ok
+        leftPoints = emptyList(),
         rightPoints = emptyList(),
         paths = chunkPaths,
         isFlattened = this.isFlattened,
         lineStyle = this.lineStyle ?: "SOLID",
         isCadGeometry = isCad,
         isScreenSpaceWidth = this.isScreenSpaceWidth ?: false,
-        paintOutlineWidth = this.paintOutlineWidth ?: 2.0f,
         fillStyle = loadedFillStyle.toFillStyle(fColor),
         strokeStyle = loadedStrokeStyle.toFillStyle(sColor),
-        watercolorJitterSegment = this.watercolorJitterSegment ?: 12.0f,
-        watercolorJitterDeviation = this.watercolorJitterDeviation ?: 3.5f,
-        watercolorBlurRadius = this.watercolorBlurRadius ?: 5.0f,
-        watercolorEdgeMode = try {
-            com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.valueOf(this.watercolorEdgeMode ?: "BOTH")
-        } catch (e: Exception) {
-            com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.BOTH
-        },
-        watercolorCenterOpacity = this.watercolorCenterOpacity ?: 0.8f,
-        watercolorEdgeRingOpacity = this.watercolorEdgeRingOpacity ?: 1.0f,
-        watercolorEdgeRingWidth = this.watercolorEdgeRingWidth ?: 2.0f,
-        freehandSettings = settings
+        settings = settings
     )
 }
 

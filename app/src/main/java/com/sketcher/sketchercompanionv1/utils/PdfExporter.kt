@@ -70,13 +70,25 @@ object PdfExporter {
 
             // Draw background if enabled
             if (config.includeBackground) {
-                val bgPaint = Paint().apply {
-                    style = Paint.Style.FILL
-                }
                 val renderEngine = RenderEngine()
                 val bgStyle = projectData.backgroundConfig.fillStyle.toFillStyle(projectData.backgroundConfig.color)
-                renderEngine.applyFillStyle(bgPaint, bgStyle)
-                canvas.drawRect(0f, 0f, bounds.width, bounds.height, bgPaint)
+                val canvasSizeConfig = projectData.canvasSizeConfig
+                val pixelsPerMm = if (canvasSizeConfig != null) {
+                    val preset = canvasSizeConfig.preset
+                    if (preset != null) {
+                        val widthMm = if (canvasSizeConfig.orientation == com.sketcher.sketchercompanionv1.dto.PaperOrientation.PORTRAIT) {
+                            preset.widthMm
+                        } else {
+                            preset.heightMm
+                        }
+                        canvasSizeConfig.widthInPixels / widthMm
+                    } else {
+                        canvasSizeConfig.widthInPixels / 215.9f
+                    }
+                } else {
+                    5.0f
+                }
+                renderEngine.drawPaperBackground(canvas, 0f, 0f, bounds.width, bounds.height, bgStyle, pixelsPerMm)
             }
 
             // Apply transformation matrix to fit content

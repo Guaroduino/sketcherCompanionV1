@@ -65,6 +65,17 @@ class LiveProjectionController(
             onViewportsChanged(value)
         }
 
+    @Volatile var projectionDirty = true
+        private set
+
+    fun markDirty() {
+        projectionDirty = true
+    }
+
+    private val clientBitmaps = HashMap<Int, Bitmap>()
+    private val renderEngine = RenderEngine()
+    private var lastSentCameraMatrix: FloatArray? = null
+
     private var projectionServer: LiveProjectionServer? = null
     
     // Viewport layout calculations
@@ -92,11 +103,13 @@ class LiveProjectionController(
                 onClientCountChanged = { count ->
                     scope.launch(Dispatchers.Main) {
                         projectionClientCount = count
+                        projectionDirty = true
                         updateProjectionViewports()
                     }
                 },
                 onClientUpdated = {
                     scope.launch(Dispatchers.Main) {
+                        projectionDirty = true
                         updateProjectionViewports()
                     }
                 }
@@ -105,6 +118,7 @@ class LiveProjectionController(
             projectionServer = server
             projectionUrl = "http://$ip:$port"
             isProjectionActive = true
+            projectionDirty = true
             Log.d("Projection", "Server started at $projectionUrl")
         } catch (e: Exception) {
             Log.e("Projection", "Failed to start server", e)
@@ -120,10 +134,16 @@ class LiveProjectionController(
         projectionUrl = ""
         projectionClientCount = 0
         projectionViewports = emptyList()
+        synchronized(clientBitmaps) {
+            clientBitmaps.values.forEach { it.recycle() }
+            clientBitmaps.clear()
+        }
+        lastSentCameraMatrix = null
     }
 
     fun togglePause() {
         isProjectionPaused = !isProjectionPaused
+        projectionDirty = true
         updateProjectionViewports()
     }
 
@@ -133,17 +153,20 @@ class LiveProjectionController(
             projectionServer?.clients?.forEach { client ->
                 client.mode = mode
             }
+            projectionDirty = true
             updateProjectionViewports()
         }
     }
 
     fun updateFixedZoomMode(mode: String) {
         fixedZoomMode = mode
+        projectionDirty = true
     }
 
     fun updateViewportDimensions(width: Float, height: Float) {
         lastViewportWidth = width
         lastViewportHeight = height
+        projectionDirty = true
         updateProjectionViewports()
     }
 
@@ -168,6 +191,27 @@ class LiveProjectionController(
         val clients = server.clients
         if (clients.isEmpty() || isProjectionPaused) return
 
+        // 1. Check if there is an active live stroke
+        val hasLiveStroke = (livePoints != null && livePoints.isNotEmpty()) || 
+                             livePath != null || committedPath != null || liveFillPath != null
+
+        // 2. Check if camera matrix changed
+        val cameraChanged = lastSentCameraMatrix == null || !cameraMatrixValues.contentEquals(lastSentCameraMatrix)
+
+        if (!projectionDirty && !hasLiveStroke && !cameraChanged) {
+            return
+        }
+
+        // Reset dirty flag
+        projectionDirty = false
+
+        // Save camera matrix
+        if (lastSentCameraMatrix == null || lastSentCameraMatrix!!.size != cameraMatrixValues.size) {
+            lastSentCameraMatrix = cameraMatrixValues.clone()
+        } else {
+            System.arraycopy(cameraMatrixValues, 0, lastSentCameraMatrix!!, 0, cameraMatrixValues.size)
+        }
+
         // Take snapshot copies of states to release locks quickly
         val layersSnapshot = layers.map { layer ->
             layer.copy(elements = layer.elements.toMutableStateList())
@@ -179,94 +223,123 @@ class LiveProjectionController(
 
         scope.launch(Dispatchers.Default) {
             try {
+                // Recycle and remove bitmaps for inactive clients
+                val activeIds = clients.map { it.id }.toSet()
+                synchronized(clientBitmaps) {
+                    val iterator = clientBitmaps.entries.iterator()
+                    while (iterator.hasNext()) {
+                        val entry = iterator.next()
+                        if (entry.key !in activeIds) {
+                            entry.value.recycle()
+                            iterator.remove()
+                        }
+                    }
+                }
+
                 val jpegByClient = mutableMapOf<Int, ByteArray>()
+                val renderedJpegs = HashMap<String, ByteArray>() // Cache: "width x height" -> compressed JPEG bytes
+
                 for (client in clients) {
                     val outW = client.clientWidth.coerceAtLeast(320)
                     val outH = client.clientHeight.coerceAtLeast(240)
+                    val resolutionKey = "${outW}x${outH}"
 
-                    val bitmap = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
-                    val canvas = Canvas(bitmap)
-                    val bgSolidColor = if (backgroundStyle is FillStyle.Solid) backgroundStyle.color else Color.WHITE
-                    canvas.drawColor(bgSolidColor)
+                    var jpegBytes = renderedJpegs[resolutionKey]
+                    if (jpegBytes == null) {
+                        var bitmap: Bitmap?
+                        synchronized(clientBitmaps) {
+                            bitmap = clientBitmaps[client.id]
+                            if (bitmap == null || bitmap!!.width != outW || bitmap!!.height != outH) {
+                                bitmap?.recycle()
+                                bitmap = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
+                                clientBitmaps[client.id] = bitmap!!
+                            }
+                        }
 
-                    val fitMatrix = Matrix()
-                    val pW = phoneW.coerceAtLeast(1f)
-                    val pH = phoneH.coerceAtLeast(1f)
-                    val phoneAR = pW / pH
-                    val clientAR = outW.toFloat() / outH.toFloat()
+                        val canvas = Canvas(bitmap!!)
+                        val bgSolidColor = if (backgroundStyle is FillStyle.Solid) backgroundStyle.color else Color.WHITE
+                        canvas.drawColor(bgSolidColor)
 
-                    val scale: Float
-                    val tx: Float
-                    val ty: Float
-                    if (clientAR > phoneAR) {
-                        scale = outW.toFloat() / pW
-                        tx = 0f
-                        ty = (outH - pH * scale) / 2f
-                    } else {
-                        scale = outH.toFloat() / pH
-                        tx = (outW - pW * scale) / 2f
-                        ty = 0f
-                    }
+                        val fitMatrix = Matrix()
+                        val pW = phoneW.coerceAtLeast(1f)
+                        val pH = phoneH.coerceAtLeast(1f)
+                        val phoneAR = pW / pH
+                        val clientAR = outW.toFloat() / outH.toFloat()
 
-                    val phoneCameraMatrix = Matrix()
-                    phoneCameraMatrix.setValues(cameraMatrixValuesSnapshot)
+                        val scale: Float
+                        val tx: Float
+                        val ty: Float
+                        if (clientAR > phoneAR) {
+                            scale = outW.toFloat() / pW
+                            tx = 0f
+                            ty = (outH - pH * scale) / 2f
+                        } else {
+                            scale = outH.toFloat() / pH
+                            tx = (outW - pW * scale) / 2f
+                            ty = 0f
+                        }
 
-                    fitMatrix.set(phoneCameraMatrix)
-                    fitMatrix.postScale(scale, scale)
-                    fitMatrix.postTranslate(tx, ty)
+                        val phoneCameraMatrix = Matrix()
+                        phoneCameraMatrix.setValues(cameraMatrixValuesSnapshot)
 
-                    val renderEngine = RenderEngine()
-                    renderEngine.canvasBackgroundStyle = backgroundStyle
-                    renderEngine.canvasBackgroundColor = if (backgroundStyle is FillStyle.Solid) backgroundStyle.color else Color.WHITE
-                    renderEngine.drawLayers(
-                        canvas = canvas,
-                        layers = layersSnapshot,
-                        viewMatrix = fitMatrix,
-                        componentLibrary = compLibSnapshot,
-                        selectedElements = null,
-                        isTransformActive = false,
-                        drawGrid = false,
-                        clientMode = true
-                    )
+                        fitMatrix.set(phoneCameraMatrix)
+                        fitMatrix.postScale(scale, scale)
+                        fitMatrix.postTranslate(tx, ty)
 
-                    if (committedPath != null && isStrokeActive) {
-                        canvas.save()
-                        canvas.concat(fitMatrix)
-                        renderEngine.drawCommittedPreview(
-                            canvas = canvas, 
-                            committedPath = committedPath, 
-                            strokeColor = strokeColor,
-                            fillColor = fillColor,
-                            isStrokeActive = isStrokeActive,
-                            isFillActive = isFillActive,
-                            fillStyle = fillStyle,
-                            strokeStyle = strokeStyle
-                        )
-                        canvas.restore()
-                    }
-
-                    if (livePath != null || livePoints != null) {
-                        renderEngine.drawLiveStroke(
+                        renderEngine.canvasBackgroundStyle = backgroundStyle
+                        renderEngine.canvasBackgroundColor = bgSolidColor
+                        renderEngine.drawLayers(
                             canvas = canvas,
-                            previewPoints = livePoints,
-                            previewPath = livePath,
-                            previewColor = strokeColor,
-                            fillPath = liveFillPath,
-                            fillColor = fillColor,
-                            isFillActive = isFillActive,
-                            isStrokeActive = isStrokeActive,
-                            currentLiveGeneratedRadius = liveRadius,
+                            layers = layersSnapshot,
                             viewMatrix = fitMatrix,
-                            isDrawing = true,
-                            fillStyle = fillStyle,
-                            strokeStyle = strokeStyle
+                            componentLibrary = compLibSnapshot,
+                            selectedElements = null,
+                            isTransformActive = false,
+                            drawGrid = false,
+                            clientMode = true
                         )
+
+                        if (committedPath != null && isStrokeActive) {
+                            canvas.save()
+                            canvas.concat(fitMatrix)
+                            renderEngine.drawCommittedPreview(
+                                canvas = canvas, 
+                                committedPath = committedPath, 
+                                strokeColor = strokeColor,
+                                fillColor = fillColor,
+                                isStrokeActive = isStrokeActive,
+                                isFillActive = isFillActive,
+                                fillStyle = fillStyle,
+                                strokeStyle = strokeStyle
+                            )
+                            canvas.restore()
+                        }
+
+                        if (livePath != null || livePoints != null) {
+                            renderEngine.drawLiveStroke(
+                                canvas = canvas,
+                                previewPoints = livePoints,
+                                previewPath = livePath,
+                                previewColor = strokeColor,
+                                fillPath = liveFillPath,
+                                fillColor = fillColor,
+                                isFillActive = isFillActive,
+                                isStrokeActive = isStrokeActive,
+                                currentLiveGeneratedRadius = liveRadius,
+                                viewMatrix = fitMatrix,
+                                isDrawing = true,
+                                fillStyle = fillStyle,
+                                strokeStyle = strokeStyle
+                            )
+                        }
+
+                        val out = ByteArrayOutputStream()
+                        bitmap!!.compress(Bitmap.CompressFormat.JPEG, 75, out)
+                        jpegBytes = out.toByteArray()
+                        renderedJpegs[resolutionKey] = jpegBytes
                     }
 
-                    val out = ByteArrayOutputStream()
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 75, out)
-                    bitmap.recycle()
-                    jpegByClient[client.id] = out.toByteArray()
+                    jpegByClient[client.id] = jpegBytes
                 }
 
                 if (jpegByClient.isNotEmpty()) {
@@ -299,6 +372,15 @@ class LiveProjectionController(
         val clients = server.clients
         if (clients.isEmpty() || isProjectionPaused) return
 
+        val hasLiveStroke = (livePoints != null && livePoints.isNotEmpty()) || 
+                             livePath != null || committedPath != null || liveFillPath != null
+
+        if (!projectionDirty && !hasLiveStroke) {
+            return
+        }
+
+        projectionDirty = false
+
         val client = clients.firstOrNull() ?: return
         val outW = client.clientWidth.coerceAtLeast(320)
         val outH = client.clientHeight.coerceAtLeast(240)
@@ -313,8 +395,17 @@ class LiveProjectionController(
 
         scope.launch(Dispatchers.Default) {
             try {
-                val bitmap = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
-                val canvas = Canvas(bitmap)
+                var bitmap: Bitmap?
+                synchronized(clientBitmaps) {
+                    bitmap = clientBitmaps[client.id]
+                    if (bitmap == null || bitmap!!.width != outW || bitmap!!.height != outH) {
+                        bitmap?.recycle()
+                        bitmap = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
+                        clientBitmaps[client.id] = bitmap!!
+                    }
+                }
+
+                val canvas = Canvas(bitmap!!)
                 val bgSolidColor = if (backgroundStyle is FillStyle.Solid) backgroundStyle.color else Color.WHITE
                 canvas.drawColor(bgSolidColor)
 
@@ -354,9 +445,8 @@ class LiveProjectionController(
                     }
                 }
 
-                val renderEngine = RenderEngine()
                 renderEngine.canvasBackgroundStyle = backgroundStyle
-                renderEngine.canvasBackgroundColor = if (backgroundStyle is FillStyle.Solid) backgroundStyle.color else Color.WHITE
+                renderEngine.canvasBackgroundColor = bgSolidColor
                 renderEngine.drawLayers(
                     canvas = canvas,
                     layers = layersSnapshot,
@@ -403,8 +493,7 @@ class LiveProjectionController(
                 }
 
                 val out = ByteArrayOutputStream()
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 80, out)
-                bitmap.recycle()
+                bitmap!!.compress(Bitmap.CompressFormat.JPEG, 80, out)
                 server.broadcastFixedSnapshot(out.toByteArray())
             } catch (e: Exception) {
                 Log.e("Projection", "Error rendering fixed snapshot", e)

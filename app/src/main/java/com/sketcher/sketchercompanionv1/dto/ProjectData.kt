@@ -11,7 +11,19 @@ data class ProjectData(
     val toolConfigs: Map<ToolType, ToolConfig>,
     val canvasMetadata: CanvasMetadata,
     val componentLibrary: Map<String, ComponentDefinitionJson> = emptyMap(),
-    val canvasSizeConfig: CanvasSizeConfig? = null // null = infinite canvas
+    val canvasSizeConfig: CanvasSizeConfig? = null, // null = infinite canvas
+    val uiPresetName: String? = null,
+    val pages: List<PageJson>? = null,
+    val activePageIndex: Int = 0
+)
+
+data class PageJson(
+    val id: String,
+    val name: String,
+    val layers: List<LayerJson>,
+    val backgroundConfig: BackgroundConfig,
+    val canvasMetadata: CanvasMetadata,
+    val canvasSizeConfig: CanvasSizeConfig? = null
 )
 
 // data class LayerData ... (Removing Custom LayerData, utilizing LayerJson)

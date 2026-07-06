@@ -22,6 +22,7 @@ import com.sketcher.sketchercompanionv1.ui.AppIconButton
 fun QuickStabilizationPopup(
     value: Float,
     onValueChange: (Float) -> Unit,
+    onRestorePreset: () -> Unit,
     onDismiss: () -> Unit,
     theme: UiThemeConfig
 ) {
@@ -83,6 +84,23 @@ fun QuickStabilizationPopup(
                         valueFormatter = { "${(it * 100).toInt()}%" },
                         labelStyle = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium)
                     )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    TextButton(
+                        onClick = {
+                            onRestorePreset()
+                        },
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = theme.highlightColor
+                        )
+                    ) {
+                        Text(
+                            text = "Usar preset de herramienta",
+                            fontWeight = FontWeight.SemiBold,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
                 }
             }
         }

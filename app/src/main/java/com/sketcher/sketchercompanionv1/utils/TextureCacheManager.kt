@@ -53,6 +53,9 @@ object MathTextureCache {
     private val cache = LruCache<String, Bitmap>(32) // Max 32 procedural textures in memory
 
     fun getOrCreate(style: FillStyle.MathTexture): Bitmap? {
+        if (style.patternName.uppercase() in listOf("NOTEBOOK", "MATH_GRID", "CALLIGRAPHY")) {
+            return null
+        }
         val cacheKey = "${style.patternName}_${style.primaryColor}_${style.secondaryColor}_${style.spacing}_${style.thickness}_${style.angle}"
         var bitmap = cache.get(cacheKey)
         if (bitmap != null) return bitmap

@@ -1,14 +1,16 @@
 package com.sketcher.sketchercompanionv1
 
 import android.graphics.Path
-
 import android.graphics.Matrix
 import android.graphics.RectF
-
 import com.sketcher.sketchercompanionv1.dto.StrokeType
-
 import com.sketcher.sketchercompanionv1.dto.FillStyle
-import com.sketcher.sketchercompanionv1.dto.FreehandSettings
+import com.sketcher.sketchercompanionv1.tools.ToolSettings
+import com.sketcher.sketchercompanionv1.tools.PencilSettings
+import com.sketcher.sketchercompanionv1.tools.BrushRenderer
+import com.sketcher.sketchercompanionv1.tools.MeshBrushRenderer
+import com.sketcher.sketchercompanionv1.tools.OutlineBrushRenderer
+import com.sketcher.sketchercompanionv1.tools.WatercolorBrushRenderer
 
 data class StrokePoint(val x: Float, val y: Float, val pressure: Float, val timestamp: Long = 0L)
 
@@ -30,32 +32,46 @@ data class VectorStroke(
     val lineStyle: String = "SOLID",
     val isCadGeometry: Boolean = false,
     val isScreenSpaceWidth: Boolean = false,
-    val paintOutlineWidth: Float = 2.0f,
     val fillStyle: FillStyle = FillStyle.Solid(fillColor),
     val strokeStyle: FillStyle = FillStyle.Solid(strokeColor),
-    val watercolorJitterSegment: Float = 12.0f,
-    val watercolorJitterDeviation: Float = 3.5f,
-    val watercolorBlurRadius: Float = 5.0f,
-    val watercolorEdgeMode: com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode = com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.BOTH,
-    val watercolorCenterOpacity: Float = 0.8f,
-    val watercolorEdgeRingOpacity: Float = 1.0f,
-    val watercolorEdgeRingWidth: Float = 2.0f,
-    val freehandSettings: FreehandSettings = FreehandSettings()
+    val settings: ToolSettings = PencilSettings()
 ) : LayerElement {
     @kotlin.jvm.Transient
     private var cachedJitteredPath: android.graphics.Path? = null
     @kotlin.jvm.Transient
     private var cachedJitteredSeed: Long? = null
 
+    /**
+     * Resolves the polymorphic drawing strategy associated with the stroke's brushType.
+     */
+    fun getBrushRenderer(): BrushRenderer {
+        return when (brushType.uppercase()) {
+            "PAINT" -> OutlineBrushRenderer()
+            "WATERCOLOR" -> WatercolorBrushRenderer()
+            else -> MeshBrushRenderer()
+        }
+    }
+
+    /**
+     * Generates a static jittered path. Uses settings parameter if it is WatercolorSettings.
+     */
     fun getJitteredPath(seed: Long): android.graphics.Path {
         val currentPath = cachedJitteredPath
         if (currentPath != null && cachedJitteredSeed == seed) {
             return currentPath
         }
+        val jSeg = when (val s = settings) {
+            is com.sketcher.sketchercompanionv1.tools.WatercolorSettings -> s.watercolorJitterSegment
+            else -> 12.0f
+        }
+        val jDev = when (val s = settings) {
+            is com.sketcher.sketchercompanionv1.tools.WatercolorSettings -> s.watercolorJitterDeviation
+            else -> 0f
+        }
         val newPath = com.sketcher.sketchercompanionv1.utils.JitterPathHelper.createJitterPath(
             path,
-            watercolorJitterSegment,
-            watercolorJitterDeviation,
+            jSeg,
+            jDev,
             seed = seed
         )
         cachedJitteredPath = newPath
@@ -101,19 +117,9 @@ data class VectorStroke(
             lineStyle = lineStyle,
             isCadGeometry = isCadGeometry,
             isScreenSpaceWidth = isScreenSpaceWidth,
-            paintOutlineWidth = paintOutlineWidth,
             fillStyle = fillStyle,
             strokeStyle = strokeStyle,
-            watercolorJitterSegment = watercolorJitterSegment,
-            watercolorJitterDeviation = watercolorJitterDeviation,
-            watercolorBlurRadius = watercolorBlurRadius,
-            watercolorEdgeMode = watercolorEdgeMode,
-            watercolorCenterOpacity = watercolorCenterOpacity,
-            watercolorEdgeRingOpacity = watercolorEdgeRingOpacity,
-            watercolorEdgeRingWidth = watercolorEdgeRingWidth,
-            freehandSettings = freehandSettings
+            settings = settings
         )
     }
 }
-
-

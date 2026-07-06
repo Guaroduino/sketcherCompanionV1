@@ -10,7 +10,7 @@ object StrokePredictor {
      */
     fun getPredictedPoint(
         points: List<StrokePoint>, 
-        predictionLatencyMillis: Long = 33,
+        predictionLatencyMillis: Long = 15,
         currentZoom: Float = 1.0f
     ): StrokePoint? {
         if (points.size < 4) return null

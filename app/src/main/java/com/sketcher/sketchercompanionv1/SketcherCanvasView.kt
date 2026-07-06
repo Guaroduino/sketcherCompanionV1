@@ -1623,7 +1623,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
         set(value) { if (field == value) return; field = value; strokePipeline.activeSize = value }
 
-    var activeFreehandSettings: FreehandSettings = FreehandSettings()
+    var activeFreehandSettings: com.sketcher.sketchercompanionv1.tools.ToolSettings = com.sketcher.sketchercompanionv1.tools.PencilSettings()
 
         set(value) { if (field == value) return; field = value; strokePipeline.activeFreehandSettings = value }
 
@@ -2003,7 +2003,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                         primaryAlpha * activeLayerOpacity
                     }
 
-                    val isCumulative = activeFreehandSettings.isCumulativeOpacity
+                    val isCumulative = (activeFreehandSettings as? com.sketcher.sketchercompanionv1.tools.PencilSettings)?.isCumulativeOpacity ?: false
 
                     val isCadDraw = activeStrokeType != StrokeType.FREEHAND
 
@@ -2080,51 +2080,18 @@ class SketcherCanvasView(context: Context) : View(context) {
                             // 2. Draw borders (on top)
 
                             if (isStrokeActive) {
-                                if (currentTool == ToolType.WATERCOLOR) {
-                                    val origAlpha = android.graphics.Color.alpha(opaqueColor)
-                                    
-                                    val jitteredPath = com.sketcher.sketchercompanionv1.utils.JitterPathHelper.createJitterPath(
-                                        combinedPath,
-                                        activeFreehandSettings.watercolorJitterSegment,
-                                        activeFreehandSettings.watercolorJitterDeviation,
-                                        seed = 999L
-                                    )
-
-                                    // --- PASADA 1: CUERPO DIFUMINADO (CON CLIPPING) ---
-                                    liveFillPaint.style = android.graphics.Paint.Style.STROKE
-                                    val bodyAlpha = (origAlpha * activeFreehandSettings.watercolorCenterOpacity).toInt().coerceIn(0, 255)
-                                    liveFillPaint.color = (opaqueColor and 0x00FFFFFF) or (bodyAlpha shl 24)
-                                    liveFillPaint.strokeWidth = activeFreehandSettings.paintOutlineWidth
-                                    
-                                    liveFillPaint.pathEffect = null
-                                    liveFillPaint.maskFilter = android.graphics.BlurMaskFilter(
-                                        activeFreehandSettings.watercolorBlurRadius.coerceAtLeast(0.01f),
-                                        android.graphics.BlurMaskFilter.Blur.NORMAL
-                                    )
-
-                                    if (activeFreehandSettings.watercolorEdgeMode == com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.INSIDE) {
-                                        canvas.save()
-                                        canvas.clipPath(combinedPath)
-                                        canvas.drawPath(jitteredPath, liveFillPaint)
-                                        canvas.restore()
-                                    } else if (activeFreehandSettings.watercolorEdgeMode == com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.OUTSIDE) {
-                                        canvas.save()
-                                        canvas.clipOutPath(combinedPath)
-                                        canvas.drawPath(jitteredPath, liveFillPaint)
-                                        canvas.restore()
-                                    } else {
-                                        canvas.drawPath(jitteredPath, liveFillPaint)
-                                    }
-                                    
-                                    liveFillPaint.pathEffect = null
-                                    liveFillPaint.maskFilter = null
-                                } else {
-                                    liveFillPaint.style = android.graphics.Paint.Style.STROKE
-                                    liveFillPaint.strokeWidth = activeFreehandSettings.paintOutlineWidth
-                                    liveFillPaint.pathEffect = null
-                                    liveFillPaint.maskFilter = null
-                                    liveFillPaint.color = opaqueColor
-                                    canvas.drawPath(combinedPath, liveFillPaint)
+                                val dummyStroke = VectorStroke(
+                                    points = emptyList(),
+                                    strokeColor = opaqueColor,
+                                    fillColor = activeFillColor,
+                                    maxWidth = activeFreehandSettings.size,
+                                    path = combinedPath,
+                                    brushType = currentTool.name,
+                                    settings = activeFreehandSettings
+                                )
+                                dummyStroke.getBrushRenderer().draw(canvas, dummyStroke, liveFillPaint, 1f) { p, alpha ->
+                                    val finalColor = (opaqueColor and 0x00FFFFFF) or ((android.graphics.Color.alpha(opaqueColor) * alpha).toInt().coerceIn(0, 255) shl 24)
+                                    p.color = finalColor
                                 }
                             }
 
@@ -2268,51 +2235,18 @@ class SketcherCanvasView(context: Context) : View(context) {
 
                             // 2. Draw borders (on top)
                             if (isStrokeActive || isCutEraser) {
-                                if (isWatercolor) {
-                                    val origAlpha = android.graphics.Color.alpha(layerStrokeColor)
-                                    
-                                    val jitteredPath = com.sketcher.sketchercompanionv1.utils.JitterPathHelper.createJitterPath(
-                                        combinedPath,
-                                        activeFreehandSettings.watercolorJitterSegment,
-                                        activeFreehandSettings.watercolorJitterDeviation,
-                                        seed = 999L
-                                    )
-
-                                    // --- PASADA 1: CUERPO DIFUMINADO (CON CLIPPING) ---
-                                    liveFillPaint.style = android.graphics.Paint.Style.STROKE
-                                    val bodyAlpha = (origAlpha * activeFreehandSettings.watercolorCenterOpacity).toInt().coerceIn(0, 255)
-                                    liveFillPaint.color = (layerStrokeColor and 0x00FFFFFF) or (bodyAlpha shl 24)
-                                    liveFillPaint.strokeWidth = activeFreehandSettings.paintOutlineWidth
-                                    
-                                    liveFillPaint.pathEffect = null
-                                    liveFillPaint.maskFilter = android.graphics.BlurMaskFilter(
-                                        activeFreehandSettings.watercolorBlurRadius.coerceAtLeast(0.01f),
-                                        android.graphics.BlurMaskFilter.Blur.NORMAL
-                                    )
-
-                                    if (activeFreehandSettings.watercolorEdgeMode == com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.INSIDE) {
-                                        canvas.save()
-                                        canvas.clipPath(combinedPath)
-                                        canvas.drawPath(jitteredPath, liveFillPaint)
-                                        canvas.restore()
-                                    } else if (activeFreehandSettings.watercolorEdgeMode == com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.OUTSIDE) {
-                                        canvas.save()
-                                        canvas.clipOutPath(combinedPath)
-                                        canvas.drawPath(jitteredPath, liveFillPaint)
-                                        canvas.restore()
-                                    } else {
-                                        canvas.drawPath(jitteredPath, liveFillPaint)
-                                    }
-                                    
-                                    liveFillPaint.pathEffect = null
-                                    liveFillPaint.maskFilter = null
-                                } else {
-                                    liveFillPaint.style = android.graphics.Paint.Style.STROKE
-                                    liveFillPaint.strokeWidth = activeFreehandSettings.paintOutlineWidth
-                                    liveFillPaint.pathEffect = null
-                                    liveFillPaint.maskFilter = null
-                                    liveFillPaint.color = layerStrokeColor
-                                    canvas.drawPath(combinedPath, liveFillPaint)
+                                 val dummyStroke = VectorStroke(
+                                    points = emptyList(),
+                                    strokeColor = layerStrokeColor,
+                                    fillColor = layerFillColor,
+                                    maxWidth = activeFreehandSettings.size,
+                                    path = combinedPath,
+                                    brushType = currentTool.name,
+                                    settings = activeFreehandSettings
+                                )
+                                dummyStroke.getBrushRenderer().draw(canvas, dummyStroke, liveFillPaint, 1f) { p, alpha ->
+                                    val finalColor = (layerStrokeColor and 0x00FFFFFF) or ((android.graphics.Color.alpha(layerStrokeColor) * alpha).toInt().coerceIn(0, 255) shl 24)
+                                    p.color = finalColor
                                 }
                             }
                             
@@ -2998,11 +2932,14 @@ class SketcherCanvasView(context: Context) : View(context) {
 
 
         // Basic Palm Rejection: If enabled and we have a stylus, ignore non-stylus events
-
-        if (currentTool != ToolType.SELECTION && isPalmRejectionEnabled && event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS) {
-
-            return true // Consume event to keep stream alive for gestures, but don't draw
-
+        if (currentTool != ToolType.SELECTION && isPalmRejectionEnabled) {
+            val hasStylus = (0 until event.pointerCount).any { i ->
+                val toolType = event.getToolType(i)
+                toolType == MotionEvent.TOOL_TYPE_STYLUS || toolType == MotionEvent.TOOL_TYPE_ERASER
+            }
+            if (!hasStylus) {
+                return true // Consume event to keep stream alive for gestures, but don't draw
+            }
         }
 
 

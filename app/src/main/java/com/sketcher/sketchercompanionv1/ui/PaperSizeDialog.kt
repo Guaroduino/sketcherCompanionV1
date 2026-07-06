@@ -26,6 +26,7 @@ import com.sketcher.sketchercompanionv1.ui.theme.sdp
 import com.sketcher.sketchercompanionv1.ui.theme.ssp
 import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PaperSizeDialog(
     currentConfig: CanvasSizeConfig?,
@@ -214,9 +215,83 @@ fun PaperSizeDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.sdp))
+                 Spacer(modifier = Modifier.height(16.sdp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
                 Spacer(modifier = Modifier.height(12.sdp))
+
+                var expandedDesign by remember { mutableStateOf(false) }
+                val designOptions = listOf("Blanco", "Línea sencilla", "Cuadrícula", "Doble línea")
+                val currentStyle = selectedStyle
+                val currentDesign = remember(currentStyle) {
+                    if (currentStyle is FillStyle.MathTexture) {
+                        when (currentStyle.patternName.uppercase()) {
+                            "NOTEBOOK" -> "Línea sencilla"
+                            "MATH_GRID" -> "Cuadrícula"
+                            "CALLIGRAPHY" -> "Doble línea"
+                            else -> "Blanco"
+                        }
+                    } else {
+                        "Blanco"
+                    }
+                }
+
+                Text(
+                    text = "Diseño de Papel:",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.ssp),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(bottom = 6.sdp)
+                )
+
+                ExposedDropdownMenuBox(
+                    expanded = expandedDesign,
+                    onExpandedChange = { expandedDesign = !expandedDesign },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.sdp)
+                ) {
+                    OutlinedTextField(
+                        value = currentDesign,
+                        onValueChange = {},
+                        readOnly = true,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedDesign) },
+                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(
+                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            focusedBorderColor = MaterialTheme.colorScheme.primary
+                        ),
+                        modifier = Modifier.menuAnchor().fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = expandedDesign,
+                        onDismissRequest = { expandedDesign = false },
+                        modifier = Modifier.background(MaterialTheme.colorScheme.surface)
+                    ) {
+                        designOptions.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(option) },
+                                onClick = {
+                                    selectedStyle = when (option) {
+                                        "Línea sencilla" -> FillStyle.MathTexture(
+                                            patternName = "NOTEBOOK",
+                                            primaryColor = android.graphics.Color.parseColor("#C5D0E6"),
+                                            secondaryColor = android.graphics.Color.WHITE
+                                        )
+                                        "Cuadrícula" -> FillStyle.MathTexture(
+                                            patternName = "MATH_GRID",
+                                            primaryColor = android.graphics.Color.parseColor("#D9E1F0"),
+                                            secondaryColor = android.graphics.Color.WHITE
+                                        )
+                                        "Doble línea" -> FillStyle.MathTexture(
+                                            patternName = "CALLIGRAPHY",
+                                            primaryColor = android.graphics.Color.parseColor("#A2B5CD"),
+                                            secondaryColor = android.graphics.Color.WHITE
+                                        )
+                                        else -> FillStyle.Solid(android.graphics.Color.WHITE)
+                                    }
+                                    expandedDesign = false
+                                }
+                            )
+                        }
+                    }
+                }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

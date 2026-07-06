@@ -40,6 +40,75 @@ object SvgExporter {
             val bgColor = projectData.backgroundConfig.color
             val paramHex = colorToHex(bgColor)
             sb.append("  <rect width=\"$width\" height=\"$height\" fill=\"$paramHex\" />\n")
+            
+            val fillStyle = projectData.backgroundConfig.fillStyle.toFillStyle(bgColor)
+            if (fillStyle is FillStyle.MathTexture) {
+                val canvasSizeConfig = projectData.canvasSizeConfig
+                val pixelsPerMm = if (canvasSizeConfig != null) {
+                    val preset = canvasSizeConfig.preset
+                    if (preset != null) {
+                        val widthMm = if (canvasSizeConfig.orientation == PaperOrientation.PORTRAIT) {
+                            preset.widthMm
+                        } else {
+                            preset.heightMm
+                        }
+                        canvasSizeConfig.widthInPixels / widthMm
+                    } else {
+                        canvasSizeConfig.widthInPixels / 215.9f
+                    }
+                } else {
+                    5.0f
+                }
+                
+                when (fillStyle.patternName.uppercase()) {
+                    "NOTEBOOK" -> {
+                        val marginX = 32f * pixelsPerMm
+                        val lineSpacing = 8f * pixelsPerMm
+                        val topMargin = 35f * pixelsPerMm
+                        var currentY = topMargin
+                        while (currentY < height) {
+                            sb.append("  <line x1=\"0\" y1=\"$currentY\" x2=\"$width\" y2=\"$currentY\" stroke=\"#C5D0E6\" stroke-width=\"${1f * (pixelsPerMm / 5f)}\" />\n")
+                            currentY += lineSpacing
+                        }
+                        if (marginX < width) {
+                            sb.append("  <line x1=\"$marginX\" y1=\"0\" x2=\"$marginX\" y2=\"$height\" stroke=\"#FF5252\" stroke-width=\"${1.5f * (pixelsPerMm / 5f)}\" />\n")
+                        }
+                    }
+                    "MATH_GRID" -> {
+                        val marginX = 32f * pixelsPerMm
+                        val gridSpacing = 5f * pixelsPerMm
+                        var currentX = gridSpacing
+                        while (currentX < width) {
+                            sb.append("  <line x1=\"$currentX\" y1=\"0\" x2=\"$currentX\" y2=\"$height\" stroke=\"#D9E1F0\" stroke-width=\"${0.8f * (pixelsPerMm / 5f)}\" />\n")
+                            currentX += gridSpacing
+                        }
+                        var currentY = gridSpacing
+                        while (currentY < height) {
+                            sb.append("  <line x1=\"0\" y1=\"$currentY\" x2=\"$width\" y2=\"$currentY\" stroke=\"#D9E1F0\" stroke-width=\"${0.8f * (pixelsPerMm / 5f)}\" />\n")
+                            currentY += gridSpacing
+                        }
+                        if (marginX < width) {
+                            sb.append("  <line x1=\"$marginX\" y1=\"0\" x2=\"$marginX\" y2=\"$height\" stroke=\"#FF5252\" stroke-width=\"${1.5f * (pixelsPerMm / 5f)}\" />\n")
+                        }
+                    }
+                    "CALLIGRAPHY" -> {
+                        val marginX = 32f * pixelsPerMm
+                        val bandHeight = 4f * pixelsPerMm
+                        val bandSpacing = 8f * pixelsPerMm
+                        val topMargin = 35f * pixelsPerMm
+                        var currentY = topMargin
+                        while (currentY + bandHeight < height) {
+                            sb.append("  <rect x=\"0\" y=\"$currentY\" width=\"$width\" height=\"$bandHeight\" fill=\"#A2B5CD\" fill-opacity=\"0.08\" />\n")
+                            sb.append("  <line x1=\"0\" y1=\"$currentY\" x2=\"$width\" y2=\"$currentY\" stroke=\"#A2B5CD\" stroke-width=\"${1f * (pixelsPerMm / 5f)}\" />\n")
+                            sb.append("  <line x1=\"0\" y1=\"${currentY + bandHeight}\" x2=\"$width\" y2=\"${currentY + bandHeight}\" stroke=\"#A2B5CD\" stroke-width=\"${1f * (pixelsPerMm / 5f)}\" />\n")
+                            currentY += bandHeight + bandSpacing
+                        }
+                        if (marginX < width) {
+                            sb.append("  <line x1=\"$marginX\" y1=\"0\" x2=\"$marginX\" y2=\"$height\" stroke=\"#FF5252\" stroke-width=\"${1.5f * (pixelsPerMm / 5f)}\" />\n")
+                        }
+                    }
+                }
+            }
         }
 
         // Apply Transform if using Home View to match perspective
@@ -169,7 +238,12 @@ object SvgExporter {
         if (isMeshBrush) {
             sb.append("    <path d=\"$d\" fill=\"$colorHex\" stroke=\"none\" $strokeOpacity />\n")
         } else {
-            val strokeWidth = if (stroke.brushType == "PAINT" || stroke.brushType == "WATERCOLOR") stroke.paintOutlineWidth else stroke.maxWidth
+            val outlineWidth = when (val s = stroke.settings) {
+                is com.sketcher.sketchercompanionv1.tools.PaintSettings -> s.paintOutlineWidth
+                is com.sketcher.sketchercompanionv1.tools.WatercolorSettings -> s.paintOutlineWidth
+                else -> 2f
+            }
+            val strokeWidth = if (stroke.brushType == "PAINT" || stroke.brushType == "WATERCOLOR") outlineWidth else stroke.maxWidth
             val fillHex = if (stroke.isFillEnabled) colorToHex(stroke.fillColor) else "none"
             val fillOpacity = if (stroke.isFillEnabled) {
                 val fAlpha = (Color.alpha(stroke.fillColor) / 255f)

@@ -204,19 +204,23 @@ class RenderEngine {
                 }
             }
             is FillStyle.MathTexture -> {
-                val bitmap = MathTextureCache.getOrCreate(style)
-                if (bitmap != null) {
-                    val shader = BitmapShader(bitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
-                    tempShaderMatrix.reset()
-                    val matrix = tempShaderMatrix.apply {
-                        postRotate(style.angle)
-                    }
-                    shader.setLocalMatrix(matrix)
-                    paint.shader = shader
-                    val finalAlpha = (style.opacity * alphaMultiplier * 255).toInt().coerceIn(0, 255)
-                    paint.color = Color.argb(finalAlpha, 255, 255, 255)
+                if (style.patternName.uppercase() in listOf("NOTEBOOK", "MATH_GRID", "CALLIGRAPHY")) {
+                    paint.color = style.secondaryColor
                 } else {
-                    paint.color = Color.TRANSPARENT
+                    val bitmap = MathTextureCache.getOrCreate(style)
+                    if (bitmap != null) {
+                        val shader = BitmapShader(bitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+                        tempShaderMatrix.reset()
+                        val matrix = tempShaderMatrix.apply {
+                            postRotate(style.angle)
+                        }
+                        shader.setLocalMatrix(matrix)
+                        paint.shader = shader
+                        val finalAlpha = (style.opacity * alphaMultiplier * 255).toInt().coerceIn(0, 255)
+                        paint.color = Color.argb(finalAlpha, 255, 255, 255)
+                    } else {
+                        paint.color = Color.TRANSPARENT
+                    }
                 }
             }
             is FillStyle.ImageTexture -> {
@@ -244,6 +248,152 @@ class RenderEngine {
                     paint.colorFilter = null
                 }
             }
+        }
+    }
+
+    fun drawPaperBackground(
+        canvas: Canvas,
+        left: Float,
+        top: Float,
+        right: Float,
+        bottom: Float,
+        style: FillStyle,
+        pixelsPerMm: Float = 5.0f
+    ) {
+        val bgPaint = Paint().apply {
+            this.style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+        applyFillStyle(bgPaint, style, alphaMultiplier = 1f)
+        canvas.drawRect(left, top, right, bottom, bgPaint)
+
+        if (style is FillStyle.MathTexture) {
+            when (style.patternName.uppercase()) {
+                "NOTEBOOK" -> {
+                    drawNotebookBackground(canvas, left, top, right, bottom, pixelsPerMm)
+                }
+                "MATH_GRID" -> {
+                    drawMathGridBackground(canvas, left, top, right, bottom, pixelsPerMm)
+                }
+                "CALLIGRAPHY" -> {
+                    drawCalligraphyBackground(canvas, left, top, right, bottom, pixelsPerMm)
+                }
+            }
+        }
+    }
+
+    private fun drawNotebookBackground(canvas: Canvas, left: Float, top: Float, right: Float, bottom: Float, pixelsPerMm: Float) {
+        val marginX = left + 32f * pixelsPerMm
+        val lineSpacing = 8f * pixelsPerMm
+        val topMargin = top + 35f * pixelsPerMm
+        
+        val linePaint = Paint().apply {
+            color = Color.parseColor("#C5D0E6") // Soft light blue-gray
+            strokeWidth = 1f * (pixelsPerMm / 5f)
+            style = Paint.Style.STROKE
+            isAntiAlias = true
+        }
+        
+        val marginPaint = Paint().apply {
+            color = Color.parseColor("#FF5252") // Soft red
+            strokeWidth = 1.5f * (pixelsPerMm / 5f)
+            style = Paint.Style.STROKE
+            isAntiAlias = true
+        }
+        
+        // Draw horizontal lines
+        var currentY = topMargin
+        while (currentY < bottom) {
+            canvas.drawLine(left, currentY, right, currentY, linePaint)
+            currentY += lineSpacing
+        }
+        
+        // Draw vertical margin line
+        if (marginX < right) {
+            canvas.drawLine(marginX, top, marginX, bottom, marginPaint)
+        }
+    }
+
+    private fun drawMathGridBackground(canvas: Canvas, left: Float, top: Float, right: Float, bottom: Float, pixelsPerMm: Float) {
+        val marginX = left + 32f * pixelsPerMm
+        val gridSpacing = 5f * pixelsPerMm
+        
+        val gridPaint = Paint().apply {
+            color = Color.parseColor("#D9E1F0") // Very soft grid lines
+            strokeWidth = 0.8f * (pixelsPerMm / 5f)
+            style = Paint.Style.STROKE
+            isAntiAlias = true
+        }
+        
+        val marginPaint = Paint().apply {
+            color = Color.parseColor("#FF5252") // Soft red
+            strokeWidth = 1.5f * (pixelsPerMm / 5f)
+            style = Paint.Style.STROKE
+            isAntiAlias = true
+        }
+        
+        // Draw vertical grid lines
+        var currentX = left + gridSpacing
+        while (currentX < right) {
+            canvas.drawLine(currentX, top, currentX, bottom, gridPaint)
+            currentX += gridSpacing
+        }
+        
+        // Draw horizontal grid lines
+        var currentY = top + gridSpacing
+        while (currentY < bottom) {
+            canvas.drawLine(left, currentY, right, currentY, gridPaint)
+            currentY += gridSpacing
+        }
+        
+        // Draw vertical margin line
+        if (marginX < right) {
+            canvas.drawLine(marginX, top, marginX, bottom, marginPaint)
+        }
+    }
+
+    private fun drawCalligraphyBackground(canvas: Canvas, left: Float, top: Float, right: Float, bottom: Float, pixelsPerMm: Float) {
+        val marginX = left + 32f * pixelsPerMm
+        val bandHeight = 4f * pixelsPerMm   // Inside height of double lines (for lowercase letters)
+        val bandSpacing = 8f * pixelsPerMm  // Distance between consecutive bands
+        val topMargin = top + 35f * pixelsPerMm
+        
+        val linePaint = Paint().apply {
+            color = Color.parseColor("#A2B5CD") // Soft blue-gray
+            strokeWidth = 1f * (pixelsPerMm / 5f)
+            style = Paint.Style.STROKE
+            isAntiAlias = true
+        }
+        
+        val shadedPaint = Paint().apply {
+            color = Color.parseColor("#15A2B5CD") // 8% opacity blue-gray shading
+            style = Paint.Style.FILL
+        }
+        
+        val marginPaint = Paint().apply {
+            color = Color.parseColor("#FF5252") // Soft red
+            strokeWidth = 1.5f * (pixelsPerMm / 5f)
+            style = Paint.Style.STROKE
+            isAntiAlias = true
+        }
+        
+        // Draw calligraphy lines and bands
+        var currentY = topMargin
+        while (currentY + bandHeight < bottom) {
+            // Draw shaded band inside the pair of lines
+            canvas.drawRect(left, currentY, right, currentY + bandHeight, shadedPaint)
+            
+            // Draw the top and bottom lines of the band
+            canvas.drawLine(left, currentY, right, currentY, linePaint)
+            canvas.drawLine(left, currentY + bandHeight, right, currentY + bandHeight, linePaint)
+            
+            // Move to next band
+            currentY += bandHeight + bandSpacing
+        }
+        
+        // Draw vertical margin line
+        if (marginX < right) {
+            canvas.drawLine(marginX, top, marginX, bottom, marginPaint)
         }
     }
 
@@ -286,8 +436,18 @@ class RenderEngine {
             val right = left + sizeConfig.widthInPixels
             val bottom = top + sizeConfig.heightInPixels
             
-            applyFillStyle(paperPaint, canvasBackgroundStyle, alphaMultiplier = 1f)
-            canvas.drawRect(left, top, right, bottom, paperPaint)
+            val pixelsPerMm = if (sizeConfig.preset != null) {
+                val widthMm = if (sizeConfig.orientation == PaperOrientation.PORTRAIT) {
+                    sizeConfig.preset.widthMm
+                } else {
+                    sizeConfig.preset.heightMm
+                }
+                sizeConfig.widthInPixels / widthMm
+            } else {
+                sizeConfig.widthInPixels / 215.9f // Letter width fallback
+            }
+            
+            drawPaperBackground(canvas, left, top, right, bottom, canvasBackgroundStyle, pixelsPerMm)
             
             // Draw paper bounds and shadow
             RenderHelper.drawCanvasBounds(canvas, left, top, right, bottom)
@@ -491,52 +651,11 @@ class RenderEngine {
 
         // Pass 2: STROKE (if enabled)
         if (stroke.isStrokeEnabled) {
-            val isMeshBrush = stroke.brushType == "FREEHAND" || stroke.brushType == "PEN" || stroke.brushType == "PLUMA" || stroke.brushType == "PENCIL_CUMULATIVE"
+            val isMeshBrush = stroke.brushType == "FREEHAND" || stroke.brushType == "PEN" || stroke.brushType == "PLUMA" || stroke.brushType == "PENCIL_CUMULATIVE" || stroke.brushType == "PAINT" || stroke.brushType == "WATERCOLOR"
             if (isMeshBrush) {
-                vectorPaint.style = Paint.Style.FILL
-                applyFillStyle(vectorPaint, stroke.strokeStyle, alphaMultiplier)
-                canvas.drawPath(stroke.path, vectorPaint)
-                if (stroke.paths.isNotEmpty()) {
-                    for (p in stroke.paths) {
-                        canvas.drawPath(p, vectorPaint)
-                    }
+                stroke.getBrushRenderer().draw(canvas, stroke, vectorPaint, alphaMultiplier) { p, alpha ->
+                    applyFillStyle(p, stroke.strokeStyle, alphaMultiplier * alpha)
                 }
-            } else if (stroke.brushType == "PAINT") {
-                vectorPaint.style = Paint.Style.STROKE
-                applyFillStyle(vectorPaint, stroke.strokeStyle, alphaMultiplier)
-                vectorPaint.strokeWidth = stroke.paintOutlineWidth
-                vectorPaint.pathEffect = null
-                canvas.drawPath(stroke.path, vectorPaint)
-            } else if (stroke.brushType == "WATERCOLOR") {
-                val baseAlpha = (255 * alphaMultiplier).toInt().coerceIn(0, 255)
-
-                val strokeSeed = stroke.hashCode().toLong()
-                val jitteredPath = stroke.getJitteredPath(strokeSeed)
-
-                // --- PASADA 1: CUERPO DIFUMINADO (CON CLIPPING) ---
-                vectorPaint.style = Paint.Style.STROKE
-                applyFillStyle(vectorPaint, stroke.strokeStyle, alphaMultiplier * stroke.watercolorCenterOpacity)
-                vectorPaint.strokeWidth = stroke.paintOutlineWidth
-                
-                vectorPaint.pathEffect = null
-                vectorPaint.maskFilter = getBlurFilter(stroke.watercolorBlurRadius)
-
-                if (stroke.watercolorEdgeMode == com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.INSIDE) {
-                    canvas.save()
-                    canvas.clipPath(stroke.path)
-                    canvas.drawPath(jitteredPath, vectorPaint)
-                    canvas.restore()
-                } else if (stroke.watercolorEdgeMode == com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.OUTSIDE) {
-                    canvas.save()
-                    canvas.clipOutPath(stroke.path)
-                    canvas.drawPath(jitteredPath, vectorPaint)
-                    canvas.restore()
-                } else {
-                    canvas.drawPath(jitteredPath, vectorPaint)
-                }
-
-                vectorPaint.pathEffect = null
-                vectorPaint.maskFilter = null
             } else {
                 // For others, it's a line
                 vectorPaint.style = Paint.Style.STROKE

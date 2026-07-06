@@ -231,7 +231,7 @@ object PerfectFreehandGenerator {
     }
 
     private fun computeSmoothedVelocities(points: List<StrokePoint>): List<Float> {
-        val vels = velocitiesLocal.get().apply { clear() }
+        val vels = velocitiesLocal.get()!!.apply { clear() }
         var lastVel = 0f
         
         for (i in points.indices) {
@@ -285,8 +285,8 @@ object PerfectFreehandGenerator {
         val minDistance = (size * smoothing).pow(2)
         val minWidth = size * minWidthRatio
         
-        val leftPts = leftPtsLocal.get().apply { clear() }
-        val rightPts = rightPtsLocal.get().apply { clear() }
+        val leftPts = leftPtsLocal.get()!!.apply { clear() }
+        val rightPts = rightPtsLocal.get()!!.apply { clear() }
         
         var prevPressure = computeInitialPressure(points, simulatePressure, size)
         
@@ -354,22 +354,51 @@ object PerfectFreehandGenerator {
             val isNextPointSharpCorner = nextDpr < 0
 
             if (isPointSharpCorner || isNextPointSharpCorner) {
-                val offset = pool.obtain().set(prevVector).per().mul(radius)
-                
+                // Calculate the actual angle difference between incoming and outgoing directions
+                val angle1 = kotlin.math.atan2(prevVector.y, prevVector.x)
+                val angle2 = kotlin.math.atan2(nextVector.y, nextVector.x)
+                var diff = angle2 - angle1
+                while (diff < -PI) diff += 2f * PI
+                while (diff > PI) diff -= 2f * PI
+
+                val offset1 = pool.obtain().set(prevVector).per().mul(radius)
+                val offset2 = pool.obtain().set(nextVector).per().mul(radius)
+
                 val step = 1f / CORNER_CAP_SEGMENTS
-                for (k in 0..CORNER_CAP_SEGMENTS) {
-                    val t = k * step
-                    val tl = PerfectFreehandUtils.rotAround(pool.obtain().set(curr.point).sub(offset), curr.point, FIXED_PI * t, pool.obtain())
-                    val tr = PerfectFreehandUtils.rotAround(pool.obtain().set(curr.point).add(offset), curr.point, FIXED_PI * -t, pool.obtain())
-                    
-                    leftPts.add(tl)
-                    rightPts.add(tr)
-                    
-                    prevLeft = tl
-                    prevRight = tr
+
+                if (diff > 0) {
+                    // Right turn (clockwise in screen coords): Left side is outside (sweeps), Right side is inside (simple connect)
+                    val startLeft = pool.obtain().set(curr.point).sub(offset1)
+                    for (k in 0..CORNER_CAP_SEGMENTS) {
+                        val t = k * step
+                        val tl = PerfectFreehandUtils.rotAround(startLeft, curr.point, diff * t, pool.obtain())
+                        leftPts.add(tl)
+                        prevLeft = tl
+                    }
+                    val tr1 = pool.obtain().set(curr.point).add(offset1)
+                    val tr2 = pool.obtain().set(curr.point).add(offset2)
+                    rightPts.add(tr1)
+                    rightPts.add(tr2)
+                    prevRight = tr2
+                } else {
+                    // Left turn (counter-clockwise in screen coords): Right side is outside (sweeps), Left side is inside (simple connect)
+                    val startRight = pool.obtain().set(curr.point).add(offset1)
+                    for (k in 0..CORNER_CAP_SEGMENTS) {
+                        val t = k * step
+                        val tr = PerfectFreehandUtils.rotAround(startRight, curr.point, diff * t, pool.obtain())
+                        rightPts.add(tr)
+                        prevRight = tr
+                    }
+                    val tl1 = pool.obtain().set(curr.point).sub(offset1)
+                    val tl2 = pool.obtain().set(curr.point).sub(offset2)
+                    leftPts.add(tl1)
+                    leftPts.add(tl2)
+                    prevLeft = tl2
                 }
-                
+
                 if (isNextPointSharpCorner) isPrevPointSharpCorner = true
+                prevPressure = pressure
+                prevVector = curr.vector
                 continue
             }
 
@@ -382,7 +411,7 @@ object PerfectFreehandGenerator {
                 continue
             }
 
-            val lrpVec = PerfectFreehandUtils.lrp(nextVector, curr.vector, nextDpr, pool.obtain())
+            val lrpVec = PerfectFreehandUtils.lrp(nextVector, curr.vector, nextDpr, pool.obtain()).uni()
             val offset = lrpVec.per().mul(radius)
             
             val tl = pool.obtain().set(curr.point).sub(offset)

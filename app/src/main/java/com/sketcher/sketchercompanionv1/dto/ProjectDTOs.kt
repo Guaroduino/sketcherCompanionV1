@@ -13,7 +13,8 @@ data class ProjectJson(
     val backgroundColor: Int = android.graphics.Color.WHITE,
     val scaleConfig: ScaleConfig? = ScaleConfig(), // Default if missing
     val gridConfig: GridConfig? = GridConfig(),
-    val canvasSizeConfig: CanvasSizeConfigJson? = null // null = infinite canvas
+    val canvasSizeConfig: CanvasSizeConfigJson? = null, // null = infinite canvas
+    val uiPresetName: String? = null
 )
 
 data class ScaleConfig(
@@ -118,17 +119,10 @@ data class VectorStrokeJson(
     val lineStyle: String = "SOLID",
     val isCadGeometry: Boolean = false,
     val isScreenSpaceWidth: Boolean = false,
-    val paintOutlineWidth: Float? = null,
     val fillStyle: FillStyleJson? = null,
     val strokeStyle: FillStyleJson? = null,
-    val watercolorJitterSegment: Float? = null,
-    val watercolorJitterDeviation: Float? = null,
-    val watercolorBlurRadius: Float? = null,
-    val watercolorEdgeMode: String? = null,
-    val watercolorCenterOpacity: Float? = null,
-    val watercolorEdgeRingOpacity: Float? = null,
-    val watercolorEdgeRingWidth: Float? = null,
-    val freehandSettings: FreehandSettings? = null,
+    val settingsType: String? = null,
+    val settingsJson: String? = null,
     val exactSvgPath: String? = null,
     val exactFillSvgPath: String? = null
 )
@@ -212,7 +206,7 @@ data class FreehandSettings(
     val isComplete: Boolean = false,
     
     // Custom App Params
-    val predictionLatency: Long = 33L,
+    val predictionLatency: Long = 15L,
     val simplificationTolerance: Float = 0.2f,
 
     // Internal / Extras
@@ -236,13 +230,28 @@ data class FreehandSettings(
 data class BrushPreset(
     val size: Float,
     val opacity: Float,
-    val freehandSettings: FreehandSettings,
+    val settings: com.sketcher.sketchercompanionv1.tools.ToolSettings,
     val strokeColor: Int? = null,
     val fillColor: Int? = null,
     val isStrokeActive: Boolean? = null,
     val isFillActive: Boolean? = null,
     val fillStyle: FillStyle? = null,
-    val strokeStyle: FillStyle? = null
+    val strokeStyle: FillStyle? = null,
+    val stabilization: Float? = null
+)
+
+data class BrushPresetJson(
+    val size: Float,
+    val opacity: Float,
+    val settingsType: String,
+    val settingsJson: String,
+    val strokeColor: Int? = null,
+    val fillColor: Int? = null,
+    val isStrokeActive: Boolean? = null,
+    val isFillActive: Boolean? = null,
+    val fillStyle: FillStyleJson? = null,
+    val strokeStyle: FillStyleJson? = null,
+    val stabilization: Float? = null
 )
 
 enum class ToolType { FREEHAND, PEN, FILL, ERASER, POINT_ERASER, CUT_ERASER, SELECTION, ANDROID_INK, TRIM, EXTEND, EDIT_POINTS, PAINT, PLUMA, MIRROR, MOVE_PT_PT, ALIGN_2_PT, OFFSET, FILLET, CHAMFER, WATERCOLOR, PENCIL_CUMULATIVE }
@@ -256,13 +265,21 @@ enum class EraserShape { CIRCLE, SQUARE }
 data class ToolConfig(
     val size: Float = 9f,
     val opacity: Float = 1f,
-    val freehandSettings: FreehandSettings = FreehandSettings(),
+    val settings: com.sketcher.sketchercompanionv1.tools.ToolSettings = com.sketcher.sketchercompanionv1.tools.PencilSettings(),
     val fillSettings: FillSettings = FillSettings(),
     // Global Input Settings
     val isFingerMode: Boolean = false,
     val fingerOffsetX: Float = 0f,
     val fingerOffsetY: Float = 50f,
-    val eraserShape: EraserShape = EraserShape.CIRCLE
+    val eraserShape: EraserShape = EraserShape.CIRCLE,
+    // Independent color/style settings
+    val strokeColor: Int = android.graphics.Color.BLACK,
+    val fillColor: Int = android.graphics.Color.WHITE,
+    val isStrokeActive: Boolean = true,
+    val isFillActive: Boolean = false,
+    val fillStyle: FillStyleJson? = null,
+    val strokeStyle: FillStyleJson? = null,
+    val stabilization: Float = 0f
 )
 
 /**

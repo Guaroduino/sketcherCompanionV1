@@ -111,162 +111,27 @@ fun ToolPropertiesPanel(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     // Apply theme to legacy components via LocalContentColor or specific params if they support it.
-                    // Assuming they use MaterialTheme locals, we wrapped them in Surface with contentColor, so they should inherit.
-                    when (viewModel.currentTool) {
-                        ToolType.FREEHAND -> {
-                            // REUSE LEGACY COMPONENT (Mirror functionality)
+                    // Assuming they use MaterialTheme locals, we wrapped them in Surface with contentColor, so they should inherit.                    val toolType = viewModel.currentTool
+                    when {
+                        toolType == ToolType.FREEHAND || toolType == ToolType.PENCIL_CUMULATIVE || toolType == ToolType.PEN || toolType == ToolType.PLUMA || toolType == ToolType.PAINT || toolType == ToolType.WATERCOLOR -> {
                             FreehandSettingsContent(
                                 currentSettings = viewModel.currentFreehandSettings,
                                 onSettingsChanged = { viewModel.updateFreehandSettings(it) },
                                 isFlattenedOuterStrokeEnabled = viewModel.toolManager.isFlattenedOuterStrokeEnabled,
                                 onToggleFlattenedOuterStroke = { viewModel.toolManager.toggleFlattenedOuterStroke() },
                                 showFlatStrokeOption = false,
-                                showCapsOption = true,
-                                showPolygonOption = true,
-                                title = "Ajustes de Lápiz"
-                            )
-                        }
-                        ToolType.PENCIL_CUMULATIVE -> {
-                            FreehandSettingsContent(
-                                currentSettings = viewModel.currentFreehandSettings,
-                                onSettingsChanged = { viewModel.updateFreehandSettings(it) },
-                                isFlattenedOuterStrokeEnabled = false,
-                                onToggleFlattenedOuterStroke = {},
-                                showFlatStrokeOption = false,
-                                showCapsOption = true,
-                                showPolygonOption = true,
-                                title = "Ajustes de Lápiz Acumulativo"
-                            )
-                        }
-                        ToolType.PAINT -> {
-                            FreehandSettingsContent(
-                                currentSettings = viewModel.currentFreehandSettings,
-                                onSettingsChanged = { viewModel.updateFreehandSettings(it) },
-                                isFlattenedOuterStrokeEnabled = viewModel.toolManager.isFlattenedOuterStrokeEnabled,
-                                onToggleFlattenedOuterStroke = { viewModel.toolManager.toggleFlattenedOuterStroke() },
-                                showFlatStrokeOption = false,
-                                showCapsOption = false,
-                                showPolygonOption = false,
-                                showJoinPreviousOption = true,
-                                title = "Ajustes de Pintura"
-                            )
-                        }
-                        ToolType.WATERCOLOR -> {
-                            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                                FreehandSettingsContent(
-                                    currentSettings = viewModel.currentFreehandSettings,
-                                    onSettingsChanged = { viewModel.updateFreehandSettings(it) },
-                                    isFlattenedOuterStrokeEnabled = viewModel.toolManager.isFlattenedOuterStrokeEnabled,
-                                    onToggleFlattenedOuterStroke = { viewModel.toolManager.toggleFlattenedOuterStroke() },
-                                    showFlatStrokeOption = false,
-                                    showCapsOption = false,
-                                    showPolygonOption = false,
-                                    showJoinPreviousOption = true,
-                                    title = "Ajustes de Acuarela"
-                                )
-                                
-                                val freehandSettings = viewModel.currentFreehandSettings
-                                HorizontalDivider()
-                                Text("Afectación de Acuarela", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                                
-                                // Jitter Deviation Slider
-                                val jitterDev = freehandSettings.watercolorJitterDeviation
-                                SettingSlider(
-                                    label = "Dispersión del borde (Jitter): ${String.format("%.1f px", jitterDev)}",
-                                    value = jitterDev,
-                                    onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorJitterDeviation = it)) },
-                                    valueRange = 0f..15f,
-                                    exponent = 2f
-                                )
-                                
-                                // Jitter Segment Slider
-                                val jitterSeg = freehandSettings.watercolorJitterSegment
-                                SettingSlider(
-                                    label = "Frecuencia del borde: ${String.format("%.1f px", jitterSeg)}",
-                                    value = jitterSeg,
-                                    onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorJitterSegment = it)) },
-                                    valueRange = 3f..50f,
-                                    exponent = 2f
-                                )
-                                
-                                // Blur Radius Slider
-                                val blurRad = freehandSettings.watercolorBlurRadius
-                                SettingSlider(
-                                    label = "Difuminado (Blur): ${String.format("%.1f px", blurRad)}",
-                                    value = blurRad,
-                                    onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorBlurRadius = it)) },
-                                    valueRange = 0f..25f,
-                                    exponent = 2f
-                                )
-
-                                // Center Opacity Slider
-                                val centerOp = freehandSettings.watercolorCenterOpacity
-                                SettingSlider(
-                                    label = "Opacidad Central (Center): ${(centerOp * 100).toInt()}%",
-                                    value = centerOp,
-                                    onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorCenterOpacity = it)) },
-                                    valueRange = 0f..1f
-                                )
-                                
-                                // Edge Ring Opacity Slider
-                                val ringOp = freehandSettings.watercolorEdgeRingOpacity
-                                SettingSlider(
-                                    label = "Opacidad de Anillo (Ring): ${(ringOp * 100).toInt()}%",
-                                    value = ringOp,
-                                    onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorEdgeRingOpacity = it)) },
-                                    valueRange = 0f..1f
-                                )
-                                
-                                // Edge Ring Width Slider
-                                val ringWidth = freehandSettings.watercolorEdgeRingWidth
-                                SettingSlider(
-                                    label = "Grosor de Anillo (Ring Width): ${String.format("%.1f px", ringWidth)}",
-                                    value = ringWidth,
-                                    onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorEdgeRingWidth = it)) },
-                                    valueRange = 0f..20f,
-                                    exponent = 2f
-                                )
-
-                                // Edge Mode Selector
-                                Text("Modo del Contorno (Edge Mode)", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp),
-                                    horizontalArrangement = Arrangement.SpaceEvenly
-                                ) {
-                                    com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.values().forEach { mode ->
-                                        val selected = freehandSettings.watercolorEdgeMode == mode
-                                        val btnColor = if (selected) MaterialTheme.colorScheme.primary else Color.DarkGray
-                                        val textColor = if (selected) Color.White else Color.LightGray
-                                        androidx.compose.material3.Button(
-                                            onClick = {
-                                                viewModel.updateFreehandSettings(freehandSettings.copy(watercolorEdgeMode = mode))
-                                            },
-                                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = btnColor),
-                                            modifier = Modifier.weight(1f).padding(horizontal = 2.dp),
-                                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 2.dp)
-                                        ) {
-                                            Text(text = mode.name, color = textColor, fontSize = 11.sp)
-                                        }
-                                    }
+                                title = when(toolType) {
+                                    ToolType.FREEHAND -> "Ajustes de Lápiz"
+                                    ToolType.PENCIL_CUMULATIVE -> "Ajustes de Lápiz Acumulativo"
+                                    ToolType.PEN -> "Ajustes de Pluma Estilográfica"
+                                    ToolType.PLUMA -> "Ajustes de Pluma Caligráfica"
+                                    ToolType.PAINT -> "Ajustes de Pintura"
+                                    ToolType.WATERCOLOR -> "Ajustes de Acuarela"
+                                    else -> "Ajustes de Pincel"
                                 }
-                            }
-                        }
-                        ToolType.PLUMA -> {
-                            FreehandSettingsContent(
-                                currentSettings = viewModel.currentFreehandSettings,
-                                onSettingsChanged = { viewModel.updateFreehandSettings(it) },
-                                isFlattenedOuterStrokeEnabled = false,
-                                onToggleFlattenedOuterStroke = {},
-                                showFlatStrokeOption = false,
-                                showCapsOption = true,
-                                showPolygonOption = true,
-                                title = "Pluma Settings"
                             )
                         }
-                        ToolType.ERASER, ToolType.POINT_ERASER, ToolType.CUT_ERASER -> {
-                            // REUSE LEGACY COMPONENT (Mirror functionality)
+                        toolType == ToolType.ERASER || toolType == ToolType.POINT_ERASER || toolType == ToolType.CUT_ERASER -> {
                             EraserSettingsContent(
                                 selectionScope = viewModel.selectionScope,
                                 onToggleSelectionScope = {

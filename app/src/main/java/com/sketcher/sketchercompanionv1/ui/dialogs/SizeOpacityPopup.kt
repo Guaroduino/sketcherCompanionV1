@@ -188,7 +188,11 @@ fun SizeOpacityPopup(
                                     fillStyle = fillStyleVal,
                                     isFillActive = isFillActive,
                                     toolType = viewModel.currentTool,
-                                    paintOutlineWidth = viewModel.currentFreehandSettings.paintOutlineWidth
+                                    paintOutlineWidth = when (val s = viewModel.currentFreehandSettings) {
+                                        is com.sketcher.sketchercompanionv1.tools.PaintSettings -> s.paintOutlineWidth
+                                        is com.sketcher.sketchercompanionv1.tools.WatercolorSettings -> s.paintOutlineWidth
+                                        else -> 2f
+                                    }
                                 )
                             }
 
@@ -448,102 +452,105 @@ fun SizeOpacityPopup(
                             }
                         )
                     }
-
                     if (!isEraser) {
-                    // Border Stroke Thickness (ONLY for PAINT or WATERCOLOR, above Stroke Opacity)
-                    if (viewModel.currentTool == ToolType.PAINT || viewModel.currentTool == ToolType.WATERCOLOR) {
                         val freehandSettings = viewModel.currentFreehandSettings
-                        SettingSlider(
-                            label = "Border Stroke Thickness",
-                            value = freehandSettings.paintOutlineWidth,
-                            onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(paintOutlineWidth = it)) },
-                            valueRange = 0.5f..15f,
-                            showValueOnRight = true,
-                            valueFormatter = { String.format("%.1f px", it) },
-                            exponent = 2f
-                        )
-                    }
+                        if (freehandSettings is com.sketcher.sketchercompanionv1.tools.PaintSettings) {
+                            SettingSlider(
+                                label = "Border Stroke Thickness",
+                                value = freehandSettings.paintOutlineWidth,
+                                onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(paintOutlineWidth = it)) },
+                                valueRange = 0.5f..15f,
+                                showValueOnRight = true,
+                                valueFormatter = { String.format("%.1f px", it) },
+                                exponent = 2f
+                            )
+                        } else if (freehandSettings is com.sketcher.sketchercompanionv1.tools.WatercolorSettings) {
+                            SettingSlider(
+                                label = "Border Stroke Thickness",
+                                value = freehandSettings.paintOutlineWidth,
+                                onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(paintOutlineWidth = it)) },
+                                valueRange = 0.5f..15f,
+                                showValueOnRight = true,
+                                valueFormatter = { String.format("%.1f px", it) },
+                                exponent = 2f
+                            )
+                            
+                            // Jitter Deviation Slider
+                            val jitterDev = freehandSettings.watercolorJitterDeviation
+                            SettingSlider(
+                                label = "Dispersión del borde (Jitter)",
+                                value = jitterDev,
+                                onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorJitterDeviation = it)) },
+                                valueRange = 0f..15f,
+                                showValueOnRight = true,
+                                valueFormatter = { String.format("%.1f px", it) },
+                                exponent = 2f
+                            )
+                            
+                            // Jitter Segment Slider
+                            val jitterSeg = freehandSettings.watercolorJitterSegment
+                            SettingSlider(
+                                label = "Frecuencia del borde",
+                                value = jitterSeg,
+                                onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorJitterSegment = it)) },
+                                valueRange = 3f..50f,
+                                showValueOnRight = true,
+                                valueFormatter = { String.format("%.1f px", it) },
+                                exponent = 2f
+                            )
+                            
+                            // Blur Radius Slider
+                            val blurRad = freehandSettings.watercolorBlurRadius
+                            SettingSlider(
+                                label = "Difuminado (Blur)",
+                                value = blurRad,
+                                onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorBlurRadius = it)) },
+                                valueRange = 0f..25f,
+                                showValueOnRight = true,
+                                valueFormatter = { String.format("%.1f px", it) },
+                                exponent = 2f
+                            )
 
-                    if (viewModel.currentTool == ToolType.WATERCOLOR) {
-                        val freehandSettings = viewModel.currentFreehandSettings
-                        
-                        // Jitter Deviation Slider
-                        val jitterDev = freehandSettings.watercolorJitterDeviation
-                        SettingSlider(
-                            label = "Dispersión del borde (Jitter)",
-                            value = jitterDev,
-                            onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorJitterDeviation = it)) },
-                            valueRange = 0f..15f,
-                            showValueOnRight = true,
-                            valueFormatter = { String.format("%.1f px", it) },
-                            exponent = 2f
-                        )
-                        
-                        // Jitter Segment Slider
-                        val jitterSeg = freehandSettings.watercolorJitterSegment
-                        SettingSlider(
-                            label = "Frecuencia del borde",
-                            value = jitterSeg,
-                            onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorJitterSegment = it)) },
-                            valueRange = 3f..50f,
-                            showValueOnRight = true,
-                            valueFormatter = { String.format("%.1f px", it) },
-                            exponent = 2f
-                        )
-                        
-                        // Blur Radius Slider
-                        val blurRad = freehandSettings.watercolorBlurRadius
-                        SettingSlider(
-                            label = "Difuminado (Blur)",
-                            value = blurRad,
-                            onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorBlurRadius = it)) },
-                            valueRange = 0f..25f,
-                            showValueOnRight = true,
-                            valueFormatter = { String.format("%.1f px", it) },
-                            exponent = 2f
-                        )
+                            // Center Opacity Slider
+                            SettingSlider(
+                                label = "Opacidad Central (Center)",
+                                value = freehandSettings.watercolorCenterOpacity,
+                                onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorCenterOpacity = it)) },
+                                valueRange = 0f..1f,
+                                showValueOnRight = true,
+                                valueFormatter = { "${(it * 100).toInt()}%" }
+                            )
 
-                        // Center Opacity Slider
-                        SettingSlider(
-                            label = "Opacidad Central (Center)",
-                            value = freehandSettings.watercolorCenterOpacity,
-                            onValueChange = { viewModel.updateFreehandSettings(freehandSettings.copy(watercolorCenterOpacity = it)) },
-                            valueRange = 0f..1f,
-                            showValueOnRight = true,
-                            valueFormatter = { "${(it * 100).toInt()}%" }
-                        )
-
-
-
-                        // Edge Mode Selector
-                        Text(
-                            text = "Modo del Contorno (Edge Mode)",
-                            style = androidx.compose.ui.text.TextStyle(
-                                color = Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
-                            ),
-                            modifier = Modifier.padding(top = 8.dp)
-                        )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceEvenly
-                        ) {
-                            com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.values().forEach { mode ->
-                                val selected = freehandSettings.watercolorEdgeMode == mode
-                                val btnColor = if (selected) MaterialTheme.colorScheme.primary else Color.DarkGray
-                                val textColor = if (selected) Color.White else Color.LightGray
-                                androidx.compose.material3.Button(
-                                    onClick = {
-                                        viewModel.updateFreehandSettings(freehandSettings.copy(watercolorEdgeMode = mode))
-                                    },
-                                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = btnColor),
-                                    modifier = Modifier.weight(1f).padding(horizontal = 2.dp),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 2.dp)
-                                ) {
-                                    Text(text = mode.name, color = textColor, fontSize = 11.sp)
+                            // Edge Mode Selector
+                            Text(
+                                text = "Modo del Contorno (Edge Mode)",
+                                style = androidx.compose.ui.text.TextStyle(
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                                ),
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceEvenly
+                            ) {
+                                com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.entries.forEach { mode ->
+                                    val selected = freehandSettings.watercolorEdgeMode == mode
+                                    val btnColor = if (selected) MaterialTheme.colorScheme.primary else Color.DarkGray
+                                    val textColor = if (selected) Color.White else Color.LightGray
+                                    androidx.compose.material3.Button(
+                                        onClick = {
+                                            viewModel.updateFreehandSettings(freehandSettings.copy(watercolorEdgeMode = mode))
+                                        },
+                                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = btnColor),
+                                        modifier = Modifier.weight(1f).padding(horizontal = 2.dp),
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(text = mode.name, color = textColor, fontSize = 11.sp)
+                                    }
                                 }
                             }
                         }
@@ -584,11 +591,9 @@ fun SizeOpacityPopup(
                             showValueOnRight = true,
                             valueFormatter = { "${(it * 100).toInt()}%" }
                         )
-                    }
-
-                    // Cumulative Opacity Toggle (ONLY for PENCIL_CUMULATIVE)
+                    }                    // Cumulative Opacity Toggle (ONLY for PencilSettings)
                     val freehandSettings = viewModel.currentFreehandSettings
-                    if (viewModel.currentTool == ToolType.PENCIL_CUMULATIVE) {
+                    if (freehandSettings is com.sketcher.sketchercompanionv1.tools.PencilSettings && viewModel.currentTool == ToolType.PENCIL_CUMULATIVE) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -655,70 +660,27 @@ fun SizeOpacityPopup(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
-                                when (viewModel.currentTool) {
-                                    ToolType.FREEHAND -> {
+                                val toolType = viewModel.currentTool
+                                when {
+                                    toolType == ToolType.FREEHAND || toolType == ToolType.PENCIL_CUMULATIVE || toolType == ToolType.PEN || toolType == ToolType.PLUMA || toolType == ToolType.PAINT || toolType == ToolType.WATERCOLOR -> {
                                         FreehandSettingsContent(
                                             currentSettings = viewModel.currentFreehandSettings,
                                             onSettingsChanged = { viewModel.updateFreehandSettings(it) },
                                             isFlattenedOuterStrokeEnabled = viewModel.toolManager.isFlattenedOuterStrokeEnabled,
                                             onToggleFlattenedOuterStroke = { viewModel.toolManager.toggleFlattenedOuterStroke() },
                                             showFlatStrokeOption = false,
-                                            showCapsOption = true,
-                                            showPolygonOption = true,
-                                            title = "Ajustes de Lápiz"
+                                            title = when(toolType) {
+                                                ToolType.FREEHAND -> "Ajustes de Lápiz"
+                                                ToolType.PENCIL_CUMULATIVE -> "Ajustes de Lápiz Acumulativo"
+                                                ToolType.PEN -> "Ajustes de Pluma Estilográfica"
+                                                ToolType.PLUMA -> "Ajustes de Pluma Caligráfica"
+                                                ToolType.PAINT -> "Ajustes de Pintura"
+                                                ToolType.WATERCOLOR -> "Ajustes de Acuarela"
+                                                else -> "Ajustes de Pincel"
+                                            }
                                         )
                                     }
-                                    ToolType.PENCIL_CUMULATIVE -> {
-                                        FreehandSettingsContent(
-                                            currentSettings = viewModel.currentFreehandSettings,
-                                            onSettingsChanged = { viewModel.updateFreehandSettings(it) },
-                                            isFlattenedOuterStrokeEnabled = false,
-                                            onToggleFlattenedOuterStroke = {},
-                                            showFlatStrokeOption = false,
-                                            showCapsOption = true,
-                                            showPolygonOption = true,
-                                            title = "Ajustes de Lápiz Acumulativo"
-                                        )
-                                    }
-                                    ToolType.PAINT -> {
-                                        FreehandSettingsContent(
-                                            currentSettings = viewModel.currentFreehandSettings,
-                                            onSettingsChanged = { viewModel.updateFreehandSettings(it) },
-                                            isFlattenedOuterStrokeEnabled = viewModel.toolManager.isFlattenedOuterStrokeEnabled,
-                                            onToggleFlattenedOuterStroke = { viewModel.toolManager.toggleFlattenedOuterStroke() },
-                                            showFlatStrokeOption = false,
-                                            showCapsOption = false,
-                                            showPolygonOption = false,
-                                            showJoinPreviousOption = true,
-                                            title = "Ajustes de Pintura"
-                                        )
-                                    }
-                                    ToolType.WATERCOLOR -> {
-                                        FreehandSettingsContent(
-                                            currentSettings = viewModel.currentFreehandSettings,
-                                            onSettingsChanged = { viewModel.updateFreehandSettings(it) },
-                                            isFlattenedOuterStrokeEnabled = viewModel.toolManager.isFlattenedOuterStrokeEnabled,
-                                            onToggleFlattenedOuterStroke = { viewModel.toolManager.toggleFlattenedOuterStroke() },
-                                            showFlatStrokeOption = false,
-                                            showCapsOption = false,
-                                            showPolygonOption = false,
-                                            showJoinPreviousOption = true,
-                                            title = "Ajustes de Acuarela"
-                                        )
-                                    }
-                                    ToolType.PLUMA -> {
-                                        FreehandSettingsContent(
-                                            currentSettings = viewModel.currentFreehandSettings,
-                                            onSettingsChanged = { viewModel.updateFreehandSettings(it) },
-                                            isFlattenedOuterStrokeEnabled = false,
-                                            onToggleFlattenedOuterStroke = {},
-                                            showFlatStrokeOption = false,
-                                            showCapsOption = true,
-                                            showPolygonOption = true,
-                                            title = "Pluma Settings"
-                                        )
-                                    }
-                                    ToolType.ERASER -> {
+                                    toolType == ToolType.ERASER -> {
                                         EraserSettingsContent(
                                             selectionScope = viewModel.selectionScope,
                                             onToggleSelectionScope = {
@@ -737,7 +699,6 @@ fun SizeOpacityPopup(
                                 }
                             }
                         }
-                    }
                     }
                 }
             }

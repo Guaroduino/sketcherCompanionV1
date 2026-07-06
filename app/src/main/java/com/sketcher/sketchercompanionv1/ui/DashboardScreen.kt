@@ -56,7 +56,10 @@ import kotlinx.coroutines.launch
 fun DashboardScreen(
     viewModel: SketcherViewModel,
     theme: UiThemeConfig,
-    onOpenProject: (DashboardItem.Project) -> Unit
+    onOpenProject: (DashboardItem.Project) -> Unit,
+    versionName: String = "",
+    updateAvailable: Boolean = false,
+    onUpdateClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scaler = LocalUiScaler.current
@@ -101,20 +104,44 @@ fun DashboardScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(vertical = 4.dp * scaleFactor)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Architecture,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(28.dp * scaleFactor)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp * scaleFactor))
                         Column {
-                            Text(
-                                text = "Sketcher Companion",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 20.sp * scaleFactor,
-                                color = Color(0xFF1C1B1F)
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Sketcher Companion",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 20.sp * scaleFactor,
+                                    color = Color(0xFF1C1B1F)
+                                )
+                                if (versionName.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.width(6.dp * scaleFactor))
+                                    Text(
+                                        text = "v$versionName",
+                                        fontSize = 12.sp * scaleFactor,
+                                        color = Color(0xFF79747E),
+                                        modifier = Modifier.padding(top = 2.dp * scaleFactor)
+                                    )
+                                }
+                                if (updateAvailable) {
+                                    Spacer(modifier = Modifier.width(8.dp * scaleFactor))
+                                    TextButton(
+                                        onClick = onUpdateClick,
+                                        contentPadding = PaddingValues(horizontal = 8.dp * scaleFactor, vertical = 2.dp * scaleFactor),
+                                        modifier = Modifier.height(26.dp * scaleFactor),
+                                        colors = ButtonDefaults.textButtonColors(
+                                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                                            contentColor = MaterialTheme.colorScheme.onErrorContainer
+                                        )
+                                    ) {
+                                        Text(
+                                            text = "¡Actualizar!",
+                                            fontSize = 11.sp * scaleFactor,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
                             val currentUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
                             val userName = currentUser?.displayName?.takeIf { it.isNotBlank() } ?: currentUser?.email?.substringBefore("@")
                             if (userName != null) {
@@ -129,6 +156,62 @@ fun DashboardScreen(
                 },
                 actions = {
                     var showSettingsPopup by remember { mutableStateOf(false) }
+
+                    Box {
+                        IconButton(
+                            onClick = { showSettingsPopup = true },
+                            modifier = Modifier.padding(horizontal = 4.dp * scaleFactor)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Configuración",
+                                modifier = Modifier.size(24.dp * scaleFactor),
+                                tint = Color(0xFF49454F)
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = showSettingsPopup,
+                            onDismissRequest = { showSettingsPopup = false },
+                            modifier = Modifier.background(Color.White)
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Buscar Actualización", fontSize = 14.sp * scaleFactor, color = Color(0xFF1C1B1F)) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.SystemUpdate,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp * scaleFactor),
+                                        tint = Color(0xFF49454F)
+                                    )
+                                },
+                                onClick = {
+                                    showSettingsPopup = false
+                                    onUpdateClick()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Mostrar Librería Pública", fontSize = 14.sp * scaleFactor, color = Color(0xFF1C1B1F)) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Public,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp * scaleFactor),
+                                        tint = Color(0xFF49454F)
+                                    )
+                                },
+                                trailingIcon = {
+                                    Checkbox(
+                                        checked = viewModel.showPublicLibrary,
+                                        onCheckedChange = null
+                                    )
+                                },
+                                onClick = {
+                                    viewModel.togglePublicLibrary()
+                                }
+                            )
+                        }
+                    }
 
                     IconButton(
                         onClick = {
@@ -192,6 +275,7 @@ fun DashboardScreen(
                     .fillMaxWidth()
                     .weight(splitterPosition)
             ) {
+                HorizontalDivider(color = theme.iconColor.copy(alpha = 0.1f))
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -226,11 +310,11 @@ fun DashboardScreen(
                     }
 
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp * scaleFactor), verticalAlignment = Alignment.CenterVertically) {
-                        OutlinerActionButton(Icons.Default.CreateNewFolder, "Nuevo Cuaderno", theme.iconColor) {
-                            showCreateFolderDialog = true
-                        }
                         OutlinerActionButton(Icons.Default.Add, "Nuevo Dibujo", theme.iconColor) {
                             showCreateProjectDialog = true
+                        }
+                        OutlinerActionButton(Icons.Default.CreateNewFolder, "Nuevo Cuaderno", theme.iconColor) {
+                            showCreateFolderDialog = true
                         }
                         OutlinerActionButton(Icons.Default.FileUpload, "Importar", theme.iconColor) {
                             importLauncher.launch(arrayOf("*/*"))
@@ -336,26 +420,45 @@ fun DashboardScreen(
             }
 
             // Object Library Bottom Panel
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f - splitterPosition)
                     .background(Color.White)
             ) {
-                com.sketcher.sketchercompanionv1.ui.panels.LibraryPanel(viewModel = viewModel)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(if (viewModel.showPublicLibrary) 0.5f else 1f)
+                ) {
+                    com.sketcher.sketchercompanionv1.ui.panels.LibraryPanel(viewModel = viewModel)
+                }
+
+                if (viewModel.showPublicLibrary) {
+                    HorizontalDivider(color = theme.iconColor.copy(alpha = 0.1f))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(0.5f)
+                            .padding(horizontal = 12.dp * scaleFactor)
+                    ) {
+                        PublicLibraryPlaceholder(theme = theme, scaleFactor = scaleFactor)
+                    }
+                }
             }
         }
     }
 
     // Dialogs
     if (showCreateFolderDialog) {
-        InputDialog(
-            title = "Nuevo Cuaderno",
-            hint = "Nombre de la carpeta",
-            initialValue = remember(items) { getUniqueFolderName(items) },
+        com.sketcher.sketchercompanionv1.ui.dialogs.CreateNotebookDialog(
+            initialName = remember(items) { getUniqueFolderName(items) },
+            viewModel = viewModel,
+            theme = theme,
+            scaleFactor = scaleFactor,
             onDismiss = { showCreateFolderDialog = false },
-            onConfirm = { name ->
-                viewModel.createLocalFolder(context, name)
+            onConfirm = { name, coverStyle, coverFill ->
+                viewModel.createLocalFolder(context, name, coverStyle, coverFill)
                 showCreateFolderDialog = false
             }
         )
@@ -366,8 +469,8 @@ fun DashboardScreen(
             initialName = remember(items) { getUniqueProjectName(items) },
             theme = theme,
             onDismiss = { showCreateProjectDialog = false },
-            onConfirm = { name, templateFile, scaleRatio ->
-                viewModel.createLocalProject(context, name, templateFile, scaleRatio)
+            onConfirm = { name, templateFile, scaleRatio, canvasSizeConfig, backgroundStyle ->
+                viewModel.createLocalProject(context, name, templateFile, scaleRatio, canvasSizeConfig, backgroundStyle)
                 showCreateProjectDialog = false
             }
         )
@@ -391,12 +494,13 @@ fun DashboardScreen(
     if (itemToDelete != null) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirmDialog = null },
-            title = { Text("Confirmar eliminación", fontSize = 18.sp * scaleFactor) },
+            title = { Text("Confirmar eliminación", fontSize = 18.sp * scaleFactor, color = Color(0xFF1C1B1F)) },
             text = {
                 Text(
                     text = "¿Estás seguro de que deseas borrar \"${itemToDelete.name}\"? " +
                             if (itemToDelete is DashboardItem.Folder) "Se borrarán todos los proyectos contenidos en él." else "Esta acción no se puede deshacer.",
-                    fontSize = 14.sp * scaleFactor
+                    fontSize = 14.sp * scaleFactor,
+                    color = Color(0xFF1C1B1F)
                 )
             },
             confirmButton = {
@@ -414,7 +518,8 @@ fun DashboardScreen(
                 TextButton(onClick = { showDeleteConfirmDialog = null }) {
                     Text("Cancelar", fontSize = 14.sp * scaleFactor)
                 }
-            }
+            },
+            containerColor = Color.White
         )
     }
 
@@ -528,17 +633,18 @@ fun FolderCard(
 
                         DropdownMenu(
                             expanded = showMenu,
-                            onDismissRequest = { showMenu = false }
+                            onDismissRequest = { showMenu = false },
+                            modifier = Modifier.background(Color.White)
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Renombrar", fontSize = 13.sp * scaleFactor) },
+                                text = { Text("Renombrar", fontSize = 13.sp * scaleFactor, color = Color(0xFF1C1B1F)) },
                                 onClick = {
                                     showMenu = false
                                     onRename()
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Personalizar Portada", fontSize = 13.sp * scaleFactor) },
+                                text = { Text("Personalizar Portada", fontSize = 13.sp * scaleFactor, color = Color(0xFF1C1B1F)) },
                                 onClick = {
                                     showMenu = false
                                     onCustomize()
@@ -680,17 +786,18 @@ fun ProjectCard(
 
                         DropdownMenu(
                             expanded = showMenu,
-                            onDismissRequest = { showMenu = false }
+                            onDismissRequest = { showMenu = false },
+                            modifier = Modifier.background(Color.White)
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Renombrar", fontSize = 13.sp * scaleFactor) },
+                                text = { Text("Renombrar", fontSize = 13.sp * scaleFactor, color = Color(0xFF1C1B1F)) },
                                 onClick = {
                                     showMenu = false
                                     onRename()
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Mover a Cuaderno", fontSize = 13.sp * scaleFactor) },
+                                text = { Text("Mover a Cuaderno", fontSize = 13.sp * scaleFactor, color = Color(0xFF1C1B1F)) },
                                 onClick = {
                                     showMenu = false
                                     onMove()
@@ -733,14 +840,20 @@ fun InputDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title, fontSize = 18.sp * scaleFactor) },
+        title = { Text(title, fontSize = 18.sp * scaleFactor, color = Color(0xFF1C1B1F)) },
         text = {
             Column {
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
-                    label = { Text(hint, fontSize = 13.sp * scaleFactor) },
+                    label = { Text(hint, fontSize = 13.sp * scaleFactor, color = Color(0xFF49454F)) },
                     singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color(0xFF1C1B1F),
+                        unfocusedTextColor = Color(0xFF1C1B1F),
+                        focusedLabelColor = Color(0xFF49454F),
+                        unfocusedLabelColor = Color(0xFF49454F)
+                    ),
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -757,7 +870,8 @@ fun InputDialog(
             TextButton(onClick = onDismiss) {
                 Text("Cancelar", fontSize = 14.sp * scaleFactor)
             }
-        }
+        },
+        containerColor = Color.White
     )
 }
 
@@ -786,7 +900,7 @@ fun MoveItemDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Mover \"${item.name}\" a...", fontSize = 18.sp * scaleFactor) },
+        title = { Text("Mover \"${item.name}\" a...", fontSize = 18.sp * scaleFactor, color = Color(0xFF1C1B1F)) },
         text = {
             Column(
                 modifier = Modifier
@@ -797,7 +911,7 @@ fun MoveItemDialog(
                     Text(
                         text = "No hay carpetas de destino disponibles en este nivel.",
                         fontSize = 14.sp * scaleFactor,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        color = Color(0xFF49454F)
                     )
                 } else {
                     folders.forEach { folder ->
@@ -825,7 +939,7 @@ fun MoveItemDialog(
                             Text(
                                 text = displayName,
                                 fontSize = 14.sp * scaleFactor,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = Color(0xFF1C1B1F)
                             )
                         }
                     }
@@ -837,7 +951,8 @@ fun MoveItemDialog(
             TextButton(onClick = onDismiss) {
                 Text("Cancelar", fontSize = 14.sp * scaleFactor)
             }
-        }
+        },
+        containerColor = Color.White
     )
 }
 
@@ -1135,6 +1250,10 @@ fun NotebookCover(
         folder.metadata.coverProject?.let { thumbnailCache[it] }
     }
 
+    val fillStyle = remember(folder.metadata.coverFill) {
+        folder.metadata.coverFill.toFillStyle(android.graphics.Color.LTGRAY)
+    }
+
     androidx.compose.foundation.Canvas(
         modifier = modifier
             .fillMaxSize()
@@ -1155,7 +1274,6 @@ fun NotebookCover(
                 val dest = android.graphics.RectF(0f, 0f, width, height)
                 nativeCanvas.drawBitmap(coverProjectBmp, src, dest, paint)
             } else {
-                val fillStyle = folder.metadata.coverFill.toFillStyle(android.graphics.Color.LTGRAY)
                 renderEngine.applyFillStyle(paint, fillStyle)
                 
                 val rect = android.graphics.RectF(0f, 0f, width, height)
@@ -1286,5 +1404,58 @@ private fun getUniqueFolderName(items: List<DashboardItem>, prefix: String = "Cu
         val exists = items.any { it is DashboardItem.Folder && it.name == candidate }
         if (!exists) return candidate
         index++
+    }
+}
+
+@Composable
+fun PublicLibraryPlaceholder(theme: UiThemeConfig, scaleFactor: Float) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp * scaleFactor),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "LIBRERÍA PÚBLICA",
+                color = theme.iconColor,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        HorizontalDivider(color = theme.iconColor.copy(alpha = 0.1f))
+        
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(16.dp * scaleFactor)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Public,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                    modifier = Modifier.size(48.dp * scaleFactor)
+                )
+                Spacer(modifier = Modifier.height(8.dp * scaleFactor))
+                Text(
+                    text = "Próximamente",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp * scaleFactor,
+                    color = Color(0xFF1C1B1F)
+                )
+                Spacer(modifier = Modifier.height(4.dp * scaleFactor))
+                Text(
+                    text = "Esta sección te permitirá compartir tus dibujos y componentes públicamente con la comunidad.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    fontSize = 12.sp * scaleFactor,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            }
+        }
     }
 }

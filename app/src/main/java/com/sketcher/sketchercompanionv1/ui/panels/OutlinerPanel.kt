@@ -55,7 +55,7 @@ fun OutlinerPanel(viewModel: SketcherViewModel) {
             )
             
             // Simplified global Add button (contextual ones are in Item)
-            OutlinerActionButton(Icons.Default.Add, "New Layer", theme.iconColor) {
+            OutlinerActionButton(Icons.Default.Add, "New Layer", theme.iconColor, backgroundColor = theme.buttonColor) {
                 viewModel.addLayer()
             }
         }
@@ -215,13 +215,29 @@ fun LayerItem(
             
             Spacer(modifier = Modifier.width(8.sdp))
             
-            Text(
-                layer.name,
-                modifier = Modifier.weight(1f),
-                color = contentColor,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
-            )
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { onLongClick() },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    layer.name,
+                    color = contentColor,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Spacer(modifier = Modifier.width(4.sdp))
+                Icon(
+                    Icons.Default.Edit,
+                    null,
+                    tint = contentColor.copy(alpha = 0.4f),
+                    modifier = Modifier.size(12.sdp)
+                )
+            }
             
             Row(horizontalArrangement = Arrangement.spacedBy(4.sdp)) {
                 BigTouchBox(onClick = onToggleClientVisibility, touchSize = 32.sdp) {
@@ -299,7 +315,7 @@ fun LayerItem(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val btnBg = theme.barBackgroundColor.copy(alpha = 0.6f)
+                val btnBg = theme.buttonColor
                 val iconTint = theme.iconColor
                 
                 // Reorder

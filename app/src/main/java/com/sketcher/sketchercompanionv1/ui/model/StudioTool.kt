@@ -6,6 +6,7 @@ data class StudioTool(
     val id: String,
     val icon: ImageVector,
     val contentDescription: String,
+    val iconResId: Int? = null,
     val isActive: Boolean = false,
     val isPlaceholder: Boolean = false,
     val isContextual: Boolean = false,

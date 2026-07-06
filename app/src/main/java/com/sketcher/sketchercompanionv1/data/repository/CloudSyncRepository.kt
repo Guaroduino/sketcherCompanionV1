@@ -20,6 +20,7 @@ class CloudSyncRepository {
         projectFileUri: Uri,
         relativePath: String,
         thumbnailUri: Uri? = null,
+        timestamp: Long? = null,
         metadata: Map<String, Any> = emptyMap()
     ): Result<String> {
         val user = auth.currentUser ?: return Result.failure(Exception("User not authenticated"))
@@ -44,7 +45,7 @@ class CloudSyncRepository {
                 "relativePath" to relativePath,
                 "fileUrl" to projectUrl,
                 "thumbnailUrl" to (thumbnailUrl ?: ""),
-                "timestamp" to System.currentTimeMillis()
+                "timestamp" to (timestamp ?: System.currentTimeMillis())
             )
             projectData.putAll(metadata)
 
@@ -101,9 +102,15 @@ class CloudSyncRepository {
     suspend fun deleteProject(projectId: String): Result<Unit> {
         val user = auth.currentUser ?: return Result.failure(Exception("User not authenticated"))
         return try {
-            // Delete from Firestore
+            // Soft delete in Firestore
+            val deleteData = mapOf(
+                "id" to projectId,
+                "deleted" to true,
+                "timestamp" to System.currentTimeMillis()
+            )
             firestore.collection("users").document(user.uid)
-                .collection("projects").document(projectId).delete().await()
+                .collection("projects").document(projectId)
+                .set(deleteData).await()
             
             // Delete from Storage (ignore errors if not found)
             try {
@@ -167,11 +174,11 @@ class CloudSyncRepository {
     }
 
     // --- LIBRARY SYNC ---
-    suspend fun backupLibrary(jsonString: String, assetsDir: File): Result<Unit> {
+    suspend fun backupLibrary(jsonString: String, timestamp: Long, assetsDir: File): Result<Unit> {
         val user = auth.currentUser ?: return Result.failure(Exception("User not authenticated"))
         return try {
             // 1. Save JSON to Firestore
-            val libraryData = mapOf("state" to jsonString, "timestamp" to System.currentTimeMillis())
+            val libraryData = mapOf("state" to jsonString, "timestamp" to timestamp)
             firestore.collection("users").document(user.uid)
                 .collection("library").document("state")
                 .set(libraryData).await()
@@ -203,7 +210,7 @@ class CloudSyncRepository {
         }
     }
 
-    suspend fun restoreLibrary(assetsDir: File): Result<String> {
+    suspend fun restoreLibrary(assetsDir: File): Result<Pair<String, Long>> {
         val user = auth.currentUser ?: return Result.failure(Exception("User not authenticated"))
         return try {
             // 1. Download JSON from Firestore
@@ -211,6 +218,7 @@ class CloudSyncRepository {
                 .collection("library").document("state").get().await()
             
             val jsonString = snapshot.getString("state") ?: return Result.failure(Exception("No library found"))
+            val timestamp = (snapshot.get("timestamp") as? Number)?.toLong() ?: 0L
 
             // 2. Download assets
             val listResult = storage.reference.child("users/${user.uid}/library_assets").listAll().await()
@@ -222,7 +230,7 @@ class CloudSyncRepository {
                 item.getFile(localFile).await()
             }
 
-            Result.success(jsonString)
+            Result.success(Pair(jsonString, timestamp))
         } catch (e: Exception) {
             Result.failure(e)
         }
