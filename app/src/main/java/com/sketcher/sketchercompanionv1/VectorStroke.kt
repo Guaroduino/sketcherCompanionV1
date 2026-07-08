@@ -34,7 +34,8 @@ data class VectorStroke(
     val isScreenSpaceWidth: Boolean = false,
     val fillStyle: FillStyle = FillStyle.Solid(fillColor),
     val strokeStyle: FillStyle = FillStyle.Solid(strokeColor),
-    val settings: ToolSettings = PencilSettings()
+    val settings: ToolSettings = PencilSettings(),
+    override var isScaleLocked: Boolean = false
 ) : LayerElement {
     @kotlin.jvm.Transient
     private var cachedJitteredPath: android.graphics.Path? = null
@@ -119,7 +120,8 @@ data class VectorStroke(
             isScreenSpaceWidth = isScreenSpaceWidth,
             fillStyle = fillStyle,
             strokeStyle = strokeStyle,
-            settings = settings
+            settings = settings,
+            isScaleLocked = isScaleLocked
         )
     }
 }

@@ -66,4 +66,8 @@ class AuthViewModel : ViewModel() {
     fun clearError() {
         _error.value = null
     }
+
+    suspend fun getUserIdToken(forceRefresh: Boolean = false): String? {
+        return authRepository.getUserIdToken(forceRefresh)
+    }
 }

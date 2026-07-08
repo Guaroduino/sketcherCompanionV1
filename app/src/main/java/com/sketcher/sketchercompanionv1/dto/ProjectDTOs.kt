@@ -52,14 +52,15 @@ data class LayerJson(
 )
 
 data class LayerElementJson(
-    val type: String, // "INK", "VECTOR", "FILL", "IMAGE", "SVG", "GROUP"
+    val type: String, // "INK", "VECTOR", "FILL", "IMAGE", "SVG", "GROUP", "TEXT"
     val inkStroke: StrokeJson? = null,
     val vectorStroke: VectorStrokeJson? = null,
     val fill: FillJson? = null,
     val image: ImageElementJson? = null,
     val svg: SvgElementJson? = null,
     val group: GroupElementJson? = null,
-    val componentInstance: ComponentInstanceJson? = null
+    val componentInstance: ComponentInstanceJson? = null,
+    val text: TextElementJson? = null
 )
 
 data class ComponentInstanceJson(
@@ -84,6 +85,18 @@ data class SvgElementJson(
     val fileName: String,
     val id: String,
     val matrixValues: List<Float>
+)
+
+data class TextElementJson(
+    val id: String,
+    val textHtml: String,
+    val width: Float,
+    val matrixValues: List<Float>,
+    val defaultTextColor: Int,
+    val defaultTextSize: Float,
+    val fontFamilyName: String,
+    val alignment: String,
+    val styleTemplateName: String?
 )
 
 data class ImageElementJson(
@@ -178,7 +191,8 @@ data class FillStyleJson(
     val offsetY: Float? = null,
     val opacity: Float? = null,
     val tintColor: Int? = null,
-    val tintMix: Float? = null
+    val tintMix: Float? = null,
+    val blendModeName: String? = null
 )
 
 enum class WatercolorEdgeMode {
@@ -254,7 +268,7 @@ data class BrushPresetJson(
     val stabilization: Float? = null
 )
 
-enum class ToolType { FREEHAND, PEN, FILL, ERASER, POINT_ERASER, CUT_ERASER, SELECTION, ANDROID_INK, TRIM, EXTEND, EDIT_POINTS, PAINT, PLUMA, MIRROR, MOVE_PT_PT, ALIGN_2_PT, OFFSET, FILLET, CHAMFER, WATERCOLOR, PENCIL_CUMULATIVE }
+enum class ToolType { FREEHAND, PEN, FILL, ERASER, POINT_ERASER, CUT_ERASER, SELECTION, ANDROID_INK, TRIM, EXTEND, EDIT_POINTS, PAINT, PLUMA, MIRROR, MOVE_PT_PT, ALIGN_2_PT, OFFSET, FILLET, CHAMFER, WATERCOLOR, PENCIL_CUMULATIVE, TEXT }
 
 enum class StrokeType { FREEHAND, LINE, POLYLINE, CIRCLE, ARC, ELLIPSE, SPLINE, BEZIER }
 

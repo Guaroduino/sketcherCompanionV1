@@ -165,7 +165,8 @@ import androidx.compose.ui.platform.LocalView
 
 
 import androidx.compose.ui.window.DialogWindowProvider
-
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
 
 import com.sketcher.sketchercompanionv1.SketcherCanvasView
 
@@ -237,6 +238,8 @@ import androidx.compose.material.icons.filled.Check
 
 
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 
 
 import com.sketcher.sketchercompanionv1.ui.dialogs.ImageEditDialog
@@ -333,10 +336,24 @@ fun StudioLayout(
 
     val assignedColorsMap by viewModel.assignedToolColors.collectAsState()
     val assignedStabMap by viewModel.assignedToolStabilization.collectAsState()
+    val assignedOpacityMap by viewModel.assignedToolOpacity.collectAsState()
+    val selectedPresetIndex by viewModel.selectedPresetIndex.collectAsState()
+    val brushPresets by viewModel.brushPresets.collectAsState()
     val globalStabilizationVal by viewModel.globalStabilization.collectAsState()
+
+    val activePreset = selectedPresetIndex?.let { idx ->
+        if (idx in brushPresets.indices) brushPresets[idx] else null
+    } ?: brushPresets.firstOrNull()
+
+    val defaultStab = if (viewModel.toolManager.currentTool == ToolType.FREEHAND || viewModel.toolManager.currentTool == ToolType.PENCIL_CUMULATIVE) 0.07f else 0f
+    val presetStab = activePreset?.stabilization ?: defaultStab
+    val presetOpacity = activePreset?.opacity ?: 1.0f
 
     val isEditMode by viewModel.isEditMode.collectAsState()
 
+    val showGridMenuDialog by viewModel.showGridMenuDialog.collectAsState()
+    val showStudioMenu by viewModel.showStudioMenu.collectAsState()
+    val showPersonalizationDialog by viewModel.showPersonalizationDialog.collectAsState()
 
     val cameraMatrix by viewModel.cameraMatrix.collectAsState()
 
@@ -394,42 +411,37 @@ fun StudioLayout(
             }
 
 
-            tool.registryId == "stroke_freehand" -> {
-                currentStrokeType == StrokeType.FREEHAND
-            }
-
-            tool.registryId == "stroke_line" || tool.registryId == "line" -> {
-                currentStrokeType == StrokeType.LINE
-            }
-
-
-            tool.registryId == "stroke_circle" || tool.registryId == "circle" -> {
-                currentStrokeType == StrokeType.CIRCLE
-            }
-
-
-            tool.registryId == "stroke_polyline" || tool.registryId == "polyline" -> {
-                currentStrokeType == StrokeType.POLYLINE
-            }
-
-
-            tool.registryId == "stroke_arc" || tool.registryId == "arc" -> {
-                currentStrokeType == StrokeType.ARC
-            }
-
-
-            tool.registryId == "stroke_ellipse" || tool.registryId == "ellipse" -> {
-                currentStrokeType == StrokeType.ELLIPSE
-            }
-
-
-            tool.registryId == "stroke_spline" || tool.registryId == "spline" -> {
-                currentStrokeType == StrokeType.SPLINE
-            }
-
-
+            tool.registryId == "stroke_type" ||
+            tool.registryId == "stroke_freehand" ||
+            tool.registryId == "stroke_line" || tool.registryId == "line" ||
+            tool.registryId == "stroke_circle" || tool.registryId == "circle" ||
+            tool.registryId == "stroke_polyline" || tool.registryId == "polyline" ||
+            tool.registryId == "stroke_arc" || tool.registryId == "arc" ||
+            tool.registryId == "stroke_ellipse" || tool.registryId == "ellipse" ||
+            tool.registryId == "stroke_spline" || tool.registryId == "spline" ||
             tool.registryId == "stroke_bezier" || tool.registryId == "bezier" -> {
-                currentStrokeType == StrokeType.BEZIER
+                val isDrawTool = currentTool == ToolType.FREEHAND ||
+                                 currentTool == ToolType.PEN ||
+                                 currentTool == ToolType.PAINT ||
+                                 currentTool == ToolType.WATERCOLOR ||
+                                 currentTool == ToolType.PLUMA ||
+                                 currentTool == ToolType.PENCIL_CUMULATIVE
+                if (!isDrawTool) {
+                    false
+                } else {
+                    when (tool.registryId) {
+                        "stroke_type" -> true
+                        "stroke_freehand" -> currentStrokeType == StrokeType.FREEHAND
+                        "stroke_line", "line" -> currentStrokeType == StrokeType.LINE
+                        "stroke_circle", "circle" -> currentStrokeType == StrokeType.CIRCLE
+                        "stroke_polyline", "polyline" -> currentStrokeType == StrokeType.POLYLINE
+                        "stroke_arc", "arc" -> currentStrokeType == StrokeType.ARC
+                        "stroke_ellipse", "ellipse" -> currentStrokeType == StrokeType.ELLIPSE
+                        "stroke_spline", "spline" -> currentStrokeType == StrokeType.SPLINE
+                        "stroke_bezier", "bezier" -> currentStrokeType == StrokeType.BEZIER
+                        else -> false
+                    }
+                }
             }
 
 
@@ -443,6 +455,10 @@ fun StudioLayout(
 
             payload == ToolPayload.CUT_ERASER || tool.registryId == "cut_eraser" -> {
                 currentTool == ToolType.CUT_ERASER
+            }
+
+            payload == ToolPayload.TEXT || tool.registryId == "text" -> {
+                currentTool == ToolType.TEXT
             }
 
             payload == ToolPayload.STABILIZE -> {
@@ -753,10 +769,10 @@ fun StudioLayout(
 
 
     val showStrokeColorPicker by viewModel.showStrokeColorPicker.collectAsState()
-
-
     val showFillColorPicker by viewModel.showFillColorPicker.collectAsState()
 
+    val isStrokeColorPresetVal by viewModel.isStrokeColorPreset.collectAsState()
+    val isFillColorPresetVal by viewModel.isFillColorPreset.collectAsState()
 
     val strokeColorVal by viewModel.strokeColor.collectAsState()
     val strokeStyleVal by viewModel.strokeStyle.collectAsState()
@@ -827,9 +843,6 @@ fun StudioLayout(
     var pagesPanelWeight by remember { mutableFloatStateOf(0.25f) }
 
 
-    var showPersonalizationDialog by remember { mutableStateOf(false) }
-
-
     var showIconEditorDialog by remember { mutableStateOf(false) }
 
 
@@ -837,12 +850,6 @@ fun StudioLayout(
 
 
     var showSizeOpacityPopup by remember { mutableStateOf(false) }
-
-
-    var showStudioMenu by remember { mutableStateOf(false) }
-
-
-    var showGridDropdown by remember { mutableStateOf(false) }
 
 
     // --- SWAP STATES (Moved to MainActivity) ---
@@ -1115,7 +1122,7 @@ fun StudioLayout(
                     // ConcurrentModificationException: el ViewModel muta la lista de forma
 
 
-                    // segura a trav�s de EraseCommand, sin usar iteradores en el hilo de UI.
+                    // segura a travs de EraseCommand, sin usar iteradores en el hilo de UI.
 
 
                     onRequestErase = { worldX, worldY, diameterPx ->
@@ -1201,6 +1208,13 @@ fun StudioLayout(
 
                     canvasBackgroundColor = viewModel.backgroundColor
 
+                    onCreateTextRequested = { x, y ->
+                        viewModel.startCreatingText(x, y)
+                    }
+
+                    onEditTextRequested = { textElement ->
+                        viewModel.startEditingText(textElement)
+                    }
 
                     canvasViewRef.value = this
 
@@ -1550,77 +1564,7 @@ fun StudioLayout(
                             }
                         }
                     }
-
-
-                    // Menu
-
-
-                    Box {
-
-
-                        var menuExpanded by remember { mutableStateOf(false) }
-
-
-                        BigTouchBox(
-
-
-                            onClick = { menuExpanded = true },
-
-
-                            touchSize = 48.dp
-
-
-                        ) {
-
-
-                            Icon(Icons.Default.MoreVert, "Menu", tint = theme.iconColor)
-
-
-                        }
-
-
-                        DropdownMenu(
-
-
-                            expanded = menuExpanded,
-
-
-                            onDismissRequest = { menuExpanded = false }
-
-
-                        ) {
-
-
-                            DropdownMenuItem(
-
-
-                                text = { Text("Personalization") },
-
-
-                                onClick = { 
-
-
-                                    menuExpanded = false
-
-
-                                    showPersonalizationDialog = true 
-
-
-                                }
-
-
-                            )
-
-
-                        }
-
-
-                    }
-
-
                 }
-
-
             }
 
 
@@ -2327,10 +2271,7 @@ fun StudioLayout(
                 BigTouchBox(
                     onClick = { 
                         if (isEditMode) toolPickerTarget = ToolLocation.TopLeftCorner to 0
-                        else {
-                            if (topLeftTool?.id == "menu") showStudioMenu = true
-                            else topLeftTool?.onClick?.invoke()
-                        }
+                        else topLeftTool?.onClick?.invoke()
                     },
                     touchSize = 64.dp
                 ) {
@@ -2347,13 +2288,28 @@ fun StudioLayout(
                     )
                 }
 
-                if (showStudioMenu && topLeftTool?.id == "menu") {
-                    com.sketcher.sketchercompanionv1.ui.dialogs.StudioMenu(
-                        expanded = showStudioMenu,
-                        onDismiss = { showStudioMenu = false },
-                        viewModel = viewModel,
-                        actions = projectActions
-                    )
+                if (!isEditMode && topLeftTool != null) {
+                    if (topLeftTool.registryId == "menu") {
+                        com.sketcher.sketchercompanionv1.ui.dialogs.StudioMenu(
+                            expanded = showStudioMenu,
+                            onDismiss = { viewModel.setShowStudioMenu(false) },
+                            viewModel = viewModel,
+                            actions = projectActions
+                        )
+                    } else if (topLeftTool.registryId == "settings") {
+                        com.sketcher.sketchercompanionv1.ui.dialogs.PersonalizationMenu(
+                            expanded = showPersonalizationDialog,
+                            onDismiss = { viewModel.setShowPersonalizationDialog(false) },
+                            viewModel = viewModel,
+                            swapVertical = swapVertical,
+                            swapHorizontal = swapHorizontal,
+                            interfaceScale = interfaceScale,
+                            onShowIconEditor = {
+                                showIconEditorDialog = true
+                                viewModel.setShowPersonalizationDialog(false)
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -2372,7 +2328,6 @@ fun StudioLayout(
                 BigTouchBox(
                     onClick = { 
                         if (isEditMode) toolPickerTarget = ToolLocation.TopRightCorner to 0
-                        else if (topRightTool?.id == "settings") showPersonalizationDialog = true 
                         else topRightTool?.onClick?.invoke()
                     },
                     touchSize = 64.dp
@@ -2390,19 +2345,28 @@ fun StudioLayout(
                     )
                 }
 
-                if (showPersonalizationDialog && topRightTool?.id == "settings") {
-                    com.sketcher.sketchercompanionv1.ui.dialogs.PersonalizationMenu(
-                        expanded = showPersonalizationDialog,
-                        onDismiss = { showPersonalizationDialog = false },
-                        viewModel = viewModel,
-                        swapVertical = swapVertical,
-                        swapHorizontal = swapHorizontal,
-                        interfaceScale = interfaceScale,
-                        onShowIconEditor = {
-                            showIconEditorDialog = true
-                            showPersonalizationDialog = false
-                        }
-                    )
+                if (!isEditMode && topRightTool != null) {
+                    if (topRightTool.registryId == "menu") {
+                        com.sketcher.sketchercompanionv1.ui.dialogs.StudioMenu(
+                            expanded = showStudioMenu,
+                            onDismiss = { viewModel.setShowStudioMenu(false) },
+                            viewModel = viewModel,
+                            actions = projectActions
+                        )
+                    } else if (topRightTool.registryId == "settings") {
+                        com.sketcher.sketchercompanionv1.ui.dialogs.PersonalizationMenu(
+                            expanded = showPersonalizationDialog,
+                            onDismiss = { viewModel.setShowPersonalizationDialog(false) },
+                            viewModel = viewModel,
+                            swapVertical = swapVertical,
+                            swapHorizontal = swapHorizontal,
+                            interfaceScale = interfaceScale,
+                            onShowIconEditor = {
+                                showIconEditorDialog = true
+                                viewModel.setShowPersonalizationDialog(false)
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -2410,60 +2374,114 @@ fun StudioLayout(
         val bottomLeftTool = tools[ToolLocation.BottomLeftCorner]?.firstOrNull()
 
         if (bottomLeftTool != null || isEditMode) {
-            BigTouchBox(
+            Box(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(
                         bottom = ((if (swapVertical) animTopOffset else animBottomOffset) - touchCorrection).coerceAtLeast(0.dp), 
                         start = (startPadding - touchCorrection).coerceAtLeast(0.dp)
-                    ),
-                onClick = { 
-                    if (isEditMode) toolPickerTarget = ToolLocation.BottomLeftCorner to 0
-                    else bottomLeftTool?.onClick?.invoke()
-                },
-                touchSize = 64.dp
+                    )
             ) {
-                StudioCornerButton(
-                    tool = bottomLeftTool,
-                    location = ToolLocation.BottomLeftCorner,
-                    isEditMode = isEditMode,
-                    theme = theme,
-                    scaler = scaler,
-                    shadowAlpha = shadowAlpha,
-                    shadowBlur = shadowBlur,
-                    shadowOffsetX = shadowOffsetX,
-                    shadowOffsetY = shadowOffsetY
-                )
+                BigTouchBox(
+                    onClick = { 
+                        if (isEditMode) toolPickerTarget = ToolLocation.BottomLeftCorner to 0
+                        else bottomLeftTool?.onClick?.invoke()
+                    },
+                    touchSize = 64.dp
+                ) {
+                    StudioCornerButton(
+                        tool = bottomLeftTool,
+                        location = ToolLocation.BottomLeftCorner,
+                        isEditMode = isEditMode,
+                        theme = theme,
+                        scaler = scaler,
+                        shadowAlpha = shadowAlpha,
+                        shadowBlur = shadowBlur,
+                        shadowOffsetX = shadowOffsetX,
+                        shadowOffsetY = shadowOffsetY
+                    )
+                }
+
+                if (!isEditMode && bottomLeftTool != null) {
+                    if (bottomLeftTool.registryId == "menu") {
+                        com.sketcher.sketchercompanionv1.ui.dialogs.StudioMenu(
+                            expanded = showStudioMenu,
+                            onDismiss = { viewModel.setShowStudioMenu(false) },
+                            viewModel = viewModel,
+                            actions = projectActions
+                        )
+                    } else if (bottomLeftTool.registryId == "settings") {
+                        com.sketcher.sketchercompanionv1.ui.dialogs.PersonalizationMenu(
+                            expanded = showPersonalizationDialog,
+                            onDismiss = { viewModel.setShowPersonalizationDialog(false) },
+                            viewModel = viewModel,
+                            swapVertical = swapVertical,
+                            swapHorizontal = swapHorizontal,
+                            interfaceScale = interfaceScale,
+                            onShowIconEditor = {
+                                showIconEditorDialog = true
+                                viewModel.setShowPersonalizationDialog(false)
+                            }
+                        )
+                    }
+                }
             }
         }
 
         val bottomRightTool = tools[ToolLocation.BottomRightCorner]?.firstOrNull()
 
         if (bottomRightTool != null || isEditMode) {
-            BigTouchBox(
+            Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(
                         bottom = ((if (swapVertical) animTopOffset else animBottomOffset) - touchCorrection).coerceAtLeast(0.dp), 
                         end = (endPadding - touchCorrection).coerceAtLeast(0.dp)
-                    ),
-                onClick = { 
-                    if (isEditMode) toolPickerTarget = ToolLocation.BottomRightCorner to 0
-                    else bottomRightTool?.onClick?.invoke()
-                },
-                touchSize = 64.dp
+                    )
             ) {
-                StudioCornerButton(
-                    tool = bottomRightTool,
-                    location = ToolLocation.BottomRightCorner,
-                    isEditMode = isEditMode,
-                    theme = theme,
-                    scaler = scaler,
-                    shadowAlpha = shadowAlpha,
-                    shadowBlur = shadowBlur,
-                    shadowOffsetX = shadowOffsetX,
-                    shadowOffsetY = shadowOffsetY
-                )
+                BigTouchBox(
+                    onClick = { 
+                        if (isEditMode) toolPickerTarget = ToolLocation.BottomRightCorner to 0
+                        else bottomRightTool?.onClick?.invoke()
+                    },
+                    touchSize = 64.dp
+                ) {
+                    StudioCornerButton(
+                        tool = bottomRightTool,
+                        location = ToolLocation.BottomRightCorner,
+                        isEditMode = isEditMode,
+                        theme = theme,
+                        scaler = scaler,
+                        shadowAlpha = shadowAlpha,
+                        shadowBlur = shadowBlur,
+                        shadowOffsetX = shadowOffsetX,
+                        shadowOffsetY = shadowOffsetY
+                    )
+                }
+
+                if (!isEditMode && bottomRightTool != null) {
+                    if (bottomRightTool.registryId == "menu") {
+                        com.sketcher.sketchercompanionv1.ui.dialogs.StudioMenu(
+                            expanded = showStudioMenu,
+                            onDismiss = { viewModel.setShowStudioMenu(false) },
+                            viewModel = viewModel,
+                            actions = projectActions
+                        )
+                    } else if (bottomRightTool.registryId == "settings") {
+                        com.sketcher.sketchercompanionv1.ui.dialogs.PersonalizationMenu(
+                            expanded = showPersonalizationDialog,
+                            onDismiss = { viewModel.setShowPersonalizationDialog(false) },
+                            viewModel = viewModel,
+                            swapVertical = swapVertical,
+                            swapHorizontal = swapHorizontal,
+                            interfaceScale = interfaceScale,
+                            onShowIconEditor = {
+                                showIconEditorDialog = true
+                                viewModel.setShowPersonalizationDialog(false)
+                            }
+                        )
+                    }
+                }
             }
         }
 
@@ -2512,7 +2530,14 @@ fun StudioLayout(
             isStrokeActiveVal = isStrokeActiveVal,
             isFillActiveVal = isFillActiveVal,
             fillStyleVal = fillStyleVal,
+            strokeStyleVal = strokeStyleVal,
             lastActiveColorToolId = viewModel.lastActiveColorToolId,
+            isStrokeColorPresetVal = isStrokeColorPresetVal,
+            isFillColorPresetVal = isFillColorPresetVal,
+            assignedStabMap = assignedStabMap,
+            assignedOpacityMap = assignedOpacityMap,
+            presetStab = presetStab,
+            presetOpacity = presetOpacity,
             brushSizeVal = brushSizeVal,
             resolveIsActive = resolveIsActive,
             resolveIsActionButton = resolveIsActionButton,
@@ -2524,7 +2549,31 @@ fun StudioLayout(
             onShowSnapConfig = { showSnapConfigDialog = true },
             onToolClick = { t -> handleToolClick(t) },
             onEditTool = { p, id -> viewModel.editTool(p, id) },
-            onSubToolClick = handleSubToolClick
+            onSubToolClick = handleSubToolClick,
+            showStudioMenu = showStudioMenu,
+            showPersonalizationDialog = showPersonalizationDialog,
+            studioMenuContent = {
+                com.sketcher.sketchercompanionv1.ui.dialogs.StudioMenu(
+                    expanded = showStudioMenu,
+                    onDismiss = { viewModel.setShowStudioMenu(false) },
+                    viewModel = viewModel,
+                    actions = projectActions
+                )
+            },
+            personalizationMenuContent = {
+                com.sketcher.sketchercompanionv1.ui.dialogs.PersonalizationMenu(
+                    expanded = showPersonalizationDialog,
+                    onDismiss = { viewModel.setShowPersonalizationDialog(false) },
+                    viewModel = viewModel,
+                    swapVertical = swapVertical,
+                    swapHorizontal = swapHorizontal,
+                    interfaceScale = interfaceScale,
+                    onShowIconEditor = {
+                        showIconEditorDialog = true
+                        viewModel.setShowPersonalizationDialog(false)
+                    }
+                )
+            }
         )
 
         StudioRightBar(
@@ -2547,7 +2596,14 @@ fun StudioLayout(
             isStrokeActiveVal = isStrokeActiveVal,
             isFillActiveVal = isFillActiveVal,
             fillStyleVal = fillStyleVal,
+            strokeStyleVal = strokeStyleVal,
             lastActiveColorToolId = viewModel.lastActiveColorToolId,
+            isStrokeColorPresetVal = isStrokeColorPresetVal,
+            isFillColorPresetVal = isFillColorPresetVal,
+            assignedStabMap = assignedStabMap,
+            assignedOpacityMap = assignedOpacityMap,
+            presetStab = presetStab,
+            presetOpacity = presetOpacity,
             brushSizeVal = brushSizeVal,
             resolveIsActive = resolveIsActive,
             resolveIsActionButton = resolveIsActionButton,
@@ -2559,7 +2615,31 @@ fun StudioLayout(
             onShowSnapConfig = { showSnapConfigDialog = true },
             onToolClick = { t -> handleToolClick(t) },
             onEditTool = { p, id -> viewModel.editTool(p, id) },
-            onSubToolClick = handleSubToolClick
+            onSubToolClick = handleSubToolClick,
+            showStudioMenu = showStudioMenu,
+            showPersonalizationDialog = showPersonalizationDialog,
+            studioMenuContent = {
+                com.sketcher.sketchercompanionv1.ui.dialogs.StudioMenu(
+                    expanded = showStudioMenu,
+                    onDismiss = { viewModel.setShowStudioMenu(false) },
+                    viewModel = viewModel,
+                    actions = projectActions
+                )
+            },
+            personalizationMenuContent = {
+                com.sketcher.sketchercompanionv1.ui.dialogs.PersonalizationMenu(
+                    expanded = showPersonalizationDialog,
+                    onDismiss = { viewModel.setShowPersonalizationDialog(false) },
+                    viewModel = viewModel,
+                    swapVertical = swapVertical,
+                    swapHorizontal = swapHorizontal,
+                    interfaceScale = interfaceScale,
+                    onShowIconEditor = {
+                        showIconEditorDialog = true
+                        viewModel.setShowPersonalizationDialog(false)
+                    }
+                )
+            }
         )
 
         StudioTopBar(
@@ -2583,7 +2663,14 @@ fun StudioLayout(
             isStrokeActiveVal = isStrokeActiveVal,
             isFillActiveVal = isFillActiveVal,
             fillStyleVal = fillStyleVal,
+            strokeStyleVal = strokeStyleVal,
             lastActiveColorToolId = viewModel.lastActiveColorToolId,
+            isStrokeColorPresetVal = isStrokeColorPresetVal,
+            isFillColorPresetVal = isFillColorPresetVal,
+            assignedStabMap = assignedStabMap,
+            assignedOpacityMap = assignedOpacityMap,
+            presetStab = presetStab,
+            presetOpacity = presetOpacity,
             brushSizeVal = brushSizeVal,
             resolveIsActive = resolveIsActive,
             resolveIsActionButton = resolveIsActionButton,
@@ -2595,7 +2682,31 @@ fun StudioLayout(
             onShowSnapConfig = { showSnapConfigDialog = true },
             onToolClick = { t -> handleToolClick(t) },
             onEditTool = { p, id -> viewModel.editTool(p, id) },
-            onSubToolClick = handleSubToolClick
+            onSubToolClick = handleSubToolClick,
+            showStudioMenu = showStudioMenu,
+            showPersonalizationDialog = showPersonalizationDialog,
+            studioMenuContent = {
+                com.sketcher.sketchercompanionv1.ui.dialogs.StudioMenu(
+                    expanded = showStudioMenu,
+                    onDismiss = { viewModel.setShowStudioMenu(false) },
+                    viewModel = viewModel,
+                    actions = projectActions
+                )
+            },
+            personalizationMenuContent = {
+                com.sketcher.sketchercompanionv1.ui.dialogs.PersonalizationMenu(
+                    expanded = showPersonalizationDialog,
+                    onDismiss = { viewModel.setShowPersonalizationDialog(false) },
+                    viewModel = viewModel,
+                    swapVertical = swapVertical,
+                    swapHorizontal = swapHorizontal,
+                    interfaceScale = interfaceScale,
+                    onShowIconEditor = {
+                        showIconEditorDialog = true
+                        viewModel.setShowPersonalizationDialog(false)
+                    }
+                )
+            }
         )
 
         val bottomTools = tools[ToolLocation.BottomBar] ?: emptyList()
@@ -2676,122 +2787,30 @@ fun StudioLayout(
                          val isRealAction = !tool.isPlaceholder || isActionButton
 
 
-                         if (tool.registryId == "grid_menu") {
-                             val bgColor = if (viewModel.gridConfig.isVisible || viewModel.isSnapToGridEnabled) theme.highlightColor.copy(alpha = 0.2f) else null
-                             Box {
-                                 com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
-                                     onClick = {
-                                         if (isEditMode) {
-                                             toolPickerTarget = ToolLocation.BottomBar to idx
-                                         } else {
-                                             showGridDropdown = !showGridDropdown
-                                         }
-                                     },
-                                     icon = tool.icon,
-                                     contentDescription = tool.contentDescription,
-                                     isActive = viewModel.gridConfig.isVisible || viewModel.isSnapToGridEnabled,
-                                     isEditMode = isEditMode,
-                                     backgroundColorOverride = bgColor,
-                                     highlightColor = theme.highlightColor,
-                                     buttonColor = theme.buttonColor,
-                                     iconColor = theme.iconColor,
-                                     shape = theme.floatingShape(),
-                                     iconSize = scaler.smallIconSize,
-                                     tool = tool,
-                                     theme = theme
-                                 )
-
-                                 if (showGridDropdown && !isEditMode) {
-                                     DropdownMenu(
-                                         expanded = showGridDropdown,
-                                         onDismissRequest = { showGridDropdown = false },
-                                         offset = androidx.compose.ui.unit.DpOffset(x = 0.dp, y = 8.dp * scaler.scaleFactor),
-                                         modifier = Modifier.background(theme.barBackgroundColor)
-                                     ) {
-                                         val isSnap = viewModel.isSnapToGridEnabled
-                                         DropdownMenuItem(
-                                             text = { Text("Activar Snap to Grid", color = theme.iconColor, fontSize = (14 * scaler.scaleFactor).sp) },
-                                             leadingIcon = {
-                                                 Icon(
-                                                     imageVector = androidx.compose.material.icons.Icons.Default.FilterCenterFocus,
-                                                     contentDescription = null,
-                                                     tint = theme.iconColor,
-                                                     modifier = Modifier.size(24.dp * scaler.scaleFactor)
-                                                 )
-                                             },
-                                             trailingIcon = {
-                                                 if (isSnap) {
-                                                     Icon(
-                                                         imageVector = androidx.compose.material.icons.Icons.Default.Check,
-                                                         contentDescription = "Active",
-                                                         tint = theme.iconColor,
-                                                         modifier = Modifier.size(18.dp * scaler.scaleFactor)
-                                                     )
-                                                 }
-                                             },
-                                             onClick = {
-                                                 viewModel.isSnapToGridEnabled = !isSnap
-                                                 showGridDropdown = false
-                                             },
-                                             modifier = Modifier
-                                                 .height(48.dp * scaler.scaleFactor)
-                                                 .background(if (isSnap) theme.highlightColor.copy(alpha = 0.2f) else Color.Transparent),
-                                             contentPadding = PaddingValues(horizontal = 16.dp * scaler.scaleFactor, vertical = 0.dp)
-                                         )
-
-                                         val isVisible = viewModel.gridConfig.isVisible
-                                         DropdownMenuItem(
-                                             text = { Text("Mostrar Grid", color = theme.iconColor, fontSize = (14 * scaler.scaleFactor).sp) },
-                                             leadingIcon = {
-                                                 Icon(
-                                                     imageVector = androidx.compose.material.icons.Icons.Default.GridOn,
-                                                     contentDescription = null,
-                                                     tint = theme.iconColor,
-                                                     modifier = Modifier.size(24.dp * scaler.scaleFactor)
-                                                 )
-                                             },
-                                             trailingIcon = {
-                                                 if (isVisible) {
-                                                     Icon(
-                                                         imageVector = androidx.compose.material.icons.Icons.Default.Check,
-                                                         contentDescription = "Active",
-                                                         tint = theme.iconColor,
-                                                         modifier = Modifier.size(18.dp * scaler.scaleFactor)
-                                                     )
-                                                 }
-                                             },
-                                             onClick = {
-                                                 viewModel.gridConfig = viewModel.gridConfig.copy(isVisible = !isVisible)
-                                                 showGridDropdown = false
-                                             },
-                                             modifier = Modifier
-                                                 .height(48.dp * scaler.scaleFactor)
-                                                 .background(if (isVisible) theme.highlightColor.copy(alpha = 0.2f) else Color.Transparent),
-                                              contentPadding = PaddingValues(horizontal = 16.dp * scaler.scaleFactor, vertical = 0.dp)
-                                         )
-
-                                         DropdownMenuItem(
-                                             text = { Text("Editar Grid", color = theme.iconColor, fontSize = (14 * scaler.scaleFactor).sp) },
-                                             leadingIcon = {
-                                                 Icon(
-                                                     imageVector = androidx.compose.material.icons.Icons.Default.Edit,
-                                                     contentDescription = null,
-                                                     tint = theme.iconColor,
-                                                     modifier = Modifier.size(24.dp * scaler.scaleFactor)
-                                                 )
-                                             },
-                                             onClick = {
-                                                 showGridDropdown = false
-                                                 projectActions.onGridSettings()
-                                             },
-                                             modifier = Modifier
-                                                 .height(48.dp * scaler.scaleFactor),
-                                             contentPadding = PaddingValues(horizontal = 16.dp * scaler.scaleFactor, vertical = 0.dp)
-                                         )
-                                     }
-                                 }
-                             }
-                         } else if (tool.registryId == "divider") {
+                          if (tool.registryId == "grid_menu") {
+                              val bgColor = if (viewModel.gridConfig.isVisible || viewModel.isSnapToGridEnabled) theme.highlightColor.copy(alpha = 0.2f) else null
+                              com.sketcher.sketchercompanionv1.ui.components.SketcherIconButton(
+                                  onClick = {
+                                      if (isEditMode) {
+                                          toolPickerTarget = ToolLocation.BottomBar to idx
+                                      } else {
+                                          viewModel.setShowGridMenuDialog(true)
+                                      }
+                                  },
+                                  icon = tool.icon,
+                                  contentDescription = tool.contentDescription,
+                                  isActive = viewModel.gridConfig.isVisible || viewModel.isSnapToGridEnabled,
+                                  isEditMode = isEditMode,
+                                  backgroundColorOverride = bgColor,
+                                  highlightColor = theme.highlightColor,
+                                  buttonColor = theme.buttonColor,
+                                  iconColor = theme.iconColor,
+                                  shape = theme.floatingShape(),
+                                  iconSize = scaler.smallIconSize,
+                                  tool = tool,
+                                  theme = theme
+                              )
+                          } else if (tool.registryId == "divider") {
 
 
                              Box(
@@ -2935,13 +2954,9 @@ fun StudioLayout(
                                      onClick = {
 
 
-                                         if (isEditMode) toolPickerTarget = ToolLocation.BottomBar to idx
-
-
-                                         else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) showSizeOpacityPopup = true
-
-
-                                         else if (isRealAction) handleToolClick(tool)
+                                          if (isEditMode) toolPickerTarget = ToolLocation.BottomBar to idx
+                                          else if (tool.registryId == StudioTool.STABILIZATION_TOOL_ID) viewModel.setShowStabilizePicker(true)
+                                          else if (isRealAction) handleToolClick(tool)
 
 
                                      },
@@ -3014,17 +3029,15 @@ fun StudioLayout(
 
 
                                       colorPreview = when (assignedToolsMap[tool.id]) {
-
-
-                                          ToolPayload.STROKE_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(strokeColorVal)
-
-
-                                          ToolPayload.FILL_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(fillColorVal)
-
-
+                                          ToolPayload.STROKE_COLOR -> {
+                                              if (isStrokeColorPresetVal) Color(strokeColorVal)
+                                              else assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(strokeColorVal)
+                                          }
+                                          ToolPayload.FILL_COLOR -> {
+                                              if (isFillColorPresetVal) Color(fillColorVal)
+                                              else assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(fillColorVal)
+                                          }
                                           else -> null
-
-
                                       },fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
 
 
@@ -3040,7 +3053,7 @@ fun StudioLayout(
                                                    (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && isFillActiveVal) ||
 
 
-                                                   (assignedToolsMap[tool.id] == ToolPayload.STABILIZE && (assignedStabMap[tool.id] ?: 0f) == globalStabilizationVal),
+                                                   (assignedToolsMap[tool.id] == ToolPayload.STABILIZE && (assignedStabMap[tool.id] ?: presetStab) == globalStabilizationVal),
 
 
                                       isNone = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && !isStrokeActiveVal) ||
@@ -3049,16 +3062,24 @@ fun StudioLayout(
                                                (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && !isFillActiveVal),
 
 
-                                      stabilizationPreview = if (assignedToolsMap[tool.id] == ToolPayload.STABILIZE) (assignedStabMap[tool.id] ?: 0f) else null,
+                                       isStabilizePreset = if (assignedToolsMap[tool.id] == ToolPayload.STABILIZE) {
+                                           val btnStab = assignedStabMap[tool.id] ?: presetStab
+                                           val btnOpacity = assignedOpacityMap[tool.id] ?: presetOpacity
+                                           kotlin.math.abs(btnStab - presetStab) < 0.001f && kotlin.math.abs(btnOpacity - presetOpacity) < 0.001f
+                                       } else false,
+                                       stabilizationPreview = if (assignedToolsMap[tool.id] == ToolPayload.STABILIZE) (assignedStabMap[tool.id] ?: presetStab) else null,
 
 
                                       subTools = if (!isEditMode) {
 
 
-                                           if (tool.subTools.isNotEmpty()) tool.subTools 
+                                           val rawSub = if (tool.subTools.isNotEmpty()) tool.subTools 
 
 
-                                           else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId)
+                                                        else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId)
+
+
+                                           rawSub.filter { it.registryId != "stroke_type" }
 
 
                                        } else emptyList(),
@@ -3082,23 +3103,85 @@ fun StudioLayout(
                                                                    else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId)
 
 
+
                                            val subIdx = displayedSubTools.indexOfFirst { it.id == subTool.id }
+
 
 
                                            if (subIdx != -1) {
 
 
+
                                                viewModel.swapSubToolToMain(ToolLocation.BottomBar, idx, subIdx)
+
 
 
                                            }
 
 
+
+                                       },
+
+
+                                       showStudioMenu = showStudioMenu,
+
+
+                                       showPersonalizationDialog = showPersonalizationDialog,
+
+
+                                       dropdownContent = {
+
+
+
+                                            if (tool.registryId == "menu") {
+
+
+
+                                                com.sketcher.sketchercompanionv1.ui.dialogs.StudioMenu(
+
+
+
+                                                    expanded = showStudioMenu,
+
+                                                    onDismiss = { viewModel.setShowStudioMenu(false) },
+
+                                                    viewModel = viewModel,
+
+                                                    actions = projectActions
+
+                                                )
+
+                                            } else if (tool.registryId == "settings") {
+
+                                                com.sketcher.sketchercompanionv1.ui.dialogs.PersonalizationMenu(
+
+                                                    expanded = showPersonalizationDialog,
+
+                                                    onDismiss = { viewModel.setShowPersonalizationDialog(false) },
+
+                                                    viewModel = viewModel,
+
+                                                    swapVertical = swapVertical,
+
+                                                    swapHorizontal = swapHorizontal,
+
+                                                    interfaceScale = interfaceScale,
+
+                                                    onShowIconEditor = {
+
+                                                        showIconEditorDialog = true
+
+                                                        viewModel.setShowPersonalizationDialog(false)
+
+                                                    }
+
+                                                )
+
+                                            }
+
                                        }
 
-
                                    )
-
 
                              }
 
@@ -3153,106 +3236,82 @@ fun StudioLayout(
 
         val rawContextTools by viewModel.contextualToolbar.collectAsState(initial = emptyList())
 
+        // Read layerUpdateTrigger to force Compose to recompose the toolbar when lock/unlock is toggled
+        val layerUpdateTrigger = viewModel.layerUpdateTrigger
 
         val isTransformMode = viewModel.currentSelectionMode == com.sketcher.sketchercompanionv1.SketcherViewModel.SelectionMode.TRANSFORM_BOX
 
 
         val contextTools = if (isTransformMode) {
-
-
+            val isLocked = viewModel.selectionManager.isScaleLocked
             listOf(
-
-
                 StudioTool(
-
-
-                    id = "context_cancel_transform",
-
-
-                    icon = Icons.Default.Close,
-
-
-                    contentDescription = "Cancelar",
-
-
+                    id = "context_lock_scale",
+                    icon = if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                    contentDescription = if (isLocked) "Desbloquear Escala" else "Bloquear Escala",
                     isPlaceholder = false,
-
-
-                    onClick = { viewModel.cancelTransform() }
-
-
+                    onClick = {
+                        viewModel.toggleScaleLock()
+                    }
                 ),
-
-
                 StudioTool(
-
-
-                    id = "context_confirm_transform",
-
-
-                    icon = Icons.Default.Check,
-
-
-                    contentDescription = "Confirmar",
-
-
+                    id = "context_cancel_transform",
+                    icon = Icons.Default.Close,
+                    contentDescription = "Cancelar",
                     isPlaceholder = false,
-
-
+                    onClick = { viewModel.cancelTransform() }
+                ),
+                StudioTool(
+                    id = "context_confirm_transform",
+                    icon = Icons.Default.Check,
+                    contentDescription = "Confirmar",
+                    isPlaceholder = false,
                     onClick = { viewModel.confirmTransform() }
-
-
                 )
-
-
             )
-
 
         } else {
 
-
             val selection = viewModel.selectionManager.selectedElements
-
 
             val hasSelection = selection.isNotEmpty()
 
-
             val hasGroupOrComponentSelected = selection.any { it is com.sketcher.sketchercompanionv1.GroupElement || it is com.sketcher.sketchercompanionv1.ComponentInstance }
 
-
             val hasSingleComponentSelected = selection.size == 1 && selection.first() is com.sketcher.sketchercompanionv1.ComponentInstance
-
 
             val hasSingleGroupOrComponentSelected = selection.size == 1 && (selection.first() is com.sketcher.sketchercompanionv1.GroupElement || selection.first() is com.sketcher.sketchercompanionv1.ComponentInstance)
 
 
             val filtered = rawContextTools.filter { tool ->
 
-
                 when (tool.registryId) {
-
 
                     "context_group" -> hasSelection
 
 
                     "context_component" -> hasSelection
 
-
                     "context_ungroup" -> hasGroupOrComponentSelected
-
 
                     "context_make_unique" -> hasSingleComponentSelected
 
-
                     "context_edit" -> hasSingleGroupOrComponentSelected
-
 
                     else -> true
 
-
                 }
 
-
+            }.map { tool ->
+                if (tool.registryId == "context_lock_scale") {
+                    val isLocked = viewModel.selectionManager.isScaleLocked
+                    tool.copy(
+                        icon = if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                        contentDescription = if (isLocked) "Desbloquear Escala" else "Bloquear Escala"
+                    )
+                } else {
+                    tool
+                }
             }
 
 
@@ -3494,98 +3553,75 @@ fun StudioLayout(
 
 
             ) {
-
-
-                ContextActionBar(
-
-
-                    modifier = Modifier.advancedShadow(
-
-
-                        color = Color.Black,
-
-
-                        alpha = shadowAlpha,
-
-
-                        cornersRadius = if (theme.isRound) scaler.baseBarHeight / 2 else 8.dp,
-
-
-                        shadowBlurRadius = shadowBlur,
-
-
-                        offsetX = shadowOffsetX,
-
-
-                        offsetY = shadowOffsetY
-
-
-                    ),
-
-
-                    tools = contextTools,
-
-
-                    isVisible = isContextBarVisible,
-
-
-                    isEditMode = isEditMode,
-
-
-                    theme = theme,
-
-
-                    onToolClick = { index, tool ->
-
-
-                        if (isEditMode) {
-
-
-                            val isNew = tool == null
-
-
-                            toolPickerTarget = Pair(ToolLocation.ContextBar, if (isNew) null else index)
-
-
-                        } else {
-
-
-                            tool?.let { handleToolClick(it) }
-
-
+                if (viewModel.isSingleTextSelected) {
+                    val selectedText = viewModel.selectedTextElement!!
+                    com.sketcher.sketchercompanionv1.ui.components.TextFormatContextBar(
+                        element = selectedText,
+                        theme = theme,
+                        onEditTextClick = { viewModel.startEditingText(selectedText) },
+                        onStyleChange = { template ->
+                            viewModel.updateSelectedTextProperty("Cambiar Estilo de Texto") {
+                                val newSize = when (template) {
+                                    "TITLE" -> 28f
+                                    "SUBTITLE" -> 20f
+                                    "CODE" -> 13f
+                                    else -> 14f
+                                }
+                                val newFont = if (template == "CODE") "monospace" else "sans-serif"
+                                it.copy(styleTemplateName = template, defaultTextSize = newSize, fontFamilyName = newFont)
+                            }
+                        },
+                        onAlignmentChange = { align ->
+                            viewModel.updateSelectedTextProperty("Cambiar Alineación de Texto") {
+                                it.copy(alignment = align)
+                            }
+                        },
+                        onSizeChange = { newSize ->
+                            viewModel.updateSelectedTextProperty("Cambiar Tamaño de Texto") {
+                                it.copy(defaultTextSize = newSize)
+                            }
+                        },
+                        onFontChange = { font ->
+                            viewModel.updateSelectedTextProperty("Cambiar Fuente de Texto") {
+                                it.copy(fontFamilyName = font)
+                            }
+                        },
+                        onColorClick = {
+                            viewModel.editTool(com.sketcher.sketchercompanionv1.ui.components.ToolPayload.STROKE_COLOR, "text_color")
                         }
-
-
-                    },
-
-
-                    onSubToolClick = { index, subTool ->
-
-
-                        val displayedSubTools = if (contextTools[index].subTools.isNotEmpty()) contextTools[index].subTools 
-
-
-                                                else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(contextTools[index].registryId)
-
-
-                        val subIdx = displayedSubTools.indexOfFirst { it.id == subTool.id }
-
-
-                        if (subIdx != -1) {
-
-
-                            viewModel.swapSubToolToMain(ToolLocation.ContextBar, index, subIdx)
-
-
+                    )
+                } else {
+                    ContextActionBar(
+                        modifier = Modifier.advancedShadow(
+                            color = Color.Black,
+                            alpha = shadowAlpha,
+                            cornersRadius = if (theme.isRound) scaler.baseBarHeight / 2 else 8.dp,
+                            shadowBlurRadius = shadowBlur,
+                            offsetX = shadowOffsetX,
+                            offsetY = shadowOffsetY
+                        ),
+                        tools = contextTools,
+                        isVisible = isContextBarVisible,
+                        isEditMode = isEditMode,
+                        theme = theme,
+                        onToolClick = { index, tool ->
+                            if (isEditMode) {
+                                val isNew = tool == null
+                                toolPickerTarget = Pair(ToolLocation.ContextBar, if (isNew) null else index)
+                            } else {
+                                tool?.let { handleToolClick(it) }
+                            }
+                        },
+                        onSubToolClick = { index, subTool ->
+                            val displayedSubTools = if (contextTools[index].subTools.isNotEmpty()) contextTools[index].subTools 
+                                                    else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(contextTools[index].registryId)
+                            val subIdx = displayedSubTools.indexOfFirst { it.id == subTool.id }
+                            if (subIdx != -1) {
+                                viewModel.swapSubToolToMain(ToolLocation.ContextBar, index, subIdx)
+                            }
                         }
-
-
-                    }
-
-
-                )
-
-
+                    )
+                }
             }
 
 
@@ -3704,53 +3740,32 @@ fun StudioLayout(
 
 
             Row(
-
-
                 modifier = Modifier
-
-
                     .advancedShadow(
-
-
                         color = Color.Black,
-
-
                         alpha = shadowAlpha,
-
-
                         cornersRadius = scaler.baseBarHeight / 2,
-
-
                         shadowBlurRadius = shadowBlur,
-
-
                         offsetX = shadowOffsetX,
-
-
                         offsetY = shadowOffsetY
-
-
                     )
-
-
                     .height(scaler.baseBarHeight)
-
-
                     .clip(CircleShape)
-
-
                     .background(theme.barBackgroundColor.copy(alpha = 0.9f))
-
-
-                    .padding(horizontal = scaler.smallMargin),
-
-
+                    .padding(horizontal = scaler.smallMargin)
+                    .onGloballyPositioned { coordinates ->
+                        val bounds = coordinates.boundsInWindow()
+                        canvasViewRef.value?.setFloatingBarBounds(
+                            android.graphics.Rect(
+                                bounds.left.toInt(),
+                                bounds.top.toInt(),
+                                bounds.right.toInt(),
+                                bounds.bottom.toInt()
+                            )
+                        )
+                    },
                 verticalAlignment = Alignment.CenterVertically,
-
-
                 horizontalArrangement = Arrangement.spacedBy(scaler.smallButtonSpacing)
-
-
             ) {
 
 
@@ -4054,15 +4069,24 @@ fun StudioLayout(
         val showStabilizePicker by viewModel.showStabilizePicker.collectAsState()
         if (showStabilizePicker) {
             val lastActiveStabId = viewModel.lastActiveStabilizationToolId
-            val currentVal = lastActiveStabId?.let { assignedStabMap[it] } ?: globalStabilizationVal
+            val currentStab = lastActiveStabId?.let { assignedStabMap[it] } ?: globalStabilizationVal
+            val currentOpacity = lastActiveStabId?.let { assignedOpacityMap[it] } ?: brushOpacity
             QuickStabilizationPopup(
-                value = currentVal,
-                onValueChange = { newValue ->
+                stabilization = currentStab,
+                onStabilizationChange = { newValue ->
                     viewModel.updateLastActiveToolStabilization(newValue)
                     viewModel.setGlobalStabilization(newValue)
                 },
-                onRestorePreset = {
+                onRestoreStabilizationPreset = {
                     viewModel.restoreStabilizationToPreset()
+                },
+                opacity = currentOpacity,
+                onOpacityChange = { newValue ->
+                    viewModel.updateLastActiveToolOpacity(newValue)
+                    viewModel.updateBrushOpacity(newValue)
+                },
+                onRestoreOpacityPreset = {
+                    viewModel.restoreOpacityToPreset()
                 },
                 onDismiss = { viewModel.setShowStabilizePicker(false) },
                 theme = theme
@@ -4372,32 +4396,58 @@ fun StudioLayout(
 
     }
 
+    if (showPersonalizationDialog) {
+        com.sketcher.sketchercompanionv1.ui.dialogs.PersonalizationMenu(
+            expanded = showPersonalizationDialog,
+            onDismiss = { viewModel.setShowPersonalizationDialog(false) },
+            viewModel = viewModel,
+            swapVertical = swapVertical,
+            swapHorizontal = swapHorizontal,
+            interfaceScale = interfaceScale,
+            onShowIconEditor = {
+                showIconEditorDialog = true
+                viewModel.setShowPersonalizationDialog(false)
+            }
+        )
+    }
+
+    // Centered dropdown menus removed. They are now anchored to their corresponding toolbar buttons.
+
+    if (showGridMenuDialog) {
+        com.sketcher.sketchercompanionv1.ui.dialogs.GridMenuDialog(
+            theme = theme,
+            viewModel = viewModel,
+            onDismiss = { viewModel.setShowGridMenuDialog(false) },
+            onEditGrid = {
+                viewModel.setShowGridMenuDialog(false)
+                projectActions.onGridSettings()
+            }
+        )
+    }
+
 
     viewModel.activeImageEditState?.let { editState ->
-
-
         ImageEditDialog(
-
-
             state = editState,
-
-
             theme = theme,
-
-
+            scaleConfig = viewModel.scaleConfig,
+            currentUnit = viewModel.currentUnit,
             onDismiss = { viewModel.dismissImageEdits() },
-
-
             onConfirm = { processedBmp, transColors, tol, cropRect, cropPath, transTols, rotation, flipH, flipV, scale ->
                 viewModel.applyImageEdits(processedBmp, transColors, tol, cropRect, cropPath, transTols, rotation, flipH, flipV, scale)
-
-
             }
-
-
         )
+    }
 
-
+    viewModel.activeTextEditState?.let { editState ->
+        com.sketcher.sketchercompanionv1.ui.dialogs.TextEditDialog(
+            state = editState,
+            theme = theme,
+            onDismiss = { viewModel.dismissTextEdits() },
+            onConfirm = { html, color, size, font, alignment, template ->
+                viewModel.applyTextEdits(html, color, size, font, alignment, template)
+            }
+        )
     }
 
 

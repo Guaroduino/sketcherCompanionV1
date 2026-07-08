@@ -45,8 +45,18 @@ enum class PaperDesignOption(
 fun CreateProjectDialog(
     initialName: String,
     theme: UiThemeConfig,
+    uiPresets: List<String>,
+    toolPresets: List<String>,
     onDismiss: () -> Unit,
-    onConfirm: (name: String, templateFile: File?, scaleRatio: Float, canvasSizeConfig: com.sketcher.sketchercompanionv1.dto.CanvasSizeConfig?, backgroundStyle: com.sketcher.sketchercompanionv1.dto.FillStyle?) -> Unit
+    onConfirm: (
+        name: String,
+        templateFile: File?,
+        scaleRatio: Float,
+        canvasSizeConfig: com.sketcher.sketchercompanionv1.dto.CanvasSizeConfig?,
+        backgroundStyle: com.sketcher.sketchercompanionv1.dto.FillStyle?,
+        uiPresetName: String?,
+        toolPresetName: String?
+    ) -> Unit
 ) {
     val context = LocalContext.current
     var projectName by remember { mutableStateOf(initialName) }
@@ -60,6 +70,12 @@ fun CreateProjectDialog(
     
     var selectedPaperDesign by remember { mutableStateOf(PaperDesignOption.BLANK) }
     var expandedPaperDesign by remember { mutableStateOf(false) }
+
+    var selectedUiPreset by remember { mutableStateOf("Default") }
+    var expandedUiPreset by remember { mutableStateOf(false) }
+
+    var selectedToolPreset by remember { mutableStateOf("Default") }
+    var expandedToolPreset by remember { mutableStateOf(false) }
     
     var selectedScale by remember { mutableStateOf(1f) }
     var expandedScale by remember { mutableStateOf(false) }
@@ -207,6 +223,78 @@ fun CreateProjectDialog(
                     }
                 }
 
+                // Esquema de Botones Dropdown (only visible when no template is selected)
+                if (selectedTemplate == null) {
+                    Text(text = "Esquema de Botones", fontSize = 14.sp, color = theme.iconColor.copy(alpha = 0.7f))
+                    ExposedDropdownMenuBox(
+                        expanded = expandedUiPreset,
+                        onExpandedChange = { expandedUiPreset = !expandedUiPreset },
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = selectedUiPreset,
+                            onValueChange = {},
+                            readOnly = true,
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedUiPreset) },
+                            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(
+                                focusedTextColor = theme.iconColor,
+                                unfocusedTextColor = theme.iconColor,
+                                focusedBorderColor = theme.highlightColor
+                            ),
+                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = expandedUiPreset,
+                            onDismissRequest = { expandedUiPreset = false },
+                            modifier = Modifier.background(theme.barBackgroundColor)
+                        ) {
+                            val allUiPresets = if (uiPresets.contains("Default")) uiPresets else listOf("Default") + uiPresets
+                            allUiPresets.forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text(option, color = theme.iconColor) },
+                                    onClick = { selectedUiPreset = option; expandedUiPreset = false }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Presets de Herramientas Dropdown (only visible when no template is selected)
+                if (selectedTemplate == null) {
+                    Text(text = "Presets de Herramientas", fontSize = 14.sp, color = theme.iconColor.copy(alpha = 0.7f))
+                    ExposedDropdownMenuBox(
+                        expanded = expandedToolPreset,
+                        onExpandedChange = { expandedToolPreset = !expandedToolPreset },
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = selectedToolPreset,
+                            onValueChange = {},
+                            readOnly = true,
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedToolPreset) },
+                            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(
+                                focusedTextColor = theme.iconColor,
+                                unfocusedTextColor = theme.iconColor,
+                                focusedBorderColor = theme.highlightColor
+                            ),
+                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = expandedToolPreset,
+                            onDismissRequest = { expandedToolPreset = false },
+                            modifier = Modifier.background(theme.barBackgroundColor)
+                        ) {
+                            val allToolPresets = if (toolPresets.contains("Default")) toolPresets else listOf("Default") + toolPresets
+                            allToolPresets.forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text(option, color = theme.iconColor) },
+                                    onClick = { selectedToolPreset = option; expandedToolPreset = false }
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // Global Scale Dropdown
                 Text(text = "Escala Global Inicial", fontSize = 14.sp, color = theme.iconColor.copy(alpha = 0.7f))
                 ExposedDropdownMenuBox(
@@ -275,7 +363,15 @@ fun CreateProjectDialog(
                                         com.sketcher.sketchercompanionv1.dto.FillStyle.Solid(android.graphics.Color.WHITE)
                                     }
                                 }
-                                onConfirm(projectName.trim(), selectedTemplate, selectedScale, sizeConfig, bgStyle)
+                                onConfirm(
+                                    projectName.trim(),
+                                    selectedTemplate,
+                                    selectedScale,
+                                    sizeConfig,
+                                    bgStyle,
+                                    if (selectedTemplate != null) null else selectedUiPreset,
+                                    if (selectedTemplate != null) null else selectedToolPreset
+                                )
                             }
                         },
                         enabled = projectName.isNotBlank(),

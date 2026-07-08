@@ -8,6 +8,7 @@ import com.sketcher.sketchercompanionv1.dto.FillStyle
 sealed interface LayerElement : Transformable {
     fun copyElement(): LayerElement
     fun invalidateCache() {}
+    var isScaleLocked: Boolean
 }
 
 interface Transformable {
@@ -16,7 +17,11 @@ interface Transformable {
 }
 
 
-data class FillData(val path: Path, val fillStyle: FillStyle) : LayerElement {
+data class FillData(
+    val path: Path,
+    val fillStyle: FillStyle,
+    override var isScaleLocked: Boolean = false
+) : LayerElement {
     private val cachedBounds = RectF().apply { path.computeBounds(this, true) }
 
     // Fallback property for backward compatibility with exporters and secondary utilities
@@ -37,7 +42,7 @@ data class FillData(val path: Path, val fillStyle: FillStyle) : LayerElement {
     }
 
     override fun copyElement(): LayerElement {
-        return FillData(Path(path), fillStyle)
+        return FillData(Path(path), fillStyle, isScaleLocked)
     }
 }
 

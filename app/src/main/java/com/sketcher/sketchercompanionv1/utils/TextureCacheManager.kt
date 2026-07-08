@@ -289,6 +289,29 @@ object ImageTextureCache {
         }
     }
 
+    fun copyDefaultTexturesFromAssets(context: Context) {
+        try {
+            val assetManager = context.assets
+            val textures = assetManager.list("textures") ?: return
+            val destDir = File(context.filesDir, "textures/default")
+            if (!destDir.exists()) {
+                destDir.mkdirs()
+            }
+            for (fileName in textures) {
+                val destFile = File(destDir, fileName)
+                if (!destFile.exists() || destFile.length() == 0L) {
+                    assetManager.open("textures/$fileName").use { input ->
+                        FileOutputStream(destFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     fun clear() {
         cache.evictAll()
     }

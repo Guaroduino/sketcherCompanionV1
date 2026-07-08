@@ -37,7 +37,6 @@ import androidx.compose.ui.unit.sp
 import com.sketcher.sketchercompanionv1.SketcherViewModel
 import com.sketcher.sketchercompanionv1.dto.ExportPngConfig
 import com.sketcher.sketchercompanionv1.dto.ImageEditState
-import com.sketcher.sketchercompanionv1.network.PollResult
 import com.sketcher.sketchercompanionv1.network.RenderApiClient
 import com.sketcher.sketchercompanionv1.ui.SettingSlider
 import kotlinx.coroutines.Dispatchers
@@ -49,18 +48,14 @@ import java.io.ByteArrayOutputStream
 @Composable
 fun RenderOptionsBottomSheet(
     viewModel: SketcherViewModel,
-    currentUserUid: String?,
+    authViewModel: com.sketcher.sketchercompanionv1.ui.auth.AuthViewModel,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    val apiClient = remember { RenderApiClient() }
+    val currentUser by authViewModel.currentUser.collectAsState()
 
-    // SharedPreferences setup for Server URL persistence
-    val prefs = remember { context.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE) }
-    var serverUrl by remember {
-        mutableStateOf(prefs.getString("sketcher_render_server_url", "http://192.168.0.109:3002") ?: "http://192.168.0.109:3002")
-    }
+    val serverUrl = "https://localimagegenerator.web.app"
 
     // Input States
     var exportSelectionOnly by remember { mutableStateOf(!viewModel.selectionManager.selectedElements.isEmpty()) }
@@ -163,21 +158,7 @@ fun RenderOptionsBottomSheet(
                 }
             }
 
-            // Server URL
-            OutlinedTextField(
-                value = serverUrl,
-                onValueChange = {
-                    serverUrl = it
-                    prefs.edit().putString("sketcher_render_server_url", it).apply()
-                },
-                label = { Text("IP del Servidor (URL Base)") },
-                placeholder = { Text("http://192.168.0.109:3002") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !isLoading
-            )
 
-            Spacer(modifier = Modifier.height(12.dp))
 
             // Canvas capture source selection
             Text("Origen de la imagen del lienzo", style = MaterialTheme.typography.bodyMedium)
@@ -539,26 +520,35 @@ fun RenderOptionsBottomSheet(
                                 return@launch
                             }
 
-                            val stream = ByteArrayOutputStream()
-                            canvasBitmap.compress(Bitmap.CompressFormat.PNG, 95, stream)
-                            val canvasBytes = stream.toByteArray()
-                            canvasBitmap.recycle()
+                            progressMessage = "Obteniendo token de autenticación..."
+                            progressVal = 5
+
+                            val idToken = authViewModel.getUserIdToken(forceRefresh = false)
+                            if (idToken == null) {
+                                canvasBitmap.recycle()
+                                withContext(Dispatchers.Main) {
+                                    isLoading = false
+                                    errorMessage = "Error de autenticación: No se pudo obtener el token de Firebase."
+                                }
+                                return@launch
+                            }
 
                             progressMessage = "Subiendo imagen al servidor..."
                             progressVal = 10
 
                             // 2. Submit Render Request
-                            val response = apiClient.sendRenderRequest(
+                            val renderClient = RenderApiClient(serverUrl)
+                            val result = renderClient.sendRenderRequest(
                                 context = context,
-                                baseUrl = serverUrl,
-                                canvasImageBytes = canvasBytes,
+                                bitmap = canvasBitmap,
                                 refImages = listOfNotNull(refImage1, refImage2),
                                 renderMode = if (isMultiView) "three" else "single",
                                 prompt = prompt,
                                 sceneType = sceneType,
                                 spaceType = spaceType,
-                                sketchDenoise = denoiseValue.toString(),
-                                userId = currentUserUid ?: "anonymous_user",
+                                denoise = denoiseValue,
+                                idToken = idToken,
+                                userId = currentUser?.uid ?: "anonymous_user",
                                 stylePreset = if (stylePreset == "default") null else stylePreset,
                                 lightingPreset = if (lightingPreset == "default") null else lightingPreset,
                                 colorPreset = if (colorPreset == "default") null else colorPreset,
@@ -566,68 +556,87 @@ fun RenderOptionsBottomSheet(
                                 multiViewReferences = multiRefs.take(viewCount),
                                 multiViewPrompts = multiPrompts.take(viewCount)
                             )
+                            canvasBitmap.recycle()
 
-                            if (!response.success || response.jobId == null) {
+                            if (result.jobId == null) {
                                 withContext(Dispatchers.Main) {
                                     isLoading = false
-                                    errorMessage = "Servidor: ${response.error ?: "Error al crear el trabajo"}"
+                                    errorMessage = result.error ?: "Error al crear el trabajo de renderizado en el servidor."
                                 }
                                 return@launch
                             }
 
-                            val jobId = response.jobId
+                            val jobId = result.jobId
+
                             progressMessage = "Trabajo creado: $jobId. Esperando en cola..."
                             progressVal = 20
 
                             // 3. Polling for Status
-                            val pollResult = apiClient.pollRenderStatus(
-                                baseUrl = serverUrl,
-                                jobId = jobId
-                            ) { progress, message ->
-                                progressVal = (20 + (progress * 0.6f)).toInt().coerceIn(20, 80)
-                                progressMessage = message
-                            }
-
-                            when (pollResult) {
-                                is PollResult.Error -> {
-                                    withContext(Dispatchers.Main) {
-                                        isLoading = false
-                                        errorMessage = pollResult.message
-                                    }
-                                }
-                                is PollResult.Success -> {
-                                    progressMessage = "Descargando imagen renderizada..."
-                                    progressVal = 85
-
-                                    // Pick first completed image to import
-                                    val imageUrl = if (isMultiView) {
-                                        pollResult.imageUrls["image1"]
-                                    } else {
-                                        pollResult.imageUrls["image"]
-                                    }
-
-                                    if (imageUrl != null) {
-                                        val renderedBitmap = apiClient.downloadImage(imageUrl)
-                                        if (renderedBitmap != null) {
-                                            withContext(Dispatchers.Main) {
-                                                progressVal = 100
-                                                isLoading = false
-                                                Toast.makeText(context, "Render completado con éxito!", Toast.LENGTH_SHORT).show()
-                                                viewModel.importRenderedBitmap(renderedBitmap, "render_${jobId}.png")
-                                                onDismiss()
+                            var completado = false
+                            val maxAttempts = 150
+                            var attempts = 0
+                            while (!completado && attempts < maxAttempts) {
+                                kotlinx.coroutines.delay(2000)
+                                attempts++
+                                val status = renderClient.checkJobStatus(jobId, idToken)
+                                if (status != null) {
+                                    if (status.success) {
+                                        progressVal = (20 + (status.progreso * 0.6f)).toInt().coerceIn(20, 80)
+                                        progressMessage = status.progresoMsg
+                                        
+                                        if (status.estado == "completado") {
+                                            completado = true
+                                            progressMessage = "Descargando imagen renderizada..."
+                                            progressVal = 85
+                                            
+                                            val imageUrl = if (isMultiView) {
+                                                status.imagenesSalida?.get("image1")
+                                            } else {
+                                                status.imagenesSalida?.get("image")
                                             }
-                                        } else {
+                                            
+                                            if (imageUrl != null) {
+                                                val renderedBitmap = renderClient.downloadImage(imageUrl)
+                                                if (renderedBitmap != null) {
+                                                    withContext(Dispatchers.Main) {
+                                                        progressVal = 100
+                                                        isLoading = false
+                                                        Toast.makeText(context, "Render completado con éxito!", Toast.LENGTH_SHORT).show()
+                                                        viewModel.importRenderedBitmap(renderedBitmap, "render_${jobId}.png")
+                                                        onDismiss()
+                                                    }
+                                                } else {
+                                                    withContext(Dispatchers.Main) {
+                                                        isLoading = false
+                                                        errorMessage = "Error al descargar la imagen renderizada final."
+                                                    }
+                                                }
+                                            } else {
+                                                withContext(Dispatchers.Main) {
+                                                    isLoading = false
+                                                    errorMessage = "La respuesta del servidor no contiene una URL de imagen válida."
+                                                }
+                                            }
+                                        } else if (status.estado == "error") {
+                                            completado = true
                                             withContext(Dispatchers.Main) {
                                                 isLoading = false
-                                                errorMessage = "Error al descargar la imagen renderizada final."
+                                                errorMessage = status.error ?: "Error reportado por el servidor."
                                             }
                                         }
                                     } else {
+                                        completado = true
                                         withContext(Dispatchers.Main) {
                                             isLoading = false
-                                            errorMessage = "La respuesta del servidor no contiene una URL de imagen válida."
+                                            errorMessage = status.error ?: "Error al consultar estado."
                                         }
                                     }
+                                }
+                            }
+                            if (!completado) {
+                                withContext(Dispatchers.Main) {
+                                    isLoading = false
+                                    errorMessage = "Tiempo de espera agotado. El renderizado está tardando demasiado."
                                 }
                             }
                         } catch (e: Exception) {

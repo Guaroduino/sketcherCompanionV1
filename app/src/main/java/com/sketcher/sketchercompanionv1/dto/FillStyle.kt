@@ -54,7 +54,8 @@ sealed interface FillStyle {
         val offsetY: Float = 0.0f,
         override val opacity: Float = 1.0f,
         val tintColor: Int = Color.TRANSPARENT,
-        val tintMix: Float = 0.0f
+        val tintMix: Float = 0.0f,
+        val blendModeName: String = "SRC_ATOP"
     ) : FillStyle {
         override val type = FillType.IMAGE_TEXTURE
     }
@@ -66,13 +67,7 @@ fun FillStyle.copyWithOpacity(newOpacity: Float): FillStyle {
             val alpha = (newOpacity * 255f).toInt().coerceIn(0, 255)
             FillStyle.Solid((this.color and 0x00FFFFFF) or (alpha shl 24))
         }
-        is FillStyle.MathTexture -> {
-            val alpha = (newOpacity * 255f).toInt().coerceIn(0, 255)
-            this.copy(
-                primaryColor = (this.primaryColor and 0x00FFFFFF) or (alpha shl 24),
-                opacity = newOpacity
-            )
-        }
+        is FillStyle.MathTexture -> this.copy(opacity = newOpacity)
         is FillStyle.SvgPattern -> this.copy(opacity = newOpacity)
         is FillStyle.ImageTexture -> this.copy(opacity = newOpacity)
     }

@@ -35,6 +35,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -62,6 +63,8 @@ enum class EditMode {
 fun ImageEditDialog(
     state: ImageEditState,
     theme: UiThemeConfig,
+    scaleConfig: com.sketcher.sketchercompanionv1.dto.ScaleConfig = com.sketcher.sketchercompanionv1.dto.ScaleConfig(),
+    currentUnit: com.sketcher.sketchercompanionv1.dto.DistanceUnit = com.sketcher.sketchercompanionv1.dto.DistanceUnit.MM,
     onDismiss: () -> Unit,
     onConfirm: (Bitmap, List<Int>, Float, RectF?, List<PointF>?, List<Float>, Float, Boolean, Boolean, Float) -> Unit
 ) {
@@ -326,7 +329,7 @@ fun ImageEditDialog(
                     FilterChip(
                         selected = currentMode == EditMode.CALIBRATE_SCALE,
                         onClick = { currentMode = EditMode.CALIBRATE_SCALE },
-                        label = { Text("Calibrar Escala", fontSize = (12 * scaler.scaleFactor).sp) },
+                        label = { Text("Calibrar Tamaño", fontSize = (12 * scaler.scaleFactor).sp) },
                         leadingIcon = { 
                             Icon(
                                 Icons.Default.AspectRatio, 
@@ -543,9 +546,69 @@ fun ImageEditDialog(
                                     val s2 = mapBitmapToScreen(p2.x, p2.y)
                                     drawCircle(color = Color.Blue, radius = 8f, center = s2)
                                     drawLine(color = Color.Blue, start = s1, end = s2, strokeWidth = 4f)
+                                    
+                                    val dx = p2.x - p1.x
+                                    val dy = p2.y - p1.y
+                                    val pixelDistance = kotlin.math.sqrt(dx * dx + dy * dy)
+                                    
+                                    val canvasPixels = pixelDistance * calibrationScaleFactor
+                                    val rawUnits = com.sketcher.sketchercompanionv1.utils.UnitUtils.pixelsToProjectUnits(
+                                        canvasPixels,
+                                        currentUnit,
+                                        scaleConfig.basePixelsPerMillimeter
+                                    )
+                                    val niceUnitsStr = "%.2f".format(rawUnits).removeSuffix("0").removeSuffix("0").removeSuffix(".")
+                                    val textToDisplay = "$niceUnitsStr ${currentUnit.symbol}"
+                                    
+                                    val paint = android.graphics.Paint().apply {
+                                        color = android.graphics.Color.BLUE
+                                        textSize = 36f
+                                        isAntiAlias = true
+                                        textAlign = android.graphics.Paint.Align.CENTER
+                                        typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+                                    }
+                                    val rectPaint = android.graphics.Paint().apply {
+                                        color = android.graphics.Color.WHITE
+                                        alpha = 204
+                                        style = android.graphics.Paint.Style.FILL
+                                    }
+                                    val textWidth = paint.measureText(textToDisplay)
+                                    val fontMetrics = paint.fontMetrics
+                                    
+                                    val midX = (s1.x + s2.x) / 2f
+                                    val midY = (s1.y + s2.y) / 2f
+                                    
+                                    drawContext.canvas.nativeCanvas.drawRect(
+                                        midX - textWidth / 2f - 10f,
+                                        midY - 30f + fontMetrics.top - 5f,
+                                        midX + textWidth / 2f + 10f,
+                                        midY - 30f + fontMetrics.bottom + 5f,
+                                        rectPaint
+                                    )
+                                    
+                                    drawContext.canvas.nativeCanvas.drawText(
+                                        textToDisplay,
+                                        midX,
+                                        midY - 30f,
+                                        paint
+                                    )
                                 }
                             }
                         }
+                    }
+                    
+                    if (containerWidth > 0f && containerHeight > 0f) {
+                        val previewScale = Math.min(containerWidth / transformedWidth, containerHeight / transformedHeight)
+                        val previewZoom = previewScale / calibrationScaleFactor
+                        
+                        com.sketcher.sketchercompanionv1.ui.ScaleIndicator(
+                            scaleConfig = scaleConfig,
+                            currentUnit = currentUnit,
+                            currentZoom = previewZoom,
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding((8 * scaler.scaleFactor).dp)
+                        )
                     }
                 }
                 
@@ -747,6 +810,7 @@ fun ImageEditDialog(
 
     if (showCalibrationDialog) {
         var realDistanceStr by remember { mutableStateOf("") }
+        var importScaleDenominatorStr by remember { mutableStateOf("1") }
         Dialog(onDismissRequest = {
             showCalibrationDialog = false
             calibrationPoint1 = null
@@ -761,7 +825,7 @@ fun ImageEditDialog(
                     modifier = Modifier.fillMaxWidth().padding(24.dp)
                 ) {
                     Text(
-                        text = "Calibrar Distancia",
+                        text = "Calibrar Tamaño",
                         fontSize = 18.sp,
                         color = theme.iconColor,
                         style = MaterialTheme.typography.titleLarge
@@ -770,7 +834,21 @@ fun ImageEditDialog(
                     OutlinedTextField(
                         value = realDistanceStr,
                         onValueChange = { realDistanceStr = it },
-                        label = { Text("Distancia real en el proyecto", color = theme.iconColor.copy(alpha = 0.5f)) },
+                        label = { Text("Distancia real del objeto (${currentUnit.symbol})", color = theme.iconColor.copy(alpha = 0.5f)) },
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = theme.iconColor,
+                            unfocusedTextColor = theme.iconColor,
+                            focusedBorderColor = theme.highlightColor,
+                            unfocusedBorderColor = theme.iconColor.copy(alpha = 0.5f)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = importScaleDenominatorStr,
+                        onValueChange = { importScaleDenominatorStr = it },
+                        label = { Text("Denominador escala de importación (ej. 50 para 1:50)", color = theme.iconColor.copy(alpha = 0.5f)) },
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = theme.iconColor,
@@ -796,14 +874,17 @@ fun ImageEditDialog(
                         Button(
                             onClick = {
                                 val realDistance = realDistanceStr.toFloatOrNull()
-                                if (realDistance != null && realDistance > 0 && calibrationPoint1 != null && calibrationPoint2 != null) {
+                                val importScaleDenominator = importScaleDenominatorStr.toFloatOrNull() ?: 1.0f
+                                if (realDistance != null && realDistance > 0 && importScaleDenominator > 0 && calibrationPoint1 != null && calibrationPoint2 != null) {
                                     val dx = calibrationPoint2!!.x - calibrationPoint1!!.x
                                     val dy = calibrationPoint2!!.y - calibrationPoint1!!.y
                                     val pixelDistance = kotlin.math.sqrt(dx * dx + dy * dy)
-                                    // Scale factor = (real distance / pixel distance) * (magic factor depending on how ImageElement translates pixels to units)
-                                    // Normally, an image pixel maps 1:1 to canvas pixel, so scale factor is how much we should scale it.
-                                    // For now, let's assume we just want to apply a raw scale. The user wants the image to be the correct size when inserted.
-                                    calibrationScaleFactor = (realDistance * 100f) / pixelDistance // Let's just pass this relative scale and handle it in ViewModel
+                                    
+                                    val importScale = 1.0f / importScaleDenominator
+                                    val targetProjectUnits = realDistance * importScale
+                                    val targetCanvasPixels = com.sketcher.sketchercompanionv1.utils.UnitUtils.projectUnitsToPixels(targetProjectUnits, currentUnit, scaleConfig.basePixelsPerMillimeter)
+                                    
+                                    calibrationScaleFactor = targetCanvasPixels / pixelDistance
                                     showCalibrationDialog = false
                                 }
                             },

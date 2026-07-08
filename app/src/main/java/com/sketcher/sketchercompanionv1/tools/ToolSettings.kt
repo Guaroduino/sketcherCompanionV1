@@ -8,6 +8,8 @@ import com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode
 interface ToolSettings {
     val size: Float
     val opacity: Float
+    val thinning: Float
+    val velocityThinning: Float
 }
 
 /**
@@ -16,7 +18,7 @@ interface ToolSettings {
 data class PencilSettings(
     override val size: Float = 9f,
     override val opacity: Float = 1f,
-    val thinning: Float = 0.5f,
+    override val thinning: Float = 0.5f,
     val smoothing: Float = 0.5f,
     val streamline: Float = 0.5f,
     val simulatePressure: Boolean = false,
@@ -27,7 +29,7 @@ data class PencilSettings(
     val isComplete: Boolean = false,
     val predictionLatency: Long = 15L,
     val simplificationTolerance: Float = 0.0f,
-    val velocityThinning: Float = 0.0f,
+    override val velocityThinning: Float = 0.0f,
     val velocityMaxInput: Float = 1.0f,
     val useCurveForPolygon: Boolean = true,
     val isSimplificationEnabled: Boolean = false,
@@ -41,6 +43,8 @@ data class PencilSettings(
 data class PenSettings(
     override val size: Float = 2f,
     override val opacity: Float = 1f,
+    override val thinning: Float = 0f,
+    override val velocityThinning: Float = 0f,
     val smoothing: Float = 0f
 ) : ToolSettings
 
@@ -50,7 +54,8 @@ data class PenSettings(
 data class PlumaSettings(
     override val size: Float = 2.5f,
     override val opacity: Float = 1f,
-    val thinning: Float = 0.3f,
+    override val thinning: Float = 0.3f,
+    override val velocityThinning: Float = 0.0f,
     val smoothing: Float = 0.5f,
     val taperStart: Float = 0.0f,
     val taperEnd: Float = 0.0f,
@@ -68,7 +73,8 @@ data class PlumaSettings(
 data class PaintSettings(
     override val size: Float = 10f,
     override val opacity: Float = 1f,
-    val thinning: Float = 0.5f,
+    override val thinning: Float = 0.5f,
+    override val velocityThinning: Float = 0.0f,
     val smoothing: Float = 0.5f,
     val paintOutlineWidth: Float = 2.0f,
     val paintJoinPrevious: Boolean = true
@@ -80,7 +86,8 @@ data class PaintSettings(
 data class WatercolorSettings(
     override val size: Float = 20f,
     override val opacity: Float = 0.4f,
-    val thinning: Float = 0.5f,
+    override val thinning: Float = 0.5f,
+    override val velocityThinning: Float = 0.0f,
     val smoothing: Float = 0.5f,
     val paintOutlineWidth: Float = 2.5f,
     val watercolorJitterSegment: Float = 12.0f,
@@ -136,12 +143,15 @@ fun com.sketcher.sketchercompanionv1.dto.FreehandSettings.toToolSettings(toolTyp
         com.sketcher.sketchercompanionv1.dto.ToolType.PEN -> PenSettings(
             size = 3.5f,
             opacity = 1f,
+            thinning = this.thinning,
+            velocityThinning = this.velocityThinning,
             smoothing = this.smoothing
         )
         com.sketcher.sketchercompanionv1.dto.ToolType.PLUMA -> PlumaSettings(
             size = 2.5f,
             opacity = 1f,
             thinning = this.thinning,
+            velocityThinning = this.velocityThinning,
             smoothing = this.smoothing,
             taperStart = this.taperStart,
             taperEnd = this.taperEnd,
@@ -156,6 +166,7 @@ fun com.sketcher.sketchercompanionv1.dto.FreehandSettings.toToolSettings(toolTyp
             size = 10f,
             opacity = 1f,
             thinning = this.thinning,
+            velocityThinning = this.velocityThinning,
             smoothing = this.smoothing,
             paintOutlineWidth = this.paintOutlineWidth,
             paintJoinPrevious = this.paintJoinPrevious
@@ -164,6 +175,7 @@ fun com.sketcher.sketchercompanionv1.dto.FreehandSettings.toToolSettings(toolTyp
             size = 20f,
             opacity = 0.4f,
             thinning = this.thinning,
+            velocityThinning = this.velocityThinning,
             smoothing = this.smoothing,
             paintOutlineWidth = this.paintOutlineWidth,
             watercolorJitterSegment = this.watercolorJitterSegment,
@@ -200,10 +212,13 @@ fun ToolSettings.toFreehandSettings(toolType: com.sketcher.sketchercompanionv1.d
             isCumulativeOpacity = this.isCumulativeOpacity
         )
         is PenSettings -> base.copy(
+            thinning = this.thinning,
+            velocityThinning = this.velocityThinning,
             smoothing = this.smoothing
         )
         is PlumaSettings -> base.copy(
             thinning = this.thinning,
+            velocityThinning = this.velocityThinning,
             smoothing = this.smoothing,
             taperStart = this.taperStart,
             taperEnd = this.taperEnd,
@@ -213,12 +228,14 @@ fun ToolSettings.toFreehandSettings(toolType: com.sketcher.sketchercompanionv1.d
         )
         is PaintSettings -> base.copy(
             thinning = this.thinning,
+            velocityThinning = this.velocityThinning,
             smoothing = this.smoothing,
             paintOutlineWidth = this.paintOutlineWidth,
             paintJoinPrevious = this.paintJoinPrevious
         )
         is WatercolorSettings -> base.copy(
             thinning = this.thinning,
+            velocityThinning = this.velocityThinning,
             smoothing = this.smoothing,
             paintOutlineWidth = this.paintOutlineWidth,
             watercolorJitterSegment = this.watercolorJitterSegment,

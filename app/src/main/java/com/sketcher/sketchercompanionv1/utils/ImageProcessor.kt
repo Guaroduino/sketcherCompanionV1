@@ -152,11 +152,14 @@ object ImageProcessor {
                     }
                 }
                 if (shouldMakeTransparent) {
-                    pixels[i] = 0 // Transparent
+                    pixels[i] = 0 // Transparent (0x00000000) valid for premultiplied
                 }
             }
             mutableBitmap.setPixels(pixels, 0, width, 0, 0, width, height)
         }
+        
+        // Ensure the bitmap is marked as having alpha, otherwise software canvas will ignore transparency!
+        mutableBitmap.setHasAlpha(true)
         
         return mutableBitmap
     }

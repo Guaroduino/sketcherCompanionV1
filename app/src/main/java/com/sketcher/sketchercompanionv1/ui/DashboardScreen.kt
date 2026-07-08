@@ -16,8 +16,12 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material3.*
@@ -59,7 +63,8 @@ fun DashboardScreen(
     onOpenProject: (DashboardItem.Project) -> Unit,
     versionName: String = "",
     updateAvailable: Boolean = false,
-    onUpdateClick: () -> Unit = {}
+    onUpdateClick: () -> Unit = {},
+    onSignOut: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scaler = LocalUiScaler.current
@@ -79,6 +84,7 @@ fun DashboardScreen(
     var showMoveDialog by remember { mutableStateOf<DashboardItem?>(null) }
     var showDeleteConfirmDialog by remember { mutableStateOf<DashboardItem?>(null) }
     var showCustomizeCoverDialog by remember { mutableStateOf<DashboardItem.Folder?>(null) }
+    var showHistoryDialog by remember { mutableStateOf<DashboardItem.Project?>(null) }
 
     // SAF launcher for importing external files
     val importLauncher = rememberLauncherForActivityResult(
@@ -94,7 +100,7 @@ fun DashboardScreen(
         viewModel.refreshLocalItems()
     }
 
-    val scaffoldBgColor = Color.White
+    val scaffoldBgColor = theme.barBackgroundColor
 
     Scaffold(
         topBar = {
@@ -112,14 +118,14 @@ fun DashboardScreen(
                                     text = "Sketcher Companion",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 20.sp * scaleFactor,
-                                    color = Color(0xFF1C1B1F)
+                                    color = theme.iconColor
                                 )
                                 if (versionName.isNotEmpty()) {
                                     Spacer(modifier = Modifier.width(6.dp * scaleFactor))
                                     Text(
                                         text = "v$versionName",
                                         fontSize = 12.sp * scaleFactor,
-                                        color = Color(0xFF79747E),
+                                        color = theme.iconColor.copy(alpha = 0.6f),
                                         modifier = Modifier.padding(top = 2.dp * scaleFactor)
                                     )
                                 }
@@ -148,7 +154,7 @@ fun DashboardScreen(
                                 Text(
                                     text = "Hola, $userName",
                                     fontSize = 12.sp * scaleFactor,
-                                    color = Color(0xFF49454F)
+                                    color = theme.iconColor.copy(alpha = 0.8f)
                                 )
                             }
                         }
@@ -166,23 +172,23 @@ fun DashboardScreen(
                                 imageVector = Icons.Default.Settings,
                                 contentDescription = "Configuración",
                                 modifier = Modifier.size(24.dp * scaleFactor),
-                                tint = Color(0xFF49454F)
+                                tint = theme.iconColor
                             )
                         }
 
                         DropdownMenu(
                             expanded = showSettingsPopup,
                             onDismissRequest = { showSettingsPopup = false },
-                            modifier = Modifier.background(Color.White)
+                            modifier = Modifier.background(theme.barBackgroundColor)
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Buscar Actualización", fontSize = 14.sp * scaleFactor, color = Color(0xFF1C1B1F)) },
+                                text = { Text("Buscar Actualización", fontSize = 14.sp * scaleFactor, color = theme.iconColor) },
                                 leadingIcon = {
                                     Icon(
                                         imageVector = Icons.Default.SystemUpdate,
                                         contentDescription = null,
                                         modifier = Modifier.size(20.dp * scaleFactor),
-                                        tint = Color(0xFF49454F)
+                                        tint = theme.iconColor
                                     )
                                 },
                                 onClick = {
@@ -191,19 +197,23 @@ fun DashboardScreen(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Mostrar Librería Pública", fontSize = 14.sp * scaleFactor, color = Color(0xFF1C1B1F)) },
+                                text = { Text("Mostrar Librería Pública", fontSize = 14.sp * scaleFactor, color = theme.iconColor) },
                                 leadingIcon = {
                                     Icon(
                                         imageVector = Icons.Default.Public,
                                         contentDescription = null,
                                         modifier = Modifier.size(20.dp * scaleFactor),
-                                        tint = Color(0xFF49454F)
+                                        tint = theme.iconColor
                                     )
                                 },
                                 trailingIcon = {
                                     Checkbox(
                                         checked = viewModel.showPublicLibrary,
-                                        onCheckedChange = null
+                                        onCheckedChange = null,
+                                        colors = CheckboxDefaults.colors(
+                                            checkedColor = theme.highlightColor,
+                                            checkmarkColor = theme.iconColor
+                                        )
                                     )
                                 },
                                 onClick = {
@@ -226,21 +236,14 @@ fun DashboardScreen(
                             imageVector = Icons.Default.Sync,
                             contentDescription = "Sincronizar",
                             modifier = Modifier.size(24.dp * scaleFactor),
-                            tint = Color(0xFF49454F)
+                            tint = theme.iconColor
                         )
                     }
 
                     IconButton(
                         onClick = {
                             com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
-                            scope.launch {
-                                try {
-                                    androidx.credentials.CredentialManager.create(context)
-                                        .clearCredentialState(androidx.credentials.ClearCredentialStateRequest())
-                                } catch (e: Exception) {
-                                    // Ignore
-                                }
-                            }
+                            onSignOut?.invoke()
                         },
                         modifier = Modifier.padding(horizontal = 4.dp * scaleFactor)
                     ) {
@@ -248,15 +251,15 @@ fun DashboardScreen(
                             imageVector = Icons.AutoMirrored.Filled.ExitToApp,
                             contentDescription = "Cerrar Sesión",
                             modifier = Modifier.size(24.dp * scaleFactor),
-                            tint = Color(0xFF49454F)
+                            tint = theme.iconColor
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.White,
-                    titleContentColor = Color(0xFF1C1B1F),
-                    actionIconContentColor = Color(0xFF49454F),
-                    navigationIconContentColor = Color(0xFF49454F)
+                    containerColor = theme.barBackgroundColor,
+                    titleContentColor = theme.iconColor,
+                    actionIconContentColor = theme.iconColor,
+                    navigationIconContentColor = theme.iconColor
                 )
             )
         },
@@ -283,7 +286,7 @@ fun DashboardScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    val rootDir = File(context.filesDir, "projects")
+                    val rootDir = viewModel.getProjectsRootDir(context)
                     val isAtRoot = currentDir?.absolutePath == rootDir.absolutePath
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -360,11 +363,17 @@ fun DashboardScreen(
                         items(items) { item ->
                             when (item) {
                                 is DashboardItem.Folder -> {
+                                    val rootDir = viewModel.getProjectsRootDir(context)
+                                    val relPath = remember(item.path) {
+                                        try { File(item.path).toRelativeString(rootDir) } catch(e: Exception) { item.name }
+                                    }
+                                    val isSynced = viewModel.isFolderSynced(context, relPath, item.lastModified)
                                     FolderCard(
                                         folder = item,
                                         thumbnailCache = thumbnailCache,
                                         scaleFactor = scaleFactor,
                                         theme = theme,
+                                        isSynced = isSynced,
                                         onClick = { viewModel.navigateToFolder(File(item.path)) },
                                         onRename = { showRenameDialog = item },
                                         onCustomize = { showCustomizeCoverDialog = item },
@@ -373,15 +382,19 @@ fun DashboardScreen(
                                 }
                                 is DashboardItem.Project -> {
                                     val thumbnail = thumbnailCache[item.path]
+                                    val pId = remember(item.path) { viewModel.getProjectId(File(item.path)) ?: "" }
+                                    val isSynced = viewModel.isProjectSynced(context, pId, item.lastModified)
                                     ProjectCard(
                                         project = item,
                                         thumbnail = thumbnail,
                                         scaleFactor = scaleFactor,
                                         theme = theme,
+                                        isSynced = isSynced,
                                         onClick = { onOpenProject(item) },
                                         onRename = { showRenameDialog = item },
                                         onMove = { showMoveDialog = item },
-                                        onDelete = { showDeleteConfirmDialog = item }
+                                        onDelete = { showDeleteConfirmDialog = item },
+                                        onShowHistory = { showHistoryDialog = item }
                                     )
                                 }
                             }
@@ -396,7 +409,7 @@ fun DashboardScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(8.dp * scaleFactor)
-                    .background(Color(0xFFF5F5F5))
+                    .background(theme.barBackgroundColor)
                     .draggable(
                         orientation = Orientation.Vertical,
                         state = rememberDraggableState { delta ->
@@ -406,7 +419,7 @@ fun DashboardScreen(
                             }
                         }
                     )
-                    .border(1.dp, Color(0xFFE0E0E0)),
+                    .border(1.dp, theme.iconColor.copy(alpha = 0.15f)),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -415,7 +428,7 @@ fun DashboardScreen(
                         .width(40.dp * scaleFactor)
                         .height(4.dp * scaleFactor)
                         .clip(RoundedCornerShape(2.dp * scaleFactor))
-                        .background(Color.Gray.copy(alpha = 0.5f))
+                        .background(theme.iconColor.copy(alpha = 0.4f))
                 )
             }
 
@@ -424,7 +437,7 @@ fun DashboardScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f - splitterPosition)
-                    .background(Color.White)
+                    .background(theme.barBackgroundColor)
             ) {
                 Box(
                     modifier = Modifier
@@ -465,20 +478,40 @@ fun DashboardScreen(
     }
 
     if (showCreateProjectDialog) {
+        val uiPresets by viewModel.toolbarManager.uiPresetsNames.collectAsState()
+        val toolPresets by viewModel.toolManager.toolPresetGroupNames.collectAsState()
         com.sketcher.sketchercompanionv1.ui.dialogs.CreateProjectDialog(
             initialName = remember(items) { getUniqueProjectName(items) },
             theme = theme,
+            uiPresets = uiPresets,
+            toolPresets = toolPresets,
             onDismiss = { showCreateProjectDialog = false },
-            onConfirm = { name, templateFile, scaleRatio, canvasSizeConfig, backgroundStyle ->
-                viewModel.createLocalProject(context, name, templateFile, scaleRatio, canvasSizeConfig, backgroundStyle)
+            onConfirm = { name, templateFile, scaleRatio, canvasSizeConfig, backgroundStyle, uiPresetName, toolPresetName ->
+                viewModel.createLocalProject(context, name, templateFile, scaleRatio, canvasSizeConfig, backgroundStyle, uiPresetName, toolPresetName)
                 showCreateProjectDialog = false
             }
+        )
+    }
+
+    val projectForHistory = showHistoryDialog
+    if (projectForHistory != null) {
+        val pId = remember(projectForHistory.path) { viewModel.getProjectId(File(projectForHistory.path)) ?: "" }
+        LaunchedEffect(pId) {
+            viewModel.fetchProjectVersions(pId)
+        }
+        ProjectHistoryDialog(
+            project = projectForHistory,
+            projectId = pId,
+            theme = theme,
+            viewModel = viewModel,
+            onDismiss = { showHistoryDialog = null }
         )
     }
 
     val itemToRename = showRenameDialog
     if (itemToRename != null) {
         InputDialog(
+            theme = theme,
             title = "Renombrar",
             hint = "Nuevo nombre",
             initialValue = if (itemToRename is DashboardItem.Project) itemToRename.name else itemToRename.name,
@@ -494,13 +527,13 @@ fun DashboardScreen(
     if (itemToDelete != null) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirmDialog = null },
-            title = { Text("Confirmar eliminación", fontSize = 18.sp * scaleFactor, color = Color(0xFF1C1B1F)) },
+            title = { Text("Confirmar eliminación", fontSize = 18.sp * scaleFactor, color = theme.iconColor) },
             text = {
                 Text(
                     text = "¿Estás seguro de que deseas borrar \"${itemToDelete.name}\"? " +
                             if (itemToDelete is DashboardItem.Folder) "Se borrarán todos los proyectos contenidos en él." else "Esta acción no se puede deshacer.",
                     fontSize = 14.sp * scaleFactor,
-                    color = Color(0xFF1C1B1F)
+                    color = theme.iconColor.copy(alpha = 0.8f)
                 )
             },
             confirmButton = {
@@ -515,20 +548,24 @@ fun DashboardScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteConfirmDialog = null }) {
+                TextButton(
+                    onClick = { showDeleteConfirmDialog = null },
+                    colors = ButtonDefaults.textButtonColors(contentColor = theme.iconColor)
+                ) {
                     Text("Cancelar", fontSize = 14.sp * scaleFactor)
                 }
             },
-            containerColor = Color.White
+            containerColor = theme.barBackgroundColor
         )
     }
 
     val itemToMove = showMoveDialog
     if (itemToMove != null) {
         MoveItemDialog(
+            theme = theme,
             item = itemToMove,
-            currentDir = currentDir ?: File(context.filesDir, "projects"),
-            rootDir = File(context.filesDir, "projects"),
+            currentDir = currentDir ?: viewModel.getProjectsRootDir(context),
+            rootDir = viewModel.getProjectsRootDir(context),
             scaleFactor = scaleFactor,
             onDismiss = { showMoveDialog = null },
             onConfirm = { targetFolder ->
@@ -555,11 +592,36 @@ fun DashboardScreen(
 }
 
 @Composable
+fun CloudSyncStatusIndicator(
+    isSynced: Boolean,
+    scaleFactor: Float,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .size(20.dp * scaleFactor)
+            .background(
+                color = Color.Black.copy(alpha = 0.4f),
+                shape = RoundedCornerShape(10.dp * scaleFactor)
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = if (isSynced) Icons.Default.CloudDone else Icons.Default.CloudQueue,
+            contentDescription = if (isSynced) "Sincronizado" else "No sincronizado",
+            tint = if (isSynced) Color(0xFF81C784) else Color(0xFFE0E0E0),
+            modifier = Modifier.size(14.dp * scaleFactor)
+        )
+    }
+}
+
+@Composable
 fun FolderCard(
     folder: DashboardItem.Folder,
     thumbnailCache: Map<String, android.graphics.Bitmap?>,
     scaleFactor: Float,
     theme: UiThemeConfig,
+    isSynced: Boolean,
     onClick: () -> Unit,
     onRename: () -> Unit,
     onCustomize: () -> Unit,
@@ -573,12 +635,12 @@ fun FolderCard(
             .clickable { onClick() }
             .border(
                 width = 1.dp,
-                color = Color(0xFFE5E5E5),
+                color = theme.iconColor.copy(alpha = 0.15f),
                 shape = RoundedCornerShape(8.dp * scaleFactor)
             ),
         shape = RoundedCornerShape(8.dp * scaleFactor),
         colors = CardDefaults.cardColors(
-            containerColor = Color.White
+            containerColor = theme.buttonColor
         ),
         elevation = CardDefaults.cardElevation(
             defaultElevation = 3.dp * scaleFactor
@@ -589,7 +651,7 @@ fun FolderCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(180.dp * scaleFactor)
-                    .background(Color(0xFFF9F9F9)),
+                    .background(theme.barBackgroundColor),
                 contentAlignment = Alignment.Center
             ) {
                 NotebookCover(
@@ -597,6 +659,14 @@ fun FolderCard(
                     thumbnailCache = thumbnailCache,
                     scaleFactor = scaleFactor,
                     modifier = Modifier.fillMaxSize()
+                )
+                
+                CloudSyncStatusIndicator(
+                    isSynced = isSynced,
+                    scaleFactor = scaleFactor,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp * scaleFactor)
                 )
             }
 
@@ -614,7 +684,7 @@ fun FolderCard(
                         fontSize = 14.sp * scaleFactor,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        color = Color(0xFF1C1B1F),
+                        color = theme.iconColor,
                         modifier = Modifier.weight(1f)
                     )
 
@@ -627,24 +697,24 @@ fun FolderCard(
                                 imageVector = Icons.Default.MoreVert,
                                 contentDescription = "Opciones",
                                 modifier = Modifier.size(16.dp * scaleFactor),
-                                tint = Color(0xFF49454F)
+                                tint = theme.iconColor
                             )
                         }
 
                         DropdownMenu(
                             expanded = showMenu,
                             onDismissRequest = { showMenu = false },
-                            modifier = Modifier.background(Color.White)
+                            modifier = Modifier.background(theme.barBackgroundColor)
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Renombrar", fontSize = 13.sp * scaleFactor, color = Color(0xFF1C1B1F)) },
+                                text = { Text("Renombrar", fontSize = 13.sp * scaleFactor, color = theme.iconColor) },
                                 onClick = {
                                     showMenu = false
                                     onRename()
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Personalizar Portada", fontSize = 13.sp * scaleFactor, color = Color(0xFF1C1B1F)) },
+                                text = { Text("Personalizar Portada", fontSize = 13.sp * scaleFactor, color = theme.iconColor) },
                                 onClick = {
                                     showMenu = false
                                     onCustomize()
@@ -666,7 +736,7 @@ fun FolderCard(
                 Text(
                     text = "${folder.itemCount} dibujos",
                     fontSize = 11.sp * scaleFactor,
-                    color = Color(0xFF49454F).copy(alpha = 0.7f)
+                    color = theme.iconColor.copy(alpha = 0.7f)
                 )
             }
         }
@@ -679,10 +749,12 @@ fun ProjectCard(
     thumbnail: android.graphics.Bitmap?,
     scaleFactor: Float,
     theme: UiThemeConfig,
+    isSynced: Boolean,
     onClick: () -> Unit,
     onRename: () -> Unit,
     onMove: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onShowHistory: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val formattedDate = remember(project.lastModified) {
@@ -696,12 +768,12 @@ fun ProjectCard(
             .clickable { onClick() }
             .border(
                 width = 1.dp,
-                color = Color(0xFFE5E5E5),
+                color = theme.iconColor.copy(alpha = 0.15f),
                 shape = RoundedCornerShape(8.dp * scaleFactor)
             ),
         shape = RoundedCornerShape(8.dp * scaleFactor),
         colors = CardDefaults.cardColors(
-            containerColor = Color.White
+            containerColor = theme.buttonColor
         ),
         elevation = CardDefaults.cardElevation(
             defaultElevation = 3.dp * scaleFactor
@@ -712,7 +784,7 @@ fun ProjectCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(180.dp * scaleFactor)
-                    .background(Color(0xFFF9F9F9)),
+                    .background(theme.barBackgroundColor),
                 contentAlignment = Alignment.Center
             ) {
                 if (thumbnail != null) {
@@ -726,10 +798,18 @@ fun ProjectCard(
                     Icon(
                         imageVector = Icons.Default.Description,
                         contentDescription = null,
-                        tint = Color(0xFF49454F).copy(alpha = 0.15f),
+                        tint = theme.iconColor.copy(alpha = 0.15f),
                         modifier = Modifier.size(48.dp * scaleFactor)
                     )
                 }
+                
+                CloudSyncStatusIndicator(
+                    isSynced = isSynced,
+                    scaleFactor = scaleFactor,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp * scaleFactor)
+                )
                 
                 // Scale Badge
                 val scaleRatioStr = if (project.globalScaleRatio.rem(1) == 0f) {
@@ -767,7 +847,7 @@ fun ProjectCard(
                         fontSize = 14.sp * scaleFactor,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        color = Color(0xFF1C1B1F),
+                        color = theme.iconColor,
                         modifier = Modifier.weight(1f)
                     )
 
@@ -780,29 +860,38 @@ fun ProjectCard(
                                 imageVector = Icons.Default.MoreVert,
                                 contentDescription = "Opciones",
                                 modifier = Modifier.size(16.dp * scaleFactor),
-                                tint = Color(0xFF49454F)
+                                tint = theme.iconColor
                             )
                         }
 
                         DropdownMenu(
                             expanded = showMenu,
                             onDismissRequest = { showMenu = false },
-                            modifier = Modifier.background(Color.White)
+                            modifier = Modifier.background(theme.barBackgroundColor)
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Renombrar", fontSize = 13.sp * scaleFactor, color = Color(0xFF1C1B1F)) },
+                                text = { Text("Renombrar", fontSize = 13.sp * scaleFactor, color = theme.iconColor) },
                                 onClick = {
                                     showMenu = false
                                     onRename()
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Mover a Cuaderno", fontSize = 13.sp * scaleFactor, color = Color(0xFF1C1B1F)) },
+                                text = { Text("Mover a Cuaderno", fontSize = 13.sp * scaleFactor, color = theme.iconColor) },
                                 onClick = {
                                     showMenu = false
                                     onMove()
                                 }
                             )
+                            if (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Historial de Versiones", fontSize = 13.sp * scaleFactor, color = theme.iconColor) },
+                                    onClick = {
+                                        showMenu = false
+                                        onShowHistory()
+                                    }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Borrar", fontSize = 13.sp * scaleFactor, color = MaterialTheme.colorScheme.error) },
                                 onClick = {
@@ -819,7 +908,7 @@ fun ProjectCard(
                 Text(
                     text = formattedDate,
                     fontSize = 11.sp * scaleFactor,
-                    color = Color(0xFF49454F).copy(alpha = 0.7f)
+                    color = theme.iconColor.copy(alpha = 0.7f)
                 )
             }
         }
@@ -828,6 +917,7 @@ fun ProjectCard(
 
 @Composable
 fun InputDialog(
+    theme: UiThemeConfig,
     title: String,
     hint: String,
     initialValue: String = "",
@@ -840,19 +930,21 @@ fun InputDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title, fontSize = 18.sp * scaleFactor, color = Color(0xFF1C1B1F)) },
+        title = { Text(title, fontSize = 18.sp * scaleFactor, color = theme.iconColor) },
         text = {
             Column {
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
-                    label = { Text(hint, fontSize = 13.sp * scaleFactor, color = Color(0xFF49454F)) },
+                    label = { Text(hint, fontSize = 13.sp * scaleFactor, color = theme.iconColor.copy(alpha = 0.7f)) },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color(0xFF1C1B1F),
-                        unfocusedTextColor = Color(0xFF1C1B1F),
-                        focusedLabelColor = Color(0xFF49454F),
-                        unfocusedLabelColor = Color(0xFF49454F)
+                        focusedTextColor = theme.iconColor,
+                        unfocusedTextColor = theme.iconColor,
+                        focusedLabelColor = theme.highlightColor,
+                        unfocusedLabelColor = theme.iconColor.copy(alpha = 0.7f),
+                        focusedBorderColor = theme.highlightColor,
+                        unfocusedBorderColor = theme.iconColor.copy(alpha = 0.5f)
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -861,22 +953,34 @@ fun InputDialog(
         confirmButton = {
             Button(
                 onClick = { if (text.isNotBlank()) onConfirm(text) },
-                enabled = text.isNotBlank()
+                enabled = text.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = theme.buttonColor,
+                    contentColor = theme.iconColor,
+                    disabledContainerColor = theme.buttonColor.copy(alpha = 0.5f),
+                    disabledContentColor = theme.iconColor.copy(alpha = 0.5f)
+                )
             ) {
-                Text("Confirmar", fontSize = 14.sp * scaleFactor)
+                Text("Confirmar", fontSize = 14.sp * scaleFactor, color = theme.iconColor)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                onClick = onDismiss,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = theme.iconColor
+                )
+            ) {
                 Text("Cancelar", fontSize = 14.sp * scaleFactor)
             }
         },
-        containerColor = Color.White
+        containerColor = theme.barBackgroundColor
     )
 }
 
 @Composable
 fun MoveItemDialog(
+    theme: UiThemeConfig,
     item: DashboardItem,
     currentDir: File,
     rootDir: File,
@@ -900,7 +1004,7 @@ fun MoveItemDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Mover \"${item.name}\" a...", fontSize = 18.sp * scaleFactor, color = Color(0xFF1C1B1F)) },
+        title = { Text("Mover \"${item.name}\" a...", fontSize = 18.sp * scaleFactor, color = theme.iconColor) },
         text = {
             Column(
                 modifier = Modifier
@@ -911,7 +1015,7 @@ fun MoveItemDialog(
                     Text(
                         text = "No hay carpetas de destino disponibles en este nivel.",
                         fontSize = 14.sp * scaleFactor,
-                        color = Color(0xFF49454F)
+                        color = theme.iconColor.copy(alpha = 0.7f)
                     )
                 } else {
                     folders.forEach { folder ->
@@ -932,14 +1036,14 @@ fun MoveItemDialog(
                             Icon(
                                 imageVector = if (isParent) Icons.Default.ArrowUpward else Icons.Default.Folder,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
+                                tint = theme.highlightColor,
                                 modifier = Modifier.size(24.dp * scaleFactor)
                             )
                             Spacer(modifier = Modifier.width(12.dp * scaleFactor))
                             Text(
                                 text = displayName,
                                 fontSize = 14.sp * scaleFactor,
-                                color = Color(0xFF1C1B1F)
+                                color = theme.iconColor
                             )
                         }
                     }
@@ -948,11 +1052,16 @@ fun MoveItemDialog(
         },
         confirmButton = {},
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                onClick = onDismiss,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = theme.iconColor
+                )
+            ) {
                 Text("Cancelar", fontSize = 14.sp * scaleFactor)
             }
         },
-        containerColor = Color.White
+        containerColor = theme.barBackgroundColor
     )
 }
 
@@ -1222,13 +1331,13 @@ fun CustomThemeChip(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = if (selected) Color.White else theme.iconColor,
+                tint = theme.iconColor,
                 modifier = Modifier.size(16.dp * scaleFactor)
             )
             Spacer(modifier = Modifier.width(6.dp * scaleFactor))
             Text(
                 text = label,
-                color = if (selected) Color.White else theme.iconColor,
+                color = theme.iconColor,
                 fontSize = 12.sp * scaleFactor,
                 fontWeight = FontWeight.Medium
             )
@@ -1270,7 +1379,31 @@ fun NotebookCover(
             }
             
             if (coverProjectBmp != null) {
-                val src = android.graphics.Rect(0, 0, coverProjectBmp.width, coverProjectBmp.height)
+                val bmpW = coverProjectBmp.width.toFloat()
+                val bmpH = coverProjectBmp.height.toFloat()
+                val targetRatio = width / height
+                val bmpRatio = bmpW / bmpH
+
+                val srcLeft: Float
+                val srcTop: Float
+                val srcRight: Float
+                val srcBottom: Float
+
+                if (bmpRatio > targetRatio) {
+                    val newWidth = bmpH * targetRatio
+                    srcLeft = (bmpW - newWidth) / 2f
+                    srcTop = 0f
+                    srcRight = srcLeft + newWidth
+                    srcBottom = bmpH
+                } else {
+                    val newHeight = bmpW / targetRatio
+                    srcLeft = 0f
+                    srcTop = (bmpH - newHeight) / 2f
+                    srcRight = bmpW
+                    srcBottom = srcTop + newHeight
+                }
+
+                val src = android.graphics.Rect(srcLeft.toInt(), srcTop.toInt(), srcRight.toInt(), srcBottom.toInt())
                 val dest = android.graphics.RectF(0f, 0f, width, height)
                 nativeCanvas.drawBitmap(coverProjectBmp, src, dest, paint)
             } else {
@@ -1458,4 +1591,196 @@ fun PublicLibraryPlaceholder(theme: UiThemeConfig, scaleFactor: Float) {
             }
         }
     }
+}
+
+@Composable
+fun ProjectHistoryDialog(
+    project: DashboardItem.Project,
+    projectId: String,
+    theme: UiThemeConfig,
+    viewModel: SketcherViewModel,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val scaler = LocalUiScaler.current
+    val scaleFactor = scaler.scaleFactor
+    val versions = viewModel.projectVersionsList
+    val isLoading = viewModel.isLoadingVersions
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text(
+                    text = "Historial de Versiones",
+                    fontSize = 18.sp * scaleFactor,
+                    color = theme.iconColor,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = project.name,
+                    fontSize = 12.sp * scaleFactor,
+                    color = theme.iconColor.copy(alpha = 0.6f)
+                )
+            }
+        },
+        text = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 350.dp * scaleFactor),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(color = theme.highlightColor)
+                } else if (versions.isEmpty()) {
+                    Text(
+                        text = "No hay versiones disponibles en la nube.",
+                        color = theme.iconColor.copy(alpha = 0.6f),
+                        fontSize = 14.sp * scaleFactor,
+                        modifier = Modifier.padding(16.dp * scaleFactor)
+                    )
+                } else {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp * scaleFactor),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        itemsIndexed(versions) { index, version ->
+                            val vId = version["versionId"] as? String ?: ""
+                            val ts = (version["timestamp"] as? Number)?.toLong() ?: 0L
+                            val deviceName = version["deviceName"] as? String ?: "Dispositivo desconocido"
+                            val deviceUid = version["deviceUid"] as? String ?: ""
+                            val fileUrl = version["fileUrl"] as? String ?: ""
+                            val fileSize = (version["fileSize"] as? Number)?.toLong() ?: 0L
+                            
+                            val isLatest = index == 0
+                            val isThisDevice = deviceUid == viewModel.getDeviceUid(context)
+                            
+                            val formattedDate = remember(ts) {
+                                val sdf = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.getDefault())
+                                sdf.format(Date(ts))
+                            }
+                            
+                            val formattedSize = remember(fileSize) {
+                                if (fileSize <= 0) "Tamaño desconocido"
+                                else if (fileSize < 1024 * 1024) "${fileSize / 1024} KB"
+                                else "%.1f MB".format(fileSize.toFloat() / (1024 * 1024))
+                            }
+
+                            Card(
+                                shape = RoundedCornerShape(8.dp * scaleFactor),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = theme.barBackgroundColor
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (isLatest) theme.highlightColor.copy(alpha = 0.5f) else Color.Transparent,
+                                        shape = RoundedCornerShape(8.dp * scaleFactor)
+                                    )
+                                    .padding(1.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(10.dp * scaleFactor)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = "v${versions.size - index}",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp * scaleFactor,
+                                                color = theme.iconColor
+                                            )
+                                            if (isLatest) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .padding(start = 6.dp * scaleFactor)
+                                                        .background(theme.highlightColor.copy(alpha = 0.2f), RoundedCornerShape(4.dp * scaleFactor))
+                                                        .padding(horizontal = 4.dp * scaleFactor, vertical = 1.dp * scaleFactor)
+                                                ) {
+                                                    Text(
+                                                        text = "Última",
+                                                        color = theme.highlightColor,
+                                                        fontSize = 9.sp * scaleFactor,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        Text(
+                                            text = formattedDate,
+                                            fontSize = 11.sp * scaleFactor,
+                                            color = theme.iconColor.copy(alpha = 0.6f)
+                                        )
+                                    }
+                                    
+                                    Spacer(modifier = Modifier.height(4.dp * scaleFactor))
+                                    
+                                    Text(
+                                        text = "$deviceName" + if (isThisDevice) " (Este dispositivo)" else "",
+                                        fontSize = 12.sp * scaleFactor,
+                                        color = theme.iconColor.copy(alpha = 0.8f)
+                                    )
+                                    
+                                    Text(
+                                        text = formattedSize,
+                                        fontSize = 10.sp * scaleFactor,
+                                        color = theme.iconColor.copy(alpha = 0.5f)
+                                    )
+                                    
+                                    Spacer(modifier = Modifier.height(8.dp * scaleFactor))
+                                    
+                                    Row(
+                                        horizontalArrangement = Arrangement.End,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        TextButton(
+                                            onClick = {
+                                                viewModel.createProjectCopyFromVersion(context, project.name, projectId, fileUrl)
+                                                onDismiss()
+                                            },
+                                            colors = ButtonDefaults.textButtonColors(contentColor = theme.highlightColor),
+                                            modifier = Modifier.padding(end = 4.dp * scaleFactor)
+                                        ) {
+                                            Text("Abrir como Copia", fontSize = 11.sp * scaleFactor)
+                                        }
+                                        
+                                        Button(
+                                            onClick = {
+                                                val file = File(project.path)
+                                                val rootDir = viewModel.getProjectsRootDir(context)
+                                                val relPath = try { file.toRelativeString(rootDir) } catch(e: Exception) { file.name }
+                                                viewModel.restoreProjectVersion(context, projectId, relPath, fileUrl, ts)
+                                                onDismiss()
+                                            },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = theme.buttonColor,
+                                                contentColor = theme.iconColor
+                                            )
+                                        ) {
+                                            Text("Restaurar", fontSize = 11.sp * scaleFactor)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onDismiss,
+                colors = ButtonDefaults.textButtonColors(contentColor = theme.iconColor)
+            ) {
+                Text("Cerrar", fontSize = 14.sp * scaleFactor)
+            }
+        },
+        containerColor = theme.barBackgroundColor
+    )
 }

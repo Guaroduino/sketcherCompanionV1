@@ -1,7 +1,7 @@
 {
-  "versionCode": 23,
-  "versionName": "1.0.22",
+  "versionCode": 66,
+  "versionName": "1.0.65",
   "apkUrl": "https://firebasestorage.googleapis.com/v0/b/sketchercompanionapp.firebasestorage.app/o/updates%2Fapp-debug.apk?alt=media",
-  "releaseNotes": "Rediseño completo de iconos de la app con Tabler Icons de trazo uniforme",
+  "releaseNotes": "Sincronizacion avanzada: historial de versiones, conflictos, tombstones y check de carpetas",
   "forceUpdate": false
 }

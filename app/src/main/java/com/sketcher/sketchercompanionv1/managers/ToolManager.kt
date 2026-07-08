@@ -59,6 +59,24 @@ class ToolManager(context: Context) {
     private val _selectedPresetIndex = MutableStateFlow<Int?>(null)
     val selectedPresetIndex = _selectedPresetIndex.asStateFlow()
 
+    private val _isStrokeColorPreset = MutableStateFlow(true)
+    val isStrokeColorPreset = _isStrokeColorPreset.asStateFlow()
+
+    private val _isFillColorPreset = MutableStateFlow(true)
+    val isFillColorPreset = _isFillColorPreset.asStateFlow()
+
+    private val lastPresetIndexPerTool = mutableMapOf<ToolType, Int>().apply {
+        ToolType.entries.forEach { type ->
+            put(type, prefs.getInt("last_preset_index_${type.name}", 0))
+        }
+    }
+
+    private val _toolPresetGroupNames = MutableStateFlow<List<String>>(listOf("Default"))
+    val toolPresetGroupNames: StateFlow<List<String>> = _toolPresetGroupNames.asStateFlow()
+
+    private val _activeToolPresetGroupName = MutableStateFlow<String>("Default")
+    val activeToolPresetGroupName: StateFlow<String> = _activeToolPresetGroupName.asStateFlow()
+
     var currentSize by mutableFloatStateOf(2f)
         private set
     var currentOpacity by mutableFloatStateOf(1f)
@@ -217,6 +235,10 @@ class ToolManager(context: Context) {
         _brushPresets.value = loadBrushPresetsForTool(currentTool)
         _fillPresets.value = loadFillPresets()
         selectTool(currentTool)
+
+        val names = getToolPresetGroupNames()
+        _toolPresetGroupNames.value = if (names.contains("Default")) names else listOf("Default") + names
+        _activeToolPresetGroupName.value = prefs.getString("active_tool_preset_group_name", "Default") ?: "Default"
     }
 
     // --- LOGIC METHODS ---
@@ -261,13 +283,36 @@ class ToolManager(context: Context) {
         currentFreehandSettings = settings
         currentEraserShape = config.eraserShape
         
-        // Restore color/style states from tool config!
-        _strokeColor.value = config.strokeColor
-        _fillColor.value = config.fillColor
-        _isStrokeActive.value = config.isStrokeActive
-        _isFillActive.value = config.isFillActive
-        _fillStyle.value = config.fillStyle?.toFillStyle(config.fillColor) ?: FillStyle.Solid(config.fillColor)
-        _strokeStyle.value = config.strokeStyle?.toFillStyle(config.strokeColor) ?: FillStyle.Solid(config.strokeColor)
+        // Load presets for this specific tool first
+        _brushPresets.value = loadBrushPresetsForTool(type)
+        val presetIdx = lastPresetIndexPerTool[type] ?: 0
+        val presetsList = _brushPresets.value
+        val preset = if (presetIdx in presetsList.indices) presetsList[presetIdx] else null
+
+        // Restore color/style states from tool config, respecting preset/explicit overrides
+        if (getIsStrokeColorPreset(type, presetIdx) && preset != null) {
+            val sc = preset.strokeColor ?: config.strokeColor
+            _strokeColor.value = sc
+            _strokeStyle.value = preset.strokeStyle ?: FillStyle.Solid(sc)
+            _isStrokeActive.value = preset.isStrokeActive ?: config.isStrokeActive
+        } else {
+            val sc = getExplicitStrokeColor(type, presetIdx, config.strokeColor)
+            _strokeColor.value = sc
+            _strokeStyle.value = getExplicitStrokeStyle(type, presetIdx) ?: FillStyle.Solid(sc)
+            _isStrokeActive.value = config.isStrokeActive
+        }
+
+        if (getIsFillColorPreset(type, presetIdx) && preset != null) {
+            val fc = preset.fillColor ?: config.fillColor
+            _fillColor.value = fc
+            _fillStyle.value = preset.fillStyle ?: FillStyle.Solid(fc)
+            _isFillActive.value = preset.isFillActive ?: config.isFillActive
+        } else {
+            val fc = getExplicitFillColor(type, presetIdx, config.fillColor)
+            _fillColor.value = fc
+            _fillStyle.value = getExplicitFillStyle(type, presetIdx) ?: FillStyle.Solid(fc)
+            _isFillActive.value = config.isFillActive
+        }
 
         // Restore stabilization!
         val targetStab = config.stabilization
@@ -280,9 +325,8 @@ class ToolManager(context: Context) {
             isFlattenedOuterStrokeEnabled = false
         }
 
-        // Load presets for this specific tool
-        _brushPresets.value = loadBrushPresetsForTool(type)
-        _selectedPresetIndex.value = null
+        _selectedPresetIndex.value = presetIdx
+        updatePresetFlows()
     }
 
     fun setEraserShape(shape: EraserShape) {
@@ -467,12 +511,38 @@ class ToolManager(context: Context) {
             setToolOpacity(preset.opacity)
             updateFreehandSettings(preset.settings)
             
-            val sc = preset.strokeColor ?: _strokeColor.value
-            val fc = preset.fillColor ?: _fillColor.value
-            val sa = preset.isStrokeActive ?: _isStrokeActive.value
-            val fa = preset.isFillActive ?: _isFillActive.value
-            val fs = preset.fillStyle ?: FillStyle.Solid(fc)
-            val ss = preset.strokeStyle ?: FillStyle.Solid(sc)
+            // Save last selected preset index for this tool!
+            lastPresetIndexPerTool[currentTool] = index
+            prefs.edit().putInt("last_preset_index_${currentTool.name}", index).apply()
+
+            // Resolve Stroke Color & Style
+            val sc: Int
+            val ss: FillStyle
+            val sa: Boolean
+            if (getIsStrokeColorPreset(currentTool, index)) {
+                sc = preset.strokeColor ?: _strokeColor.value
+                ss = preset.strokeStyle ?: FillStyle.Solid(sc)
+                sa = preset.isStrokeActive ?: _isStrokeActive.value
+            } else {
+                sc = getExplicitStrokeColor(currentTool, index, preset.strokeColor ?: _strokeColor.value)
+                ss = getExplicitStrokeStyle(currentTool, index) ?: FillStyle.Solid(sc)
+                sa = _isStrokeActive.value
+            }
+
+            // Resolve Fill Color & Style
+            val fc: Int
+            val fs: FillStyle
+            val fa: Boolean
+            if (getIsFillColorPreset(currentTool, index)) {
+                fc = preset.fillColor ?: _fillColor.value
+                fs = preset.fillStyle ?: FillStyle.Solid(fc)
+                fa = preset.isFillActive ?: _isFillActive.value
+            } else {
+                fc = getExplicitFillColor(currentTool, index, preset.fillColor ?: _fillColor.value)
+                fs = getExplicitFillStyle(currentTool, index) ?: FillStyle.Solid(fc)
+                fa = _isFillActive.value
+            }
+
             val defaultStab = if (currentTool == ToolType.FREEHAND || currentTool == ToolType.PENCIL_CUMULATIVE) 0.07f else 0f
             val stab = preset.stabilization ?: defaultStab
 
@@ -501,6 +571,7 @@ class ToolManager(context: Context) {
             persistToolConfigColorState(currentTool, updated)
 
             _selectedPresetIndex.value = index
+            updatePresetFlows()
         }
     }
 
@@ -516,6 +587,55 @@ class ToolManager(context: Context) {
             defaultStab
         }
         setGlobalStabilization(presetStab)
+    }
+
+    fun restoreOpacityToPreset() {
+        val index = _selectedPresetIndex.value
+        val list = _brushPresets.value
+        val defaultOpacity = 1.0f
+        val presetOpacity = if (index != null && index in list.indices) {
+            list[index].opacity
+        } else if (list.isNotEmpty()) {
+            list[0].opacity
+        } else {
+            defaultOpacity
+        }
+        setToolOpacity(presetOpacity)
+    }
+
+    fun revertBrushPreset(index: Int) {
+        val list = _brushPresets.value
+        if (index in list.indices) {
+            val preset = list[index]
+            setToolSize(preset.size)
+            setToolOpacity(preset.opacity)
+            updateFreehandSettings(preset.settings)
+            
+            val editor = prefs.edit()
+            editor.remove("preset_stroke_explicit_${currentTool.name}_$index")
+            editor.remove("preset_fill_explicit_${currentTool.name}_$index")
+            editor.remove("preset_stroke_color_${currentTool.name}_$index")
+            editor.remove("preset_fill_color_${currentTool.name}_$index")
+            editor.remove("preset_stroke_style_${currentTool.name}_$index")
+            editor.remove("preset_fill_style_${currentTool.name}_$index")
+            editor.remove("preset_stroke_active_${currentTool.name}_$index")
+            editor.remove("preset_fill_active_${currentTool.name}_$index")
+            editor.apply()
+
+            _strokeColor.value = preset.strokeColor ?: _strokeColor.value
+            _strokeStyle.value = preset.strokeStyle ?: FillStyle.Solid(_strokeColor.value)
+            _isStrokeActive.value = preset.isStrokeActive ?: _isStrokeActive.value
+
+            _fillColor.value = preset.fillColor ?: _fillColor.value
+            _fillStyle.value = preset.fillStyle ?: FillStyle.Solid(_fillColor.value)
+            _isFillActive.value = preset.isFillActive ?: _isFillActive.value
+
+            if (preset.stabilization != null) {
+                setGlobalStabilization(preset.stabilization)
+            }
+            
+            selectBrushPreset(index)
+        }
     }
 
     fun isPresetModified(index: Int): Boolean {
@@ -549,6 +669,12 @@ class ToolManager(context: Context) {
             _fillStyle.value = FillStyle.Solid(color)
         }
         
+        val idx = _selectedPresetIndex.value ?: 0
+        setExplicitStrokeColorState(currentTool, idx, true, color, FillStyle.Solid(color))
+        if (isPaintOrWatercolor) {
+            setExplicitFillColorState(currentTool, idx, true, color, FillStyle.Solid(color))
+        }
+
         val config = toolConfigs[currentTool]!!
         val updated = config.copy(
             strokeColor = color,
@@ -580,6 +706,12 @@ class ToolManager(context: Context) {
             _fillStyle.value = style
         }
         
+        val idx = _selectedPresetIndex.value ?: 0
+        setExplicitStrokeColorState(currentTool, idx, true, color, style)
+        if (isPaintOrWatercolor) {
+            setExplicitFillColorState(currentTool, idx, true, color, style)
+        }
+
         val config = toolConfigs[currentTool]!!
         val updated = config.copy(
             strokeColor = color,
@@ -598,6 +730,9 @@ class ToolManager(context: Context) {
         _fillStyle.value = FillStyle.Solid(color)
         _isFillActive.value = true
         
+        val idx = _selectedPresetIndex.value ?: 0
+        setExplicitFillColorState(currentTool, idx, true, color, FillStyle.Solid(color))
+
         val config = toolConfigs[currentTool]!!
         val updated = config.copy(
             fillColor = color,
@@ -621,6 +756,9 @@ class ToolManager(context: Context) {
         }
         _fillColor.value = color
         
+        val idx = _selectedPresetIndex.value ?: 0
+        setExplicitFillColorState(currentTool, idx, true, color, style)
+
         val config = toolConfigs[currentTool]!!
         val updated = config.copy(
             fillColor = color,
@@ -950,6 +1088,9 @@ class ToolManager(context: Context) {
                 obj.put("offsetX", style.offsetX.toDouble())
                 obj.put("offsetY", style.offsetY.toDouble())
                 obj.put("opacity", style.opacity.toDouble())
+                obj.put("tintColor", style.tintColor)
+                obj.put("tintMix", style.tintMix.toDouble())
+                obj.put("blendModeName", style.blendModeName)
             }
         }
         return obj.toString()
@@ -992,13 +1133,327 @@ class ToolManager(context: Context) {
                         rotation = obj.optDouble("rotation", 0.0).toFloat(),
                         offsetX = obj.optDouble("offsetX", 0.0).toFloat(),
                         offsetY = obj.optDouble("offsetY", 0.0).toFloat(),
-                        opacity = obj.optDouble("opacity", 1.0).toFloat()
+                        opacity = obj.optDouble("opacity", 1.0).toFloat(),
+                        tintColor = obj.optInt("tintColor", AndroidColor.TRANSPARENT),
+                        tintMix = obj.optDouble("tintMix", 0.0).toFloat(),
+                        blendModeName = obj.optString("blendModeName", "SRC_ATOP")
                     )
                 }
             }
         } catch (e: Exception) {
             e.printStackTrace()
             return null
+        }
+    }
+
+    // --- TOOL PRESETS GROUPS (Presets de Herramientas) ---
+
+    fun getToolPresetGroupNames(): List<String> {
+        val json = prefs.getString("tool_preset_group_names", null) ?: return emptyList()
+        return try {
+            gson.fromJson(json, object : com.google.gson.reflect.TypeToken<List<String>>() {}.type)
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveToolPresetGroup(name: String) {
+        val list = getToolPresetGroupNames().toMutableList()
+        if (!list.contains(name)) {
+            list.add(name)
+            val jsonList = gson.toJson(list)
+            prefs.edit().putString("tool_preset_group_names", jsonList).apply()
+        }
+        _toolPresetGroupNames.value = if (list.contains("Default")) list else listOf("Default") + list
+
+        val data = JSONObject().apply {
+            put("pencil_presets_v2", prefs.getString("pencil_presets_v2", null))
+            put("pencil_cumulative_presets_v2", prefs.getString("pencil_cumulative_presets_v2", null))
+            put("pen_presets_v2", prefs.getString("pen_presets_v2", null))
+            put("paint_presets_v2", prefs.getString("paint_presets_v2", null))
+            put("pluma_presets_v2", prefs.getString("pluma_presets_v2", null))
+            put("watercolor_presets_v2", prefs.getString("watercolor_presets_v2", null))
+        }
+
+        prefs.edit().putString("tool_preset_group_data_$name", data.toString()).apply()
+        
+        _activeToolPresetGroupName.value = name
+        prefs.edit().putString("active_tool_preset_group_name", name).apply()
+    }
+
+    fun loadToolPresetGroup(name: String) {
+        if (name == "Default") {
+            prefs.edit().apply {
+                remove("pencil_presets_v2")
+                remove("pencil_cumulative_presets_v2")
+                remove("pen_presets_v2")
+                remove("paint_presets_v2")
+                remove("pluma_presets_v2")
+                remove("watercolor_presets_v2")
+                apply()
+            }
+        } else {
+            val json = prefs.getString("tool_preset_group_data_$name", null) ?: return
+            try {
+                val obj = JSONObject(json)
+                prefs.edit().apply {
+                    listOf("pencil_presets_v2", "pencil_cumulative_presets_v2", "pen_presets_v2", "paint_presets_v2", "pluma_presets_v2", "watercolor_presets_v2").forEach { key ->
+                        if (obj.has(key) && !obj.isNull(key)) {
+                            putString(key, obj.getString(key))
+                        } else {
+                            remove(key)
+                        }
+                    }
+                    apply()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        
+        _activeToolPresetGroupName.value = name
+        prefs.edit().putString("active_tool_preset_group_name", name).apply()
+
+        // Reload configs and currently active presets
+        reloadConfigs()
+    }
+
+    fun deleteToolPresetGroup(name: String) {
+        val list = getToolPresetGroupNames().toMutableList()
+        if (list.contains(name)) {
+            list.remove(name)
+            val jsonList = gson.toJson(list)
+            prefs.edit().putString("tool_preset_group_names", jsonList).apply()
+        }
+        _toolPresetGroupNames.value = if (list.contains("Default")) list else listOf("Default") + list
+        prefs.edit().remove("tool_preset_group_data_$name").apply()
+        
+        if (_activeToolPresetGroupName.value == name) {
+            _activeToolPresetGroupName.value = "Default"
+            prefs.edit().putString("active_tool_preset_group_name", "Default").apply()
+            loadToolPresetGroup("Default")
+        }
+    }
+
+    fun getIsStrokeColorPreset(tool: ToolType, presetIndex: Int): Boolean {
+        return prefs.getBoolean("preset_stroke_explicit_${tool.name}_$presetIndex", false).not()
+    }
+
+    fun getExplicitStrokeColor(tool: ToolType, presetIndex: Int, defaultColor: Int): Int {
+        return prefs.getInt("preset_stroke_color_${tool.name}_$presetIndex", defaultColor)
+    }
+
+    fun getExplicitStrokeStyle(tool: ToolType, presetIndex: Int): FillStyle? {
+        val jsonStr = prefs.getString("preset_stroke_style_v2_${tool.name}_$presetIndex", null) ?: return null
+        return try { jsonToFillStyle(jsonStr) } catch(e: Exception) { null }
+    }
+
+    fun setExplicitStrokeColorState(tool: ToolType, presetIndex: Int, explicit: Boolean, color: Int, style: FillStyle?) {
+        prefs.edit().apply {
+            putBoolean("preset_stroke_explicit_${tool.name}_$presetIndex", explicit)
+            putInt("preset_stroke_color_${tool.name}_$presetIndex", color)
+            if (style != null) {
+                putString("preset_stroke_style_v2_${tool.name}_$presetIndex", fillStyleToJson(style))
+            } else {
+                remove("preset_stroke_style_v2_${tool.name}_$presetIndex")
+            }
+            apply()
+        }
+        updatePresetFlows()
+    }
+
+    fun getIsFillColorPreset(tool: ToolType, presetIndex: Int): Boolean {
+        return prefs.getBoolean("preset_fill_explicit_${tool.name}_$presetIndex", false).not()
+    }
+
+    fun getExplicitFillColor(tool: ToolType, presetIndex: Int, defaultColor: Int): Int {
+        return prefs.getInt("preset_fill_color_${tool.name}_$presetIndex", defaultColor)
+    }
+
+    fun getExplicitFillStyle(tool: ToolType, presetIndex: Int): FillStyle? {
+        val jsonStr = prefs.getString("preset_fill_style_v2_${tool.name}_$presetIndex", null) ?: return null
+        return try { jsonToFillStyle(jsonStr) } catch(e: Exception) { null }
+    }
+
+    fun setExplicitFillColorState(tool: ToolType, presetIndex: Int, explicit: Boolean, color: Int, style: FillStyle?) {
+        prefs.edit().apply {
+            putBoolean("preset_fill_explicit_${tool.name}_$presetIndex", explicit)
+            putInt("preset_fill_color_${tool.name}_$presetIndex", color)
+            if (style != null) {
+                putString("preset_fill_style_v2_${tool.name}_$presetIndex", fillStyleToJson(style))
+            } else {
+                remove("preset_fill_style_v2_${tool.name}_$presetIndex")
+            }
+            apply()
+        }
+        updatePresetFlows()
+    }
+
+    fun updatePresetFlows() {
+        val idx = _selectedPresetIndex.value ?: 0
+        _isStrokeColorPreset.value = getIsStrokeColorPreset(currentTool, idx)
+        _isFillColorPreset.value = getIsFillColorPreset(currentTool, idx)
+    }
+
+    fun revertToPresetColor(isStroke: Boolean) {
+        val idx = _selectedPresetIndex.value ?: 0
+        val list = _brushPresets.value
+        if (idx in list.indices) {
+            val preset = list[idx]
+            if (isStroke) {
+                prefs.edit().apply {
+                    putBoolean("preset_stroke_explicit_${currentTool.name}_$idx", false)
+                    remove("preset_stroke_color_${currentTool.name}_$idx")
+                    remove("preset_stroke_style_v2_${currentTool.name}_$idx")
+                    apply()
+                }
+                val sc = preset.strokeColor ?: AndroidColor.BLACK
+                val ss = preset.strokeStyle ?: FillStyle.Solid(sc)
+                val sa = preset.isStrokeActive ?: true
+                _strokeColor.value = sc
+                _strokeStyle.value = ss
+                _isStrokeActive.value = sa
+                
+                val config = toolConfigs[currentTool]!!
+                val updated = config.copy(
+                    strokeColor = sc,
+                    strokeStyle = ss.toFillStyleJson(),
+                    isStrokeActive = sa
+                )
+                toolConfigs[currentTool] = updated
+                persistToolConfigColorState(currentTool, updated)
+            } else {
+                prefs.edit().apply {
+                    putBoolean("preset_fill_explicit_${currentTool.name}_$idx", false)
+                    remove("preset_fill_color_${currentTool.name}_$idx")
+                    remove("preset_fill_style_v2_${currentTool.name}_$idx")
+                    apply()
+                }
+                val fc = preset.fillColor ?: AndroidColor.WHITE
+                val fs = preset.fillStyle ?: FillStyle.Solid(fc)
+                val fa = preset.isFillActive ?: true
+                _fillColor.value = fc
+                _fillStyle.value = fs
+                _isFillActive.value = fa
+                
+                val config = toolConfigs[currentTool]!!
+                val updated = config.copy(
+                    fillColor = fc,
+                    fillStyle = fs.toFillStyleJson(),
+                    isFillActive = fa
+                )
+                toolConfigs[currentTool] = updated
+                persistToolConfigColorState(currentTool, updated)
+            }
+            updatePresetFlows()
+        }
+    }
+
+    fun resetAllPresetOverrideStates() {
+        val editor = prefs.edit()
+        prefs.all.keys.forEach { key ->
+            if (key.startsWith("preset_stroke_") || key.startsWith("preset_fill_") || key.startsWith("last_preset_index_")) {
+                editor.remove(key)
+            }
+        }
+        editor.apply()
+        
+        ToolType.entries.forEach { type ->
+            lastPresetIndexPerTool[type] = 0
+        }
+        _selectedPresetIndex.value = 0
+        selectTool(currentTool)
+    }
+
+    fun getToolStatesJson(): String {
+        val map = mutableMapOf<String, Any>()
+        map["currentTool"] = currentTool.name
+        map["currentStrokeType"] = currentStrokeType.name
+        
+        val lastPresetIndices = mutableMapOf<String, Int>()
+        lastPresetIndexPerTool.forEach { (k, v) ->
+            lastPresetIndices[k.name] = v
+        }
+        map["lastPresetIndexPerTool"] = lastPresetIndices
+        
+        val overrides = mutableMapOf<String, Any>()
+        prefs.all.forEach { (key, value) ->
+            if (key.startsWith("preset_stroke_") || key.startsWith("preset_fill_") || key.startsWith("last_preset_index_")) {
+                if (value != null) {
+                    overrides[key] = value
+                }
+            }
+        }
+        map["presetOverrides"] = overrides
+        
+        return gson.toJson(map)
+    }
+
+    fun restoreToolStatesFromJson(jsonStr: String) {
+        try {
+            val typeToken = object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type
+            val map: Map<String, Any> = gson.fromJson(jsonStr, typeToken)
+            
+            val editor = prefs.edit()
+            
+            prefs.all.keys.forEach { key ->
+                if (key.startsWith("preset_stroke_") || key.startsWith("preset_fill_") || key.startsWith("last_preset_index_")) {
+                    editor.remove(key)
+                }
+            }
+            
+            val overrides = map["presetOverrides"] as? Map<*, *>
+            overrides?.forEach { (k, v) ->
+                val key = k.toString()
+                when (v) {
+                    is Boolean -> editor.putBoolean(key, v)
+                    is Float -> editor.putFloat(key, v)
+                    is Int -> editor.putInt(key, v)
+                    is Long -> editor.putLong(key, v)
+                    is Double -> {
+                        if (v % 1 == 0.0) {
+                            editor.putInt(key, v.toInt())
+                        } else {
+                            editor.putFloat(key, v.toFloat())
+                        }
+                    }
+                    is String -> editor.putString(key, v)
+                }
+            }
+            
+            val lastPresetIndices = map["lastPresetIndexPerTool"] as? Map<*, *>
+            lastPresetIndices?.forEach { (k, v) ->
+                try {
+                    val toolType = ToolType.valueOf(k.toString())
+                    val index = (v as? Number)?.toInt() ?: 0
+                    lastPresetIndexPerTool[toolType] = index
+                    editor.putInt("last_preset_index_${toolType.name}", index)
+                } catch(e: Exception) {}
+            }
+            
+            editor.apply()
+            
+            val toolName = map["currentTool"]?.toString()
+            if (toolName != null) {
+                try {
+                    val toolType = ToolType.valueOf(toolName)
+                    currentTool = toolType
+                } catch(e: Exception) {}
+            }
+            
+            val strokeTypeName = map["currentStrokeType"]?.toString()
+            if (strokeTypeName != null) {
+                try {
+                    val strokeType = StrokeType.valueOf(strokeTypeName)
+                    currentStrokeType = strokeType
+                    editor.putString("current_stroke_type", strokeType.name).apply()
+                } catch(e: Exception) {}
+            }
+            
+            selectTool(currentTool)
+            
+        } catch(e: Exception) {
+            e.printStackTrace()
         }
     }
 }

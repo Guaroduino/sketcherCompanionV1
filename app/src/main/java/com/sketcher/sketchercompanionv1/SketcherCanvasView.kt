@@ -325,6 +325,10 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     var onExtendRequested: ((Float, Float) -> Unit)? = null
 
+    var onCreateTextRequested: ((Float, Float) -> Unit)? = null
+
+    var onEditTextRequested: ((TextElement) -> Unit)? = null
+
     var onMirrorRequested: ((PointF, PointF) -> Unit)? = null
 
     var onTransformSelectedRequested: ((android.graphics.Matrix, String) -> Unit)? = null
@@ -409,23 +413,27 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
 
-        override fun onScale(detector: ScaleGestureDetector): Boolean {
+        private var unsnappedNormalizedZoom = 1.0f
+
+        override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
 
             val currentScale = getMatrixScale(viewMatrix)
 
             val zoomScale100 = getZoomScale100()
 
-            val currentNormalizedZoom = currentScale / zoomScale100
+            unsnappedNormalizedZoom = currentScale / zoomScale100
 
-            val projectedNormalizedZoom = currentNormalizedZoom * detector.scaleFactor
+            return true
 
-            
+        }
 
-            // CLAMP ZOOM: 0.2f to 12.0f normalized zoom
+        override fun onScale(detector: ScaleGestureDetector): Boolean {
 
-            var clampedNormalizedZoom = projectedNormalizedZoom.coerceIn(0.2f, 12.0f)
+            unsnappedNormalizedZoom *= detector.scaleFactor
 
-            
+            unsnappedNormalizedZoom = unsnappedNormalizedZoom.coerceIn(0.2f, 12.0f)
+
+            var clampedNormalizedZoom = unsnappedNormalizedZoom
 
             // Snap to 100% (1.0 normalized) if within threshold of 8%
 
@@ -437,13 +445,13 @@ class SketcherCanvasView(context: Context) : View(context) {
 
             }
 
-            
+            val currentScale = getMatrixScale(viewMatrix)
+
+            val zoomScale100 = getZoomScale100()
 
             val clampedZoom = clampedNormalizedZoom * zoomScale100
 
             val effectiveFactor = clampedZoom / currentScale
-
-            
 
             viewMatrix.postScale(effectiveFactor, effectiveFactor, detector.focusX, detector.focusY)
 
@@ -456,8 +464,6 @@ class SketcherCanvasView(context: Context) : View(context) {
             return true
 
         }
-
-
 
         override fun onScaleEnd(detector: ScaleGestureDetector) {
 
@@ -766,10 +772,25 @@ class SketcherCanvasView(context: Context) : View(context) {
 
 
 
+    private var floatingBarBounds: android.graphics.Rect? = null
+    private val tempLocationInsideBar = IntArray(2)
+
+    fun setFloatingBarBounds(rect: android.graphics.Rect?) {
+        floatingBarBounds = rect
+    }
+
+    private fun isTouchInsideFloatingBar(localX: Float, localY: Float): Boolean {
+        if (!strokePipeline.isMultiStepInProgress) return false
+        val bounds = floatingBarBounds ?: return false
+        getLocationInWindow(tempLocationInsideBar)
+        val windowX = localX + tempLocationInsideBar[0]
+        val windowY = localY + tempLocationInsideBar[1]
+        return bounds.contains(windowX.toInt(), windowY.toInt())
+    }
+
     // --- RENDER ENGINE & PIPELINE ---
 
     private val renderEngine = RenderEngine()
-    private val backgroundRenderEngine = RenderEngine()
 
     private val motionEventPredictor = MotionEventPredictor.newInstance(this)
 
@@ -965,16 +986,17 @@ class SketcherCanvasView(context: Context) : View(context) {
             val offscreenBitmap = withContext(Dispatchers.Default) {
                 val canvas = android.graphics.Canvas(backBuffer)
                 
+                val localRenderEngine = RenderEngine()
                 // Keep background engine synchronized with main engine properties
-                backgroundRenderEngine.gridConfig = renderEngine.gridConfig
-                backgroundRenderEngine.scaleConfig = renderEngine.scaleConfig
-                backgroundRenderEngine.currentUnit = renderEngine.currentUnit
-                backgroundRenderEngine.canvasSizeConfig = renderEngine.canvasSizeConfig
-                backgroundRenderEngine.canvasBackgroundStyle = renderEngine.canvasBackgroundStyle
-                backgroundRenderEngine.canvasBackgroundColor = renderEngine.canvasBackgroundColor
-                backgroundRenderEngine.isDebugWireframe = renderEngine.isDebugWireframe
+                localRenderEngine.gridConfig = renderEngine.gridConfig
+                localRenderEngine.scaleConfig = renderEngine.scaleConfig
+                localRenderEngine.currentUnit = renderEngine.currentUnit
+                localRenderEngine.canvasSizeConfig = renderEngine.canvasSizeConfig
+                localRenderEngine.canvasBackgroundStyle = renderEngine.canvasBackgroundStyle
+                localRenderEngine.canvasBackgroundColor = renderEngine.canvasBackgroundColor
+                localRenderEngine.isDebugWireframe = renderEngine.isDebugWireframe
 
-                backgroundRenderEngine.drawLayers(
+                localRenderEngine.drawLayers(
                     canvas, 
                     layersSnapshot, 
                     currentMatrix, 
@@ -1018,7 +1040,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
         val bitmap = backingBitmap
 
-        if (viewMatrix != cachedBitmapMatrix || bitmap == null) {
+        if (!isCameraEqual(cachedBitmapMatrix) || bitmap == null) {
 
             fill?.let { transientFills.add(it) }
 
@@ -1895,7 +1917,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
         // 1. Draw Cached Bitmap (Background & Layers)
         backingBitmap?.let { bitmap ->
-            if (viewMatrix == cachedBitmapMatrix) {
+            if (isCameraEqual(cachedBitmapMatrix)) {
                 canvas.drawBitmap(bitmap, 0f, 0f, bitmapPaint)
             } else {
                 // High-performance scaling for intermediate frames (zoom/pan)
@@ -2030,7 +2052,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
                         } else {
 
-                            canvas.saveLayer(null, saveLayerPaint)
+                            canvas.saveLayer(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat(), saveLayerPaint)
 
                         }
 
@@ -2207,7 +2229,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                                     tempScreenBounds.inset(-60f, -60f)
                                     canvas.saveLayer(tempScreenBounds, null)
                                 } else {
-                                    canvas.saveLayer(null, null)
+                                    canvas.saveLayer(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat(), null)
                                 }
                             } else {
                                 0
@@ -2526,42 +2548,19 @@ class SketcherCanvasView(context: Context) : View(context) {
 
         
 
-        // Draw Stylus Hover Preview Line for multi-step tools
-
-        if (!isDrawing && strokePipeline.isMultiStepInProgress) {
-
-            val activeStrokeType = strokePipeline.activeStrokeType
-
-            val startPt = if (activeStrokeType == StrokeType.BEZIER) {
-
-                val pts = strokePipeline.currentStrokePointsList
-
-                if (pts.size >= 2) pts[pts.size - 2] else null
-
-            } else {
-
-                strokePipeline.currentStrokePointsList.lastOrNull()
-
-            }
-
+        // Draw Stylus Hover Preview Line for BEZIER
+        if (!isDrawing && strokePipeline.isMultiStepInProgress && strokePipeline.activeStrokeType == StrokeType.BEZIER) {
+            val pts = strokePipeline.currentStrokePointsList
+            val startPt = if (pts.size >= 2) pts[pts.size - 2] else null
             val hoverPt = hoverWorldPoint
-
             if (startPt != null && hoverPt != null) {
-
                 canvas.save()
-
                 canvas.concat(viewMatrix)
-
                 hoverPreviewPaint.color = activeStrokeColor
-
                 hoverPreviewPaint.strokeWidth = (activeSize / getMatrixScale(viewMatrix)).coerceIn(1f, 10f)
-
                 canvas.drawLine(startPt.x, startPt.y, hoverPt.x, hoverPt.y, hoverPreviewPaint)
-
                 canvas.restore()
-
             }
-
         }
 
         
@@ -2642,6 +2641,16 @@ class SketcherCanvasView(context: Context) : View(context) {
 
 
     override fun onHoverEvent(event: MotionEvent): Boolean {
+        if (isTouchInsideFloatingBar(event.x, event.y)) {
+            currentSnapPoint = null
+            hoverWorldPoint = null
+            if (strokePipeline.isMultiStepInProgress) {
+                strokePipeline.clearHoverPoint()
+            }
+            invalidate()
+            return false
+        }
+
         if (currentTool == ToolType.ERASER || currentTool == ToolType.POINT_ERASER) {
             val action = event.actionMasked
             when (action) {
@@ -2669,120 +2678,62 @@ class SketcherCanvasView(context: Context) : View(context) {
             return true
         }
 
-        if (!isElementSnappingEnabled && !isSnapToGridEnabled) {
-
-            currentSnapPoint = null
-
-            hoverWorldPoint = null
-
-            invalidate()
-
-            return super.onHoverEvent(event)
-
-        }
-
-
-
         val action = event.actionMasked
-
         val zoom = getMatrixScale(viewMatrix)
 
-
-
         when (action) {
-
             MotionEvent.ACTION_HOVER_ENTER -> {
-
                 activeSnapPoints = if (isElementSnappingEnabled) {
-
                     getCombinedSnapPoints()
-
                 } else {
-
                     emptyList()
-
                 }
-
             }
-
             MotionEvent.ACTION_HOVER_MOVE -> {
-
                 val pts = floatArrayOf(event.x, event.y)
-
                 inverseMatrix.mapPoints(pts)
-
                 val worldX = pts[0]
-
                 val worldY = pts[1]
 
-
-
                 var snappedWorldX = worldX
-
                 var snappedWorldY = worldY
-
                 var resolvedSnap: SnapPoint? = null
 
-
-
                 if (isElementSnappingEnabled) {
-
                     resolvedSnap = SnapEngine.resolveSnap(worldX, worldY, activeSnapPoints, zoom)
-
                     if (resolvedSnap != null) {
-
                         snappedWorldX = resolvedSnap.point.x
-
                         snappedWorldY = resolvedSnap.point.y
-
                     }
-
                 }
-
-
 
                 if (resolvedSnap == null && isSnapToGridEnabled) {
-
                     val gridStepPx = UnitUtils.projectUnitsToPixels(
-
                         value = gridConfig.spacing,
-
                         unit = currentUnit,
-
                         basePxPerMm = scaleConfig.basePixelsPerMillimeter
-
                     )
-
                     if (gridStepPx > 0) {
-
                         snappedWorldX = kotlin.math.round(worldX / gridStepPx) * gridStepPx
-
                         snappedWorldY = kotlin.math.round(worldY / gridStepPx) * gridStepPx
-
                     }
-
                 }
 
-
-
                 currentSnapPoint = resolvedSnap
-
                 hoverWorldPoint = android.graphics.PointF(snappedWorldX, snappedWorldY)
-
+                if (strokePipeline.isMultiStepInProgress) {
+                    strokePipeline.updateHoverPoint(snappedWorldX, snappedWorldY)
+                }
                 invalidate()
-
             }
-
             MotionEvent.ACTION_HOVER_EXIT -> {
-
                 currentSnapPoint = null
-
                 hoverWorldPoint = null
-
+                if (strokePipeline.isMultiStepInProgress) {
+                    strokePipeline.clearHoverPoint()
+                }
                 invalidate()
-
             }
-
         }
 
         return true
@@ -2792,6 +2743,10 @@ class SketcherCanvasView(context: Context) : View(context) {
 
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN && isTouchInsideFloatingBar(event.x, event.y)) {
+            return false
+        }
+
         try {
             motionEventPredictor.record(event)
         } catch (e: Exception) {
@@ -3042,10 +2997,38 @@ class SketcherCanvasView(context: Context) : View(context) {
 
             ToolType.CHAMFER -> handleChamferInput(event)
 
+            ToolType.TEXT -> {
+                if (event.actionMasked == MotionEvent.ACTION_UP) {
+                    tempTouchPoint[0] = event.x
+                    tempTouchPoint[1] = event.y
+                    inverseMatrix.mapPoints(tempTouchPoint)
+                    
+                    val touchX = tempTouchPoint[0]
+                    val touchY = tempTouchPoint[1]
+                    
+                    val clickedText = findTextElementAt(touchX, touchY)
+                    if (clickedText != null) {
+                        selectionManager?.clearSelection()
+                        selectionManager?.selectedElements?.add(clickedText)
+                        invalidate()
+                    } else {
+                        onCreateTextRequested?.invoke(touchX, touchY)
+                    }
+                }
+                true
+            }
+
             else -> strokePipeline.onTouchEvent(event)
 
         }
 
+    }
+
+    private fun findTextElementAt(x: Float, y: Float): TextElement? {
+        val manager = selectionManager ?: return null
+        return activeContainer.filterIsInstance<TextElement>().firstOrNull {
+            manager.isHit(it, x, y, emptyMap())
+        }
     }
 
 

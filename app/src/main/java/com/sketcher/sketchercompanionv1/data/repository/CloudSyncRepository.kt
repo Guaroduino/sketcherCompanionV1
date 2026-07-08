@@ -26,32 +26,78 @@ class CloudSyncRepository {
         val user = auth.currentUser ?: return Result.failure(Exception("User not authenticated"))
 
         return try {
-            // Upload project file (e.g. .skc zip file)
-            val projectRef = storage.reference.child("users/${user.uid}/projects/$projectId/project.skc")
+            val versionId = UUID.randomUUID().toString()
+            val uploadTimestamp = timestamp ?: System.currentTimeMillis()
+
+            // Upload project file under versioned path
+            val projectRef = storage.reference.child("users/${user.uid}/projects/$projectId/versions/$versionId/project.skc")
             projectRef.putFile(projectFileUri).await()
             val projectUrl = projectRef.downloadUrl.await().toString()
 
             var thumbnailUrl: String? = null
             if (thumbnailUri != null) {
-                val thumbRef = storage.reference.child("users/${user.uid}/projects/$projectId/thumbnail.png")
+                val thumbRef = storage.reference.child("users/${user.uid}/projects/$projectId/versions/$versionId/thumbnail.png")
                 thumbRef.putFile(thumbnailUri).await()
                 thumbnailUrl = thumbRef.downloadUrl.await().toString()
             }
 
-            // Save metadata to Firestore
+            // Get existing versions from Firestore
+            val docRef = firestore.collection("users").document(user.uid)
+                .collection("projects").document(projectId)
+            
+            var existingVersions: List<Map<String, Any>> = emptyList()
+            try {
+                val docSnapshot = docRef.get().await()
+                if (docSnapshot.exists()) {
+                    existingVersions = docSnapshot.get("versions") as? List<Map<String, Any>> ?: emptyList()
+                }
+            } catch (e: Exception) {
+                // If document does not exist, existingVersions is empty
+            }
+
+            // Construct new version metadata
+            val newVersion = mapOf(
+                "versionId" to versionId,
+                "timestamp" to uploadTimestamp,
+                "fileUrl" to projectUrl,
+                "thumbnailUrl" to (thumbnailUrl ?: ""),
+                "deviceName" to (metadata["deviceName"] as? String ?: android.os.Build.MODEL),
+                "deviceUid" to (metadata["deviceUid"] as? String ?: ""),
+                "fileSize" to (metadata["fileSize"] as? Long ?: 0L)
+            )
+
+            // Combine and sort by timestamp descending
+            val updatedVersions = (existingVersions + newVersion)
+                .sortedByDescending { (it["timestamp"] as? Number)?.toLong() ?: 0L }
+
+            // Keep up to 5 versions, delete older from Cloud Storage
+            val keepVersions = updatedVersions.take(5)
+            val deleteVersions = updatedVersions.drop(5)
+
+            for (v in deleteVersions) {
+                val oldVersionId = v["versionId"] as? String ?: continue
+                try {
+                    storage.reference.child("users/${user.uid}/projects/$projectId/versions/$oldVersionId/project.skc").delete().await()
+                } catch (e: Exception) { /* ignore */ }
+                try {
+                    storage.reference.child("users/${user.uid}/projects/$projectId/versions/$oldVersionId/thumbnail.png").delete().await()
+                } catch (e: Exception) { /* ignore */ }
+            }
+
+            // Save root project metadata + versions list
             val projectData = mutableMapOf<String, Any>(
                 "id" to projectId,
                 "name" to projectName,
                 "relativePath" to relativePath,
                 "fileUrl" to projectUrl,
                 "thumbnailUrl" to (thumbnailUrl ?: ""),
-                "timestamp" to (timestamp ?: System.currentTimeMillis())
+                "timestamp" to uploadTimestamp,
+                "deleted" to false,
+                "versions" to keepVersions
             )
             projectData.putAll(metadata)
 
-            firestore.collection("users").document(user.uid)
-                .collection("projects").document(projectId)
-                .set(projectData).await()
+            docRef.set(projectData).await()
 
             Result.success(projectId)
         } catch (e: Exception) {
@@ -83,7 +129,27 @@ class CloudSyncRepository {
                     .collection("projects").document(doc.id).delete().await()
             }
             
-            // Delete from Storage
+            // Delete folders from Firestore
+            val foldersSnapshot = firestore.collection("users").document(user.uid)
+                .collection("folders").get().await()
+            for (doc in foldersSnapshot.documents) {
+                firestore.collection("users").document(user.uid)
+                    .collection("folders").document(doc.id).delete().await()
+            }
+
+            // Delete library document from Firestore
+            try {
+                firestore.collection("users").document(user.uid)
+                    .collection("library").document("state").delete().await()
+            } catch (e: Exception) { /* ignore */ }
+
+            // Delete preferences from Firestore
+            try {
+                firestore.collection("users").document(user.uid)
+                    .collection("preferences").document("deviceSettings").delete().await()
+            } catch (e: Exception) { /* ignore */ }
+            
+            // Delete projects from Storage
             val listResult = storage.reference.child("users/${user.uid}/projects").listAll().await()
             for (prefix in listResult.prefixes) {
                 try {
@@ -92,7 +158,24 @@ class CloudSyncRepository {
                 try {
                     prefix.child("thumbnail.png").delete().await()
                 } catch (e: Exception) { /* ignore */ }
+                // Also list version files and delete them
+                try {
+                    val versionsList = prefix.child("versions").listAll().await()
+                    for (versionFolder in versionsList.prefixes) {
+                        try { versionFolder.child("project.skc").delete().await() } catch (e: Exception) {}
+                        try { versionFolder.child("thumbnail.png").delete().await() } catch (e: Exception) {}
+                    }
+                } catch (e: Exception) {}
             }
+
+            // Delete library assets from Storage
+            try {
+                val libAssetsList = storage.reference.child("users/${user.uid}/library_assets").listAll().await()
+                for (item in libAssetsList.items) {
+                    item.delete().await()
+                }
+            } catch (e: Exception) { /* ignore */ }
+
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -102,17 +185,45 @@ class CloudSyncRepository {
     suspend fun deleteProject(projectId: String): Result<Unit> {
         val user = auth.currentUser ?: return Result.failure(Exception("User not authenticated"))
         return try {
-            // Soft delete in Firestore
-            val deleteData = mapOf(
-                "id" to projectId,
-                "deleted" to true,
-                "timestamp" to System.currentTimeMillis()
-            )
-            firestore.collection("users").document(user.uid)
+            val docRef = firestore.collection("users").document(user.uid)
                 .collection("projects").document(projectId)
-                .set(deleteData).await()
             
-            // Delete from Storage (ignore errors if not found)
+            var versions: List<Map<String, Any>> = emptyList()
+            val currentData = mutableMapOf<String, Any>()
+            try {
+                val docSnapshot = docRef.get().await()
+                if (docSnapshot.exists()) {
+                    versions = docSnapshot.get("versions") as? List<Map<String, Any>> ?: emptyList()
+                    docSnapshot.data?.let { currentData.putAll(it) }
+                }
+            } catch (e: Exception) { /* ignore */ }
+            
+            // Delete older versions' files from Storage (keep only the latest version in case of restore/conflict resolution)
+            if (versions.size > 1) {
+                val sortedVersions = versions.sortedByDescending { (it["timestamp"] as? Number)?.toLong() ?: 0L }
+                val latestVersion = sortedVersions.firstOrNull()
+                val olderVersions = sortedVersions.drop(1)
+                for (v in olderVersions) {
+                    val oldVersionId = v["versionId"] as? String ?: continue
+                    try {
+                        storage.reference.child("users/${user.uid}/projects/$projectId/versions/$oldVersionId/project.skc").delete().await()
+                    } catch (e: Exception) { /* ignore */ }
+                    try {
+                        storage.reference.child("users/${user.uid}/projects/$projectId/versions/$oldVersionId/thumbnail.png").delete().await()
+                    } catch (e: Exception) { /* ignore */ }
+                }
+                
+                currentData["deleted"] = true
+                currentData["timestamp"] = System.currentTimeMillis()
+                currentData["versions"] = listOfNotNull(latestVersion)
+                docRef.set(currentData).await()
+            } else {
+                currentData["deleted"] = true
+                currentData["timestamp"] = System.currentTimeMillis()
+                docRef.set(currentData).await()
+            }
+            
+            // Delete legacy unversioned files if they exist
             try {
                 storage.reference.child("users/${user.uid}/projects/$projectId/project.skc").delete().await()
             } catch (e: Exception) { /* ignore */ }
@@ -126,10 +237,14 @@ class CloudSyncRepository {
         }
     }
 
-    suspend fun downloadProject(projectId: String, destinationFile: File): Result<Unit> {
+    suspend fun downloadProject(projectId: String, destinationFile: File, fileUrl: String? = null): Result<Unit> {
         val user = auth.currentUser ?: return Result.failure(Exception("User not authenticated"))
         return try {
-            val projectRef = storage.reference.child("users/${user.uid}/projects/$projectId/project.skc")
+            val projectRef = if (!fileUrl.isNullOrEmpty()) {
+                storage.getReferenceFromUrl(fileUrl)
+            } else {
+                storage.reference.child("users/${user.uid}/projects/$projectId/project.skc")
+            }
             projectRef.getFile(destinationFile).await()
             Result.success(Unit)
         } catch (e: Exception) {
@@ -137,10 +252,14 @@ class CloudSyncRepository {
         }
     }
 
-    suspend fun downloadThumbnail(projectId: String, destinationFile: File): Result<Unit> {
+    suspend fun downloadThumbnail(projectId: String, destinationFile: File, thumbnailUrl: String? = null): Result<Unit> {
         val user = auth.currentUser ?: return Result.failure(Exception("User not authenticated"))
         return try {
-            val thumbRef = storage.reference.child("users/${user.uid}/projects/$projectId/thumbnail.png")
+            val thumbRef = if (!thumbnailUrl.isNullOrEmpty()) {
+                storage.getReferenceFromUrl(thumbnailUrl)
+            } else {
+                storage.reference.child("users/${user.uid}/projects/$projectId/thumbnail.png")
+            }
             thumbRef.getFile(destinationFile).await()
             Result.success(Unit)
         } catch (e: Exception) {
@@ -231,6 +350,69 @@ class CloudSyncRepository {
             }
 
             Result.success(Pair(jsonString, timestamp))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // --- FOLDER SYNC ---
+    suspend fun uploadFolder(
+        relativePath: String,
+        coverStyle: String,
+        coverFill: Map<String, Any>?,
+        coverProject: String?,
+        timestamp: Long
+    ): Result<Unit> {
+        val user = auth.currentUser ?: return Result.failure(Exception("User not authenticated"))
+        val docId = relativePath.replace("/", "__")
+        return try {
+            val folderData = mutableMapOf<String, Any>(
+                "relativePath" to relativePath,
+                "coverStyle" to coverStyle,
+                "timestamp" to timestamp,
+                "deleted" to false
+            )
+            if (coverFill != null) {
+                folderData["coverFill"] = coverFill
+            }
+            if (coverProject != null) {
+                folderData["coverProject"] = coverProject
+            }
+
+            firestore.collection("users").document(user.uid)
+                .collection("folders").document(docId)
+                .set(folderData).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getFolders(): Result<List<Map<String, Any>>> {
+        val user = auth.currentUser ?: return Result.failure(Exception("User not authenticated"))
+        return try {
+            val snapshot = firestore.collection("users").document(user.uid)
+                .collection("folders").get().await()
+            val folders = snapshot.documents.map { it.data ?: emptyMap<String, Any>() }
+            Result.success(folders)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteFolder(relativePath: String): Result<Unit> {
+        val user = auth.currentUser ?: return Result.failure(Exception("User not authenticated"))
+        val docId = relativePath.replace("/", "__")
+        return try {
+            val deleteData = mapOf(
+                "relativePath" to relativePath,
+                "deleted" to true,
+                "timestamp" to System.currentTimeMillis()
+            )
+            firestore.collection("users").document(user.uid)
+                .collection("folders").document(docId)
+                .set(deleteData).await()
+            Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
         }

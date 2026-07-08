@@ -146,6 +146,7 @@ fun SizeOpacityPopup(
                                 ) {
                                     PresetButton(
                                         preset = preset,
+                                        index = index,
                                         isSelected = isSelected,
                                         isModified = isModified,
                                         theme = theme,
@@ -166,8 +167,7 @@ fun SizeOpacityPopup(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(56.dp)
-                                .padding(vertical = 4.dp),
+                                .height(56.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -184,6 +184,7 @@ fun SizeOpacityPopup(
                                     brushSize = brushSize,
                                     opacity = brushOpacity,
                                     strokeColor = Color(strokeColorVal),
+                                    strokeStyle = strokeStyleVal,
                                     isStrokeActive = isStrokeActive,
                                     fillStyle = fillStyleVal,
                                     isFillActive = isFillActive,
@@ -209,38 +210,70 @@ fun SizeOpacityPopup(
                                     strokeSize = brushSize,
                                     strokeOpacity = brushOpacity,
                                     strokeColor = Color(strokeColorVal),
+                                    strokeStyle = strokeStyleVal,
                                     isStrokeActive = isStrokeActive,
                                     fillStyle = fillStyleVal,
                                     isFillActive = isFillActive
                                 )
                             }
+                        }
 
-                            if (selectedIndex != null) {
-                                val activeIndex = selectedIndex!!
-                                val isModified = viewModel.isPresetModified(activeIndex)
+                        if (selectedIndex != null) {
+                            val activeIndex = selectedIndex!!
+                            val isModified = viewModel.isPresetModified(activeIndex)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Button(
                                     onClick = { viewModel.saveBrushPreset(activeIndex) },
                                     enabled = isModified,
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                                     shape = theme.panelShape(),
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = theme.highlightColor,
                                         contentColor = theme.barBackgroundColor,
-                                        disabledContainerColor = theme.menuButtonColor.copy(alpha = 0.3f),
-                                        disabledContentColor = theme.iconColor.copy(alpha = 0.4f)
+                                        disabledContainerColor = theme.buttonColor.copy(alpha = 0.1f),
+                                        disabledContentColor = theme.iconColor.copy(alpha = 0.3f)
                                     ),
-                                    modifier = Modifier.fillMaxHeight()
+                                    modifier = Modifier.weight(1f).height(34.dp),
+                                    contentPadding = PaddingValues(vertical = 0.dp)
                                 ) {
                                     Icon(
-                                        imageVector = if (isModified) Icons.Default.Save else Icons.Default.Check,
+                                        imageVector = Icons.Default.Save,
                                         contentDescription = "Save Preset",
-                                        modifier = Modifier.size(16.dp)
+                                        modifier = Modifier.size(14.dp)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = if (isModified) "Guardar P${activeIndex + 1}" else "Guardado",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
+                                        text = "Guardar P${activeIndex + 1}",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
+
+                                OutlinedButton(
+                                    onClick = { viewModel.revertBrushPreset(activeIndex) },
+                                    enabled = isModified,
+                                    shape = theme.panelShape(),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        contentColor = theme.iconColor,
+                                        disabledContentColor = theme.iconColor.copy(alpha = 0.3f)
+                                    ),
+                                    border = BorderStroke(
+                                        width = 1.dp,
+                                        color = if (isModified) theme.iconColor.copy(alpha = 0.4f) else theme.iconColor.copy(alpha = 0.1f)
+                                    ),
+                                    modifier = Modifier.weight(1f).height(34.dp),
+                                    contentPadding = PaddingValues(vertical = 0.dp)
+                                ) {
+                                    Text(
+                                        text = "Restablecer",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
                                     )
                                 }
                             }
@@ -282,13 +315,13 @@ fun SizeOpacityPopup(
                             }
 
                             if (isStrokeActive) {
-                                Box(
+                                com.sketcher.sketchercompanionv1.ui.components.FillStylePreviewBox(
+                                    style = strokeStyleVal,
                                     modifier = Modifier
                                         .size(32.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(strokeColorVal))
                                         .border(1.dp, theme.iconColor.copy(alpha = 0.3f), CircleShape)
-                                        .clickable { showStrokePickerLocal = true }
+                                        .clickable { showStrokePickerLocal = true },
+                                    drawBorder = false
                                 )
                             }
                         }
@@ -318,18 +351,13 @@ fun SizeOpacityPopup(
 
                             val currentStyle = fillStyleVal
                             if (isFillActive) {
-                                Box(
+                                com.sketcher.sketchercompanionv1.ui.components.FillStylePreviewBox(
+                                    style = currentStyle,
                                     modifier = Modifier
                                         .size(32.dp)
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(
-                                            when (currentStyle) {
-                                                is FillStyle.Solid -> Color(currentStyle.color)
-                                                else -> Color.Gray
-                                            }
-                                        )
-                                        .border(1.dp, theme.iconColor.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
-                                        .clickable { showFillPickerLocal = true }
+                                        .border(1.dp, theme.iconColor.copy(alpha = 0.3f), CircleShape)
+                                        .clickable { showFillPickerLocal = true },
+                                    drawBorder = false
                                 )
                             }
                         }
@@ -709,6 +737,7 @@ fun SizeOpacityPopup(
 @Composable
 private fun PresetButton(
     preset: BrushPreset,
+    index: Int,
     isSelected: Boolean,
     isModified: Boolean,
     theme: UiThemeConfig,
@@ -726,13 +755,21 @@ private fun PresetButton(
         theme.buttonColor
     }
 
+    val textColor = if (isSelected && !isModified) {
+        Color.White
+    } else if (isSelected && isModified) {
+        theme.highlightColor
+    } else {
+        theme.iconColor.copy(alpha = 0.8f)
+    }
+
     Box(
         modifier = Modifier
             .size(48.dp)
             .clip(CircleShape)
             .background(background)
             .then(if (border != null) Modifier.border(border, CircleShape) else Modifier)
-            .pointerInput(Unit) {
+            .pointerInput(onClick, onLongClick) {
                 detectTapGestures(
                     onTap = { onClick() },
                     onLongPress = { onLongClick() }
@@ -740,14 +777,12 @@ private fun PresetButton(
             },
         contentAlignment = Alignment.Center
     ) {
-        Canvas(modifier = Modifier.size(32.dp)) {
-            val radiusDp = 2f + ((preset.size.coerceIn(1f, 100f) - 1f) / 99f) * 14f
-            drawCircle(
-                color = if (isSelected && !isModified) theme.buttonColor else theme.iconColor,
-                radius = radiusDp.dp.toPx(),
-                alpha = preset.opacity
-            )
-        }
+        Text(
+            text = "${index + 1}",
+            color = textColor,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
@@ -756,6 +791,7 @@ fun StrokePreviewCanvas(
     brushSize: Float,
     opacity: Float,
     strokeColor: Color,
+    strokeStyle: FillStyle,
     isStrokeActive: Boolean,
     fillStyle: FillStyle,
     isFillActive: Boolean,
@@ -849,23 +885,17 @@ fun StrokePreviewCanvas(
                         isAntiAlias = true
                         style = android.graphics.Paint.Style.STROKE
                         strokeWidth = paintOutlineWidth.dp.toPx()
-                        color = strokeColor.toArgb()
-                        val origAlpha = android.graphics.Color.alpha(strokeColor.toArgb())
-                        val newAlpha = (origAlpha * opacity).toInt().coerceIn(0, 255)
-                        alpha = newAlpha
                     }
+                    applyFillStyleToNativePaint(strokePaint, strokeStyle, alpha = opacity)
                     nativeCanvas.drawPath(thickPath, strokePaint)
                 }
             } else {
-                // Normal tools (Pencil, Pen, Eraser, etc.) - draw filled thick path with strokeColor
+                // Normal tools (Pencil, Pen, Eraser, etc.) - draw filled thick path with strokeStyle
                 val strokePaint = android.graphics.Paint().apply {
                     isAntiAlias = true
                     style = android.graphics.Paint.Style.FILL
-                    color = strokeColor.toArgb()
-                    val origAlpha = android.graphics.Color.alpha(strokeColor.toArgb())
-                    val newAlpha = (origAlpha * opacity).toInt().coerceIn(0, 255)
-                    alpha = newAlpha
                 }
+                applyFillStyleToNativePaint(strokePaint, strokeStyle, alpha = opacity)
                 nativeCanvas.drawPath(thickPath, strokePaint)
             }
         }
@@ -924,6 +954,7 @@ fun FillPreviewCanvas(
     strokeSize: Float,
     strokeOpacity: Float,
     strokeColor: Color,
+    strokeStyle: FillStyle,
     isStrokeActive: Boolean,
     fillStyle: FillStyle,
     isFillActive: Boolean,
@@ -960,11 +991,8 @@ fun FillPreviewCanvas(
                     strokeWidth = thickness.dp.toPx()
                     strokeCap = android.graphics.Paint.Cap.ROUND
                     strokeJoin = android.graphics.Paint.Join.ROUND
-                    color = strokeColor.toArgb()
-                    val origAlpha = android.graphics.Color.alpha(strokeColor.toArgb())
-                    val newAlpha = (origAlpha * strokeOpacity).toInt().coerceIn(0, 255)
-                    alpha = newAlpha
                 }
+                applyFillStyleToNativePaint(strokePaint, strokeStyle, alpha = strokeOpacity)
                 nativeCanvas.drawPath(path, strokePaint)
             }
         }

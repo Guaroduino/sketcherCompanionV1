@@ -6,6 +6,7 @@ import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.RectF
+import android.text.Html
 import com.sketcher.sketchercompanionv1.dto.StrokeType
 
 
@@ -31,6 +32,10 @@ object RenderHelper {
         isDither = true
     }
 
+    private val dimPaint = Paint().apply {
+        alpha = 80
+    }
+
     fun drawElementRecursive(
         canvas: Canvas, 
         element: LayerElement,
@@ -38,8 +43,7 @@ object RenderHelper {
         isDimmed: Boolean = false
     ) {
         if (isDimmed) {
-            val paint = Paint().apply { alpha = 80 } // ~30% opacity
-            canvas.saveLayer(null, paint)
+            canvas.saveLayer(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat(), dimPaint)
         }
 
         when (element) {
@@ -67,11 +71,39 @@ object RenderHelper {
             is FillData -> drawFill(element, canvas)
             is ImageElement -> drawImage(element, canvas)
             is SvgElement -> element.render(canvas)
+            is TextElement -> drawText(element, canvas)
         }
 
         if (isDimmed) {
             canvas.restore()
         }
+    }
+
+    private fun drawText(element: TextElement, canvas: Canvas) {
+        canvas.save()
+        canvas.concat(element.getMatrix())
+        val spanned = Html.fromHtml(element.textHtml, Html.FROM_HTML_MODE_LEGACY)
+        val textPaint = android.text.TextPaint().apply {
+            isAntiAlias = true
+            textSize = element.defaultTextSize
+            color = element.defaultTextColor
+        }
+        try {
+            textPaint.typeface = android.graphics.Typeface.create(element.fontFamilyName, android.graphics.Typeface.NORMAL)
+        } catch (e: Exception) {}
+        val layoutAlignment = when (element.alignment) {
+            "CENTER" -> android.text.Layout.Alignment.ALIGN_CENTER
+            "RIGHT" -> android.text.Layout.Alignment.ALIGN_OPPOSITE
+            else -> android.text.Layout.Alignment.ALIGN_NORMAL
+        }
+        val textWidth = if (element.width > 0f) element.width.toInt() else 1
+        val layout = android.text.StaticLayout.Builder.obtain(spanned, 0, spanned.length, textPaint, textWidth)
+            .setAlignment(layoutAlignment)
+            .setLineSpacing(0f, 1f)
+            .setIncludePad(true)
+            .build()
+        layout.draw(canvas)
+        canvas.restore()
     }
 
     fun drawVectorStroke(vStroke: VectorStroke, canvas: Canvas) {

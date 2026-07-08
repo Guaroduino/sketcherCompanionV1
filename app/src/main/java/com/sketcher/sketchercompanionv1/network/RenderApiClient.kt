@@ -6,38 +6,41 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.IOException
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.TimeUnit
 
-data class RenderJobResponse(
+data class GenerateResponse(
     val success: Boolean,
+    val jobId: String
+)
+
+data class RenderResult(
     val jobId: String?,
     val error: String?
 )
 
-data class PollResponse(
+data class ErrorResponse(
     val success: Boolean,
-    val jobId: String,
-    val estado: String, // 'pendiente', 'procesando', 'completado', 'error'
-    val progreso: Int,
-    val progresoMsg: String,
-    val imagenesSalida: Map<String, String>?,
     val error: String?
 )
 
-sealed class PollResult {
-    data class Success(val imageUrls: Map<String, String>) : PollResult()
-    data class Error(val message: String) : PollResult()
-}
+data class JobStatusResponse(
+    val success: Boolean,
+    val jobId: String,
+    val estado: String,                // "pendiente", "procesando", "completado", "error"
+    val progreso: Int,
+    val progresoMsg: String,
+    val imagenesSalida: Map<String, String>?, // Contiene la URL del render final
+    val error: String?
+)
 
-class RenderApiClient {
+class RenderApiClient(private val baseUrl: String) {
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -58,14 +61,14 @@ class RenderApiClient {
 
     suspend fun sendRenderRequest(
         context: Context,
-        baseUrl: String,
-        canvasImageBytes: ByteArray,
+        bitmap: Bitmap,
         refImages: List<Uri>,
         renderMode: String,
         prompt: String,
         sceneType: String,
         spaceType: String,
-        sketchDenoise: String,
+        denoise: Float,
+        idToken: String,
         userId: String,
         stylePreset: String?,
         lightingPreset: String?,
@@ -73,15 +76,20 @@ class RenderApiClient {
         multiViewSketches: List<Uri> = emptyList(),
         multiViewReferences: List<Uri?> = emptyList(),
         multiViewPrompts: List<String> = emptyList()
-    ): RenderJobResponse = withContext(Dispatchers.IO) {
+    ): RenderResult = withContext(Dispatchers.IO) {
         try {
+            // Compress bitmap in memory to JPEG
+            val stream = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+            val byteArray = stream.toByteArray()
+
             val builder = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("renderMode", renderMode)
                 .addFormDataPart("prompt", prompt)
                 .addFormDataPart("sceneType", sceneType)
                 .addFormDataPart("spaceType", spaceType)
-                .addFormDataPart("sketchDenoise", sketchDenoise)
+                .addFormDataPart("sketchDenoise", denoise.toString())
                 .addFormDataPart("userId", userId)
 
             if (!stylePreset.isNullOrBlank()) builder.addFormDataPart("stylePreset", stylePreset)
@@ -89,8 +97,8 @@ class RenderApiClient {
             if (!colorPreset.isNullOrBlank()) builder.addFormDataPart("colorPreset", colorPreset)
 
             // 1. Single View Canvas Image (sent as "image")
-            val imageBody = canvasImageBytes.toRequestBody("image/png".toMediaTypeOrNull())
-            builder.addFormDataPart("image", "canvas_sketch.png", imageBody)
+            val imageBody = byteArray.toRequestBody("image/jpeg".toMediaTypeOrNull(), 0, byteArray.size)
+            builder.addFormDataPart("image", "sketch.jpg", imageBody)
 
             // 2. Single View Reference Images
             refImages.forEachIndexed { index, uri ->
@@ -132,79 +140,56 @@ class RenderApiClient {
             val sanitizedBaseUrl = baseUrl.trim().removeSuffix("/")
             val request = Request.Builder()
                 .url("$sanitizedBaseUrl/api/generate")
+                .addHeader("Authorization", "Bearer $idToken")
                 .post(requestBody)
                 .build()
 
             client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    val bodyString = response.body?.string() ?: ""
-                    gson.fromJson(bodyString, RenderJobResponse::class.java)
+                val bodyString = response.body?.string()
+                if (!response.isSuccessful) {
+                    val errMsg = try {
+                        val errObj = gson.fromJson(bodyString, ErrorResponse::class.java)
+                        errObj.error ?: "Error de red: Código ${response.code}"
+                    } catch (e: Exception) {
+                        "Error de red: Código ${response.code}"
+                    }
+                    return@withContext RenderResult(null, errMsg)
+                }
+                if (bodyString == null) return@withContext RenderResult(null, "Respuesta vacía del servidor.")
+                val result = gson.fromJson(bodyString, GenerateResponse::class.java)
+                return@withContext if (result.success) {
+                    RenderResult(result.jobId, null)
                 } else {
-                    val errString = response.body?.string() ?: "Error de red desconocido"
-                    RenderJobResponse(success = false, jobId = null, error = "HTTP ${response.code}: $errString")
+                    RenderResult(null, "El servidor no devolvió un jobId exitoso.")
                 }
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            RenderJobResponse(success = false, jobId = null, error = e.localizedMessage ?: "Excepción de red")
+            RenderResult(null, e.localizedMessage ?: "Excepción de red al conectar al servidor.")
         }
     }
 
-    suspend fun pollRenderStatus(
-        baseUrl: String,
+    suspend fun checkJobStatus(
         jobId: String,
-        onProgress: (Int, String) -> Unit
-    ): PollResult = withContext(Dispatchers.IO) {
+        idToken: String
+    ): JobStatusResponse? = withContext(Dispatchers.IO) {
         val sanitizedBaseUrl = baseUrl.trim().removeSuffix("/")
         val request = Request.Builder()
             .url("$sanitizedBaseUrl/api/check-job/$jobId")
+            .addHeader("Authorization", "Bearer $idToken")
             .get()
             .build()
 
-        var attempts = 0
-        val maxAttempts = 150 // 150 * 2s = 5 minutes max polling time
-
-        while (attempts < maxAttempts) {
-            try {
-                client.newCall(request).execute().use { response ->
-                    if (response.isSuccessful) {
-                        val bodyString = response.body?.string() ?: ""
-                        val pollData = gson.fromJson(bodyString, PollResponse::class.java)
-
-                        if (pollData.success) {
-                            onProgress(pollData.progreso, pollData.progresoMsg)
-                            when (pollData.estado) {
-                                "completado" -> {
-                                    val images = pollData.imagenesSalida ?: emptyMap()
-                                    return@withContext PollResult.Success(images)
-                                }
-                                "error" -> {
-                                    return@withContext PollResult.Error(pollData.error ?: "Error reportado por el servidor.")
-                                }
-                                else -> {
-                                    // Continúa en bucle para 'pendiente' o 'procesando'
-                                }
-                            }
-                        } else {
-                            return@withContext PollResult.Error(pollData.error ?: "Error al consultar estado.")
-                        }
-                    } else {
-                        // Error de HTTP temporal
-                    }
-                }
-            } catch (e: IOException) {
-                // Posible desconexión transitoria
-                e.printStackTrace()
-            } catch (e: Exception) {
-                e.printStackTrace()
-                return@withContext PollResult.Error(e.localizedMessage ?: "Error en el polling")
+        try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                val bodyString = response.body?.string() ?: return@withContext null
+                return@withContext gson.fromJson(bodyString, JobStatusResponse::class.java)
             }
-
-            attempts++
-            delay(2000)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
         }
-
-        PollResult.Error("Tiempo de espera agotado. El renderizado está tardando demasiado.")
     }
 
     suspend fun downloadImage(imageUrl: String): Bitmap? = withContext(Dispatchers.IO) {

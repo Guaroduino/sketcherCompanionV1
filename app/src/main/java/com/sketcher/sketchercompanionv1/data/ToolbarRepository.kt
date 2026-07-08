@@ -21,7 +21,8 @@ data class SavedLayout(
     val assignedMap: Map<String, ToolPayload>,
     val toolColors: Map<String, Int>? = emptyMap(),
     val contextualToolbar: List<SavedTool>? = null,
-    val toolStabilization: Map<String, Float>? = emptyMap()
+    val toolStabilization: Map<String, Float>? = emptyMap(),
+    val toolOpacity: Map<String, Float>? = emptyMap()
 )
 
 class ToolbarRepository(context: Context) {
@@ -33,6 +34,7 @@ class ToolbarRepository(context: Context) {
         assignedMap: Map<String, ToolPayload>,
         toolColors: Map<String, Int>,
         toolStabilization: Map<String, Float>,
+        toolOpacity: Map<String, Float>,
         contextualToolbar: List<StudioTool>
     ) {
         fun mapToolToSaved(tool: StudioTool): SavedTool {
@@ -50,7 +52,7 @@ class ToolbarRepository(context: Context) {
         }
         val savedContextualTools = contextualToolbar.map { mapToolToSaved(it) }
         
-        val layout = SavedLayout(savedToolsMap, assignedMap, toolColors, savedContextualTools, toolStabilization)
+        val layout = SavedLayout(savedToolsMap, assignedMap, toolColors, savedContextualTools, toolStabilization, toolOpacity)
         val json = gson.toJson(layout)
         prefs.edit().putString("saved_layout_v2", json).apply()
     }
@@ -66,10 +68,10 @@ class ToolbarRepository(context: Context) {
             val layout: SavedLayout = gson.fromJson(json, type)
             
             fun reconstructStudioTool(saved: SavedTool, assignedMap: Map<String, ToolPayload>): StudioTool? {
-                val effectiveRegistryId = if (saved.registryId.startsWith("tool_selection_")) "tool_selection" else saved.registryId
-
-                if (effectiveRegistryId == StudioTool.PROPERTIES_TOOL_ID || effectiveRegistryId == StudioTool.STABILIZATION_TOOL_ID) {
-                    return null
+                var effectiveRegistryId = if (saved.registryId.startsWith("tool_selection_")) "tool_selection" else saved.registryId
+                if (effectiveRegistryId == "settings") return null
+                if (effectiveRegistryId == "stroke_type") {
+                    effectiveRegistryId = "stroke_freehand"
                 }
 
                 val baseTool = ToolRegistry.getToolById(effectiveRegistryId) 
@@ -128,7 +130,8 @@ class ToolbarRepository(context: Context) {
                 assignedMap = layout.assignedMap, 
                 toolColors = layout.toolColors ?: emptyMap(),
                 contextualTools = reconstructedContextualTools,
-                toolStabilization = layout.toolStabilization ?: emptyMap()
+                toolStabilization = layout.toolStabilization ?: emptyMap(),
+                toolOpacity = layout.toolOpacity ?: emptyMap()
             )
         } catch (e: Exception) {
             e.printStackTrace()
@@ -168,7 +171,7 @@ class ToolbarRepository(context: Context) {
         }
         val savedContextualTools = result.contextualTools.map { mapToolToSaved(it) }
         
-        val layout = SavedLayout(savedToolsMap, result.assignedMap, result.toolColors, savedContextualTools, result.toolStabilization)
+        val layout = SavedLayout(savedToolsMap, result.assignedMap, result.toolColors, savedContextualTools, result.toolStabilization, result.toolOpacity)
         val json = gson.toJson(layout)
         prefs.edit().putString("ui_preset_data_$name", json).apply()
     }
@@ -200,6 +203,7 @@ class ToolbarRepository(context: Context) {
         return listOfNotNull(
             ToolRegistry.getToolById("context_edit"),
             ToolRegistry.getToolById("context_transform"),
+            ToolRegistry.getToolById("context_lock_scale"),
             ToolRegistry.getToolById("context_copy"),
             ToolRegistry.getToolById("context_delete"),
             ToolRegistry.getToolById("context_deselect"),
@@ -218,5 +222,6 @@ data class ToolbarStateResult(
     val assignedMap: Map<String, ToolPayload>,
     val toolColors: Map<String, Int>,
     val contextualTools: List<StudioTool>,
-    val toolStabilization: Map<String, Float> = emptyMap()
+    val toolStabilization: Map<String, Float> = emptyMap(),
+    val toolOpacity: Map<String, Float> = emptyMap()
 )

@@ -14,9 +14,9 @@ import com.sketcher.sketchercompanionv1.GroupElement
 import com.sketcher.sketchercompanionv1.ComponentDefinition
 import com.sketcher.sketchercompanionv1.ComponentInstance
 import com.sketcher.sketchercompanionv1.LayerElement
-// import com.sketcher.sketchercompanionv1.AndroidInkElement // Removed
 import com.sketcher.sketchercompanionv1.SvgElement
 import com.sketcher.sketchercompanionv1.ImageElement
+import com.sketcher.sketchercompanionv1.TextElement
 import com.sketcher.sketchercompanionv1.PerfectFreehandGenerator
 import com.sketcher.sketchercompanionv1.dto.*
 
@@ -106,6 +106,20 @@ fun LayerElement.toLayerElementJson(): LayerElementJson {
                 )
             )
         }
+        is TextElement -> LayerElementJson(
+            type = "TEXT",
+            text = TextElementJson(
+                id = this.id,
+                textHtml = this.textHtml,
+                width = this.width,
+                matrixValues = this.matrixValues.toList(),
+                defaultTextColor = this.defaultTextColor,
+                defaultTextSize = this.defaultTextSize,
+                fontFamilyName = this.fontFamilyName,
+                alignment = this.alignment,
+                styleTemplateName = this.styleTemplateName
+            )
+        )
         else -> throw IllegalArgumentException("Unknown LayerElement type: ${this.javaClass.simpleName}")
     }
 }
@@ -184,6 +198,20 @@ fun LayerElementJson.toLayerElement(
                 id = instJson.id,
                 definitionId = instJson.definitionId,
                 matrix = matrix
+            )
+        }
+        "TEXT" -> {
+            val txtJson = this.text!!
+            TextElement(
+                id = txtJson.id,
+                textHtml = txtJson.textHtml,
+                width = txtJson.width,
+                matrixValues = txtJson.matrixValues.toFloatArray(),
+                defaultTextColor = txtJson.defaultTextColor,
+                defaultTextSize = txtJson.defaultTextSize,
+                fontFamilyName = txtJson.fontFamilyName,
+                alignment = txtJson.alignment,
+                styleTemplateName = txtJson.styleTemplateName
             )
         }
         else -> throw IllegalArgumentException("Unknown type: ${this.type}")
@@ -583,7 +611,8 @@ fun FillStyle.toFillStyleJson(): FillStyleJson {
             offsetY = this.offsetY,
             opacity = this.opacity,
             tintColor = this.tintColor,
-            tintMix = this.tintMix
+            tintMix = this.tintMix,
+            blendModeName = this.blendModeName
         )
     }
 }
@@ -619,7 +648,8 @@ fun FillStyleJson?.toFillStyle(fallbackColor: Int): FillStyle {
             offsetY = this.offsetY ?: 0f,
             opacity = this.opacity ?: 1f,
             tintColor = this.tintColor ?: android.graphics.Color.TRANSPARENT,
-            tintMix = this.tintMix ?: 0f
+            tintMix = this.tintMix ?: 0f,
+            blendModeName = this.blendModeName ?: "SRC_ATOP"
         )
         else -> FillStyle.Solid(fallbackColor)
     }

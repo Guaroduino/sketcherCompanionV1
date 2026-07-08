@@ -10,6 +10,9 @@ import android.net.Uri
 import com.sketcher.sketchercompanionv1.dto.CanvasSizeConfig
 import com.sketcher.sketchercompanionv1.dto.ProjectData
 import com.sketcher.sketchercompanionv1.dto.FillStyle
+import com.sketcher.sketchercompanionv1.dto.BackgroundConfig
+import com.sketcher.sketchercompanionv1.dto.CanvasMetadata
+import com.sketcher.sketchercompanionv1.CanvasPage
 import com.sketcher.sketchercompanionv1.RenderEngine
 import com.sketcher.sketchercompanionv1.Layer
 import com.sketcher.sketchercompanionv1.ComponentDefinition
@@ -32,6 +35,132 @@ object PdfExporter {
         val includeBackground: Boolean = true,
         val dpi: Int = 300
     )
+
+    /**
+     * Export multiple pages to a single multi-page PDF file
+     */
+    fun exportPages(
+        context: Context,
+        uri: Uri,
+        pages: List<CanvasPage>,
+        infiniteCanvasBoundsMode: BoundsMode,
+        componentLibrary: Map<String, ComponentDefinition>
+    ): Boolean {
+        return try {
+            val pdfDocument = PdfDocument()
+
+            for ((index, page) in pages.withIndex()) {
+                val mode = if (page.canvasSizeConfig != null) {
+                    BoundsMode.CANVAS_SIZE
+                } else {
+                    infiniteCanvasBoundsMode
+                }
+
+                // Temporary ProjectData for bounds calculation
+                val width = page.canvasSizeConfig?.widthInPixels ?: 2480f
+                val height = page.canvasSizeConfig?.heightInPixels ?: 3508f
+                val tempProjectData = ProjectData(
+                    id = page.id,
+                    layers = page.layers.map { it.toLayerJson() },
+                    backgroundConfig = BackgroundConfig(
+                        color = page.backgroundColor,
+                        gridConfig = page.gridConfig,
+                        fillStyle = page.backgroundStyle.toFillStyleJson()
+                    ),
+                    paletteColors = emptyList(),
+                    toolConfigs = emptyMap(),
+                    canvasMetadata = CanvasMetadata(
+                        width = width,
+                        height = height,
+                        cameraMatrix = page.cameraMatrixValues.toList(),
+                        scaleConfig = page.scaleConfig
+                    ),
+                    componentLibrary = componentLibrary.mapValues { it.value.toComponentDefinitionJson() },
+                    uiPresetName = ""
+                )
+
+                val bounds = calculateBounds(
+                    mode,
+                    page.layers,
+                    tempProjectData,
+                    page.canvasSizeConfig,
+                    componentLibrary
+                )
+
+                val pageInfo = PdfDocument.PageInfo.Builder(
+                    bounds.width.toInt(),
+                    bounds.height.toInt(),
+                    index + 1
+                ).create()
+
+                val pdfPage = pdfDocument.startPage(pageInfo)
+                val canvas = pdfPage.canvas
+
+                // Draw background
+                val renderEngine = RenderEngine()
+                val bgStyle = page.backgroundStyle
+                val canvasSizeConfig = page.canvasSizeConfig
+                val pixelsPerMm = if (canvasSizeConfig != null) {
+                    val preset = canvasSizeConfig.preset
+                    if (preset != null) {
+                        val widthMm = if (canvasSizeConfig.orientation == com.sketcher.sketchercompanionv1.dto.PaperOrientation.PORTRAIT) {
+                            preset.widthMm
+                        } else {
+                            preset.heightMm
+                        }
+                        canvasSizeConfig.widthInPixels / widthMm
+                    } else {
+                        canvasSizeConfig.widthInPixels / 215.9f
+                    }
+                } else {
+                    5.0f
+                }
+                renderEngine.drawPaperBackground(canvas, 0f, 0f, bounds.width, bounds.height, bgStyle, pixelsPerMm)
+
+                // Apply transform
+                canvas.save()
+                canvas.concat(bounds.transform)
+
+                // Render layers
+                for (layer in page.layers) {
+                    if (!layer.isVisible) continue
+                    val layerAlpha = if (layer.opacity < 1f) (layer.opacity * 255).toInt() else 255
+                    val saveCount = if (layerAlpha < 255) {
+                        canvas.saveLayerAlpha(0f, 0f, bounds.width, bounds.height, layerAlpha)
+                    } else {
+                        canvas.save()
+                    }
+
+                    for (element in layer.elements) {
+                        RenderHelper.drawElementRecursive(
+                            canvas,
+                            element,
+                            componentLibrary = componentLibrary,
+                            isDimmed = false
+                        )
+                    }
+
+                    canvas.restoreToCount(saveCount)
+                }
+
+                canvas.restore()
+                pdfDocument.finishPage(pdfPage)
+            }
+
+            // Write to file
+            context.contentResolver.openFileDescriptor(uri, "w")?.use { descriptor ->
+                FileOutputStream(descriptor.fileDescriptor).use { outputStream ->
+                    pdfDocument.writeTo(outputStream)
+                }
+            }
+
+            pdfDocument.close()
+            true
+        } catch (e: java.lang.Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
 
     /**
      * Export layers to PDF file
@@ -124,9 +253,16 @@ object PdfExporter {
             pdfDocument.finishPage(page)
 
             // Write to file
-            context.contentResolver.openFileDescriptor(uri, "w")?.use { descriptor ->
-                FileOutputStream(descriptor.fileDescriptor).use { outputStream ->
+            if (uri.scheme == "file") {
+                val file = java.io.File(uri.path ?: "")
+                FileOutputStream(file).use { outputStream ->
                     pdfDocument.writeTo(outputStream)
+                }
+            } else {
+                context.contentResolver.openFileDescriptor(uri, "w")?.use { descriptor ->
+                    FileOutputStream(descriptor.fileDescriptor).use { outputStream ->
+                        pdfDocument.writeTo(outputStream)
+                    }
                 }
             }
 

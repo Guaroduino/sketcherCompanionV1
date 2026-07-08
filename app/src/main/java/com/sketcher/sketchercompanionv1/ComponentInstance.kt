@@ -6,7 +6,8 @@ import android.graphics.RectF
 data class ComponentInstance(
     val id: String,
     val definitionId: String, // Link to master
-    val matrix: Matrix = Matrix()
+    val matrix: Matrix = Matrix(),
+    override var isScaleLocked: Boolean = false
 ) : LayerElement, Transformable {
 
     @Transient
@@ -36,7 +37,7 @@ data class ComponentInstance(
     }
 
     override fun copyElement(): LayerElement {
-        return ComponentInstance(java.util.UUID.randomUUID().toString(), definitionId, Matrix(matrix))
+        return ComponentInstance(java.util.UUID.randomUUID().toString(), definitionId, Matrix(matrix), isScaleLocked)
     }
 }
 

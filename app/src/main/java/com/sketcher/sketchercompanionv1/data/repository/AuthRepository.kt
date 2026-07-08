@@ -49,24 +49,16 @@ class AuthRepository {
 
     suspend fun logout(context: Context) {
         auth.signOut()
-        try {
-            val credentialManager = CredentialManager.create(context)
-            val request = androidx.credentials.ClearCredentialStateRequest()
-            credentialManager.clearCredentialState(request)
-        } catch (e: Exception) {
-            // Ignorar
-        }
     }
 
     suspend fun signInWithGoogle(context: Context): Result<FirebaseUser> {
         val credentialManager = CredentialManager.create(context)
-        
         val webClientId = context.getString(R.string.default_web_client_id)
         
         val googleIdOption = GetGoogleIdOption.Builder()
             .setFilterByAuthorizedAccounts(false)
             .setServerClientId(webClientId)
-            .setAutoSelectEnabled(true)
+            .setAutoSelectEnabled(false)
             .build()
             
         val request = GetCredentialRequest.Builder()
@@ -89,31 +81,17 @@ class AuthRepository {
                 Result.failure(Exception("Tipo de credencial no soportado"))
             }
         } catch (e: Exception) {
-            // Si falla el auto-select o la obtención de credenciales, intentamos de nuevo forzando el selector manual
-            try {
-                val manualOption = GetGoogleIdOption.Builder()
-                    .setFilterByAuthorizedAccounts(false)
-                    .setServerClientId(webClientId)
-                    .setAutoSelectEnabled(false)
-                    .build()
-                val manualRequest = GetCredentialRequest.Builder()
-                    .addCredentialOption(manualOption)
-                    .build()
-                val manualResult = credentialManager.getCredential(context, manualRequest)
-                val credential = manualResult.credential
-                if (credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
-                    val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
-                    val idToken = googleIdTokenCredential.idToken
-                    val firebaseCredential = GoogleAuthProvider.getCredential(idToken, null)
-                    val authResult = auth.signInWithCredential(firebaseCredential).await()
-                    val user = authResult.user ?: throw Exception("User is null")
-                    Result.success(user)
-                } else {
-                    Result.failure(Exception("Tipo de credencial no soportado"))
-                }
-            } catch (manualEx: Exception) {
-                Result.failure(Exception(manualEx.message ?: "No se pudo iniciar sesión"))
-            }
+            Result.failure(Exception(e.message ?: "No se pudo iniciar sesión"))
+        }
+    }
+
+    suspend fun getUserIdToken(forceRefresh: Boolean = false): String? {
+        val user = auth.currentUser ?: return null
+        return try {
+            user.getIdToken(forceRefresh).await().token
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
         }
     }
 }

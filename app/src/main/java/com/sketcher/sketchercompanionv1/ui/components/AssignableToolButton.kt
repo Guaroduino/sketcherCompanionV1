@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Timeline
+import androidx.compose.material.icons.filled.Title
 import android.util.Log
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -51,7 +52,12 @@ import com.sketcher.sketchercompanionv1.ui.model.ToolLocation
 import com.sketcher.sketchercompanionv1.ui.model.StudioTool
 import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
 import com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler
-
+import com.sketcher.sketchercompanionv1.utils.ImageTextureCache
+import com.sketcher.sketchercompanionv1.utils.MathTextureCache
+import com.sketcher.sketchercompanionv1.utils.SvgPatternCache
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+ 
 // Define ToolPayload as requested
 enum class ToolPayload(val label: String, val icon: ImageVector, val iconResId: Int? = null) {
     PENCIL("Pencil", Icons.Default.Edit, R.drawable.ic_tabler_pencil),
@@ -65,7 +71,8 @@ enum class ToolPayload(val label: String, val icon: ImageVector, val iconResId: 
     WATERCOLOR("Acuarela", Icons.Default.Palette, R.drawable.ic_tabler_watercolor),
     PLUMA("Pluma", Icons.Default.Gesture, R.drawable.ic_tabler_pluma),
     PENCIL_CUMULATIVE("Pencil Acumulativo", Icons.Default.Edit, R.drawable.ic_tabler_pencil_cumulative),
-    STABILIZE("Estabilización", Icons.Default.Timeline, R.drawable.ic_tabler_edit_points)
+    STABILIZE("Estabilización", Icons.Default.Timeline, R.drawable.ic_tabler_stabilization),
+    TEXT("Texto", Icons.Default.Title)
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -92,7 +99,12 @@ fun AssignableToolButton(
     subTools: List<StudioTool> = emptyList(),
     onSubToolClick: ((StudioTool) -> Unit)? = null,
     tool: StudioTool? = null,
-    stabilizationPreview: Float? = null
+    stabilizationPreview: Float? = null,
+    showStudioMenu: Boolean = false,
+    showPersonalizationDialog: Boolean = false,
+    isColorPreset: Boolean = false,
+    isStabilizePreset: Boolean = false,
+    dropdownContent: @Composable (() -> Unit)? = null
 ) {
     val scaler = LocalUiScaler.current
     val scaleFactor = scaler.scaleFactor
@@ -143,31 +155,58 @@ fun AssignableToolButton(
             if (isNone && (payload == ToolPayload.STROKE_COLOR || payload == ToolPayload.FILL_COLOR)) {
                 // "None" indicator: circle with diagonal slash
                 val noneColor = iconColor.copy(alpha = 0.55f)
-                Canvas(modifier = Modifier.size(24.dp * scaleFactor)) {
-                    val strokeWidth = (2.5.dp * scaleFactor).toPx()
-                    val radius = size.minDimension / 2f - strokeWidth / 2f
-                    val cx = size.width / 2f
-                    val cy = size.height / 2f
-                    // Circle outline
-                    drawCircle(
-                        color = noneColor,
-                        radius = radius,
-                        style = Stroke(width = strokeWidth)
-                    )
-                    // Diagonal slash (top-right to bottom-left, like a prohibition sign)
-                    val angle = Math.toRadians(45.0)
-                    val dx = (radius * kotlin.math.cos(angle)).toFloat()
-                    val dy = (radius * kotlin.math.sin(angle)).toFloat()
-                    drawLine(
-                        color = noneColor,
-                        start = androidx.compose.ui.geometry.Offset(cx - dx, cy + dy),
-                        end = androidx.compose.ui.geometry.Offset(cx + dx, cy - dy),
-                        strokeWidth = strokeWidth,
-                        cap = StrokeCap.Round
-                    )
+                Box(
+                    modifier = Modifier.size(28.dp * scaleFactor),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Canvas(modifier = Modifier.size(24.dp * scaleFactor)) {
+                        val strokeWidth = (2.5.dp * scaleFactor).toPx()
+                        val radius = size.minDimension / 2f - strokeWidth / 2f
+                        val cx = size.width / 2f
+                        val cy = size.height / 2f
+                        // Circle outline
+                        drawCircle(
+                            color = noneColor,
+                            radius = radius,
+                            style = Stroke(width = strokeWidth)
+                        )
+                        // Diagonal slash (top-right to bottom-left, like a prohibition sign)
+                        val angle = Math.toRadians(45.0)
+                        val dx = (radius * kotlin.math.cos(angle)).toFloat()
+                        val dy = (radius * kotlin.math.sin(angle)).toFloat()
+                        drawLine(
+                            color = noneColor,
+                            start = androidx.compose.ui.geometry.Offset(cx - dx, cy + dy),
+                            end = androidx.compose.ui.geometry.Offset(cx + dx, cy - dy),
+                            strokeWidth = strokeWidth,
+                            cap = StrokeCap.Round
+                        )
+                    }
+
+                    if (isColorPreset) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .size(13.dp * scaleFactor)
+                                .background(Color.White.copy(alpha = 0.8f), CircleShape)
+                                .border(0.5.dp * scaleFactor, Color.Black.copy(alpha = 0.25f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "P",
+                                fontSize = 8.sp * scaleFactor,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                color = Color.Black,
+                                lineHeight = 8.sp * scaleFactor
+                            )
+                        }
+                    }
                 }
             } else if (payload == ToolPayload.STABILIZE && stabilizationPreview != null) {
-                Box(contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
                     Icon(
                         imageVector = icon,
                         contentDescription = contentDescription,
@@ -182,30 +221,93 @@ fun AssignableToolButton(
                         fontSize = 10.sp * scaleFactor,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                     )
-                }
-            } else if (colorPreview != null || fillStylePreview != null) {
-                if (payload == ToolPayload.STROKE_COLOR) {
-                    // Hollow circle for Stroke
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp * scaleFactor)
-                            .border(width = 3.dp * scaleFactor, color = colorPreview ?: Color.Black, shape = CircleShape)
-                    )
-                } else {
-                    // FillStyle or Color preview for Fill
-                    if (fillStylePreview != null) {
-                        FillStylePreviewBox(
-                            style = fillStylePreview,
-                            modifier = Modifier.size(24.dp * scaleFactor)
-                        )
-                    } else {
-                        // Solid circle fallback
+                    if (isStabilizePreset) {
                         Box(
                             modifier = Modifier
-                                .size(24.dp * scaleFactor)
-                                .clip(CircleShape)
-                                .background(colorPreview ?: Color.Transparent)
-                        )
+                                .align(Alignment.Center)
+                                .size(13.dp * scaleFactor)
+                                .background(Color.White.copy(alpha = 0.8f), CircleShape)
+                                .border(0.5.dp * scaleFactor, Color.Black.copy(alpha = 0.25f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "P",
+                                fontSize = 8.sp * scaleFactor,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                color = Color.Black,
+                                lineHeight = 8.sp * scaleFactor
+                            )
+                        }
+                    }
+                }
+            } else if (colorPreview != null || fillStylePreview != null) {
+                Box(
+                    modifier = Modifier.size(28.dp * scaleFactor),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (payload == ToolPayload.STROKE_COLOR) {
+                        // Hollow circle for Stroke, potentially with texture
+                        Box(
+                            modifier = Modifier.size(24.dp * scaleFactor),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (fillStylePreview != null) {
+                                FillStylePreviewBox(
+                                    style = fillStylePreview,
+                                    modifier = Modifier.fillMaxSize(),
+                                    drawBorder = false
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(CircleShape)
+                                        .background(colorPreview ?: Color.Black)
+                                )
+                            }
+                            // Hollow mask in center to make it look like a ring/stroke
+                            Box(
+                                modifier = Modifier
+                                    .size(18.dp * scaleFactor)
+                                    .clip(CircleShape)
+                                    .background(backgroundColor)
+                            )
+                        }
+                    } else {
+                        // FillStyle or Color preview for Fill
+                        if (fillStylePreview != null) {
+                            FillStylePreviewBox(
+                                style = fillStylePreview,
+                                modifier = Modifier.size(24.dp * scaleFactor)
+                            )
+                        } else {
+                            // Solid circle fallback
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp * scaleFactor)
+                                    .clip(CircleShape)
+                                    .background(colorPreview ?: Color.Transparent)
+                            )
+                        }
+                    }
+
+                    if (isColorPreset) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .size(13.dp * scaleFactor)
+                                .background(Color.White.copy(alpha = 0.8f), CircleShape)
+                                .border(0.5.dp * scaleFactor, Color.Black.copy(alpha = 0.25f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "P",
+                                fontSize = 8.sp * scaleFactor,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                color = Color.Black,
+                                lineHeight = 8.sp * scaleFactor
+                            )
+                        }
                     }
                 }
             } else {
@@ -257,12 +359,12 @@ fun AssignableToolButton(
                 offset = DpOffset(x = 0.dp, y = 8.dp * scaleFactor),
                 modifier = Modifier.background(theme?.barBackgroundColor ?: Color.DarkGray)
             ) {
-                // Show all tools in the dropdown, including the active tool
-                val dropdownTools = if (tool != null && subTools.none { it.id == tool.id }) {
+                val rawDropdownTools = if (tool != null && subTools.none { it.id == tool.id || it.registryId == tool.registryId }) {
                     listOf(tool) + subTools
                 } else {
                     subTools
                 }
+                val dropdownTools = rawDropdownTools.distinctBy { it.registryId }
 
                 dropdownTools.forEach { subTool ->
                     if (subTool.registryId == "divider") {
@@ -308,18 +410,22 @@ fun AssignableToolButton(
                 }
             }
         }
+        if (dropdownContent != null) {
+            dropdownContent()
+        }
     }
 }
 
 @Composable
 fun FillStylePreviewBox(
     style: FillStyle,
-    modifier: Modifier
+    modifier: Modifier,
+    drawBorder: Boolean = true
 ) {
     Box(
         modifier = modifier
             .clip(CircleShape)
-            .border(1.dp, Color.Gray, CircleShape)
+            .then(if (drawBorder) Modifier.border(1.dp, Color.Gray, CircleShape) else Modifier)
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             when (style) {
@@ -327,54 +433,89 @@ fun FillStylePreviewBox(
                     drawCircle(Color(style.color))
                 }
                 is FillStyle.MathTexture -> {
-                    val primary = Color(style.primaryColor)
-                    val secondary = if (style.secondaryColor == AndroidColor.TRANSPARENT) Color.Transparent else Color(style.secondaryColor)
-                    drawRect(secondary)
-                    
-                    when (style.patternName.uppercase()) {
-                        "GRID" -> {
-                            val strokeWidth = 2.dp.toPx()
-                            drawLine(primary, start = androidx.compose.ui.geometry.Offset(size.width / 2f, 0f), end = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height), strokeWidth = strokeWidth)
-                            drawLine(primary, start = androidx.compose.ui.geometry.Offset(0f, size.height / 2f), end = androidx.compose.ui.geometry.Offset(size.width, size.height / 2f), strokeWidth = strokeWidth)
+                    val bitmap = MathTextureCache.getOrCreate(style)
+                    if (bitmap != null) {
+                        drawIntoCanvas { canvas ->
+                            val nativeCanvas = canvas.nativeCanvas
+                            nativeCanvas.save()
+                            val paint = android.graphics.Paint().apply {
+                                isAntiAlias = true
+                                shader = android.graphics.BitmapShader(bitmap, android.graphics.Shader.TileMode.REPEAT, android.graphics.Shader.TileMode.REPEAT).apply {
+                                    val matrix = android.graphics.Matrix().apply {
+                                        postScale(0.35f, 0.35f)
+                                        postRotate(style.angle)
+                                    }
+                                    setLocalMatrix(matrix)
+                                }
+                            }
+                            nativeCanvas.drawRect(0f, 0f, size.width, size.height, paint)
+                            nativeCanvas.restore()
                         }
-                        "CHECKERBOARD" -> {
-                            drawRect(primary, size = androidx.compose.ui.geometry.Size(size.width / 2f, size.height / 2f))
-                            drawRect(primary, 
-                                topLeft = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f),
-                                size = androidx.compose.ui.geometry.Size(size.width / 2f, size.height / 2f)
-                            )
-                        }
-                        "STRIPES" -> {
-                            val strokeWidth = 3.dp.toPx()
-                            drawLine(primary, start = androidx.compose.ui.geometry.Offset(0f, size.height), end = androidx.compose.ui.geometry.Offset(size.width, 0f), strokeWidth = strokeWidth)
-                            drawLine(primary, start = androidx.compose.ui.geometry.Offset(0f, size.height / 2f), end = androidx.compose.ui.geometry.Offset(size.width / 2f, 0f), strokeWidth = strokeWidth)
-                            drawLine(primary, start = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height), end = androidx.compose.ui.geometry.Offset(size.width, size.height / 2f), strokeWidth = strokeWidth)
-                        }
-                        "DOTS" -> {
-                            drawCircle(primary, radius = size.minDimension / 4f)
-                        }
+                    } else {
+                        val secondary = if (style.secondaryColor == AndroidColor.TRANSPARENT) Color.Transparent else Color(style.secondaryColor)
+                        drawRect(secondary)
                     }
                 }
                 is FillStyle.SvgPattern -> {
-                    drawCircle(Color.LightGray)
-                    val strokeWidth = 1.5.dp.toPx()
-                    drawLine(Color.DarkGray, start = androidx.compose.ui.geometry.Offset(0f, 0f), end = androidx.compose.ui.geometry.Offset(size.width, size.height), strokeWidth = strokeWidth)
-                    drawLine(Color.DarkGray, start = androidx.compose.ui.geometry.Offset(size.width, 0f), end = androidx.compose.ui.geometry.Offset(0f, size.height), strokeWidth = strokeWidth)
+                    if (style.svgContent.isNotEmpty()) {
+                        val bitmap = SvgPatternCache.getOrCreate(style)
+                        if (bitmap != null) {
+                            drawIntoCanvas { canvas ->
+                                val nativeCanvas = canvas.nativeCanvas
+                                nativeCanvas.save()
+                                val paint = android.graphics.Paint().apply {
+                                    isAntiAlias = true
+                                    shader = android.graphics.BitmapShader(bitmap, android.graphics.Shader.TileMode.REPEAT, android.graphics.Shader.TileMode.REPEAT).apply {
+                                        val matrix = android.graphics.Matrix().apply {
+                                            postScale(style.scaleX * 0.35f, style.scaleY * 0.35f)
+                                            postRotate(style.rotation)
+                                            postTranslate(style.offsetX * 0.35f, style.offsetY * 0.35f)
+                                        }
+                                        setLocalMatrix(matrix)
+                                    }
+                                }
+                                nativeCanvas.drawRect(0f, 0f, size.width, size.height, paint)
+                                nativeCanvas.restore()
+                            }
+                        } else {
+                            drawCircle(Color.LightGray)
+                        }
+                    } else {
+                        drawCircle(Color.LightGray)
+                    }
                 }
                 is FillStyle.ImageTexture -> {
-                    drawCircle(Color(0xFFE0E0E0))
-                    val paintColor = Color.Gray
-                    val strokeWidth = 1.dp.toPx()
-                    drawCircle(paintColor, radius = size.minDimension / 6f, center = androidx.compose.ui.geometry.Offset(size.width * 0.35f, size.height * 0.35f))
-                    val path = androidx.compose.ui.graphics.Path().apply {
-                        moveTo(0f, size.height)
-                        lineTo(size.width * 0.4f, size.height * 0.5f)
-                        lineTo(size.width * 0.7f, size.height * 0.8f)
-                        lineTo(size.width * 0.8f, size.height * 0.7f)
-                        lineTo(size.width, size.height)
-                        close()
+                    if (style.imagePath.isNotEmpty()) {
+                        val bitmap = ImageTextureCache.getOrCreate(style.imagePath)
+                        if (bitmap != null) {
+                            drawIntoCanvas { canvas ->
+                                val nativeCanvas = canvas.nativeCanvas
+                                nativeCanvas.save()
+                                val paint = android.graphics.Paint().apply {
+                                    isAntiAlias = true
+                                    shader = android.graphics.BitmapShader(bitmap, android.graphics.Shader.TileMode.REPEAT, android.graphics.Shader.TileMode.REPEAT).apply {
+                                        val matrix = android.graphics.Matrix().apply {
+                                            postScale(style.scaleX * 0.35f, style.scaleY * 0.35f)
+                                            postRotate(style.rotation)
+                                            postTranslate(style.offsetX * 0.35f, style.offsetY * 0.35f)
+                                        }
+                                        setLocalMatrix(matrix)
+                                    }
+                                    alpha = (style.opacity * 255).toInt().coerceIn(0, 255)
+                                    if (style.tintColor != android.graphics.Color.TRANSPARENT && style.tintMix > 0f) {
+                                        val filterColor = (style.tintColor and 0x00FFFFFF) or (((style.tintMix).coerceIn(0f, 1f) * 255).toInt() shl 24)
+                                        colorFilter = android.graphics.PorterDuffColorFilter(filterColor, android.graphics.PorterDuff.Mode.SRC_ATOP)
+                                    }
+                                }
+                                nativeCanvas.drawRect(0f, 0f, size.width, size.height, paint)
+                                nativeCanvas.restore()
+                            }
+                        } else {
+                            drawCircle(Color.LightGray)
+                        }
+                    } else {
+                        drawCircle(Color.LightGray)
                     }
-                    drawPath(path, paintColor)
                 }
             }
         }

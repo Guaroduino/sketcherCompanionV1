@@ -239,6 +239,16 @@ fun FreehandSettingsContent(
         }
         is com.sketcher.sketchercompanionv1.tools.PenSettings -> {
             SettingSlider(
+                label = "Adelgazamiento (Presión): ${(currentSettings.thinning * 100).toInt()}%",
+                value = currentSettings.thinning,
+                onValueChange = { onSettingsChanged(currentSettings.copy(thinning = it)) }
+            )
+            SettingSlider(
+                label = "Adelgazamiento (Velocidad): ${(currentSettings.velocityThinning * 100).toInt()}%",
+                value = currentSettings.velocityThinning,
+                onValueChange = { onSettingsChanged(currentSettings.copy(velocityThinning = it)) }
+            )
+            SettingSlider(
                 label = "Suavizado (Bordes): ${(currentSettings.smoothing * 100).toInt()}%",
                 value = currentSettings.smoothing,
                 valueRange = 0f..1.0f,
@@ -250,6 +260,11 @@ fun FreehandSettingsContent(
                 label = "Adelgazamiento (Presión): ${(currentSettings.thinning * 100).toInt()}%",
                 value = currentSettings.thinning,
                 onValueChange = { onSettingsChanged(currentSettings.copy(thinning = it)) }
+            )
+            SettingSlider(
+                label = "Adelgazamiento (Velocidad): ${(currentSettings.velocityThinning * 100).toInt()}%",
+                value = currentSettings.velocityThinning,
+                onValueChange = { onSettingsChanged(currentSettings.copy(velocityThinning = it)) }
             )
             SettingSlider(
                 label = "Suavizado (Bordes)",
@@ -338,6 +353,11 @@ fun FreehandSettingsContent(
                 onValueChange = { onSettingsChanged(currentSettings.copy(thinning = it)) }
             )
             SettingSlider(
+                label = "Adelgazamiento (Velocidad): ${(currentSettings.velocityThinning * 100).toInt()}%",
+                value = currentSettings.velocityThinning,
+                onValueChange = { onSettingsChanged(currentSettings.copy(velocityThinning = it)) }
+            )
+            SettingSlider(
                 label = "Suavizado (Bordes)",
                 value = currentSettings.smoothing,
                 valueRange = 0f..1.0f,
@@ -370,6 +390,11 @@ fun FreehandSettingsContent(
                 label = "Adelgazamiento (Presión): ${(currentSettings.thinning * 100).toInt()}%",
                 value = currentSettings.thinning,
                 onValueChange = { onSettingsChanged(currentSettings.copy(thinning = it)) }
+            )
+            SettingSlider(
+                label = "Adelgazamiento (Velocidad): ${(currentSettings.velocityThinning * 100).toInt()}%",
+                value = currentSettings.velocityThinning,
+                onValueChange = { onSettingsChanged(currentSettings.copy(velocityThinning = it)) }
             )
             SettingSlider(
                 label = "Suavizado (Bordes)",

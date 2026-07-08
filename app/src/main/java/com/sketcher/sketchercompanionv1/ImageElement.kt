@@ -20,7 +20,8 @@ data class ImageElement(
     val transparentColorTolerances: List<Float> = emptyList(),
     val rotation: Float = 0f,
     val flipHorizontal: Boolean = false,
-    val flipVertical: Boolean = false
+    val flipVertical: Boolean = false,
+    override var isScaleLocked: Boolean = false
 ) : LayerElement {
 
     // Helper property for serialization
@@ -56,7 +57,8 @@ data class ImageElement(
             transparentColorTolerances = transparentColorTolerances,
             rotation = rotation,
             flipHorizontal = flipHorizontal,
-            flipVertical = flipVertical
+            flipVertical = flipVertical,
+            isScaleLocked = isScaleLocked
         )
     }
 }

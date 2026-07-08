@@ -44,6 +44,26 @@ object BitmapUtils {
      */
     fun loadScaledBitmap(context: Context, uri: Uri, maxDimension: Int = 2048): Bitmap? {
         return try {
+            // Read orientation first
+            var rotationDegrees = 0
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                try {
+                    val exif = android.media.ExifInterface(stream)
+                    val orientation = exif.getAttributeInt(
+                        android.media.ExifInterface.TAG_ORIENTATION,
+                        android.media.ExifInterface.ORIENTATION_NORMAL
+                    )
+                    rotationDegrees = when (orientation) {
+                        android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90
+                        android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180
+                        android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270
+                        else -> 0
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
             // 1. Decode bounds only
             var inputStream: InputStream? = context.contentResolver.openInputStream(uri)
             val options = BitmapFactory.Options()
@@ -60,8 +80,18 @@ object BitmapUtils {
             
             // Re-open stream
             inputStream = context.contentResolver.openInputStream(uri)
-            val bitmap = BitmapFactory.decodeStream(inputStream, null, options)
+            var bitmap = BitmapFactory.decodeStream(inputStream, null, options)
             inputStream?.close()
+
+            if (bitmap != null && rotationDegrees != 0) {
+                val matrix = android.graphics.Matrix()
+                matrix.postRotate(rotationDegrees.toFloat())
+                val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                if (rotated != bitmap) {
+                    bitmap.recycle()
+                    bitmap = rotated
+                }
+            }
 
             bitmap
         } catch (e: Exception) {

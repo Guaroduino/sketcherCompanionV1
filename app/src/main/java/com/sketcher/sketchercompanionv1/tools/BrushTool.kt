@@ -89,7 +89,7 @@ class PenTool(
         val s = settings as PenSettings
         return FreehandSettings(
             size = s.size,
-            thinning = 0f,
+            thinning = s.thinning,
             smoothing = s.smoothing,
             streamline = 0f,
             simulatePressure = false,
@@ -99,7 +99,8 @@ class PenTool(
             capEnd = true,
             isComplete = false,
             useCurveForPolygon = true,
-            isSimplificationEnabled = false
+            isSimplificationEnabled = false,
+            velocityThinning = s.velocityThinning
         )
     }
 
@@ -132,7 +133,8 @@ class PlumaTool(
             useCurveForPolygon = s.useCurveForPolygon,
             simplificationTolerance = s.simplificationTolerance,
             isSimplificationEnabled = s.isSimplificationEnabled,
-            minWidthRatio = s.minWidthRatio
+            minWidthRatio = s.minWidthRatio,
+            velocityThinning = s.velocityThinning
         )
     }
 
@@ -160,7 +162,8 @@ class PaintTool(
             capStart = false,
             capEnd = false,
             paintOutlineWidth = s.paintOutlineWidth,
-            paintJoinPrevious = s.paintJoinPrevious
+            paintJoinPrevious = s.paintJoinPrevious,
+            velocityThinning = s.velocityThinning
         )
     }
 
@@ -195,7 +198,8 @@ class WatercolorTool(
             watercolorCenterOpacity = s.watercolorCenterOpacity,
             watercolorEdgeRingOpacity = s.watercolorEdgeRingOpacity,
             watercolorEdgeRingWidth = s.watercolorEdgeRingWidth,
-            paintJoinPrevious = s.paintJoinPrevious
+            paintJoinPrevious = s.paintJoinPrevious,
+            velocityThinning = s.velocityThinning
         )
     }
 

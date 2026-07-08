@@ -45,6 +45,9 @@ class ToolbarManager(
     private val _assignedToolStabilization = MutableStateFlow<Map<String, Float>>(emptyMap())
     val assignedToolStabilization = _assignedToolStabilization.asStateFlow()
 
+    private val _assignedToolOpacity = MutableStateFlow<Map<String, Float>>(emptyMap())
+    val assignedToolOpacity = _assignedToolOpacity.asStateFlow()
+
     var lastActiveColorToolId: String? = null
     var lastActiveStabilizationToolId: String? = null
 
@@ -66,6 +69,13 @@ class ToolbarManager(
         }
     }
 
+    fun updateLastActiveToolOpacity(opacity: Float) {
+        lastActiveStabilizationToolId?.let { id ->
+            _assignedToolOpacity.value = _assignedToolOpacity.value + (id to opacity)
+            saveLayout()
+        }
+    }
+
     fun initLayout() {
         _uiPresetsNames.value = toolbarRepository.getUiPresetsNames()
         _activeUiPresetName.value = toolbarRepository.getActiveUiPresetName()
@@ -82,7 +92,8 @@ class ToolbarManager(
                     assignedMap = _assignedTools.value,
                     toolColors = _assignedToolColors.value,
                     contextualTools = _contextualToolbar.value,
-                    toolStabilization = _assignedToolStabilization.value
+                    toolStabilization = _assignedToolStabilization.value,
+                    toolOpacity = _assignedToolOpacity.value
                 )
                 toolbarRepository.saveUiPreset("Default", currentState)
             }
@@ -91,23 +102,56 @@ class ToolbarManager(
         }
 
         val loaded = toolbarRepository.loadLayout()
-        val layoutResetV9 = prefs.getInt("layout_reset_v9", 0)
+        val layoutResetV11 = prefs.getInt("layout_reset_v11", 0)
         
-        if (loaded != null && layoutResetV9 >= 1) {
+        if (loaded != null && layoutResetV11 >= 1) {
             _assignedTools.value = loaded.assignedMap
             _assignedToolColors.value = loaded.toolColors
             _assignedToolStabilization.value = loaded.toolStabilization
+            _assignedToolOpacity.value = loaded.toolOpacity ?: loaded.toolStabilization.mapValues { 1f }
             
             val toolsWithActions = loaded.tools.mapValues { (_, list) ->
-                list.map { tool -> bindToolActions(tool) }
+                list.map { tool -> bindToolActions(migrateTool(tool)) }
             }
             _toolbarState.value = toolsWithActions
-            _contextualToolbar.value = loaded.contextualTools.map { bindToolActions(it) }
+            _contextualToolbar.value = loaded.contextualTools.map { bindToolActions(migrateTool(it)) }
         } else {
             initToolbarState()
             saveLayout()
-            prefs.edit().putInt("layout_reset_v9", 1).apply()
+            val currentState = com.sketcher.sketchercompanionv1.data.ToolbarStateResult(
+                tools = _toolbarState.value,
+                assignedMap = _assignedTools.value,
+                toolColors = _assignedToolColors.value,
+                contextualTools = _contextualToolbar.value,
+                toolStabilization = _assignedToolStabilization.value,
+                toolOpacity = _assignedToolOpacity.value
+            )
+            toolbarRepository.saveUiPreset("Default", currentState)
+            prefs.edit().putInt("layout_reset_v11", 1).apply()
         }
+    }
+
+    private fun migrateTool(tool: StudioTool): StudioTool {
+        val targetTool = if (tool.registryId == "stroke_type" || tool.registryId == "stroke_freehand") {
+            val savedTypeStr = prefs.getString("current_stroke_type", "FREEHAND") ?: "FREEHAND"
+            val targetId = when (savedTypeStr) {
+                "FREEHAND" -> "stroke_freehand"
+                "LINE" -> "stroke_line"
+                "POLYLINE" -> "stroke_polyline"
+                "CIRCLE" -> "stroke_circle"
+                "ARC" -> "stroke_arc"
+                "ELLIPSE" -> "stroke_ellipse"
+                "SPLINE" -> "stroke_spline"
+                "BEZIER" -> "stroke_bezier"
+                else -> "stroke_freehand"
+            }
+            ToolRegistry.getToolById(targetId) ?: ToolRegistry.getToolById("stroke_freehand") ?: tool
+        } else {
+            tool
+        }
+        
+        val migratedSubTools = targetTool.subTools.map { migrateTool(it) }
+        return targetTool.copy(subTools = migratedSubTools)
     }
 
     private fun getPayloadFromToolId(id: String): ToolPayload? = when(id) {
@@ -123,6 +167,7 @@ class ToolbarManager(
         "pluma" -> ToolPayload.PLUMA
         "pencil_cumulative" -> ToolPayload.PENCIL_CUMULATIVE
         "quick_stabilization" -> ToolPayload.STABILIZE
+        "text" -> ToolPayload.TEXT
         else -> null
     }
 
@@ -135,6 +180,7 @@ class ToolbarManager(
             _assignedToolColors.value = _assignedToolColors.value + (toolId to getDefaultFillColor())
         } else if (payload == ToolPayload.STABILIZE) {
             _assignedToolStabilization.value = _assignedToolStabilization.value + (toolId to 0f)
+            _assignedToolOpacity.value = _assignedToolOpacity.value + (toolId to 1f)
         }
 
         val updatedToolbar = _toolbarState.value.mapValues { (_, list) ->
@@ -506,15 +552,15 @@ class ToolbarManager(
             ToolLocation.RightBar to listOfNotNull(
                 ToolRegistry.getToolById(StudioTool.SIZE_OPACITY_TOOL_ID),
                 ToolRegistry.getToolById("pencil"),
-                ToolRegistry.getToolById("stroke_type"),
+                ToolRegistry.getToolById("stroke_freehand"),
+                ToolRegistry.getToolById(StudioTool.STABILIZATION_TOOL_ID),
                 ToolRegistry.getToolById("divider"),
                 ToolRegistry.getToolById("stroke_color"),
                 ToolRegistry.getToolById("fill_color"),
                 ToolRegistry.getToolById("divider"),
                 ToolRegistry.getToolById("eraser"),
                 ToolRegistry.getToolById("divider"),
-                ToolRegistry.getToolById("edit_points"),
-                ToolRegistry.getToolById("toggle_snap")
+                ToolRegistry.getToolById("text")
             ),
             ToolLocation.TopBar to listOfNotNull(
                 ToolRegistry.getToolById("zoom_fit"),
@@ -530,9 +576,7 @@ class ToolbarManager(
             ToolLocation.TopLeftCorner to listOfNotNull(
                 ToolRegistry.getToolById("menu")
             ),
-            ToolLocation.TopRightCorner to listOfNotNull(
-                ToolRegistry.getToolById("settings")
-            ),
+            ToolLocation.TopRightCorner to emptyList(),
             ToolLocation.BottomLeftCorner to listOfNotNull(
                 ToolRegistry.getToolById("undo")
             ),
@@ -558,6 +602,8 @@ class ToolbarManager(
         if (loaded != null) {
             _assignedTools.value = loaded.assignedMap
             _assignedToolColors.value = loaded.toolColors
+            _assignedToolStabilization.value = loaded.toolStabilization
+            _assignedToolOpacity.value = loaded.toolOpacity ?: loaded.toolStabilization.mapValues { 1f }
             
             val toolsWithActions = loaded.tools.mapValues { (_, list) ->
                 list.map { tool -> bindToolActions(tool) }
@@ -586,6 +632,7 @@ class ToolbarManager(
             
             val defaultContextual = listOfNotNull(
                 ToolRegistry.getToolById("context_transform"),
+                ToolRegistry.getToolById("context_lock_scale"),
                 ToolRegistry.getToolById("divider"),
                 ToolRegistry.getToolById("action_copy"),
                 ToolRegistry.getToolById("action_cut"),
@@ -617,7 +664,8 @@ class ToolbarManager(
             assignedMap = _assignedTools.value,
             toolColors = _assignedToolColors.value,
             contextualTools = _contextualToolbar.value,
-            toolStabilization = _assignedToolStabilization.value
+            toolStabilization = _assignedToolStabilization.value,
+            toolOpacity = _assignedToolOpacity.value
         )
         toolbarRepository.saveUiPreset(name, currentState)
         _uiPresetsNames.value = toolbarRepository.getUiPresetsNames()
@@ -632,6 +680,7 @@ class ToolbarManager(
             _assignedTools.value = loaded.assignedMap
             _assignedToolColors.value = loaded.toolColors
             _assignedToolStabilization.value = loaded.toolStabilization
+            _assignedToolOpacity.value = loaded.toolOpacity ?: loaded.toolStabilization.mapValues { 1f }
             
             val toolsWithActions = loaded.tools.mapValues { (_, list) ->
                 list.map { tool -> bindToolActions(tool) }
@@ -680,6 +729,7 @@ class ToolbarManager(
             _assignedTools.value,
             _assignedToolColors.value,
             _assignedToolStabilization.value,
+            _assignedToolOpacity.value,
             _contextualToolbar.value
         )
         val activeName = _activeUiPresetName.value
@@ -689,7 +739,8 @@ class ToolbarManager(
                 assignedMap = _assignedTools.value,
                 toolColors = _assignedToolColors.value,
                 contextualTools = _contextualToolbar.value,
-                toolStabilization = _assignedToolStabilization.value
+                toolStabilization = _assignedToolStabilization.value,
+                toolOpacity = _assignedToolOpacity.value
             )
             toolbarRepository.saveUiPreset(activeName, currentState)
         }

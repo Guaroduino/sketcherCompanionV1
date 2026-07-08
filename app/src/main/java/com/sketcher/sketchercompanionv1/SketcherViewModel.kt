@@ -5,6 +5,8 @@ package com.sketcher.sketchercompanionv1
 import android.app.Application
 
 import android.content.Context
+import android.hardware.input.InputManager
+import android.view.InputDevice
 
 import android.graphics.Color as AndroidColor
 
@@ -19,7 +21,7 @@ import android.graphics.PorterDuffXfermode
 import android.net.wifi.WifiManager
 
 import androidx.compose.runtime.getValue
-
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 
 import androidx.compose.runtime.setValue
@@ -55,6 +57,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 import kotlinx.coroutines.flow.asStateFlow
+import androidx.compose.runtime.remember
+import kotlinx.coroutines.tasks.await
 import com.sketcher.sketchercompanionv1.managers.LibraryManager
 import com.sketcher.sketchercompanionv1.LibraryItem
 import com.sketcher.sketchercompanionv1.LibraryFolder
@@ -149,6 +153,256 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         private set
     var cloudSyncMessage by mutableStateOf<String?>(null)
         private set
+    var syncTrigger by mutableStateOf(0)
+        private set
+
+    fun incrementSyncTrigger() {
+        viewModelScope.launch(Dispatchers.Main) {
+            syncTrigger++
+        }
+    }
+
+    fun getProjectLastUploadedTime(context: Context, projectId: String): Long {
+        val prefs = context.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE)
+        return prefs.getLong("sync_project_last_uploaded_$projectId", 0L)
+    }
+
+    fun setProjectLastUploadedTime(context: Context, projectId: String, timestamp: Long) {
+        val prefs = context.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putLong("sync_project_last_uploaded_$projectId", timestamp).apply()
+        incrementSyncTrigger()
+    }
+
+    fun getFolderLastUploadedTime(context: Context, relPath: String): Long {
+        val prefs = context.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE)
+        return prefs.getLong("sync_folder_last_uploaded_$relPath", 0L)
+    }
+
+    fun setFolderLastUploadedTime(context: Context, relPath: String, timestamp: Long) {
+        val prefs = context.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putLong("sync_folder_last_uploaded_$relPath", timestamp).apply()
+        incrementSyncTrigger()
+    }
+
+    fun getLibraryLastUploadedTime(context: Context): Long {
+        val prefs = context.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE)
+        return prefs.getLong("sync_library_last_uploaded", 0L)
+    }
+
+    fun setLibraryLastUploadedTime(context: Context, timestamp: Long) {
+        val prefs = context.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putLong("sync_library_last_uploaded", timestamp).apply()
+        incrementSyncTrigger()
+    }
+
+    @Composable
+    fun isProjectSynced(context: Context, projectId: String, localLastModified: Long): Boolean {
+        val trigger = syncTrigger
+        if (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser == null) return false
+        val lastUploaded = getProjectLastUploadedTime(context, projectId)
+        return lastUploaded != 0L && (localLastModified <= lastUploaded || Math.abs(localLastModified - lastUploaded) <= 2000)
+    }
+
+    @Composable
+    fun isFolderSynced(context: Context, relPath: String, localLastModified: Long): Boolean {
+        val trigger = syncTrigger
+        if (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser == null) return false
+        
+        val rootDir = remember(relPath) { getProjectsRootDir(context) }
+        val folderDir = remember(relPath) { java.io.File(rootDir, relPath) }
+        val metadataFile = remember(relPath) { java.io.File(folderDir, ".metadata.json") }
+        
+        val isFolderMetaSynced = if (metadataFile.exists()) {
+            val lastUploaded = getFolderLastUploadedTime(context, relPath)
+            lastUploaded != 0L && (metadataFile.lastModified() <= lastUploaded || Math.abs(metadataFile.lastModified() - lastUploaded) <= 2000L)
+        } else {
+            true
+        }
+        if (!isFolderMetaSynced) return false
+
+        // Check if all projects inside are synced
+        if (folderDir.exists() && folderDir.isDirectory) {
+            val projectFiles = remember(trigger, relPath) {
+                folderDir.walkTopDown().filter { it.extension == "skc" }.toList()
+            }
+            val allProjectsSynced = projectFiles.all { file ->
+                val pId = getProjectId(file) ?: return@all true
+                val lastUploadedProj = getProjectLastUploadedTime(context, pId)
+                lastUploadedProj != 0L && (file.lastModified() <= lastUploadedProj || Math.abs(file.lastModified() - lastUploadedProj) <= 2000L)
+            }
+            if (!allProjectsSynced) return false
+        }
+        return true
+    }
+
+    @Composable
+    fun isLibrarySynced(context: Context): Boolean {
+        val trigger = syncTrigger
+        if (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser == null) return false
+        val localLibraryFile = getLibraryFile(context)
+        if (!localLibraryFile.exists()) return true
+        val localLastModified = localLibraryFile.lastModified()
+        val lastUploaded = getLibraryLastUploadedTime(context)
+        return lastUploaded != 0L && (localLastModified <= lastUploaded || Math.abs(localLastModified - lastUploaded) <= 2000)
+    }
+
+    fun getDeviceUid(context: Context): String {
+        val prefs = context.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE)
+        var uid = prefs.getString("device_uid", null)
+        if (uid == null) {
+            uid = UUID.randomUUID().toString()
+            prefs.edit().putString("device_uid", uid).apply()
+        }
+        return uid
+    }
+
+    private fun rewriteProjectIdInZip(file: java.io.File, newProjectId: String) {
+        try {
+            val tempFile = java.io.File(file.parentFile, "${file.name}.idtemp")
+            java.util.zip.ZipInputStream(file.inputStream().buffered()).use { zipIn ->
+                java.util.zip.ZipOutputStream(tempFile.outputStream().buffered()).use { zipOut ->
+                    var entry = zipIn.nextEntry
+                    while (entry != null) {
+                        zipOut.putNextEntry(java.util.zip.ZipEntry(entry.name))
+                        if (entry.name == "project.json") {
+                            val json = zipIn.bufferedReader(Charsets.UTF_8).readText()
+                            val obj = org.json.JSONObject(json)
+                            obj.put("id", newProjectId)
+                            zipOut.write(obj.toString().toByteArray(Charsets.UTF_8))
+                        } else {
+                            zipIn.copyTo(zipOut)
+                        }
+                        zipOut.closeEntry()
+                        entry = zipIn.nextEntry
+                    }
+                }
+            }
+            if (tempFile.exists()) {
+                file.delete()
+                tempFile.renameTo(file)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    var projectVersionsList by mutableStateOf<List<Map<String, Any>>>(emptyList())
+        private set
+    var isLoadingVersions by mutableStateOf(false)
+        private set
+
+    fun fetchProjectVersions(projectId: String) {
+        viewModelScope.launch {
+            isLoadingVersions = true
+            try {
+                val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                if (user != null) {
+                    val snapshot = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                        .collection("users").document(user.uid)
+                        .collection("projects").document(projectId).get().await()
+                    val versions = snapshot.get("versions") as? List<Map<String, Any>> ?: emptyList()
+                    projectVersionsList = versions.sortedByDescending { (it["timestamp"] as? Number)?.toLong() ?: 0L }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                isLoadingVersions = false
+            }
+        }
+    }
+
+    fun restoreProjectVersion(context: Context, projectId: String, relativePath: String, fileUrl: String, timestamp: Long) {
+        viewModelScope.launch {
+            isSyncingCloud = true
+            cloudSyncMessage = "Restaurando versión..."
+            try {
+                val rootDir = getProjectsRootDir(context)
+                val destFile = java.io.File(rootDir, relativePath)
+                destFile.parentFile?.mkdirs()
+                
+                val tempFile = java.io.File(destFile.parentFile, "${destFile.name}.tmp")
+                val downloadRes = cloudSyncRepository.downloadProject(projectId, tempFile, fileUrl)
+                if (downloadRes.isSuccess) {
+                    if (destFile.exists()) destFile.delete()
+                    tempFile.renameTo(destFile)
+                    
+                    // Set new local modification timestamp (current time) to treat it as a new version
+                    val newTimestamp = System.currentTimeMillis()
+                    destFile.setLastModified(newTimestamp)
+                    
+                    // Upload this restored version back as the latest version
+                    uploadProjectSilently(context, destFile)
+                    
+                    setProjectLastUploadedTime(context, projectId, newTimestamp)
+                    refreshLocalItems()
+                    cloudSyncMessage = "Versión restaurada con éxito"
+                } else {
+                    cloudSyncMessage = "Error al descargar la versión"
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                cloudSyncMessage = "Error al restaurar"
+            } finally {
+                kotlinx.coroutines.delay(2000)
+                cloudSyncMessage = null
+                isSyncingCloud = false
+            }
+        }
+    }
+
+    fun createProjectCopyFromVersion(context: Context, originalName: String, projectId: String, fileUrl: String) {
+        viewModelScope.launch {
+            isSyncingCloud = true
+            cloudSyncMessage = "Creando copia..."
+            try {
+                val rootDir = getProjectsRootDir(context)
+                val newProjectId = UUID.randomUUID().toString()
+                
+                var baseName = "${originalName}_Copia"
+                var copyFile = java.io.File(rootDir, "$baseName.skc")
+                var counter = 1
+                while (copyFile.exists()) {
+                    copyFile = java.io.File(rootDir, "${baseName}_$counter.skc")
+                    counter++
+                }
+                
+                val tempFile = java.io.File(rootDir, "${copyFile.name}.tmp")
+                val downloadRes = cloudSyncRepository.downloadProject(projectId, tempFile, fileUrl)
+                if (downloadRes.isSuccess) {
+                    tempFile.renameTo(copyFile)
+                    
+                    // Rewrite ID in the new file
+                    rewriteProjectIdInZip(copyFile, newProjectId)
+                    
+                    // Copy thumbnail if it exists
+                    val thumbCacheDir = java.io.File(context.cacheDir, "thumbnails")
+                    val oldThumbFile = java.io.File(thumbCacheDir, "$projectId.png")
+                    val newThumbFile = java.io.File(thumbCacheDir, "$newProjectId.png")
+                    if (oldThumbFile.exists()) {
+                        try {
+                            oldThumbFile.copyTo(newThumbFile, overwrite = true)
+                        } catch (e: Exception) {}
+                    }
+                    
+                    // Upload this new project copy
+                    uploadProjectSilently(context, copyFile)
+                    
+                    refreshLocalItems()
+                    cloudSyncMessage = "Copia creada con éxito"
+                } else {
+                    cloudSyncMessage = "Error al descargar la versión"
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                cloudSyncMessage = "Error al crear copia"
+            } finally {
+                kotlinx.coroutines.delay(2000)
+                cloudSyncMessage = null
+                isSyncingCloud = false
+            }
+        }
+    }
+
 
     private val projectFileManager = com.sketcher.sketchercompanionv1.managers.ProjectFileManager()
 
@@ -371,7 +625,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     var isRotationLocked by mutableStateOf(prefs.getBoolean("rotation_lock", false))
 
-    var isPalmRejectionEnabled by mutableStateOf(prefs.getBoolean("palm_rejection", false))
+    var isPalmRejectionEnabled by mutableStateOf(prefs.getBoolean("palm_rejection", detectStylusSupport(getApplication<Application>())))
 
     var showTooltips by mutableStateOf(prefs.getBoolean("show_tooltips", true))
 
@@ -552,6 +806,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     val assignedToolColors = toolbarManager.assignedToolColors
     val assignedToolStabilization = toolbarManager.assignedToolStabilization
+    val assignedToolOpacity = toolbarManager.assignedToolOpacity
 
     var lastActiveColorToolId: String?
         get() = toolbarManager.lastActiveColorToolId
@@ -569,6 +824,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         toolbarManager.updateLastActiveToolStabilization(stabilization)
     }
 
+    fun updateLastActiveToolOpacity(opacity: Float) {
+        toolbarManager.updateLastActiveToolOpacity(opacity)
+    }
+
     fun restoreStabilizationToPreset() {
         val defaultStab = if (toolManager.currentTool == ToolType.FREEHAND || toolManager.currentTool == ToolType.PENCIL_CUMULATIVE) 0.07f else 0f
         val idx = toolManager.selectedPresetIndex.value
@@ -584,6 +843,32 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         updateLastActiveToolStabilization(presetStab)
     }
 
+    fun restoreOpacityToPreset() {
+        val idx = toolManager.selectedPresetIndex.value
+        val list = toolManager.brushPresets.value
+        val defaultOpacity = 1.0f
+        val presetOpacity = if (idx != null && idx in list.indices) {
+            list[idx].opacity
+        } else if (list.isNotEmpty()) {
+            list[0].opacity
+        } else {
+            defaultOpacity
+        }
+        toolManager.restoreOpacityToPreset()
+        updateLastActiveToolOpacity(presetOpacity)
+    }
+
+    fun revertBrushPreset(index: Int) {
+        toolManager.revertBrushPreset(index)
+        val list = toolManager.brushPresets.value
+        if (index in list.indices) {
+            val preset = list[index]
+            val defaultStab = if (toolManager.currentTool == ToolType.FREEHAND || toolManager.currentTool == ToolType.PENCIL_CUMULATIVE) 0.07f else 0f
+            updateLastActiveToolStabilization(preset.stabilization ?: defaultStab)
+            updateLastActiveToolOpacity(preset.opacity)
+        }
+    }
+
     private val _showStrokeColorPicker = MutableStateFlow(false)
     val showStrokeColorPicker = _showStrokeColorPicker.asStateFlow()
 
@@ -596,6 +881,18 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun setShowStrokeColorPicker(show: Boolean) { _showStrokeColorPicker.value = show }
     fun setShowFillColorPicker(show: Boolean) { _showFillColorPicker.value = show }
     fun setShowStabilizePicker(show: Boolean) { _showStabilizePicker.value = show }
+
+    private val _showGridMenuDialog = MutableStateFlow(false)
+    val showGridMenuDialog = _showGridMenuDialog.asStateFlow()
+    fun setShowGridMenuDialog(show: Boolean) { _showGridMenuDialog.value = show }
+
+    private val _showStudioMenu = MutableStateFlow(false)
+    val showStudioMenu = _showStudioMenu.asStateFlow()
+    fun setShowStudioMenu(show: Boolean) { _showStudioMenu.value = show }
+
+    private val _showPersonalizationDialog = MutableStateFlow(false)
+    val showPersonalizationDialog = _showPersonalizationDialog.asStateFlow()
+    fun setShowPersonalizationDialog(show: Boolean) { _showPersonalizationDialog.value = show }
 
 
 
@@ -632,20 +929,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             ToolPayload.ERASER -> selectTool(ToolType.ERASER)
 
             ToolPayload.STROKE_COLOR -> {
-
-                toolId?.let { id ->
-
-                    assignedToolColors.value[id]?.let { setStrokeColor(it) }
-
-                }
-
-                // Do NOT open picker on activation anymore
-
+                revertToPresetColor(isStroke = true)
             }
 
             ToolPayload.FILL_COLOR -> {
-                // Toggle fill active state without resetting to solid color
-                toggleFill(!isFillActive.value)
+                revertToPresetColor(isStroke = false)
             }
             ToolPayload.POINT_ERASER -> {
                 selectTool(ToolType.POINT_ERASER)
@@ -657,7 +945,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 lastActiveStabilizationToolId = toolId
                 toolId?.let { id ->
                     assignedToolStabilization.value[id]?.let { setGlobalStabilization(it) }
+                    assignedToolOpacity.value[id]?.let { updateBrushOpacity(it) }
                 }
+            }
+            ToolPayload.TEXT -> {
+                selectTool(ToolType.TEXT)
             }
 
         }
@@ -711,7 +1003,17 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     fun insertPlaceholderSlot(location: ToolLocation, targetIndex: Int, relativePosition: Int) = toolbarManager.insertPlaceholderSlot(location, targetIndex, relativePosition)
 
-
+    private fun ensureDrawingToolActive() {
+        val isDrawTool = currentTool == ToolType.FREEHAND ||
+                         currentTool == ToolType.PEN ||
+                         currentTool == ToolType.PAINT ||
+                         currentTool == ToolType.WATERCOLOR ||
+                         currentTool == ToolType.PLUMA ||
+                         currentTool == ToolType.PENCIL_CUMULATIVE
+        if (!isDrawTool) {
+            selectTool(ToolType.FREEHAND)
+        }
+    }
 
     internal fun getActionForTool(id: String): () -> Unit = when(id) {
 
@@ -725,9 +1027,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         "action_paste" -> ({ paste() })
 
-        "menu" -> ({})
+        "menu" -> ({ _showStudioMenu.value = true })
 
-        "settings" -> ({})
+        "settings" -> ({ _showPersonalizationDialog.value = true })
+
+        "grid_menu" -> ({ _showGridMenuDialog.value = true })
 
         StudioTool.PROPERTIES_TOOL_ID -> ({ togglePropertiesPanel() })
 
@@ -773,40 +1077,75 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         "point_eraser" -> ({ selectTool(ToolType.POINT_ERASER) })
         "cut_eraser" -> ({ selectTool(ToolType.CUT_ERASER) })
  
-        "stroke_freehand" -> ({ updateStrokeType(StrokeType.FREEHAND) })
-        "stroke_line" -> ({ updateStrokeType(StrokeType.LINE) })
-        "stroke_polyline" -> ({ updateStrokeType(StrokeType.POLYLINE) })
-        "stroke_circle" -> ({ updateStrokeType(StrokeType.CIRCLE) })
-        "stroke_arc" -> ({ updateStrokeType(StrokeType.ARC) })
-        "stroke_ellipse" -> ({ updateStrokeType(StrokeType.ELLIPSE) })
-        "stroke_spline" -> ({ updateStrokeType(StrokeType.SPLINE) })
-        "stroke_bezier" -> ({ updateStrokeType(StrokeType.BEZIER) })
+        "stroke_type" -> ({
+            ensureDrawingToolActive()
+        })
+
+        "stroke_freehand" -> ({
+            ensureDrawingToolActive()
+            updateStrokeType(StrokeType.FREEHAND)
+        })
+        "stroke_line" -> ({
+            ensureDrawingToolActive()
+            updateStrokeType(StrokeType.LINE)
+        })
+        "stroke_polyline" -> ({
+            ensureDrawingToolActive()
+            updateStrokeType(StrokeType.POLYLINE)
+        })
+        "stroke_circle" -> ({
+            ensureDrawingToolActive()
+            updateStrokeType(StrokeType.CIRCLE)
+        })
+        "stroke_arc" -> ({
+            ensureDrawingToolActive()
+            updateStrokeType(StrokeType.ARC)
+        })
+        "stroke_ellipse" -> ({
+            ensureDrawingToolActive()
+            updateStrokeType(StrokeType.ELLIPSE)
+        })
+        "stroke_spline" -> ({
+            ensureDrawingToolActive()
+            updateStrokeType(StrokeType.SPLINE)
+        })
+        "stroke_bezier" -> ({
+            ensureDrawingToolActive()
+            updateStrokeType(StrokeType.BEZIER)
+        })
 
         "line" -> ({
+             ensureDrawingToolActive()
              updateStrokeType(StrokeType.LINE)
         })
  
         "circle" -> ({
+             ensureDrawingToolActive()
              updateStrokeType(StrokeType.CIRCLE)
         })
  
         "polyline" -> ({
+             ensureDrawingToolActive()
              updateStrokeType(StrokeType.POLYLINE)
         })
  
         "arc" -> ({
+             ensureDrawingToolActive()
              updateStrokeType(StrokeType.ARC)
         })
  
         "ellipse" -> ({
+             ensureDrawingToolActive()
              updateStrokeType(StrokeType.ELLIPSE)
         })
  
         "spline" -> ({
+             ensureDrawingToolActive()
              updateStrokeType(StrokeType.SPLINE)
         })
  
         "bezier" -> ({
+             ensureDrawingToolActive()
              updateStrokeType(StrokeType.BEZIER)
         })
 
@@ -879,6 +1218,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         })
 
         "context_deselect" -> ({ clearSelection() })
+
+        "context_lock_scale" -> ({ toggleScaleLock() })
 
         "context_delete" -> ({ deleteSelection() })
 
@@ -977,7 +1318,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         isRotationLocked = prefs.getBoolean("rotation_lock", false)
 
-        isPalmRejectionEnabled = prefs.getBoolean("palm_rejection", false)
+        isPalmRejectionEnabled = prefs.getBoolean("palm_rejection", detectStylusSupport(getApplication<Application>()))
 
         showTooltips = prefs.getBoolean("show_tooltips", true)
 
@@ -1271,6 +1612,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     val fillOpacity = toolManager.fillOpacity
     val isStrokeActive = toolManager.isStrokeActive
     val isFillActive = toolManager.isFillActive
+    val isStrokeColorPreset = toolManager.isStrokeColorPreset
+    val isFillColorPreset = toolManager.isFillColorPreset
 
     var isGeometricStrokeInProgress by mutableStateOf(false)
         private set
@@ -1280,7 +1623,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun updateBrushSize(newSize: Float) = toolManager.updateBrushSize(newSize)
-    fun updateBrushOpacity(newAlpha: Float) = toolManager.updateBrushOpacity(newAlpha)
+    fun updateBrushOpacity(newAlpha: Float) {
+        toolManager.updateBrushOpacity(newAlpha)
+        updateLastActiveToolOpacity(newAlpha)
+    }
     fun updateFillOpacity(opacity: Float) = toolManager.updateFillOpacity(opacity)
     fun updateStrokeType(type: StrokeType) = toolManager.updateStrokeType(type)
     
@@ -1291,7 +1637,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         toolManager.setEraserShape(shape)
     }
 
-    fun setStrokeColor(color: Int) = toolManager.setStrokeColor(color)
+    fun setStrokeColor(color: Int) {
+        toolManager.setStrokeColor(color)
+        if (isSingleTextSelected) {
+            updateSelectedTextProperty("Cambiar Color de Texto") {
+                it.copy(defaultTextColor = color)
+            }
+        }
+    }
     fun setStrokeStyle(style: FillStyle) = toolManager.setStrokeStyle(style)
     fun setFillColor(color: Int) = toolManager.setFillColor(color)
     fun setFillStyle(style: FillStyle) = toolManager.setFillStyle(style)
@@ -1313,27 +1666,17 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         toolManager.selectBrushPreset(index)
         val defaultStab = if (toolManager.currentTool == ToolType.FREEHAND || toolManager.currentTool == ToolType.PENCIL_CUMULATIVE) 0.07f else 0f
         val list = toolManager.brushPresets.value
-        val presetStab = if (index in list.indices) {
-            list[index].stabilization ?: defaultStab
-        } else {
-            defaultStab
+        if (index in list.indices) {
+            val preset = list[index]
+            val presetStab = preset.stabilization ?: defaultStab
+            val presetOpacity = preset.opacity
+            updateLastActiveToolStabilization(presetStab)
+            updateLastActiveToolOpacity(presetOpacity)
         }
-        updateLastActiveToolStabilization(presetStab)
     }
     fun isPresetModified(index: Int): Boolean = toolManager.isPresetModified(index)
     fun revertToPresetColor(isStroke: Boolean) {
-        val index = selectedPresetIndex.value ?: 0
-        val list = brushPresets.value
-        if (index in list.indices) {
-            val preset = list[index]
-            if (isStroke) {
-                preset.strokeColor?.let { setStrokeColor(it) }
-            } else {
-                preset.fillColor?.let { setFillColor(it) }
-                preset.fillStyle?.let { setFillStyle(it) }
-                preset.isFillActive?.let { toggleFill(it) }
-            }
-        }
+        toolManager.revertToPresetColor(isStroke)
     }
     val fillPresets = toolManager.fillPresets
     fun saveFillPreset(index: Int, style: FillStyle) = toolManager.saveFillPreset(index, style)
@@ -1486,10 +1829,16 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     fun enterTransformMode() {
         if (selectionManager.selectedElements.isEmpty()) return
+        selectionManager.recalculateBaseBounds(componentLibrary)
         selectTool(ToolType.SELECTION)
         layersSnapshotBeforeTransform = createLayersSnapshot()
         selectionManager.backupOriginalElements()
         currentSelectionMode = SelectionMode.TRANSFORM_BOX
+    }
+
+    fun toggleScaleLock() {
+        selectionManager.toggleScaleLock()
+        notifyLayersChanged()
     }
 
     fun confirmTransform() {
@@ -1946,16 +2295,19 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     fun updateGlobalStabilization(value: Float) {
         toolManager.setGlobalStabilization(value)
+        updateLastActiveToolStabilization(value)
     }
 
     var globalStabilizationLevel: Float
         get() = toolManager.globalStabilizationLevel
         set(value) {
             toolManager.setGlobalStabilization(value)
+            updateLastActiveToolStabilization(value)
         }
 
     fun setGlobalStabilization(level: Float) {
         toolManager.setGlobalStabilization(level)
+        updateLastActiveToolStabilization(level)
     }
 
 
@@ -2751,6 +3103,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     }
 
+    private fun isCurrentCameraIdentity(): Boolean {
+        return cameraMatrixValues[0] == 1f && cameraMatrixValues[1] == 0f && cameraMatrixValues[2] == 0f &&
+               cameraMatrixValues[3] == 0f && cameraMatrixValues[4] == 1f && cameraMatrixValues[5] == 0f &&
+               cameraMatrixValues[6] == 0f && cameraMatrixValues[7] == 0f && cameraMatrixValues[8] == 1f
+    }
+
 
 
     fun centerPaperAsHomeCamera() {
@@ -2893,10 +3251,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
             liveProjectionController.updateViewportDimensions(w, h)
 
-            if (isHomeCameraDefaultOrIdentity() && !isProjectCameraLoaded) {
-
+            if (isCurrentCameraIdentity()) {
                 centerPaperAsHomeCamera()
-
+            } else if (isHomeCameraDefaultOrIdentity() && !isProjectCameraLoaded) {
+                centerPaperAsHomeCamera()
             }
 
             isProjectCameraLoaded = false
@@ -2929,11 +3287,17 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         val currentScale = getMatrixScale(m)
 
-        val targetScale = (currentScale * 1.2f).coerceIn(0.2f, 12.0f)
+        val zoomScale100 = getZoomScale100()
+
+        val currentNormalizedZoom = currentScale / zoomScale100
+
+        val targetNormalizedZoom = (currentNormalizedZoom * 1.2f).coerceIn(0.2f, 12.0f)
 
         val snapThreshold = 0.08f
 
-        val finalScale = if (kotlin.math.abs(targetScale - 1.0f) < snapThreshold) 1.0f else targetScale
+        val finalNormalizedZoom = if (kotlin.math.abs(targetNormalizedZoom - 1.0f) < snapThreshold) 1.0f else targetNormalizedZoom
+
+        val finalScale = finalNormalizedZoom * zoomScale100
 
         val factor = finalScale / currentScale
 
@@ -2953,11 +3317,17 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         val currentScale = getMatrixScale(m)
 
-        val targetScale = (currentScale * 0.8f).coerceIn(0.2f, 12.0f)
+        val zoomScale100 = getZoomScale100()
+
+        val currentNormalizedZoom = currentScale / zoomScale100
+
+        val targetNormalizedZoom = (currentNormalizedZoom * 0.8f).coerceIn(0.2f, 12.0f)
 
         val snapThreshold = 0.08f
 
-        val finalScale = if (kotlin.math.abs(targetScale - 1.0f) < snapThreshold) 1.0f else targetScale
+        val finalNormalizedZoom = if (kotlin.math.abs(targetNormalizedZoom - 1.0f) < snapThreshold) 1.0f else targetNormalizedZoom
+
+        val finalScale = finalNormalizedZoom * zoomScale100
 
         val factor = finalScale / currentScale
 
@@ -3496,17 +3866,41 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                  val scaleY = config.height.toFloat() / lastViewportHeight
 
-                 matrix.postScale(scaleX, scaleY)
+                 val scale = minOf(scaleX, scaleY)
+
+                 val contentWidth = lastViewportWidth * scale
+
+                 val contentHeight = lastViewportHeight * scale
+
+                 val dx = (config.width - contentWidth) / 2f
+
+                 val dy = (config.height - contentHeight) / 2f
+
+                 matrix.postScale(scale, scale)
+
+                 matrix.postTranslate(dx, dy)
 
              } else {
-
-                 matrix.postTranslate(-sourceBounds.left, -sourceBounds.top)
 
                  val scaleX = config.width.toFloat() / sourceBounds.width()
 
                  val scaleY = config.height.toFloat() / sourceBounds.height()
 
-                 matrix.postScale(scaleX, scaleY)
+                 val scale = minOf(scaleX, scaleY)
+
+                 val contentWidth = sourceBounds.width() * scale
+
+                 val contentHeight = sourceBounds.height() * scale
+
+                 val dx = (config.width - contentWidth) / 2f
+
+                 val dy = (config.height - contentHeight) / 2f
+
+                 matrix.postTranslate(-sourceBounds.left, -sourceBounds.top)
+
+                 matrix.postScale(scale, scale)
+
+                 matrix.postTranslate(dx, dy)
 
              }
 
@@ -3523,8 +3917,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                      if (!layer.isVisible) continue
 
                      val layerAlpha = if (layer.opacity < 1f) (layer.opacity * 255).toInt() else 255
-
-                     val saveCount = if (layerAlpha < 255) canvas.saveLayerAlpha(null, layerAlpha) else canvas.save()
+                     val saveCount = if (layerAlpha < 255) {
+                          val paint = android.graphics.Paint().apply { alpha = layerAlpha }
+                          canvas.saveLayer(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat(), paint)
+                      } else {
+                          canvas.save()
+                      }
 
                      for (element in layer.elements) RenderHelper.drawElementRecursive(canvas, element, componentLibrary)
 
@@ -3939,7 +4337,101 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         private set
 
+    var activeTextEditState by mutableStateOf<com.sketcher.sketchercompanionv1.dto.TextEditState?>(null)
+        private set
 
+    val selectedTextElement: TextElement?
+        get() = selectionManager.selectedElements.firstOrNull() as? TextElement
+
+    val isSingleTextSelected: Boolean
+        get() = selectionManager.selectedElements.size == 1 && selectedTextElement != null
+
+    fun startEditingText(element: TextElement) {
+        activeTextEditState = com.sketcher.sketchercompanionv1.dto.TextEditState(
+            isNewText = false,
+            elementId = element.id,
+            textHtml = element.textHtml,
+            defaultTextColor = element.defaultTextColor,
+            defaultTextSize = element.defaultTextSize,
+            fontFamilyName = element.fontFamilyName,
+            alignment = element.alignment,
+            styleTemplateName = element.styleTemplateName
+        )
+    }
+
+    fun startCreatingText(x: Float, y: Float) {
+        activeTextEditState = com.sketcher.sketchercompanionv1.dto.TextEditState(
+            isNewText = true,
+            elementId = java.util.UUID.randomUUID().toString(),
+            textHtml = "",
+            defaultTextColor = strokeColor.value,
+            defaultTextSize = 16f,
+            fontFamilyName = "sans-serif",
+            alignment = "LEFT",
+            styleTemplateName = "BODY",
+            initialX = x,
+            initialY = y
+        )
+    }
+
+    fun dismissTextEdits() {
+        activeTextEditState = null
+    }
+
+    fun applyTextEdits(
+        html: String,
+        color: Int,
+        size: Float,
+        font: String,
+        alignment: String,
+        template: String?
+    ) {
+        val state = activeTextEditState ?: return
+        activeTextEditState = null
+
+        performSnapshotAction(if (state.isNewText) "Crear Texto" else "Editar Texto") {
+            if (state.isNewText) {
+                val matrix = android.graphics.Matrix().apply { postTranslate(state.initialX, state.initialY) }
+                val values = FloatArray(9).apply { matrix.getValues(this) }
+                val newText = TextElement(
+                    id = state.elementId,
+                    textHtml = html,
+                    width = 300f,
+                    matrixValues = values,
+                    defaultTextColor = color,
+                    defaultTextSize = size,
+                    fontFamilyName = font,
+                    alignment = alignment,
+                    styleTemplateName = template
+                )
+                activeContainer.add(newText)
+            } else {
+                val index = activeContainer.indexOfFirst { it is TextElement && it.id == state.elementId }
+                if (index != -1) {
+                    val orig = activeContainer[index] as TextElement
+                    val updated = orig.copy(
+                        textHtml = html,
+                        defaultTextColor = color,
+                        defaultTextSize = size,
+                        fontFamilyName = font,
+                        alignment = alignment,
+                        styleTemplateName = template
+                    )
+                    activeContainer[index] = updated
+                }
+            }
+        }
+    }
+
+    fun updateSelectedTextProperty(actionName: String, updateBlock: (TextElement) -> TextElement) {
+        val element = selectedTextElement ?: return
+        performSnapshotAction(actionName) {
+            val index = activeContainer.indexOfFirst { it is TextElement && it.id == element.id }
+            if (index != -1) {
+                activeContainer[index] = updateBlock(element)
+            }
+        }
+    }
 
     val isSingleImageSelected: Boolean
 
@@ -4082,7 +4574,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                     flipHorizontal = flipHorizontal,
 
-                    flipVertical = flipVertical
+                    flipVertical = flipVertical,
+
+                    isScaleLocked = true
 
                 )
 
@@ -4095,6 +4589,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 selectionManager.clearSelection()
 
                 selectionManager.selectedElements.add(element)
+
+                enterTransformMode()
 
             }
 
@@ -4117,30 +4613,28 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     if (idx != -1) {
 
                         val oldElement = layer.elements[idx] as ImageElement
+                        val oldBounds = oldElement.getBoundingBox(componentLibrary)
+                        val oldCenterX = oldBounds.centerX()
+                        val oldCenterY = oldBounds.centerY()
 
                         val newElement = oldElement.copy(
-
                             bitmap = processedBitmap,
-
                             originalBitmap = state.originalBitmap,
-
                             transparentColors = transparentColors,
-
                             tolerance = tolerance,
-
                             cropRect = cropRect,
-
                             cropPath = cropPath,
-
                             transparentColorTolerances = transparentColorTolerances,
-
                             rotation = rotation,
-
                             flipHorizontal = flipHorizontal,
-
                             flipVertical = flipVertical
-
                         ) as ImageElement
+
+                        // Compensate for center shift caused by cropping or rotating
+                        val newBounds = newElement.getBoundingBox(componentLibrary)
+                        val dx = oldCenterX - newBounds.centerX()
+                        val dy = oldCenterY - newBounds.centerY()
+                        newElement.matrix.postTranslate(dx, dy)
 
                         if (calibrationScaleFactor != 1.0f) {
                             val bounds = newElement.getBoundingBox(componentLibrary)
@@ -4148,7 +4642,6 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                         }
 
                         layer.elements[idx] = newElement
-
                         updatedElement = newElement
 
                         currentLayers[currentLayers.indexOf(layer)] = layer.copy()
@@ -4443,7 +4936,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                     components = currentComponentLibrary.values,
 
-                    thumbnail = thumbnailBmp
+                    thumbnail = thumbnailBmp,
+
+                    toolStatesJson = toolManager.getToolStatesJson()
 
                 )
 
@@ -4477,21 +4972,29 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                             
                             val localFile = java.io.File(uri.path ?: "")
                             val relativePath = try {
-                                localFile.toRelativeString(java.io.File(context.filesDir, "projects"))
+                                localFile.toRelativeString(getProjectsRootDir(context))
                             } catch (e: Exception) {
                                 localFile.name
                             }
                             val fileTimestamp = if (localFile.exists()) localFile.lastModified() else System.currentTimeMillis()
 
-                            cloudSyncRepository.uploadProject(
+                            val uploadResult = cloudSyncRepository.uploadProject(
                                 projectId = savedProjectId,
                                 projectName = localFile.nameWithoutExtension.ifEmpty { "Project" },
                                 projectFileUri = uri,
                                 relativePath = relativePath,
                                 thumbnailUri = thumbUri,
                                 timestamp = fileTimestamp,
-                                metadata = mapOf("lastModified" to fileTimestamp)
+                                metadata = mapOf(
+                                    "lastModified" to fileTimestamp,
+                                    "deviceUid" to getDeviceUid(context),
+                                    "deviceName" to android.os.Build.MODEL,
+                                    "fileSize" to (if (localFile.exists()) localFile.length() else 0L)
+                                )
                             )
+                            if (uploadResult.isSuccess) {
+                                setProjectLastUploadedTime(context, savedProjectId, fileTimestamp)
+                            }
                         }
                     }
 
@@ -4550,7 +5053,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                 withContext(Dispatchers.Main) {
 
-                    restoreProjectState(projectData, bitmapMap, svgMap)
+                    restoreProjectState(context, projectData, bitmapMap, svgMap)
 
                     reloadToolbarLayout()
 
@@ -4578,13 +5081,24 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     
 
-    private fun restoreProjectState(data: ProjectData, bitmaps: Map<String, android.graphics.Bitmap>, svgs: Map<String, String>) {
+    private fun restoreProjectState(context: Context, data: ProjectData, bitmaps: Map<String, android.graphics.Bitmap>, svgs: Map<String, String>) {
 
         undoStack.clear()
 
         redoStack.clear()
 
         updateUndoRedoSupport()
+
+        // Restore ToolStates if available
+        val tempPrefs = context.getSharedPreferences("tool_state_temp_prefs", Context.MODE_PRIVATE)
+        val tempJson = tempPrefs.getString("temp_loaded_tool_states", null)
+        if (tempJson != null) {
+            toolManager.restoreToolStatesFromJson(tempJson)
+            tempPrefs.edit().remove("temp_loaded_tool_states").apply()
+        } else {
+            // For old projects without saved states, reset to Preset modes
+            toolManager.resetAllPresetOverrideStates()
+        }
 
         
 
@@ -4682,7 +5196,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         
 
-        if (isHomeCameraDefaultOrIdentity() && !isProjectCameraLoaded && lastViewportWidth > 0f && lastViewportHeight > 0f) {
+        if ((isHomeCameraDefaultOrIdentity() || isCurrentCameraIdentity()) && lastViewportWidth > 0f && lastViewportHeight > 0f) {
             centerPaperAsHomeCamera()
         }
 
@@ -4747,7 +5261,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         redoStack.addAll(targetPage.redoStack)
         updateUndoRedoSupport()
 
-        cameraUpdateTrigger++
+        if (isCurrentCameraIdentity() && lastViewportWidth > 0f && lastViewportHeight > 0f) {
+            centerPaperAsHomeCamera()
+        } else {
+            cameraUpdateTrigger++
+        }
         notifyLayersChanged()
     }
 
@@ -5111,9 +5629,48 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     }
 
+    fun generateTempPdfForPrinting(
+        context: Context,
+        tempFile: java.io.File,
+        boundsMode: com.sketcher.sketchercompanionv1.utils.PdfExporter.BoundsMode,
+        callback: (Boolean) -> Unit
+    ) {
+        saveCurrentPageState()
+        val currentPagesSnapshot = pages.map { page ->
+            page.copy(
+                layers = page.layers.map { layer ->
+                    layer.copy(elements = layer.elements.toMutableStateList())
+                }.toMutableStateList()
+            )
+        }
+        val currentComponentLibrary = componentLibrary.toMap()
 
+        launchIO {
+            try {
+                if (!tempFile.exists()) {
+                    tempFile.parentFile?.mkdirs()
+                    tempFile.createNewFile()
+                }
 
+                val success = com.sketcher.sketchercompanionv1.utils.PdfExporter.exportPages(
+                    context = context,
+                    uri = android.net.Uri.fromFile(tempFile),
+                    pages = currentPagesSnapshot,
+                    infiniteCanvasBoundsMode = boundsMode,
+                    componentLibrary = currentComponentLibrary
+                )
 
+                withContext(Dispatchers.Main) {
+                    callback(success)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    callback(false)
+                }
+            }
+        }
+    }
 
     private var eraserDragActive = false
     private val eraserSnapshots = mutableMapOf<MutableList<LayerElement>, List<LayerElement>>()
@@ -5527,6 +6084,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         componentLibrary.clear()
 
         projectId = java.util.UUID.randomUUID().toString()
+
+        toolManager.resetAllPresetOverrideStates()
 
         currentFileUri = null
         hasUnsavedChanges = false
@@ -6166,11 +6725,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                                 }
                             }
                         ))
-                        val localLibraryFile = java.io.File(context.filesDir, "global_library.json")
+                        val localLibraryFile = getLibraryFile(context)
                         localLibraryFile.writeText(libraryJson)
                         val timestamp = localLibraryFile.lastModified()
-                        val assetsDir = java.io.File(context.filesDir, "library_assets")
-                        cloudSyncRepository.backupLibrary(libraryJson, timestamp, assetsDir)
+                        val assetsDir = getLibraryAssetsDir(context)
+                        val backupRes = cloudSyncRepository.backupLibrary(libraryJson, timestamp, assetsDir)
+                        if (backupRes.isSuccess) {
+                            setLibraryLastUploadedTime(context, timestamp)
+                        }
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
@@ -6217,7 +6779,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     )
                     
                     val thumbFile = "thumb_" + java.util.UUID.randomUUID().toString() + ".png"
-                    val assetsDir = java.io.File(context.filesDir, "library_assets")
+                    val assetsDir = getLibraryAssetsDir(context)
                     if (!assetsDir.exists()) assetsDir.mkdirs()
                     val out = java.io.FileOutputStream(java.io.File(assetsDir, thumbFile))
                     bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
@@ -6317,7 +6879,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     )
                     
                     val thumbFile = "thumb_" + java.util.UUID.randomUUID().toString() + ".png"
-                    val assetsDir = java.io.File(context.filesDir, "library_assets")
+                    val assetsDir = getLibraryAssetsDir(context)
                     if (!assetsDir.exists()) assetsDir.mkdirs()
                     val out = java.io.FileOutputStream(java.io.File(assetsDir, thumbFile))
                     bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
@@ -6350,10 +6912,24 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         addElementToGlobalLibrary(context, name, group, parentId)
     }
 
-    fun addImageToGlobalLibrary(context: Context, name: String, bitmap: android.graphics.Bitmap, parentId: String?) {
+    fun addImageToGlobalLibrary(
+        context: Context,
+        name: String,
+        bitmap: android.graphics.Bitmap,
+        transparentColors: List<Int>,
+        tolerance: Float,
+        cropRect: android.graphics.RectF?,
+        cropPath: List<android.graphics.PointF>?,
+        transparentColorTolerances: List<Float>,
+        rotation: Float,
+        flipHorizontal: Boolean,
+        flipVertical: Boolean,
+        calibrationScaleFactor: Float = 1.0f,
+        parentId: String?
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             val imgFileName = "img_" + java.util.UUID.randomUUID().toString() + ".png"
-            val assetsDir = java.io.File(context.filesDir, "library_assets")
+            val assetsDir = getLibraryAssetsDir(context)
             if (!assetsDir.exists()) assetsDir.mkdirs()
             val destFile = java.io.File(assetsDir, imgFileName)
             try {
@@ -6364,11 +6940,24 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 e.printStackTrace()
             }
             
+            val matrix = android.graphics.Matrix()
+            if (calibrationScaleFactor != 1.0f) {
+                matrix.postScale(calibrationScaleFactor, calibrationScaleFactor)
+            }
+            
             val imageElement = ImageElement(
                 id = java.util.UUID.randomUUID().toString(),
                 bitmap = bitmap,
                 imageFileName = imgFileName,
-                matrix = android.graphics.Matrix()
+                matrix = matrix,
+                transparentColors = transparentColors,
+                tolerance = tolerance,
+                cropRect = cropRect,
+                cropPath = cropPath,
+                transparentColorTolerances = transparentColorTolerances,
+                rotation = rotation,
+                flipHorizontal = flipHorizontal,
+                flipVertical = flipVertical
             )
             
             addElementToGlobalLibrary(context, name, imageElement, parentId)
@@ -6477,6 +7066,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 id = "inst_" + java.util.UUID.randomUUID().toString(),
                 definitionId = defId
             )
+            instance.isScaleLocked = true
             
             instance.matrix.postScale(scaleFactor, scaleFactor)
             instance.matrix.postTranslate(dx, dy)
@@ -6488,6 +7078,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             if (editingContext == null) {
                 notifyLayersChanged()
             }
+            enterTransformMode()
         }
     }
 
@@ -6498,14 +7089,116 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     val localItems = mutableStateListOf<DashboardItem>()
     val thumbnailCache = mutableStateMapOf<String, android.graphics.Bitmap?>()
 
-    fun initLocalProjects(context: Context) {
-        val rootDir = java.io.File(context.filesDir, "projects")
-        if (!rootDir.exists()) {
+    fun clearLocalDataSync(context: Context) {
+        clear()
+        thumbnailCache.clear()
+        _globalLibraryItems.value = emptyList()
+
+        val rootDir = getProjectsRootDir(context)
+        if (rootDir.exists()) {
+            rootDir.deleteRecursively()
             rootDir.mkdirs()
         }
-        if (currentDirectory == null) {
-            currentDirectory = rootDir
+
+        val libFile = getLibraryFile(context)
+        if (libFile.exists()) {
+            libFile.delete()
         }
+
+        val assetsDir = getLibraryAssetsDir(context)
+        if (assetsDir.exists()) {
+            assetsDir.deleteRecursively()
+            assetsDir.mkdirs()
+        }
+
+        val pendingPrefs = context.getSharedPreferences("sync_pending_deletions", Context.MODE_PRIVATE)
+        pendingPrefs.edit().clear().apply()
+    }
+
+    fun clearLocalData(context: Context) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val rootDir = getProjectsRootDir(context)
+            if (rootDir.exists()) {
+                rootDir.deleteRecursively()
+                rootDir.mkdirs()
+            }
+            val libFile = getLibraryFile(context)
+            if (libFile.exists()) {
+                libFile.delete()
+            }
+            val assetsDir = getLibraryAssetsDir(context)
+            if (assetsDir.exists()) {
+                assetsDir.deleteRecursively()
+                assetsDir.mkdirs()
+            }
+            val pendingPrefs = context.getSharedPreferences("sync_pending_deletions", Context.MODE_PRIVATE)
+            pendingPrefs.edit().clear().apply()
+
+            withContext(Dispatchers.Main) {
+                clear()
+                thumbnailCache.clear()
+                _globalLibraryItems.value = emptyList()
+                refreshLocalItems()
+            }
+        }
+    }
+
+    fun getProjectsRootDir(context: Context): java.io.File {
+        val currentUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "guest"
+        val dir = java.io.File(context.filesDir, "users/$currentUid/projects")
+        if (!dir.exists()) dir.mkdirs()
+        return dir
+    }
+
+    fun getLibraryFile(context: Context): java.io.File {
+        val currentUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "guest"
+        val dir = java.io.File(context.filesDir, "users/$currentUid")
+        if (!dir.exists()) dir.mkdirs()
+        return java.io.File(dir, "global_library.json")
+    }
+
+    fun getLibraryAssetsDir(context: Context): java.io.File {
+        val currentUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "guest"
+        val dir = java.io.File(context.filesDir, "users/$currentUid/library_assets")
+        if (!dir.exists()) dir.mkdirs()
+        return dir
+    }
+
+    private fun migrateOldDataIfNecessary(context: Context, newProjectsDir: java.io.File) {
+        val oldProjectsDir = java.io.File(context.filesDir, "projects")
+        if (oldProjectsDir.exists() && oldProjectsDir.isDirectory) {
+            val oldFiles = oldProjectsDir.listFiles()
+            if (oldFiles != null && oldFiles.isNotEmpty() && newProjectsDir.listFiles()?.isEmpty() == true) {
+                oldFiles.forEach { file ->
+                    val dest = java.io.File(newProjectsDir, file.name)
+                    file.renameTo(dest)
+                }
+            }
+        }
+        
+        val oldLibFile = java.io.File(context.filesDir, "global_library.json")
+        val newLibFile = getLibraryFile(context)
+        if (oldLibFile.exists() && !newLibFile.exists()) {
+            oldLibFile.renameTo(newLibFile)
+        }
+        
+        val oldAssetsDir = java.io.File(context.filesDir, "library_assets")
+        val newAssetsDir = getLibraryAssetsDir(context)
+        if (oldAssetsDir.exists() && oldAssetsDir.isDirectory) {
+            val oldAssets = oldAssetsDir.listFiles()
+            if (oldAssets != null && oldAssets.isNotEmpty() && newAssetsDir.listFiles()?.isEmpty() == true) {
+                oldAssets.forEach { file ->
+                    val dest = java.io.File(newAssetsDir, file.name)
+                    file.renameTo(dest)
+                }
+            }
+        }
+    }
+
+    fun initLocalProjects(context: Context) {
+        val rootDir = getProjectsRootDir(context)
+        migrateOldDataIfNecessary(context, rootDir)
+        currentDirectory = rootDir
         refreshLocalItems()
     }
 
@@ -6516,7 +7209,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     fun navigateUp(context: Context): Boolean {
         val current = currentDirectory ?: return false
-        val rootDir = java.io.File(context.filesDir, "projects")
+        val rootDir = getProjectsRootDir(context)
         if (current.absolutePath == rootDir.absolutePath) {
             return false
         }
@@ -6569,7 +7262,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     val nameWithoutExt = file.nameWithoutExtension
                     val hasUuid = nameWithoutExt.length > 37 && nameWithoutExt[nameWithoutExt.length - 37] == '_' && nameWithoutExt.substring(nameWithoutExt.length - 36).contains('-')
                     if (!hasUuid) {
-                        val pid = getProjectIdFromZip(file) ?: UUID.randomUUID().toString()
+                        val pid = getProjectId(file) ?: UUID.randomUUID().toString()
                         val newFile = java.io.File(file.parentFile, "${nameWithoutExt}_$pid.skc")
                         if (file.renameTo(newFile)) {
                             finalFile = newFile
@@ -6617,6 +7310,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     e.printStackTrace()
                 }
                 refreshLocalItems()
+                autoSyncCloud(context)
             }
         }
     }
@@ -6627,7 +7321,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         templateFile: java.io.File? = null,
         scaleRatio: Float = 1.0f,
         canvasSizeConfig: com.sketcher.sketchercompanionv1.dto.CanvasSizeConfig? = null,
-        backgroundStyle: com.sketcher.sketchercompanionv1.dto.FillStyle? = null
+        backgroundStyle: com.sketcher.sketchercompanionv1.dto.FillStyle? = null,
+        uiPresetName: String? = null,
+        toolPresetName: String? = null
     ) {
         val dir = currentDirectory ?: return
         val pid = UUID.randomUUID().toString()
@@ -6646,7 +7342,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             val newMetadata = projectData.canvasMetadata.copy(scaleConfig = newScaleConfig)
             val newProjectData = projectData.copy(id = pid, canvasMetadata = newMetadata)
             
-            restoreProjectState(newProjectData, bitmaps, svgs)
+            restoreProjectState(context, newProjectData, bitmaps, svgs)
         } else {
             clear()
             projectId = pid
@@ -6663,6 +7359,18 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 this.backgroundStyle = com.sketcher.sketchercompanionv1.dto.FillStyle.Solid(android.graphics.Color.WHITE)
                 this.backgroundColor = android.graphics.Color.WHITE
             }
+
+            if (uiPresetName != null) {
+                toolbarManager.onProjectUiPresetLoaded(uiPresetName)
+            } else {
+                toolbarManager.onProjectUiPresetCleared()
+            }
+
+            if (toolPresetName != null) {
+                toolManager.loadToolPresetGroup(toolPresetName)
+            } else {
+                toolManager.loadToolPresetGroup("Default")
+            }
         }
         
         currentFileUri = android.net.Uri.fromFile(file)
@@ -6671,7 +7379,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun saveAsLocalProject(context: Context, name: String) {
-        val rootDir = java.io.File(context.filesDir, "projects")
+        val rootDir = getProjectsRootDir(context)
         val dir = currentDirectory ?: rootDir
         val newPid = UUID.randomUUID().toString()
         projectId = newPid
@@ -6709,13 +7417,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         }
         
         refreshLocalItems()
+        autoSyncCloud(context)
     }
 
     fun renameLocalItem(context: Context, item: DashboardItem, newName: String) {
         val oldFile = java.io.File(item.path)
         val parent = oldFile.parentFile ?: return
         val newFile = if (item is DashboardItem.Project) {
-            val pid = getProjectIdFromZip(oldFile) ?: UUID.randomUUID().toString()
+            val pid = getProjectId(oldFile) ?: UUID.randomUUID().toString()
             java.io.File(parent, "${newName}_$pid.skc")
         } else {
             java.io.File(parent, newName)
@@ -6724,6 +7433,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             android.widget.Toast.makeText(context, "Ya existe un elemento con ese nombre", android.widget.Toast.LENGTH_SHORT).show()
             return
         }
+
+        val rootDir = getProjectsRootDir(context)
+        val oldRelPath = if (item is DashboardItem.Folder) {
+            try { oldFile.toRelativeString(rootDir) } catch(e: Exception) { oldFile.name }
+        } else null
+
         if (oldFile.renameTo(newFile)) {
             // Update active file URI if renamed the open project
             val activeUri = currentFileUri
@@ -6736,8 +7451,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 if (oldBmp != null) {
                     thumbnailCache[newFile.absolutePath] = oldBmp
                 }
+            } else if (item is DashboardItem.Folder && oldRelPath != null) {
+                val prefs = context.getSharedPreferences("sync_pending_deletions", Context.MODE_PRIVATE)
+                val pendingFolders = prefs.getStringSet("folders", emptySet())?.toMutableSet() ?: mutableSetOf()
+                pendingFolders.add(oldRelPath)
+                prefs.edit().putStringSet("folders", pendingFolders).apply()
             }
             refreshLocalItems()
+            autoSyncCloud(context)
         } else {
             android.widget.Toast.makeText(context, "Error al renombrar", android.widget.Toast.LENGTH_SHORT).show()
         }
@@ -6754,14 +7475,18 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         
         viewModelScope.launch(Dispatchers.IO) {
             val idsToDelete = mutableListOf<String>()
+            val foldersToDelete = mutableListOf<String>()
             if (file.isDirectory) {
+                val rootDir = getProjectsRootDir(context)
+                val relPath = try { file.toRelativeString(rootDir) } catch(e: Exception) { file.name }
+                foldersToDelete.add(relPath)
                 file.walkTopDown().forEach { f ->
                     if (f.extension == "skc") {
-                        getProjectIdFromZip(f)?.let { idsToDelete.add(it) }
+                        getProjectId(f)?.let { idsToDelete.add(it) }
                     }
                 }
             } else if (file.extension == "skc") {
-                getProjectIdFromZip(file)?.let { idsToDelete.add(it) }
+                getProjectId(file)?.let { idsToDelete.add(it) }
             }
 
             file.deleteRecursively()
@@ -6771,10 +7496,47 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 refreshLocalItems()
             }
 
+            val prefs = context.getSharedPreferences("sync_pending_deletions", Context.MODE_PRIVATE)
+            val pendingProjects = prefs.getStringSet("projects", emptySet())?.toMutableSet() ?: mutableSetOf()
+            val pendingFolders = prefs.getStringSet("folders", emptySet())?.toMutableSet() ?: mutableSetOf()
+            
+            pendingProjects.addAll(idsToDelete)
+            pendingFolders.addAll(foldersToDelete)
+            
+            prefs.edit()
+                .putStringSet("projects", pendingProjects)
+                .putStringSet("folders", pendingFolders)
+                .apply()
+
             if (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null) {
+                val syncedProjects = mutableListOf<String>()
                 idsToDelete.forEach { id ->
-                    cloudSyncRepository.deleteProject(id)
+                    val res = cloudSyncRepository.deleteProject(id)
+                    if (res.isSuccess) {
+                        syncedProjects.add(id)
+                    }
                 }
+                val syncedFolders = mutableListOf<String>()
+                foldersToDelete.forEach { folderRelPath ->
+                    val res = cloudSyncRepository.deleteFolder(folderRelPath)
+                    if (res.isSuccess) {
+                        syncedFolders.add(folderRelPath)
+                    }
+                }
+                
+                if (syncedProjects.isNotEmpty() || syncedFolders.isNotEmpty()) {
+                    val updatedProjects = prefs.getStringSet("projects", emptySet())?.toMutableSet() ?: mutableSetOf()
+                    val updatedFolders = prefs.getStringSet("folders", emptySet())?.toMutableSet() ?: mutableSetOf()
+                    updatedProjects.removeAll(syncedProjects)
+                    updatedFolders.removeAll(syncedFolders)
+                    prefs.edit()
+                        .putStringSet("projects", updatedProjects)
+                        .putStringSet("folders", updatedFolders)
+                        .apply()
+                }
+            }
+            withContext(Dispatchers.Main) {
+                autoSyncCloud(context)
             }
         }
     }
@@ -6786,6 +7548,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             android.widget.Toast.makeText(context, "Ya existe un elemento con el mismo nombre en la carpeta destino", android.widget.Toast.LENGTH_SHORT).show()
             return
         }
+
+        val rootDir = getProjectsRootDir(context)
+        val oldRelPath = if (item is DashboardItem.Folder) {
+            try { oldFile.toRelativeString(rootDir) } catch(e: Exception) { oldFile.name }
+        } else null
+
         if (oldFile.renameTo(newFile)) {
             val activeUri = currentFileUri
             if (activeUri != null && activeUri.scheme == "file" && activeUri.path == oldFile.absolutePath) {
@@ -6796,8 +7564,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 if (oldBmp != null) {
                     thumbnailCache[newFile.absolutePath] = oldBmp
                 }
+            } else if (item is DashboardItem.Folder && oldRelPath != null) {
+                val prefs = context.getSharedPreferences("sync_pending_deletions", Context.MODE_PRIVATE)
+                val pendingFolders = prefs.getStringSet("folders", emptySet())?.toMutableSet() ?: mutableSetOf()
+                pendingFolders.add(oldRelPath)
+                prefs.edit().putStringSet("folders", pendingFolders).apply()
             }
             refreshLocalItems()
+            autoSyncCloud(context)
         } else {
             android.widget.Toast.makeText(context, "Error al mover el elemento", android.widget.Toast.LENGTH_SHORT).show()
         }
@@ -6850,8 +7624,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         if (uri != null && hasUnsavedChangesSinceLastAutosave) {
             saveProjectToZip(context, uri)
         } else if (uri == null && hasUnsavedChangesSinceLastAutosave) {
-            val rootDir = java.io.File(context.filesDir, "projects")
-            if (!rootDir.exists()) rootDir.mkdirs()
+            val rootDir = getProjectsRootDir(context)
             val dir = currentDirectory ?: rootDir
             val formatter = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault())
             val defaultName = "Dibujo_" + formatter.format(java.util.Date())
@@ -6916,11 +7689,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     }
                 ))
                 // Write to local file first to establish a local timestamp
-                val localLibraryFile = java.io.File(context.filesDir, "global_library.json")
+                val localLibraryFile = getLibraryFile(context)
                 localLibraryFile.writeText(libraryJson)
                 val timestamp = localLibraryFile.lastModified()
-
-                val assetsDir = java.io.File(context.filesDir, "library_assets")
+                val assetsDir = getLibraryAssetsDir(context)
                 val libResult = cloudSyncRepository.backupLibrary(libraryJson, timestamp, assetsDir)
                 if (libResult.isFailure) {
                     cloudSyncMessage = "Error respaldando librería"
@@ -6997,14 +7769,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                 // 2. Restaurar Librería
                 cloudSyncMessage = "Descargando librería..."
-                val assetsDir = java.io.File(context.filesDir, "library_assets")
+                val assetsDir = getLibraryAssetsDir(context)
                 val libResult = cloudSyncRepository.restoreLibrary(assetsDir)
                 if (libResult.isSuccess) {
                     val pair = libResult.getOrNull()
                     if (pair != null) {
                         val (jsonStr, timestamp) = pair
                         // Guardar el JSON descargado en local
-                        val file = java.io.File(context.filesDir, "global_library.json")
+                        val file = getLibraryFile(context)
                         file.writeText(jsonStr)
                         file.setLastModified(timestamp)
                         // Recargar
@@ -7023,10 +7795,23 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     fun autoSyncCloud(context: Context) {
         if (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser == null) return
+        if (isSyncingCloud) return
+        val currentUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "guest"
         viewModelScope.launch {
+            val prefs = context.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE)
+            val lastUid = prefs.getString("last_sync_uid", null)
+            if (lastUid != null && lastUid != currentUid) {
+                currentDirectory = getProjectsRootDir(context)
+                clear()
+                thumbnailCache.clear()
+                _globalLibraryItems.value = emptyList()
+            }
+            prefs.edit().putString("last_sync_uid", currentUid).apply()
+
             isSyncingCloud = true
             cloudSyncMessage = "Sincronizando..."
             try {
+                withContext(Dispatchers.IO) {
                 // Restore Preferences silently
                 val prefsResult = cloudSyncRepository.restorePreferences()
                 if (prefsResult.isSuccess) {
@@ -7059,12 +7844,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 }
 
                 // Sync Library
-                val localLibraryFile = java.io.File(context.filesDir, "global_library.json")
+                val localLibraryFile = getLibraryFile(context)
                 val localLibTimestamp = if (localLibraryFile.exists()) localLibraryFile.lastModified() else 0L
                 val cloudLibTimestampResult = cloudSyncRepository.getLibraryTimestamp()
                 val cloudLibTimestamp = if (cloudLibTimestampResult.isSuccess) cloudLibTimestampResult.getOrNull() ?: 0L else 0L
                 
-                val assetsDir = java.io.File(context.filesDir, "library_assets")
+                val assetsDir = getLibraryAssetsDir(context)
                 
                 if (cloudLibTimestamp > localLibTimestamp + 5000) {
                     val libResult = cloudSyncRepository.restoreLibrary(assetsDir)
@@ -7075,11 +7860,156 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                             localLibraryFile.writeText(jsonStr)
                             localLibraryFile.setLastModified(timestamp)
                             loadGlobalLibrary(context)
+                            setLibraryLastUploadedTime(context, timestamp)
                         }
                     }
                 } else if (localLibTimestamp > cloudLibTimestamp + 5000) {
                     if (localLibraryFile.exists()) {
-                        cloudSyncRepository.backupLibrary(localLibraryFile.readText(), localLibTimestamp, assetsDir)
+                        val backupRes = cloudSyncRepository.backupLibrary(localLibraryFile.readText(), localLibTimestamp, assetsDir)
+                        if (backupRes.isSuccess) {
+                            setLibraryLastUploadedTime(context, localLibTimestamp)
+                        }
+                    }
+                } else {
+                    setLibraryLastUploadedTime(context, localLibTimestamp)
+                }
+
+                // Sync Pending Deletions
+                val pendingPrefs = context.getSharedPreferences("sync_pending_deletions", Context.MODE_PRIVATE)
+                val pendingProjects = pendingPrefs.getStringSet("projects", emptySet())?.toMutableSet() ?: mutableSetOf()
+                val pendingFolders = pendingPrefs.getStringSet("folders", emptySet())?.toMutableSet() ?: mutableSetOf()
+                
+                val syncedProjects = mutableListOf<String>()
+                pendingProjects.forEach { id ->
+                    val res = cloudSyncRepository.deleteProject(id)
+                    if (res.isSuccess) {
+                        syncedProjects.add(id)
+                    }
+                }
+                val syncedFolders = mutableListOf<String>()
+                pendingFolders.forEach { folderRelPath ->
+                    val res = cloudSyncRepository.deleteFolder(folderRelPath)
+                    if (res.isSuccess) {
+                        syncedFolders.add(folderRelPath)
+                    }
+                }
+                
+                if (syncedProjects.isNotEmpty() || syncedFolders.isNotEmpty()) {
+                    pendingProjects.removeAll(syncedProjects)
+                    pendingFolders.removeAll(syncedFolders)
+                    pendingPrefs.edit()
+                        .putStringSet("projects", pendingProjects)
+                        .putStringSet("folders", pendingFolders)
+                        .apply()
+                }
+
+                // Sync Folders
+                cloudSyncMessage = "Sincronizando carpetas..."
+                val foldersResult = cloudSyncRepository.getFolders()
+                if (foldersResult.isSuccess) {
+                    val cloudFolders = foldersResult.getOrDefault(emptyList())
+                    val rootDir = getProjectsRootDir(context)
+
+                    val localFoldersMap = mutableMapOf<String, java.io.File>()
+                    val localFoldersLastModified = mutableMapOf<String, Long>()
+
+                    fun scanFolders(dir: java.io.File) {
+                        dir.listFiles()?.forEach { file ->
+                            if (file.isDirectory) {
+                                val relPath = try { file.toRelativeString(rootDir) } catch(e: Exception) { file.name }
+                                localFoldersMap[relPath] = file
+                                val metadataFile = java.io.File(file, ".metadata.json")
+                                val ts = if (metadataFile.exists()) metadataFile.lastModified() else file.lastModified()
+                                localFoldersLastModified[relPath] = ts
+                                scanFolders(file)
+                            }
+                        }
+                    }
+                    scanFolders(rootDir)
+
+                    val processedCloudFolders = mutableSetOf<String>()
+                    for (f in cloudFolders) {
+                        val relPath = f["relativePath"] as? String ?: continue
+                        val cloudTimestamp = (f["timestamp"] as? Number)?.toLong() ?: 0L
+                        val isDeleted = f["deleted"] as? Boolean == true
+                        val coverStyle = f["coverStyle"] as? String ?: "classic"
+                        val coverFillMap = f["coverFill"] as? Map<String, Any>
+                        val coverProjectRel = f["coverProject"] as? String
+                        
+                        processedCloudFolders.add(relPath)
+
+                        if (pendingFolders.contains(relPath)) {
+                            continue
+                        }
+
+                        val localFolder = localFoldersMap[relPath]
+                        val destFolder = java.io.File(rootDir, relPath)
+
+                        if (isDeleted) {
+                            if (localFolder != null && localFolder.exists()) {
+                                localFolder.deleteRecursively()
+                            }
+                            continue
+                        }
+
+                        // Reconstruct absolute path for coverProject
+                        val coverProjectAbs = if (!coverProjectRel.isNullOrEmpty()) {
+                            java.io.File(rootDir, coverProjectRel).absolutePath
+                        } else {
+                            null
+                        }
+
+                        // Convert coverFillMap to FillStyleJson
+                        val coverFillJson = if (coverFillMap != null) {
+                            try {
+                                val json = Gson().toJson(coverFillMap)
+                                Gson().fromJson(json, com.sketcher.sketchercompanionv1.dto.FillStyleJson::class.java)
+                            } catch (e: Exception) {
+                                null
+                            }
+                        } else {
+                            null
+                        }
+
+                        val metadata = FolderMetadata(
+                            coverStyle = coverStyle,
+                            coverFill = coverFillJson,
+                            coverProject = coverProjectAbs
+                        )
+
+                        if (localFolder == null) {
+                            destFolder.mkdirs()
+                            val metadataFile = java.io.File(destFolder, ".metadata.json")
+                            try {
+                                metadataFile.writeText(Gson().toJson(metadata))
+                                metadataFile.setLastModified(cloudTimestamp)
+                                setFolderLastUploadedTime(context, relPath, cloudTimestamp)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        } else {
+                            val localTimestamp = localFoldersLastModified[relPath] ?: 0L
+                            if (cloudTimestamp > localTimestamp + 5000) {
+                                val metadataFile = java.io.File(destFolder, ".metadata.json")
+                                try {
+                                    metadataFile.writeText(Gson().toJson(metadata))
+                                    metadataFile.setLastModified(cloudTimestamp)
+                                    setFolderLastUploadedTime(context, relPath, cloudTimestamp)
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+                            } else if (localTimestamp > cloudTimestamp + 5000) {
+                                uploadFolderSilently(context, rootDir, localFolder)
+                            } else {
+                                setFolderLastUploadedTime(context, relPath, localTimestamp)
+                            }
+                        }
+                    }
+
+                    for ((relPath, localFolder) in localFoldersMap) {
+                        if (!processedCloudFolders.contains(relPath) && !pendingFolders.contains(relPath)) {
+                            uploadFolderSilently(context, rootDir, localFolder)
+                        }
                     }
                 }
 
@@ -7088,8 +8018,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 val projectsResult = cloudSyncRepository.getProjects()
                 if (projectsResult.isSuccess) {
                     val cloudProjects = projectsResult.getOrDefault(emptyList())
-                    val rootDir = java.io.File(context.filesDir, "projects")
-                    if (!rootDir.exists()) rootDir.mkdirs()
+                    val rootDir = getProjectsRootDir(context)
 
                     val localProjectsMap = mutableMapOf<String, java.io.File>()
                     val localProjectsLastModified = mutableMapOf<String, Long>()
@@ -7098,7 +8027,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                         dir.listFiles()?.forEach { file ->
                             if (file.isDirectory) scanDir(file)
                             else if (file.extension == "skc") {
-                                val pid = getProjectIdFromZip(file)
+                                val pid = getProjectId(file)
                                 if (pid != null) {
                                     localProjectsMap[pid] = file
                                     localProjectsLastModified[pid] = file.lastModified()
@@ -7111,13 +8040,37 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     val processedCloudIds = mutableSetOf<String>()
                     for (p in cloudProjects) {
                         val pId = p["id"] as? String ?: continue
-                        val relativePath = p["relativePath"] as? String ?: (p["name"] as? String)?.let { "$it.skc" } ?: continue
                         val cloudTimestamp = (p["timestamp"] as? Number)?.toLong() ?: 0L
                         val isDeleted = p["deleted"] as? Boolean == true
                         
                         processedCloudIds.add(pId)
 
+                        if (pendingProjects.contains(pId)) {
+                            continue
+                        }
+
                         val localFile = localProjectsMap[pId]
+                        val fileUrl = p["fileUrl"] as? String
+                        val thumbnailUrl = p["thumbnailUrl"] as? String
+
+                        if (isDeleted) {
+                            if (localFile != null && localFile.exists()) {
+                                val localTimestamp = localProjectsLastModified[pId] ?: 0L
+                                if (localTimestamp > cloudTimestamp + 5000) {
+                                    // Local is newer -> restore project in cloud
+                                    uploadProjectSilently(context, localFile)
+                                } else {
+                                    // Delete locally
+                                    localFile.delete()
+                                    withContext(Dispatchers.Main) {
+                                        thumbnailCache.remove(localFile.absolutePath)
+                                    }
+                                }
+                            }
+                            continue
+                        }
+
+                        val relativePath = p["relativePath"] as? String ?: (p["name"] as? String)?.let { "$it.skc" } ?: continue
                         
                         val baseName = relativePath.substringBeforeLast(".")
                         val ext = relativePath.substringAfterLast(".", "")
@@ -7137,55 +8090,77 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                         }
                         val destFile = java.io.File(rootDir, destRelativePath)
 
-                        if (isDeleted) {
-                            // If deleted in cloud, delete locally
-                            if (localFile != null && localFile.exists()) {
-                                localFile.delete()
-                                withContext(Dispatchers.Main) {
-                                    thumbnailCache.remove(localFile.absolutePath)
-                                }
-                            }
-                            continue
-                        }
-
                         if (localFile == null) {
                             // Missing locally -> Download
                             destFile.parentFile?.mkdirs()
-                            val downloadRes = cloudSyncRepository.downloadProject(pId, destFile)
+                            val downloadRes = cloudSyncRepository.downloadProject(pId, destFile, fileUrl)
                             if (downloadRes.isSuccess) {
                                 destFile.setLastModified(cloudTimestamp)
+                                setProjectLastUploadedTime(context, pId, cloudTimestamp)
                             }
-                            downloadThumbnailSilently(context, p, pId)
+                            if (!thumbnailUrl.isNullOrEmpty()) {
+                                val thumbCacheDir = java.io.File(context.cacheDir, "thumbnails")
+                                if (!thumbCacheDir.exists()) thumbCacheDir.mkdirs()
+                                val thumbFile = java.io.File(thumbCacheDir, "$pId.png")
+                                cloudSyncRepository.downloadThumbnail(pId, thumbFile, thumbnailUrl)
+                            }
                         } else {
                             // Exists locally
                             val localTimestamp = localProjectsLastModified[pId] ?: 0L
-                            if (cloudTimestamp > localTimestamp + 5000) {
-                                // Cloud is newer
-                                if (localFile.absolutePath != destFile.absolutePath) {
-                                    localFile.delete() // Project moved or renamed
+                            val lastSynced = getProjectLastUploadedTime(context, pId)
+
+                            // Conflict detection
+                            val isConflict = (localTimestamp > lastSynced + 5000) && (cloudTimestamp > lastSynced + 5000)
+
+                            if (isConflict) {
+                                // Conflict -> Upload local as a new version.
+                                // Local edits are preserved as latest, remote edits are kept in history.
+                                uploadProjectSilently(context, localFile)
+                            } else if (cloudTimestamp > localTimestamp + 5000) {
+                                // Cloud is newer -> Download safely
+                                val finalFile = if (localFile.absolutePath != destFile.absolutePath) {
+                                    destFile.parentFile?.mkdirs()
+                                    if (localFile.renameTo(destFile)) destFile else localFile
+                                } else {
+                                    destFile
                                 }
-                                destFile.parentFile?.mkdirs()
-                                val downloadRes = cloudSyncRepository.downloadProject(pId, destFile)
+                                val tempFile = java.io.File(finalFile.parentFile, "${finalFile.name}.tmp")
+                                val downloadRes = cloudSyncRepository.downloadProject(pId, tempFile, fileUrl)
                                 if (downloadRes.isSuccess) {
-                                    destFile.setLastModified(cloudTimestamp)
+                                    if (finalFile.exists()) finalFile.delete()
+                                    tempFile.renameTo(finalFile)
+                                    finalFile.setLastModified(cloudTimestamp)
+                                    setProjectLastUploadedTime(context, pId, cloudTimestamp)
+                                } else {
+                                    if (tempFile.exists()) tempFile.delete()
                                 }
-                                downloadThumbnailSilently(context, p, pId)
+                                
+                                if (!thumbnailUrl.isNullOrEmpty()) {
+                                    val thumbCacheDir = java.io.File(context.cacheDir, "thumbnails")
+                                    if (!thumbCacheDir.exists()) thumbCacheDir.mkdirs()
+                                    val thumbFile = java.io.File(thumbCacheDir, "$pId.png")
+                                    cloudSyncRepository.downloadThumbnail(pId, thumbFile, thumbnailUrl)
+                                }
                             } else if (localTimestamp > cloudTimestamp + 5000) {
                                 // Local is newer
                                 uploadProjectSilently(context, localFile)
                             } else if (localFile.absolutePath != destFile.absolutePath) {
-                                // Name changed locally but sync didn't upload it yet
+                                // Path changed locally but timestamp is close -> upload to sync metadata
                                 uploadProjectSilently(context, localFile)
+                            } else {
+                                // Already in sync
+                                setProjectLastUploadedTime(context, pId, localTimestamp)
                             }
                         }
                     }
 
                     // Process local projects not in cloud
                     for ((pId, localFile) in localProjectsMap) {
-                        if (!processedCloudIds.contains(pId)) {
+                        if (!processedCloudIds.contains(pId) && !pendingProjects.contains(pId)) {
                             uploadProjectSilently(context, localFile)
                         }
                     }
+                }
                 }
 
                 refreshLocalItems()
@@ -7213,8 +8188,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     private suspend fun uploadProjectSilently(context: Context, file: java.io.File) {
-        val pId = getProjectIdFromZip(file) ?: return
-        val rootDir = java.io.File(context.filesDir, "projects")
+        val pId = getProjectId(file) ?: return
+        val rootDir = getProjectsRootDir(context)
         val relativePath = try {
             file.toRelativeString(rootDir)
         } catch (e: Exception) {
@@ -7227,15 +8202,72 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         val thumbUri = if (thumbFile.exists()) android.net.Uri.fromFile(thumbFile) else null
 
         val fileTimestamp = if (file.exists()) file.lastModified() else System.currentTimeMillis()
-        cloudSyncRepository.uploadProject(
+        val uploadRes = cloudSyncRepository.uploadProject(
             projectId = pId,
             projectName = name,
             projectFileUri = android.net.Uri.fromFile(file),
             relativePath = relativePath,
             thumbnailUri = thumbUri,
             timestamp = fileTimestamp,
-            metadata = mapOf("lastModified" to fileTimestamp)
+            metadata = mapOf(
+                "lastModified" to fileTimestamp,
+                "deviceUid" to getDeviceUid(context),
+                "deviceName" to android.os.Build.MODEL,
+                "fileSize" to (if (file.exists()) file.length() else 0L)
+            )
         )
+        if (uploadRes.isSuccess) {
+            setProjectLastUploadedTime(context, pId, fileTimestamp)
+        }
+    }
+
+    private suspend fun uploadFolderSilently(context: Context, rootDir: java.io.File, folder: java.io.File) {
+        val relPath = try { folder.toRelativeString(rootDir) } catch(e: Exception) { folder.name }
+        val metadataFile = java.io.File(folder, ".metadata.json")
+        val metadata = if (metadataFile.exists()) {
+            try {
+                Gson().fromJson(metadataFile.readText(), FolderMetadata::class.java) ?: FolderMetadata()
+            } catch (e: Exception) {
+                FolderMetadata()
+            }
+        } else {
+            FolderMetadata()
+        }
+
+        val relativeCoverProject = if (!metadata.coverProject.isNullOrEmpty()) {
+            val file = java.io.File(metadata.coverProject)
+            try {
+                file.toRelativeString(rootDir)
+            } catch (e: Exception) {
+                metadata.coverProject
+            }
+        } else {
+            null
+        }
+
+        val coverFillMap = if (metadata.coverFill != null) {
+            try {
+                val json = Gson().toJson(metadata.coverFill)
+                val mapType = object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type
+                Gson().fromJson<Map<String, Any>>(json, mapType)
+            } catch (e: Exception) {
+                null
+            }
+        } else {
+            null
+        }
+
+        val ts = if (metadataFile.exists()) metadataFile.lastModified() else folder.lastModified()
+        val uploadRes = cloudSyncRepository.uploadFolder(
+            relativePath = relPath,
+            coverStyle = metadata.coverStyle,
+            coverFill = coverFillMap,
+            coverProject = relativeCoverProject,
+            timestamp = ts
+        )
+        if (uploadRes.isSuccess) {
+            setFolderLastUploadedTime(context, relPath, ts)
+        }
     }
 
     private fun getProjectIdFromZip(file: java.io.File): String? {
@@ -7247,6 +8279,21 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 return obj.optString("id", null)
             }
         } catch (e: Exception) { return null }
+    }
+
+    fun getProjectId(file: java.io.File): String? {
+        val nameWithoutExt = file.nameWithoutExtension
+        if (nameWithoutExt.length > 37 && nameWithoutExt[nameWithoutExt.length - 37] == '_') {
+            val possibleUuid = nameWithoutExt.substring(nameWithoutExt.length - 36)
+            if (possibleUuid.contains('-')) {
+                return possibleUuid
+            }
+        }
+        val zipId = getProjectIdFromZip(file)
+        if (!zipId.isNullOrEmpty()) {
+            return zipId
+        }
+        return null
     }
 
     fun wipeCloudProjects(context: Context) {
@@ -7263,6 +8310,38 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             cloudSyncMessage = null
             isSyncingCloud = false
         }
+    }
+
+    private fun detectStylusSupport(context: Context): Boolean {
+        // 1. Check system feature for API 33+ (FEATURE_INPUT_STYLUS)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (context.packageManager.hasSystemFeature("android.hardware.input.stylus")) {
+                return true
+            }
+        }
+
+        // 2. Check Samsung S-Pen feature
+        if (context.packageManager.hasSystemFeature("com.sec.feature.spen_usp")) {
+            return true
+        }
+
+        // 3. Scan connected input devices for a stylus source or names indicating stylus/pen
+        val inputManager = context.getSystemService(Context.INPUT_SERVICE) as? InputManager
+        if (inputManager != null) {
+            val deviceIds = inputManager.inputDeviceIds
+            for (id in deviceIds) {
+                val device = inputManager.getInputDevice(id) ?: continue
+                val sources = device.sources
+                if ((sources and InputDevice.SOURCE_STYLUS) == InputDevice.SOURCE_STYLUS) {
+                    return true
+                }
+                val name = device.name.lowercase()
+                if (name.contains("stylus") || name.contains("pen") || name.contains("wacom")) {
+                    return true
+                }
+            }
+        }
+        return false
     }
 }
 

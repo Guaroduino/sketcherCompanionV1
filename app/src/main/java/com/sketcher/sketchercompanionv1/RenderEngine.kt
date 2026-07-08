@@ -18,6 +18,10 @@ import com.sketcher.sketchercompanionv1.utils.MathTextureCache
 import com.sketcher.sketchercompanionv1.utils.ImageTextureCache
 import com.sketcher.sketchercompanionv1.managers.SnapPoint
 import com.sketcher.sketchercompanionv1.managers.SnapType
+import android.text.Html
+import android.text.Layout
+import android.text.StaticLayout
+import android.text.TextPaint
 
 /**
  * Handles all direct Canvas drawing operations.
@@ -71,6 +75,8 @@ class RenderEngine {
         isAntiAlias = true
         isDither = true
     }
+
+    private val layerAlphaPaint = Paint()
 
     private val gridPaint = Paint().apply {
         style = Paint.Style.STROKE
@@ -205,7 +211,10 @@ class RenderEngine {
             }
             is FillStyle.MathTexture -> {
                 if (style.patternName.uppercase() in listOf("NOTEBOOK", "MATH_GRID", "CALLIGRAPHY")) {
-                    paint.color = style.secondaryColor
+                    val origColor = style.secondaryColor
+                    val origAlpha = Color.alpha(origColor)
+                    val finalAlpha = (origAlpha * style.opacity * alphaMultiplier).toInt().coerceIn(0, 255)
+                    paint.color = (origColor and 0x00FFFFFF) or (finalAlpha shl 24)
                 } else {
                     val bitmap = MathTextureCache.getOrCreate(style)
                     if (bitmap != null) {
@@ -228,8 +237,12 @@ class RenderEngine {
                 if (bitmap != null) {
                     val shader = BitmapShader(bitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
                     tempShaderMatrix.reset()
+                    val basePxPerMm = scaleConfig.basePixelsPerMillimeter.coerceAtLeast(0.001f)
+                    val targetSizePx = 100f * basePxPerMm
+                    val baseScaleX = targetSizePx / bitmap.width
+                    val baseScaleY = targetSizePx / bitmap.height
                     val matrix = tempShaderMatrix.apply {
-                        postScale(style.scaleX, style.scaleY)
+                        postScale(baseScaleX * style.scaleX, baseScaleY * style.scaleY)
                         postRotate(style.rotation)
                         postTranslate(style.offsetX, style.offsetY)
                     }
@@ -239,7 +252,21 @@ class RenderEngine {
                     paint.color = Color.argb(finalAlpha, 255, 255, 255)
                     if (style.tintColor != Color.TRANSPARENT && style.tintMix > 0f) {
                         val filterColor = (style.tintColor and 0x00FFFFFF) or (((style.tintMix).coerceIn(0f, 1f) * 255).toInt() shl 24)
-                        paint.colorFilter = PorterDuffColorFilter(filterColor, PorterDuff.Mode.SRC_ATOP)
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                            val blendMode = try {
+                                android.graphics.BlendMode.valueOf(style.blendModeName)
+                            } catch (e: Exception) {
+                                android.graphics.BlendMode.SRC_ATOP
+                            }
+                            paint.colorFilter = android.graphics.BlendModeColorFilter(filterColor, blendMode)
+                        } else {
+                            val pdMode = try {
+                                PorterDuff.Mode.valueOf(style.blendModeName)
+                            } catch (e: Exception) {
+                                if (style.blendModeName == "DIFFERENCE") PorterDuff.Mode.MULTIPLY else PorterDuff.Mode.SRC_ATOP
+                            }
+                            paint.colorFilter = PorterDuffColorFilter(filterColor, pdMode)
+                        }
                     } else {
                         paint.colorFilter = null
                     }
@@ -549,18 +576,12 @@ class RenderEngine {
              }
              if (!visible) continue
              
-             // Setup Layer Paint/Alpha
-             val saveCount = if (layer.opacity < 1f) {
-                 val alphaInt = (layer.opacity * 255).toInt().coerceIn(0, 255)
-                 canvas.saveLayerAlpha(null, alphaInt)
-             } else {
-                 canvas.save()
-             }
+             canvas.save()
              canvas.concat(viewMatrix)
              
              for (element in layer.elements) {
                   if (isCancelled()) {
-                      canvas.restoreToCount(saveCount)
+                      canvas.restore()
                       return
                   }
                   val isSelected = selectedElements?.contains(element) == true
@@ -574,16 +595,16 @@ class RenderEngine {
                       }
                   }
 
-                  val alphaMultiplier = if (editingParent != null) {
+                  val alphaMultiplier = (if (editingParent != null) {
                       if (element === editingParent) 1.0f else 0.3f
                   } else {
                       1.0f
-                  }
+                  }) * layer.opacity
 
                   drawElementRecursive(canvas, element, componentLibrary, viewMatrix, alphaMultiplier)
              }
              
-             canvas.restoreToCount(saveCount)
+             canvas.restore()
         }
     }
     
@@ -626,21 +647,60 @@ class RenderEngine {
                  canvas.drawBitmap(element.bitmap, element.matrix, imagePaint)
                  imagePaint.alpha = origAlpha
              }
-             is SvgElement -> {
-                 if (alphaMultiplier < 1f) {
-                     val bounds = element.getBoundingBox(library)
-                     val saveCount = canvas.saveLayer(bounds, svgAlphaPaint.apply { alpha = (alphaMultiplier * 255).toInt().coerceIn(0, 255) })
-                     element.render(canvas)
-                     canvas.restoreToCount(saveCount)
-                 } else {
-                     element.render(canvas)
-                 }
-             }
-             else -> {} // Unknown
-         }
-    }
+              is SvgElement -> {
+                  if (alphaMultiplier < 1f) {
+                      val bounds = element.getBoundingBox(library)
+                      val saveCount = canvas.saveLayer(bounds, svgAlphaPaint.apply { alpha = (alphaMultiplier * 255).toInt().coerceIn(0, 255) })
+                      element.render(canvas)
+                      canvas.restoreToCount(saveCount)
+                  } else {
+                      element.render(canvas)
+                  }
+              }
+              is TextElement -> {
+                  drawTextElement(canvas, element, alphaMultiplier)
+              }
+              else -> {} // Unknown
+          }
+     }
 
-    private fun drawVectorStroke(canvas: Canvas, stroke: VectorStroke, viewMatrix: Matrix, alphaMultiplier: Float = 1f) {
+     private fun drawTextElement(canvas: Canvas, element: TextElement, alphaMultiplier: Float) {
+         canvas.save()
+         canvas.concat(element.getMatrix())
+
+         val spanned = Html.fromHtml(element.textHtml, Html.FROM_HTML_MODE_LEGACY)
+         val textPaint = TextPaint().apply {
+             isAntiAlias = true
+             textSize = element.defaultTextSize
+             color = element.defaultTextColor
+             alpha = (alphaMultiplier * 255).toInt().coerceIn(0, 255)
+         }
+         
+         try {
+             textPaint.typeface = android.graphics.Typeface.create(element.fontFamilyName, android.graphics.Typeface.NORMAL)
+         } catch (e: Exception) {
+             // Fallback
+         }
+
+         val layoutAlignment = when (element.alignment) {
+             "CENTER" -> Layout.Alignment.ALIGN_CENTER
+             "RIGHT" -> Layout.Alignment.ALIGN_OPPOSITE
+             else -> Layout.Alignment.ALIGN_NORMAL
+         }
+
+         val textWidth = if (element.width > 0f) element.width.toInt() else 1
+
+         val layout = StaticLayout.Builder.obtain(spanned, 0, spanned.length, textPaint, textWidth)
+             .setAlignment(layoutAlignment)
+             .setLineSpacing(0f, 1f)
+             .setIncludePad(true)
+             .build()
+
+         layout.draw(canvas)
+         canvas.restore()
+     }
+
+     private fun drawVectorStroke(canvas: Canvas, stroke: VectorStroke, viewMatrix: Matrix, alphaMultiplier: Float = 1f) {
         // Pass 1: FILL (if enabled)
         if (stroke.isFillEnabled && stroke.fillPath != null) {
             vectorPaint.style = Paint.Style.FILL
@@ -653,8 +713,27 @@ class RenderEngine {
         if (stroke.isStrokeEnabled) {
             val isMeshBrush = stroke.brushType == "FREEHAND" || stroke.brushType == "PEN" || stroke.brushType == "PLUMA" || stroke.brushType == "PENCIL_CUMULATIVE" || stroke.brushType == "PAINT" || stroke.brushType == "WATERCOLOR"
             if (isMeshBrush) {
-                stroke.getBrushRenderer().draw(canvas, stroke, vectorPaint, alphaMultiplier) { p, alpha ->
-                    applyFillStyle(p, stroke.strokeStyle, alphaMultiplier * alpha)
+                val isCumulative = stroke.brushType == "PENCIL_CUMULATIVE"
+                val strokeOpacity = stroke.strokeStyle.opacity
+                val totalOpacity = alphaMultiplier * strokeOpacity
+                
+                if (totalOpacity < 1f && !isCumulative) {
+                    val bounds = stroke.getBoundingBox(emptyMap())
+                    val tempBounds = RectF(bounds)
+                    val pad = stroke.maxWidth.coerceAtLeast(4f) * 1.5f
+                    tempBounds.inset(-pad, -pad)
+                    
+                    val savePaint = layerAlphaPaint.apply { alpha = (totalOpacity * 255).toInt().coerceIn(0, 255) }
+                    val saveCount = canvas.saveLayer(tempBounds, savePaint)
+                    
+                    stroke.getBrushRenderer().draw(canvas, stroke, vectorPaint, 1f) { p, alpha ->
+                        applyFillStyle(p, stroke.strokeStyle.copyWithOpacity(1f), alpha)
+                    }
+                    canvas.restoreToCount(saveCount)
+                } else {
+                    stroke.getBrushRenderer().draw(canvas, stroke, vectorPaint, alphaMultiplier) { p, alpha ->
+                        applyFillStyle(p, stroke.strokeStyle, alphaMultiplier * alpha)
+                    }
                 }
             } else {
                 // For others, it's a line
@@ -1204,17 +1283,20 @@ class RenderEngine {
         // Draw Handles
         val handleRadius = 6f * density
         
-        // Corners
-        drawHandle(canvas, pts[0], pts[1], handleRadius, density) // TL
-        drawHandle(canvas, pts[2], pts[3], handleRadius, density) // TR
-        drawHandle(canvas, pts[4], pts[5], handleRadius, density) // BR
-        drawHandle(canvas, pts[6], pts[7], handleRadius, density) // BL
-        
-        // Edges
-        drawHandle(canvas, pts[8], pts[9], handleRadius, density)   // TC
-        drawHandle(canvas, pts[10], pts[11], handleRadius, density) // BC
-        drawHandle(canvas, pts[12], pts[13], handleRadius, density) // LC
-        drawHandle(canvas, pts[14], pts[15], handleRadius, density) // RC
+        // Corners & Edges
+        if (!manager.isScaleLocked) {
+            // Corners
+            drawHandle(canvas, pts[0], pts[1], handleRadius, density) // TL
+            drawHandle(canvas, pts[2], pts[3], handleRadius, density) // TR
+            drawHandle(canvas, pts[4], pts[5], handleRadius, density) // BR
+            drawHandle(canvas, pts[6], pts[7], handleRadius, density) // BL
+            
+            // Edges
+            drawHandle(canvas, pts[8], pts[9], handleRadius, density)   // TC
+            drawHandle(canvas, pts[10], pts[11], handleRadius, density) // BC
+            drawHandle(canvas, pts[12], pts[13], handleRadius, density) // LC
+            drawHandle(canvas, pts[14], pts[15], handleRadius, density) // RC
+        }
 
         // Rotate Handle (extended from TC pointing away from BC)
         val dx = pts[8] - pts[10]

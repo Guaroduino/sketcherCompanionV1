@@ -3,39 +3,40 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- Left Node -->
     <path
         android:strokeColor="#FF000000"
         android:strokeWidth="2"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M4 17a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
-    <!-- Right Node -->
+        android:pathData="M8 11a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" />
     <path
         android:strokeColor="#FF000000"
         android:strokeWidth="2"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M16 17a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
-    <!-- Top Node -->
+        android:pathData="M16 16l-2.5 -2.5" />
     <path
         android:strokeColor="#FF000000"
         android:strokeWidth="2"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M10 7a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
-    <!-- Arc Path Segment 1 -->
+        android:pathData="M3 7v-2a2 2 0 0 1 2 -2h2" />
     <path
         android:strokeColor="#FF000000"
         android:strokeWidth="2"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M7.4 15.5 A 6.8 6.8 0 0 1 10.1 7.3" />
-    <!-- Arc Path Segment 2 -->
+        android:pathData="M3 17v2a2 2 0 0 0 2 2h2" />
     <path
         android:strokeColor="#FF000000"
         android:strokeWidth="2"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M13.9 7.3 A 6.8 6.8 0 0 1 16.6 15.5" />
+        android:pathData="M17 3h2a2 2 0 0 1 2 2v2" />
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M17 21h2a2 2 0 0 0 2 -2v-2" />
 </vector>

@@ -44,6 +44,7 @@ fun StudioToolButton(
     isStrokeActiveVal: Boolean,
     isFillActiveVal: Boolean,
     fillStyleVal: com.sketcher.sketchercompanionv1.dto.FillStyle,
+    strokeStyleVal: com.sketcher.sketchercompanionv1.dto.FillStyle,
     lastActiveColorToolId: String?,
     theme: UiThemeConfig,
     scaler: UiScaler,
@@ -55,7 +56,17 @@ fun StudioToolButton(
     onShowSnapConfig: () -> Unit,
     onToolClick: (StudioTool) -> Unit,
     onEditTool: (ToolPayload, String) -> Unit,
-    onSubToolClick: (ToolLocation, Int, StudioTool) -> Unit
+    onSubToolClick: (ToolLocation, Int, StudioTool) -> Unit,
+    showStudioMenu: Boolean = false,
+    showPersonalizationDialog: Boolean = false,
+    isStrokeColorPresetVal: Boolean = true,
+    isFillColorPresetVal: Boolean = true,
+    assignedStabMap: Map<String, Float> = emptyMap(),
+    assignedOpacityMap: Map<String, Float> = emptyMap(),
+    presetStab: Float = 0f,
+    presetOpacity: Float = 1f,
+    studioMenuContent: @Composable () -> Unit = {},
+    personalizationMenuContent: @Composable () -> Unit = {}
 ) {
     val isActionButton = resolveIsActionButton(tool)
     val isRealAction = !tool.isPlaceholder || isActionButton
@@ -136,22 +147,51 @@ fun StudioToolButton(
                 location = location,
                 payload = assignedToolsMap[tool.id],
                 colorPreview = when (assignedToolsMap[tool.id]) {
-                    ToolPayload.STROKE_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(strokeColorVal)
-                    ToolPayload.FILL_COLOR -> assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(fillColorVal)
+                    ToolPayload.STROKE_COLOR -> {
+                        if (isStrokeColorPresetVal) Color(strokeColorVal)
+                        else assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(strokeColorVal)
+                    }
+                    ToolPayload.FILL_COLOR -> {
+                        if (isFillColorPresetVal) Color(fillColorVal)
+                        else assignedColorsMap[tool.id]?.let { Color(it) } ?: Color(fillColorVal)
+                    }
                     else -> null
                 },
-                fillStylePreview = if (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR) {
-                    if (tool.id == lastActiveColorToolId || (lastActiveColorToolId == null && isFillActiveVal)) fillStyleVal else null
-                } else null,
+                isColorPreset = when (assignedToolsMap[tool.id]) {
+                    ToolPayload.STROKE_COLOR -> isStrokeColorPresetVal
+                    ToolPayload.FILL_COLOR -> isFillColorPresetVal
+                    else -> false
+                },
+                isStabilizePreset = if (assignedToolsMap[tool.id] == ToolPayload.STABILIZE) {
+                    val btnStab = assignedStabMap[tool.id] ?: presetStab
+                    val btnOpacity = assignedOpacityMap[tool.id] ?: presetOpacity
+                    kotlin.math.abs(btnStab - presetStab) < 0.001f && kotlin.math.abs(btnOpacity - presetOpacity) < 0.001f
+                } else false,
+                stabilizationPreview = if (assignedToolsMap[tool.id] == ToolPayload.STABILIZE) (assignedStabMap[tool.id] ?: presetStab) else null,
+                fillStylePreview = when (assignedToolsMap[tool.id]) {
+                    ToolPayload.FILL_COLOR -> if (tool.id == lastActiveColorToolId || (lastActiveColorToolId == null && isFillActiveVal)) fillStyleVal else null
+                    ToolPayload.STROKE_COLOR -> if (tool.id == lastActiveColorToolId || (lastActiveColorToolId == null && isStrokeActiveVal)) strokeStyleVal else null
+                    else -> null
+                },
                 isSelected = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && isStrokeActiveVal) ||
                              (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && isFillActiveVal),
                 isNone = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && !isStrokeActiveVal) ||
                          (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && !isFillActiveVal),
                 subTools = if (!isEditMode) {
-                    if (tool.subTools.isNotEmpty()) tool.subTools 
-                    else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId)
+                    val rawSub = if (tool.subTools.isNotEmpty()) tool.subTools 
+                                 else com.sketcher.sketchercompanionv1.ui.model.ToolRegistry.getSubToolsFor(tool.registryId)
+                    rawSub.filter { it.registryId != "stroke_type" }
                 } else emptyList(),
-                onSubToolClick = { subTool -> onSubToolClick(location, idx, subTool) }
+                onSubToolClick = { subTool -> onSubToolClick(location, idx, subTool) },
+                showStudioMenu = showStudioMenu,
+                showPersonalizationDialog = showPersonalizationDialog,
+                dropdownContent = {
+                    if (tool.registryId == "menu") {
+                        studioMenuContent()
+                    } else if (tool.registryId == "settings") {
+                        personalizationMenuContent()
+                    }
+                }
             )
         }
     }
@@ -230,6 +270,7 @@ fun BoxScope.StudioLeftBar(
     isStrokeActiveVal: Boolean,
     isFillActiveVal: Boolean,
     fillStyleVal: com.sketcher.sketchercompanionv1.dto.FillStyle,
+    strokeStyleVal: com.sketcher.sketchercompanionv1.dto.FillStyle,
     lastActiveColorToolId: String?,
     brushSizeVal: Float,
     resolveIsActive: (StudioTool) -> Boolean,
@@ -239,7 +280,17 @@ fun BoxScope.StudioLeftBar(
     onShowSnapConfig: () -> Unit,
     onToolClick: (StudioTool) -> Unit,
     onEditTool: (ToolPayload, String) -> Unit,
-    onSubToolClick: (ToolLocation, Int, StudioTool) -> Unit
+    onSubToolClick: (ToolLocation, Int, StudioTool) -> Unit,
+    showStudioMenu: Boolean = false,
+    showPersonalizationDialog: Boolean = false,
+    isStrokeColorPresetVal: Boolean = true,
+    isFillColorPresetVal: Boolean = true,
+    assignedStabMap: Map<String, Float> = emptyMap(),
+    assignedOpacityMap: Map<String, Float> = emptyMap(),
+    presetStab: Float = 0f,
+    presetOpacity: Float = 1f,
+    studioMenuContent: @Composable () -> Unit = {},
+    personalizationMenuContent: @Composable () -> Unit = {}
 ) {
     if (leftTools.isNotEmpty() || isEditMode) {
         Box(
@@ -275,6 +326,7 @@ fun BoxScope.StudioLeftBar(
                         isStrokeActiveVal = isStrokeActiveVal,
                         isFillActiveVal = isFillActiveVal,
                         fillStyleVal = fillStyleVal,
+                        strokeStyleVal = strokeStyleVal,
                         lastActiveColorToolId = lastActiveColorToolId,
                         theme = theme,
                         scaler = scaler,
@@ -286,7 +338,17 @@ fun BoxScope.StudioLeftBar(
                         onShowSnapConfig = onShowSnapConfig,
                         onToolClick = onToolClick,
                         onEditTool = onEditTool,
-                        onSubToolClick = onSubToolClick
+                        onSubToolClick = onSubToolClick,
+                        showStudioMenu = showStudioMenu,
+                        showPersonalizationDialog = showPersonalizationDialog,
+                        isStrokeColorPresetVal = isStrokeColorPresetVal,
+                        isFillColorPresetVal = isFillColorPresetVal,
+                        assignedStabMap = assignedStabMap,
+                        assignedOpacityMap = assignedOpacityMap,
+                        presetStab = presetStab,
+                        presetOpacity = presetOpacity,
+                        studioMenuContent = studioMenuContent,
+                        personalizationMenuContent = personalizationMenuContent
                     )
                 }
 
@@ -324,6 +386,7 @@ fun BoxScope.StudioRightBar(
     isStrokeActiveVal: Boolean,
     isFillActiveVal: Boolean,
     fillStyleVal: com.sketcher.sketchercompanionv1.dto.FillStyle,
+    strokeStyleVal: com.sketcher.sketchercompanionv1.dto.FillStyle,
     lastActiveColorToolId: String?,
     brushSizeVal: Float,
     resolveIsActive: (StudioTool) -> Boolean,
@@ -333,7 +396,17 @@ fun BoxScope.StudioRightBar(
     onShowSnapConfig: () -> Unit,
     onToolClick: (StudioTool) -> Unit,
     onEditTool: (ToolPayload, String) -> Unit,
-    onSubToolClick: (ToolLocation, Int, StudioTool) -> Unit
+    onSubToolClick: (ToolLocation, Int, StudioTool) -> Unit,
+    showStudioMenu: Boolean = false,
+    showPersonalizationDialog: Boolean = false,
+    isStrokeColorPresetVal: Boolean = true,
+    isFillColorPresetVal: Boolean = true,
+    assignedStabMap: Map<String, Float> = emptyMap(),
+    assignedOpacityMap: Map<String, Float> = emptyMap(),
+    presetStab: Float = 0f,
+    presetOpacity: Float = 1f,
+    studioMenuContent: @Composable () -> Unit = {},
+    personalizationMenuContent: @Composable () -> Unit = {}
 ) {
     if (rightTools.isNotEmpty() || isEditMode) {
         Box(
@@ -369,6 +442,7 @@ fun BoxScope.StudioRightBar(
                         isStrokeActiveVal = isStrokeActiveVal,
                         isFillActiveVal = isFillActiveVal,
                         fillStyleVal = fillStyleVal,
+                        strokeStyleVal = strokeStyleVal,
                         lastActiveColorToolId = lastActiveColorToolId,
                         theme = theme,
                         scaler = scaler,
@@ -380,7 +454,17 @@ fun BoxScope.StudioRightBar(
                         onShowSnapConfig = onShowSnapConfig,
                         onToolClick = onToolClick,
                         onEditTool = onEditTool,
-                        onSubToolClick = onSubToolClick
+                        onSubToolClick = onSubToolClick,
+                        showStudioMenu = showStudioMenu,
+                        showPersonalizationDialog = showPersonalizationDialog,
+                        isStrokeColorPresetVal = isStrokeColorPresetVal,
+                        isFillColorPresetVal = isFillColorPresetVal,
+                        assignedStabMap = assignedStabMap,
+                        assignedOpacityMap = assignedOpacityMap,
+                        presetStab = presetStab,
+                        presetOpacity = presetOpacity,
+                        studioMenuContent = studioMenuContent,
+                        personalizationMenuContent = personalizationMenuContent
                     )
                 }
 
@@ -419,6 +503,7 @@ fun BoxScope.StudioTopBar(
     isStrokeActiveVal: Boolean,
     isFillActiveVal: Boolean,
     fillStyleVal: com.sketcher.sketchercompanionv1.dto.FillStyle,
+    strokeStyleVal: com.sketcher.sketchercompanionv1.dto.FillStyle,
     lastActiveColorToolId: String?,
     brushSizeVal: Float,
     resolveIsActive: (StudioTool) -> Boolean,
@@ -428,7 +513,17 @@ fun BoxScope.StudioTopBar(
     onShowSnapConfig: () -> Unit,
     onToolClick: (StudioTool) -> Unit,
     onEditTool: (ToolPayload, String) -> Unit,
-    onSubToolClick: (ToolLocation, Int, StudioTool) -> Unit
+    onSubToolClick: (ToolLocation, Int, StudioTool) -> Unit,
+    showStudioMenu: Boolean = false,
+    showPersonalizationDialog: Boolean = false,
+    isStrokeColorPresetVal: Boolean = true,
+    isFillColorPresetVal: Boolean = true,
+    assignedStabMap: Map<String, Float> = emptyMap(),
+    assignedOpacityMap: Map<String, Float> = emptyMap(),
+    presetStab: Float = 0f,
+    presetOpacity: Float = 1f,
+    studioMenuContent: @Composable () -> Unit = {},
+    personalizationMenuContent: @Composable () -> Unit = {}
 ) {
     if (topTools.isNotEmpty() || isEditMode) {
         Box(
@@ -465,6 +560,7 @@ fun BoxScope.StudioTopBar(
                         isStrokeActiveVal = isStrokeActiveVal,
                         isFillActiveVal = isFillActiveVal,
                         fillStyleVal = fillStyleVal,
+                        strokeStyleVal = strokeStyleVal,
                         lastActiveColorToolId = lastActiveColorToolId,
                         theme = theme,
                         scaler = scaler,
@@ -476,7 +572,17 @@ fun BoxScope.StudioTopBar(
                         onShowSnapConfig = onShowSnapConfig,
                         onToolClick = onToolClick,
                         onEditTool = onEditTool,
-                        onSubToolClick = onSubToolClick
+                        onSubToolClick = onSubToolClick,
+                        showStudioMenu = showStudioMenu,
+                        showPersonalizationDialog = showPersonalizationDialog,
+                        isStrokeColorPresetVal = isStrokeColorPresetVal,
+                        isFillColorPresetVal = isFillColorPresetVal,
+                        assignedStabMap = assignedStabMap,
+                        assignedOpacityMap = assignedOpacityMap,
+                        presetStab = presetStab,
+                        presetOpacity = presetOpacity,
+                        studioMenuContent = studioMenuContent,
+                        personalizationMenuContent = personalizationMenuContent
                     )
                 }
 

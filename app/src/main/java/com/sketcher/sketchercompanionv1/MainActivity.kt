@@ -32,6 +32,10 @@ import com.sketcher.sketchercompanionv1.ui.dialogs.DxfImportDialog
 import com.sketcher.sketchercompanionv1.ui.dialogs.DxfExportDialog
 import com.sketcher.sketchercompanionv1.dto.FillStyle
 import java.io.File
+import android.print.PrintManager
+import android.widget.Toast
+import com.sketcher.sketchercompanionv1.utils.PdfPrintAdapter
+import com.sketcher.sketchercompanionv1.utils.PdfExporter
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -82,6 +86,11 @@ class MainActivity : ComponentActivity() {
             val coroutineScope = rememberCoroutineScope()
             
             LaunchedEffect(Unit) {
+                // Copy default textures from assets to local storage in background
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    com.sketcher.sketchercompanionv1.utils.ImageTextureCache.copyDefaultTexturesFromAssets(context)
+                }
+
                 try {
                     val info = updateManager.checkForUpdates()
                     if (info != null) {
@@ -199,6 +208,7 @@ class MainActivity : ComponentActivity() {
                     theme = theme
                 ) {
                     com.sketcher.sketchercompanionv1.ui.auth.LoginScreen(
+                        theme = theme,
                         onLoginSuccess = { skipLogin = false },
                         onSkipLogin = { skipLogin = true },
                         viewModel = authViewModel
@@ -208,6 +218,7 @@ class MainActivity : ComponentActivity() {
             }
             
             LaunchedEffect(currentUser) {
+                sketchViewModel.initLocalProjects(context)
                 if (currentUser != null) {
                     sketchViewModel.autoSyncCloud(context)
                 }
@@ -233,6 +244,7 @@ class MainActivity : ComponentActivity() {
             var showExportPngDialog by remember { mutableStateOf(false) }
             var showExportSvgDialog by remember { mutableStateOf(false) }
             var showPdfExportDialog by remember { mutableStateOf(false) }
+            var showPdfPrintDialog by remember { mutableStateOf(false) }
             var showGlobalScaleDialog by remember { mutableStateOf(false) }
             var showRenderBottomSheet by remember { mutableStateOf(false) }
 
@@ -304,7 +316,14 @@ class MainActivity : ComponentActivity() {
                     onTemplatesLoad = { file -> sketchViewModel.loadFromTemplate(context, file) },
                     onSettings = { showSettingsPopup = true },
                     onZoomFit = { sketchViewModel.fitContent() },
-                    onRender = { showRenderBottomSheet = true }
+                    onRender = { showRenderBottomSheet = true },
+                    onPrintTrigger = {
+                        if (sketchViewModel.canvasSizeConfig != null) {
+                            executePrint(context, sketchViewModel, PdfExporter.BoundsMode.CANVAS_SIZE)
+                        } else {
+                            showPdfPrintDialog = true
+                        }
+                    }
                 )
             }
   
@@ -350,50 +369,16 @@ class MainActivity : ComponentActivity() {
                         }
 
 
-                        var showExitDialog by remember { mutableStateOf(false) }
-
                         // Intercept back button gestures
                         androidx.activity.compose.BackHandler(enabled = true) {
                             if (!sketchViewModel.showDashboard) {
-                                if (sketchViewModel.hasUnsavedChangesSinceLastAutosave) {
-                                    showExitDialog = true
-                                } else {
-                                    sketchViewModel.exitEditorWithoutSaving(context)
-                                }
+                                sketchViewModel.exitEditorToDashboard(context)
                             } else {
                                 val handled = sketchViewModel.navigateUp(context)
                                 if (!handled) {
                                     (context as? android.app.Activity)?.moveTaskToBack(true)
                                 }
                             }
-                        }
-
-                        if (showExitDialog) {
-                            androidx.compose.material3.AlertDialog(
-                                onDismissRequest = { showExitDialog = false },
-                                title = { androidx.compose.material3.Text("Cambios sin guardar") },
-                                text = { androidx.compose.material3.Text("¿Deseas guardar los cambios antes de salir?") },
-                                confirmButton = {
-                                    Row {
-                                        androidx.compose.material3.TextButton(onClick = { 
-                                            sketchViewModel.exitEditorToDashboard(context)
-                                            showExitDialog = false
-                                        }) { androidx.compose.material3.Text("Guardar") }
-                                        
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        
-                                        androidx.compose.material3.TextButton(onClick = { 
-                                            sketchViewModel.exitEditorWithoutSaving(context)
-                                            showExitDialog = false
-                                        }) { androidx.compose.material3.Text("Descartar") }
-                                    }
-                                },
-                                dismissButton = {
-                                    androidx.compose.material3.TextButton(onClick = { showExitDialog = false }) { 
-                                        androidx.compose.material3.Text("Cancelar") 
-                                    }
-                                }
-                            )
                         }
 
                         if (sketchViewModel.showDashboard) {
@@ -420,7 +405,8 @@ class MainActivity : ComponentActivity() {
                                             android.widget.Toast.makeText(context, "Error al buscar actualizaciones", android.widget.Toast.LENGTH_SHORT).show()
                                         }
                                     }
-                                }
+                                },
+                                onSignOut = { skipLogin = false }
                             )
                         } else {
                             // 1. MAIN UI LAYER
@@ -606,15 +592,49 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
+                        if (showPdfPrintDialog) {
+                            com.sketcher.sketchercompanionv1.ui.PdfExportDialog(
+                                onDismiss = { showPdfPrintDialog = false },
+                                onConfirm = { useZoomExtends ->
+                                     val mode = if (useZoomExtends) PdfExporter.BoundsMode.ZOOM_EXTENDS else PdfExporter.BoundsMode.HOME_VIEW
+                                     executePrint(context, sketchViewModel, mode)
+                                     showPdfPrintDialog = false
+                                }
+                            )
+                        }
+
                         if (showRenderBottomSheet) {
                             com.sketcher.sketchercompanionv1.ui.dialogs.RenderOptionsBottomSheet(
                                 viewModel = sketchViewModel,
-                                currentUserUid = currentUser?.uid,
+                                authViewModel = authViewModel,
                                 onDismiss = { showRenderBottomSheet = false }
                             )
                         }
                     }
                 }
+            }
+        }
+    }
+
+    private fun executePrint(
+        context: android.content.Context,
+        sketchViewModel: SketcherViewModel,
+        boundsMode: PdfExporter.BoundsMode
+    ) {
+        val tempFile = File(context.cacheDir, "print_job_${System.currentTimeMillis()}.pdf")
+        sketchViewModel.generateTempPdfForPrinting(context, tempFile, boundsMode) { success ->
+            if (success) {
+                try {
+                    val printManager = context.getSystemService(android.content.Context.PRINT_SERVICE) as PrintManager
+                    val jobName = "Sketcher Drawing ${sketchViewModel.projectId ?: ""}"
+                    val adapter = PdfPrintAdapter(context, tempFile, "$jobName.pdf")
+                    printManager.print(jobName, adapter, null)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    Toast.makeText(context, "Error al iniciar servicio de impresión", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                Toast.makeText(context, "Error al preparar documento para imprimir", Toast.LENGTH_SHORT).show()
             }
         }
     }

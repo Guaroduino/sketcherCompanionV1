@@ -41,6 +41,9 @@ import com.sketcher.sketchercompanionv1.ui.dialogs.DxfImportDialog
 import com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler
 import com.sketcher.sketchercompanionv1.ui.theme.sdp
 import com.sketcher.sketchercompanionv1.ui.AppIconButton
+import com.sketcher.sketchercompanionv1.ui.CloudSyncStatusIndicator
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudQueue
 import java.io.File
 import android.graphics.BitmapFactory
 
@@ -77,8 +80,7 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
             
             if (mimeType?.startsWith("image/") == true || extension in listOf("png", "jpg", "jpeg", "webp")) {
                 try {
-                    contentResolver.openInputStream(fileUri)?.use { stream ->
-                        val originalBmp = android.graphics.BitmapFactory.decodeStream(stream)
+                        val originalBmp = com.sketcher.sketchercompanionv1.utils.BitmapUtils.loadScaledBitmap(context, fileUri, 1024)
                         if (originalBmp != null) {
                             importImageEditState = ImageEditState(
                                 isNewImport = true,
@@ -87,7 +89,6 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
                                 filename = "imported_lib_img.png"
                             )
                         }
-                    }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
@@ -193,6 +194,8 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
             }
         }
 
+        val isLibrarySynced = viewModel.isLibrarySynced(context)
+
         if (isGridView) {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(80.sdp),
@@ -202,10 +205,12 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
                 verticalArrangement = Arrangement.spacedBy(ScalerConstants.ITEM_SPACING.dp)
             ) {
                 gridItems(currentItems) { item ->
+                    val assetsDir = viewModel.getLibraryAssetsDir(context)
                     LibraryItemGridCell(
                         item = item,
                         theme = theme,
                         isSelected = item.id == selectedLibraryItemId,
+                        isSynced = isLibrarySynced,
                         onClick = {
                             if (item is LibraryFolder) {
                                 currentFolderId = item.id
@@ -217,7 +222,8 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
                             showRenameDialog = item
                             newName = item.name 
                         },
-                        onDelete = { viewModel.deleteLibraryItem(context, item.id) }
+                        onDelete = { viewModel.deleteLibraryItem(context, item.id) },
+                        assetsDir = assetsDir
                     )
                 }
             }
@@ -228,10 +234,12 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
                 verticalArrangement = Arrangement.spacedBy(ScalerConstants.ITEM_SPACING.dp)
             ) {
                 items(currentItems) { item ->
+                    val assetsDir = viewModel.getLibraryAssetsDir(context)
                     LibraryItemListCell(
                         item = item,
                         theme = theme,
                         isSelected = item.id == selectedLibraryItemId,
+                        isSynced = isLibrarySynced,
                         onClick = {
                             if (item is LibraryFolder) {
                                 currentFolderId = item.id
@@ -243,7 +251,8 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
                             showRenameDialog = item
                             newName = item.name 
                         },
-                        onDelete = { viewModel.deleteLibraryItem(context, item.id) }
+                        onDelete = { viewModel.deleteLibraryItem(context, item.id) },
+                        assetsDir = assetsDir
                     )
                 }
             }
@@ -263,56 +272,78 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
     if (showNewFolderDialog) {
         AlertDialog(
             onDismissRequest = { showNewFolderDialog = false },
-            title = { Text("Nueva Carpeta", color = Color(0xFF1C1B1F)) },
+            title = { Text("Nueva Carpeta", color = theme.iconColor) },
             text = {
                 OutlinedTextField(
                     value = newName,
                     onValueChange = { newName = it },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color(0xFF1C1B1F),
-                        unfocusedTextColor = Color(0xFF1C1B1F)
+                        focusedTextColor = theme.iconColor,
+                        unfocusedTextColor = theme.iconColor,
+                        focusedBorderColor = theme.highlightColor,
+                        unfocusedBorderColor = theme.iconColor.copy(alpha = 0.5f)
                     )
                 )
             },
             confirmButton = {
-                Button(onClick = {
-                    viewModel.createLibraryFolder(context, newName, currentFolderId)
-                    showNewFolderDialog = false
-                }) { Text("Crear") }
+                Button(
+                    onClick = {
+                        viewModel.createLibraryFolder(context, newName, currentFolderId)
+                        showNewFolderDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = theme.buttonColor,
+                        contentColor = theme.iconColor
+                    )
+                ) { Text("Crear") }
             },
             dismissButton = {
-                TextButton(onClick = { showNewFolderDialog = false }) { Text("Cancelar") }
+                TextButton(
+                    onClick = { showNewFolderDialog = false },
+                    colors = ButtonDefaults.textButtonColors(contentColor = theme.iconColor)
+                ) { Text("Cancelar") }
             },
-            containerColor = Color.White
+            containerColor = theme.barBackgroundColor
         )
     }
     
     showRenameDialog?.let { item ->
         AlertDialog(
             onDismissRequest = { showRenameDialog = null },
-            title = { Text("Renombrar", color = Color(0xFF1C1B1F)) },
+            title = { Text("Renombrar", color = theme.iconColor) },
             text = {
                 OutlinedTextField(
                     value = newName,
                     onValueChange = { newName = it },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color(0xFF1C1B1F),
-                        unfocusedTextColor = Color(0xFF1C1B1F)
+                        focusedTextColor = theme.iconColor,
+                        unfocusedTextColor = theme.iconColor,
+                        focusedBorderColor = theme.highlightColor,
+                        unfocusedBorderColor = theme.iconColor.copy(alpha = 0.5f)
                     )
                 )
             },
             confirmButton = {
-                Button(onClick = {
-                    viewModel.renameLibraryItem(context, item.id, newName)
-                    showRenameDialog = null
-                }) { Text("Guardar") }
+                Button(
+                    onClick = {
+                        viewModel.renameLibraryItem(context, item.id, newName)
+                        showRenameDialog = null
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = theme.buttonColor,
+                        contentColor = theme.iconColor
+                    )
+                ) { Text("Guardar") }
             },
             dismissButton = {
-                TextButton(onClick = { showRenameDialog = null }) { Text("Cancelar") }
+                TextButton(
+                    onClick = { showRenameDialog = null },
+                    colors = ButtonDefaults.textButtonColors(contentColor = theme.iconColor)
+                ) { Text("Cancelar") }
             },
-            containerColor = Color.White
+            containerColor = theme.barBackgroundColor
         )
     }
     
@@ -322,9 +353,25 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
         ImageEditDialog(
             state = imgState,
             theme = theme,
+            scaleConfig = viewModel.scaleConfig,
+            currentUnit = viewModel.currentUnit,
             onDismiss = { importImageEditState = null },
-            onConfirm = { processedBmp, _, _, _, _, _, _, _, _, _ ->
-                viewModel.addImageToGlobalLibrary(context, "Imagen Importada", processedBmp, currentFolderId)
+            onConfirm = { processedBmp, transColors, tol, cropRect, cropPath, transTols, rotation, flipH, flipV, scale ->
+                viewModel.addImageToGlobalLibrary(
+                    context = context,
+                    name = "Imagen Importada",
+                    bitmap = processedBmp,
+                    transparentColors = transColors,
+                    tolerance = tol,
+                    cropRect = cropRect,
+                    cropPath = cropPath,
+                    transparentColorTolerances = transTols,
+                    rotation = rotation,
+                    flipHorizontal = flipH,
+                    flipVertical = flipV,
+                    calibrationScaleFactor = scale,
+                    parentId = currentFolderId
+                )
                 importImageEditState = null
             }
         )
@@ -356,9 +403,11 @@ fun LibraryItemGridCell(
     item: LibraryItem,
     theme: com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig,
     isSelected: Boolean,
+    isSynced: Boolean,
     onClick: () -> Unit,
     onRename: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    assetsDir: File
 ) {
     val scaler = LocalUiScaler.current
     val context = LocalContext.current
@@ -393,7 +442,7 @@ fun LibraryItemGridCell(
                     var bitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
                     LaunchedEffect(item.thumbnailFileName) {
                         if (item.thumbnailFileName != null) {
-                            val file = File(File(context.filesDir, "library_assets"), item.thumbnailFileName)
+                            val file = File(assetsDir, item.thumbnailFileName)
                             if (file.exists()) {
                                 bitmap = BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
                             }
@@ -442,10 +491,10 @@ fun LibraryItemGridCell(
             DropdownMenu(
                 expanded = showMenu,
                 onDismissRequest = { showMenu = false },
-                modifier = Modifier.background(Color.White)
+                modifier = Modifier.background(theme.barBackgroundColor)
             ) {
                 DropdownMenuItem(
-                    text = { Text("Renombrar", fontSize = 13.sp * scaleFactor, color = Color(0xFF1C1B1F)) },
+                    text = { Text("Renombrar", fontSize = 13.sp * scaleFactor, color = theme.iconColor) },
                     onClick = { showMenu = false; onRename() }
                 )
                 DropdownMenuItem(
@@ -454,6 +503,14 @@ fun LibraryItemGridCell(
                 )
             }
         }
+
+        CloudSyncStatusIndicator(
+            isSynced = isSynced,
+            scaleFactor = scaler.scaleFactor,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(4.sdp)
+        )
     }
 }
 
@@ -462,9 +519,11 @@ fun LibraryItemListCell(
     item: LibraryItem,
     theme: com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig,
     isSelected: Boolean,
+    isSynced: Boolean,
     onClick: () -> Unit,
     onRename: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    assetsDir: File
 ) {
     val scaler = LocalUiScaler.current
     val context = LocalContext.current
@@ -490,7 +549,7 @@ fun LibraryItemListCell(
             var bitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
             LaunchedEffect(item.thumbnailFileName) {
                 if (item.thumbnailFileName != null) {
-                    val file = File(File(context.filesDir, "library_assets"), item.thumbnailFileName)
+                    val file = File(assetsDir, item.thumbnailFileName)
                     if (file.exists()) {
                         bitmap = BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
                     }
@@ -522,6 +581,13 @@ fun LibraryItemListCell(
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodyMedium
         )
+
+        CloudSyncStatusIndicator(
+            isSynced = isSynced,
+            scaleFactor = scaler.scaleFactor
+        )
+
+        Spacer(modifier = Modifier.width(4.sdp))
         
         Box {
             AppIconButton(
@@ -536,10 +602,10 @@ fun LibraryItemListCell(
             DropdownMenu(
                 expanded = showMenu,
                 onDismissRequest = { showMenu = false },
-                modifier = Modifier.background(Color.White)
+                modifier = Modifier.background(theme.barBackgroundColor)
             ) {
                 DropdownMenuItem(
-                    text = { Text("Renombrar", fontSize = 13.sp * scaleFactor, color = Color(0xFF1C1B1F)) },
+                    text = { Text("Renombrar", fontSize = 13.sp * scaleFactor, color = theme.iconColor) },
                     onClick = { showMenu = false; onRename() }
                 )
                 DropdownMenuItem(

@@ -6,7 +6,8 @@ import android.graphics.RectF
 data class GroupElement(
     val id: String,
     val elements: MutableList<LayerElement>, // Children
-    val matrix: Matrix = Matrix()     // Local transformation
+    val matrix: Matrix = Matrix(),     // Local transformation
+    override var isScaleLocked: Boolean = false
 ) : LayerElement, Transformable {
 
     @Transient
@@ -44,7 +45,7 @@ data class GroupElement(
         // Deep copy of children and matrix
         val copiedElements = elements.map { it.copyElement() }.toMutableList()
         val copiedMatrix = Matrix(matrix)
-        return GroupElement(java.util.UUID.randomUUID().toString(), copiedElements, copiedMatrix)
+        return GroupElement(java.util.UUID.randomUUID().toString(), copiedElements, copiedMatrix, isScaleLocked)
     }
 }
 

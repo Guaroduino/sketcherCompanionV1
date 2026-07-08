@@ -1,4 +1,4 @@
-﻿package com.sketcher.sketchercompanionv1
+package com.sketcher.sketchercompanionv1
 
 import android.graphics.Canvas
 import android.graphics.Matrix
@@ -9,7 +9,8 @@ data class SvgElement(
     val id: String,
     val svgFileName: String,
     val svgContent: String, // Raw XML content
-    val matrixValues: FloatArray = FloatArray(9).apply { Matrix().getValues(this) }
+    val matrixValues: FloatArray = FloatArray(9).apply { Matrix().getValues(this) },
+    override var isScaleLocked: Boolean = false
 ) : LayerElement {
 
     @Transient
@@ -61,7 +62,8 @@ data class SvgElement(
             id = java.util.UUID.randomUUID().toString(), // New ID for copy
             svgFileName = svgFileName,
             svgContent = svgContent,
-            matrixValues = matrixValues.clone()
+            matrixValues = matrixValues.clone(),
+            isScaleLocked = isScaleLocked
         )
     }
     

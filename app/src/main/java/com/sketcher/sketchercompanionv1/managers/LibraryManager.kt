@@ -25,9 +25,17 @@ object LibraryManager {
     private const val LIBRARY_FILE_NAME = "global_library.json"
     private const val ASSETS_DIR_NAME = "library_assets"
 
+    private fun getUserDir(context: Context): File {
+        val currentUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "guest"
+        val userDir = File(context.filesDir, "users/$currentUid")
+        if (!userDir.exists()) userDir.mkdirs()
+        return userDir
+    }
+
     suspend fun saveLibrary(context: Context, items: List<LibraryItem>) {
         withContext(Dispatchers.IO) {
-            val assetsDir = File(context.filesDir, ASSETS_DIR_NAME)
+            val userDir = getUserDir(context)
+            val assetsDir = File(userDir, ASSETS_DIR_NAME)
             if (!assetsDir.exists()) {
                 assetsDir.mkdirs()
             }
@@ -64,17 +72,18 @@ object LibraryManager {
             val stateJson = LibraryStateJson(itemsJson)
             val jsonString = Gson().toJson(stateJson)
 
-            val file = File(context.filesDir, LIBRARY_FILE_NAME)
+            val file = File(userDir, LIBRARY_FILE_NAME)
             file.writeText(jsonString, Charsets.UTF_8)
         }
     }
 
     suspend fun loadLibrary(context: Context): List<LibraryItem> {
         return withContext(Dispatchers.IO) {
-            val file = File(context.filesDir, LIBRARY_FILE_NAME)
+            val userDir = getUserDir(context)
+            val file = File(userDir, LIBRARY_FILE_NAME)
             if (!file.exists()) return@withContext emptyList()
 
-            val assetsDir = File(context.filesDir, ASSETS_DIR_NAME)
+            val assetsDir = File(userDir, ASSETS_DIR_NAME)
             val jsonString = file.readText(Charsets.UTF_8)
             val stateJson = Gson().fromJson(jsonString, LibraryStateJson::class.java)
 
@@ -94,7 +103,10 @@ object LibraryManager {
                                     val fileName = elJson.image.fileName
                                     val imgFile = File(assetsDir, fileName)
                                     if (imgFile.exists() && !bitmapMap.containsKey(fileName)) {
-                                        val bitmap = BitmapFactory.decodeFile(imgFile.absolutePath)
+                                        val options = BitmapFactory.Options().apply {
+                                            inPreferredConfig = Bitmap.Config.ARGB_8888
+                                        }
+                                        val bitmap = BitmapFactory.decodeFile(imgFile.absolutePath, options)
                                         if (bitmap != null) {
                                             bitmapMap[fileName] = bitmap
                                         }
@@ -103,7 +115,10 @@ object LibraryManager {
                                     if (originalFileName != null) {
                                         val origFile = File(assetsDir, originalFileName)
                                         if (origFile.exists() && !bitmapMap.containsKey(originalFileName)) {
-                                            val bitmap = BitmapFactory.decodeFile(origFile.absolutePath)
+                                            val options = BitmapFactory.Options().apply {
+                                                inPreferredConfig = Bitmap.Config.ARGB_8888
+                                            }
+                                            val bitmap = BitmapFactory.decodeFile(origFile.absolutePath, options)
                                             if (bitmap != null) {
                                                 bitmapMap[originalFileName] = bitmap
                                             }

@@ -1067,6 +1067,43 @@ class StrokePipeline(
         reset()
     }
 
+    fun updateHoverPoint(worldX: Float, worldY: Float) {
+        if (!isMultiStepInProgress || isDrawing) return
+        val hoverPt = StrokePoint(worldX, worldY, 0.5f, System.currentTimeMillis())
+        when (activeStrokeType) {
+            StrokeType.POLYLINE, StrokeType.SPLINE, StrokeType.ARC, StrokeType.ELLIPSE -> {
+                if (currentStrokePoints.isNotEmpty()) {
+                    val prev = if (currentStrokePoints.size >= 2) currentStrokePoints[currentStrokePoints.size - 2] else null
+                    var adjusted = if (isOrthoMode && prev != null) applyOrthoSnap(hoverPt, prev) else hoverPt
+                    
+                    // Snapping to the start point during hover if we are close
+                    val firstPt = currentStrokePoints.firstOrNull()
+                    if (firstPt != null && currentStrokePoints.size > 2) {
+                        val dx = adjusted.x - firstPt.x
+                        val dy = adjusted.y - firstPt.y
+                        val distSq = dx * dx + dy * dy
+                        val threshold = 12f / currentZoom
+                        if (distSq < threshold * threshold) {
+                            adjusted = firstPt
+                        }
+                    }
+                    
+                    currentStrokePoints[currentStrokePoints.size - 1] = adjusted
+                    updatePreview()
+                }
+            }
+            else -> {}
+        }
+    }
+
+    fun clearHoverPoint() {
+        if (!isMultiStepInProgress || isDrawing) return
+        if (currentStrokePoints.size >= 2) {
+            currentStrokePoints[currentStrokePoints.size - 1] = currentStrokePoints[currentStrokePoints.size - 2]
+            updatePreview()
+        }
+    }
+
     fun undoLastPoint() {
         if (currentStrokePoints.isEmpty()) return
         

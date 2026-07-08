@@ -20,6 +20,14 @@ class SelectionManager {
     var activeTransform: Matrix? = null
     var baseBounds = RectF()
 
+    val isScaleLocked: Boolean
+        get() = selectedElements.any { it.isScaleLocked }
+
+    fun toggleScaleLock() {
+        val target = !isScaleLocked
+        selectedElements.forEach { it.isScaleLocked = target }
+    }
+
     // --- SELECTION STATE ---
     val lassoPath = Path()
     var startX = 0f
@@ -317,6 +325,7 @@ class SelectionManager {
         var minDist = Float.MAX_VALUE
         
         for (i in 0 until 9) {
+            if (isScaleLocked && i < 8) continue // Skip scale handles if scale is locked!
             val shx = screenPts[i * 2]
             val shy = screenPts[i * 2 + 1]
             val dist = kotlin.math.hypot(eventX - shx, eventY - shy)

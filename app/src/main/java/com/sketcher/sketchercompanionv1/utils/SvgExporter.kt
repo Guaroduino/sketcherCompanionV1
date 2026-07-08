@@ -137,6 +137,7 @@ object SvgExporter {
                     is SvgElement -> exportSvgElement(sb, element)
                     is GroupElement -> exportGroup(sb, element)
                     is ComponentInstance -> exportComponentInstance(sb, element, projectData.componentLibrary)
+                    is TextElement -> exportTextElement(sb, element)
                     else -> {}
                 }
             }
@@ -174,6 +175,7 @@ object SvgExporter {
                 is SvgElement -> exportSvgElement(sb, child)
                 is GroupElement -> exportGroup(sb, child)
                 is ComponentInstance -> exportComponentInstance(sb, child, emptyMap()) // Definition elements usually don't have nested instances that need a library passed down if they are already resolved or flat
+                is TextElement -> exportTextElement(sb, child)
                 else -> {}
             }
         }
@@ -305,6 +307,33 @@ object SvgExporter {
         // `element.svgContent` is the raw string.
         sb.append(element.svgContent)
         
+        sb.append("    </g>\n")
+    }
+
+    private fun exportTextElement(sb: StringBuilder, element: TextElement) {
+        val matrix = element.getMatrix()
+        val values = FloatArray(9)
+        matrix.getValues(values)
+        
+        val a = values[Matrix.MSCALE_X]
+        val b = values[Matrix.MSKEW_Y]
+        val c = values[Matrix.MSKEW_X]
+        val d = values[Matrix.MSCALE_Y]
+        val e = values[Matrix.MTRANS_X]
+        val f = values[Matrix.MTRANS_Y]
+        
+        val box = element.getBoundingBox(emptyMap())
+        val width = element.width
+        val height = box.height()
+        
+        val hexColor = colorToHex(element.defaultTextColor)
+        
+        sb.append("    <g transform=\"matrix($a, $b, $c, $d, $e, $f)\">\n")
+        sb.append("      <foreignObject width=\"$width\" height=\"$height\">\n")
+        sb.append("        <div xmlns=\"http://www.w3.org/1999/xhtml\" style=\"font-family:${element.fontFamilyName}; font-size:${element.defaultTextSize}px; color:$hexColor; text-align:${element.alignment.lowercase()}; margin:0; padding:0;\">\n")
+        sb.append("          ${element.textHtml}\n")
+        sb.append("        </div>\n")
+        sb.append("      </foreignObject>\n")
         sb.append("    </g>\n")
     }
 

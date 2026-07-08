@@ -58,6 +58,7 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.rotate
 
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.asImageBitmap
 
 import androidx.compose.material3.SliderDefaults
 
@@ -84,6 +85,8 @@ import com.sketcher.sketchercompanionv1.ui.theme.sdp
 import com.sketcher.sketchercompanionv1.ui.theme.ssp
 
 import com.sketcher.sketchercompanionv1.utils.ImageTextureCache
+import com.sketcher.sketchercompanionv1.utils.MathTextureCache
+import com.sketcher.sketchercompanionv1.utils.SvgPatternCache
 
 @Composable
 
@@ -240,6 +243,7 @@ fun FillStylePickerDialog(
     var imgOpacity by remember { mutableFloatStateOf(if (initialStyle is FillStyle.ImageTexture) initialStyle.opacity else 1f) }
     var imgTintColor by remember { mutableIntStateOf(if (initialStyle is FillStyle.ImageTexture) initialStyle.tintColor else android.graphics.Color.TRANSPARENT) }
     var imgTintMix by remember { mutableFloatStateOf(if (initialStyle is FillStyle.ImageTexture) initialStyle.tintMix else 0f) }
+    var imgBlendModeName by remember { mutableStateOf(if (initialStyle is FillStyle.ImageTexture) initialStyle.blendModeName else "SRC_ATOP") }
 
     // File launcher for SVGs
 
@@ -313,12 +317,12 @@ fun FillStylePickerDialog(
 
     var pickingMathColorTarget by remember { mutableStateOf<String?>(null) } // "PRIMARY" or "SECONDARY"
 
-    val currentPreviewStyle = remember(selectedTab, solidColor, svgContent, svgScaleX, svgScaleY, svgRotation, svgOffsetX, svgOffsetY, mathPatternName, mathPrimaryColor, mathSecondaryColor, mathSpacing, mathThickness, mathAngle, imagePath, imgScaleX, imgScaleY, imgRotation, imgOffsetX, imgOffsetY, imgOpacity, imgTintColor, imgTintMix) {
+    val currentPreviewStyle = remember(selectedTab, solidColor, svgContent, svgScaleX, svgScaleY, svgRotation, svgOffsetX, svgOffsetY, mathPatternName, mathPrimaryColor, mathSecondaryColor, mathSpacing, mathThickness, mathAngle, imagePath, imgScaleX, imgScaleY, imgRotation, imgOffsetX, imgOffsetY, imgOpacity, imgTintColor, imgTintMix, imgBlendModeName) {
         when (selectedTab) {
             FillType.SOLID -> FillStyle.Solid(solidColor)
             FillType.SVG_PATTERN -> FillStyle.SvgPattern(svgContent, svgScaleX, svgScaleY, svgRotation, svgOffsetX, svgOffsetY)
             FillType.MATH_TEXTURE -> FillStyle.MathTexture(mathPatternName, mathPrimaryColor, mathSecondaryColor, mathSpacing, mathThickness, mathAngle)
-            FillType.IMAGE_TEXTURE -> FillStyle.ImageTexture(imagePath, imgScaleX, imgScaleY, imgRotation, imgOffsetX, imgOffsetY, imgOpacity, imgTintColor, imgTintMix)
+            FillType.IMAGE_TEXTURE -> FillStyle.ImageTexture(imagePath, imgScaleX, imgScaleY, imgRotation, imgOffsetX, imgOffsetY, imgOpacity, imgTintColor, imgTintMix, imgBlendModeName)
         }
     }
 
@@ -562,6 +566,7 @@ fun FillStylePickerDialog(
                                 offsetY = imgOffsetY,
                                 tintColor = imgTintColor,
                                 tintMix = imgTintMix,
+                                blendModeName = imgBlendModeName,
                                 onTintColorClick = { pickingMathColorTarget = "TINT" },
                                 onTintMixChanged = { imgTintMix = it },
                                 onClearTintClick = { imgTintColor = android.graphics.Color.TRANSPARENT; imgTintMix = 0f },
@@ -571,6 +576,8 @@ fun FillStylePickerDialog(
                                 onOffsetXChanged = { imgOffsetX = it },
                                 onOffsetYChanged = { imgOffsetY = it },
                                 onChooseImage = { imageLauncher.launch("image/*") },
+                                onChooseTexture = { imagePath = it },
+                                onBlendModeChanged = { imgBlendModeName = it },
                                 theme = theme
                             )
                         }
@@ -667,7 +674,8 @@ fun FillStylePickerDialog(
                                     offsetY = imgOffsetY,
                                     opacity = imgOpacity,
                                     tintColor = imgTintColor,
-                                    tintMix = imgTintMix
+                                    tintMix = imgTintMix,
+                                    blendModeName = imgBlendModeName
                                 )
 
                             }
@@ -1165,6 +1173,7 @@ fun ImageTexturePanel(
     offsetY: Float,
     tintColor: Int,
     tintMix: Float,
+    blendModeName: String,
     onTintColorClick: () -> Unit,
     onTintMixChanged: (Float) -> Unit,
     onClearTintClick: () -> Unit,
@@ -1174,9 +1183,21 @@ fun ImageTexturePanel(
     onOffsetXChanged: (Float) -> Unit,
     onOffsetYChanged: (Float) -> Unit,
     onChooseImage: () -> Unit,
+    onChooseTexture: (String) -> Unit,
+    onBlendModeChanged: (String) -> Unit,
     theme: com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
 ) {
     val scrollState = rememberScrollState()
+    val context = LocalContext.current
+    val defaultTexturesDir = remember { java.io.File(context.filesDir, "textures/default") }
+    val defaultTextures = remember {
+        if (defaultTexturesDir.exists() && defaultTexturesDir.isDirectory) {
+            defaultTexturesDir.listFiles()?.toList() ?: emptyList()
+        } else {
+            emptyList()
+        }
+    }
+
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(scrollState).drawScrollbar(scrollState),
         verticalArrangement = Arrangement.spacedBy(8.sdp)
@@ -1188,9 +1209,106 @@ fun ImageTexturePanel(
         ) {
             Text("Load Image from Gallery", fontSize = 11.ssp)
         }
+
+        if (defaultTextures.isNotEmpty()) {
+            Text(
+                text = "Predefined Textures",
+                fontSize = 11.ssp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                color = theme.iconColor,
+                modifier = Modifier.padding(top = 4.sdp)
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.sdp)
+            ) {
+                for (textureFile in defaultTextures) {
+                    val isSelected = imagePath == textureFile.absolutePath
+                    val textureBitmap = remember(textureFile.absolutePath) {
+                        ImageTextureCache.getOrCreate(textureFile.absolutePath)
+                    }
+                    val displayName = textureFile.nameWithoutExtension
+                        .replace("-", " ")
+                        .replace("_", " ")
+                        .replaceFirstChar { if (it.isLowerCase()) it.uppercaseChar() else it }
+
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .width(70.sdp)
+                            .clip(RoundedCornerShape(8.sdp))
+                            .background(if (isSelected) theme.highlightColor.copy(alpha = 0.15f) else Color.Transparent)
+                            .border(
+                                width = if (isSelected) 2.sdp else 1.sdp,
+                                color = if (isSelected) theme.highlightColor else Color.Gray.copy(alpha = 0.4f),
+                                shape = RoundedCornerShape(8.sdp)
+                            )
+                            .clickable {
+                                onChooseTexture(textureFile.absolutePath)
+                            }
+                            .padding(4.sdp)
+                    ) {
+                        if (textureBitmap != null) {
+                            androidx.compose.foundation.Image(
+                                bitmap = textureBitmap.asImageBitmap(),
+                                contentDescription = displayName,
+                                modifier = Modifier
+                                    .size(50.sdp)
+                                    .clip(RoundedCornerShape(6.sdp)),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(50.sdp)
+                                    .background(Color.Gray.copy(alpha = 0.2f), RoundedCornerShape(6.sdp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("?", fontSize = 14.ssp, color = theme.iconColor)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.sdp))
+                        Text(
+                            text = displayName,
+                            fontSize = 8.ssp,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            color = theme.iconColor,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                }
+            }
+        }
+
         if (imagePath.isNotEmpty()) {
             val file = java.io.File(imagePath)
-            Text("Texture: ${file.name}", fontSize = 10.ssp, color = MaterialTheme.colorScheme.primary)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.sdp),
+                horizontalArrangement = Arrangement.spacedBy(12.sdp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val bitmap = remember(imagePath) { ImageTextureCache.getOrCreate(imagePath) }
+                if (bitmap != null) {
+                    androidx.compose.foundation.Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = "Texture thumbnail",
+                        modifier = Modifier
+                            .size(50.sdp)
+                            .clip(RoundedCornerShape(8.sdp))
+                            .border(1.sdp, Color.LightGray, RoundedCornerShape(8.sdp)),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                    )
+                }
+                Column {
+                    Text("Texture: ${file.name}", fontSize = 10.ssp, color = theme.iconColor, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Text("Dimensions: ${bitmap?.width ?: 0}x${bitmap?.height ?: 0}", fontSize = 8.ssp, color = theme.iconColor.copy(alpha = 0.6f))
+                }
+            }
         } else {
             Text("No texture selected", fontSize = 10.ssp, color = Color.Gray)
         }
@@ -1225,7 +1343,8 @@ fun ImageTexturePanel(
             Button(
                 onClick = onTintColorClick,
                 modifier = Modifier.height(30.sdp),
-                shape = RoundedCornerShape(8.sdp)
+                shape = RoundedCornerShape(8.sdp),
+                contentPadding = PaddingValues(horizontal = 12.sdp, vertical = 2.sdp)
             ) {
                 Text(if (tintColor == android.graphics.Color.TRANSPARENT) "Choose Tint Color" else "Change Tint Color", fontSize = 10.ssp)
             }
@@ -1234,7 +1353,8 @@ fun ImageTexturePanel(
                 OutlinedButton(
                     onClick = onClearTintClick,
                     modifier = Modifier.height(30.sdp),
-                    shape = RoundedCornerShape(8.sdp)
+                    shape = RoundedCornerShape(8.sdp),
+                    contentPadding = PaddingValues(horizontal = 12.sdp, vertical = 2.sdp)
                 ) {
                     Text("Clear Tint", fontSize = 10.ssp)
                 }
@@ -1242,6 +1362,53 @@ fun ImageTexturePanel(
         }
 
         if (tintColor != android.graphics.Color.TRANSPARENT) {
+            Text("Blend Mode", fontSize = 11.ssp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = theme.iconColor)
+            val blendModes = listOf("SRC_ATOP", "MULTIPLY", "SCREEN", "DARKEN", "LIGHTEN", "OVERLAY", "ADD", "DIFFERENCE")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.sdp)
+            ) {
+                blendModes.forEach { mode ->
+                    val isSelected = blendModeName == mode
+                    val label = when (mode) {
+                        "SRC_ATOP" -> "Normal"
+                        "MULTIPLY" -> "Multiply"
+                        "SCREEN" -> "Screen"
+                        "DARKEN" -> "Darken"
+                        "LIGHTEN" -> "Lighten"
+                        "OVERLAY" -> "Overlay"
+                        "ADD" -> "Add"
+                        "DIFFERENCE" -> "Difference"
+                        else -> mode
+                    }
+                    Box(
+                        modifier = Modifier
+                            .height(30.sdp)
+                            .clip(RoundedCornerShape(8.sdp))
+                            .background(if (isSelected) theme.highlightColor else theme.buttonColor.copy(alpha = 0.2f))
+                            .border(
+                                width = if (isSelected) 2.sdp else 1.sdp,
+                                color = if (isSelected) theme.iconColor else Color.Gray.copy(alpha = 0.4f),
+                                shape = RoundedCornerShape(8.sdp)
+                            )
+                            .clickable { onBlendModeChanged(mode) }
+                            .padding(horizontal = 12.sdp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = label,
+                            fontSize = 10.ssp,
+                            color = if (isSelected) theme.barBackgroundColor else theme.iconColor,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.sdp))
+
             SliderRow(
                 label = "Tint Intensity",
                 value = tintMix,
@@ -1344,99 +1511,53 @@ fun LargeFillStylePreview(
                     drawRect(Color(style.color))
                 }
                 is FillStyle.MathTexture -> {
-                    val primary = Color(style.primaryColor)
-                    val secondary = if (style.secondaryColor == AndroidColor.TRANSPARENT) Color.Transparent else Color(style.secondaryColor)
-                    
-                    // Draw checkerboard under math patterns
                     drawPreviewCheckerboard()
-                    drawRect(secondary)
-                    
-                    val scale = 0.5f
-                    val spacingPx = style.spacing * scale
-                    val thicknessPx = style.thickness * scale
-                    
-                    rotate(degrees = style.angle) {
-                        when (style.patternName.uppercase()) {
-                            "GRID" -> {
-                                val maxDim = kotlin.math.max(size.width, size.height) * 2f
-                                val cols = (maxDim / spacingPx).toInt() + 1
-                                val rows = (maxDim / spacingPx).toInt() + 1
-                                for (i in -cols..cols) {
-                                    val x = i * spacingPx
-                                    drawLine(primary, start = Offset(x, -maxDim), end = Offset(x, maxDim), strokeWidth = thicknessPx)
-                                }
-                                for (j in -rows..rows) {
-                                    val y = j * spacingPx
-                                    drawLine(primary, start = Offset(-maxDim, y), end = Offset(maxDim, y), strokeWidth = thicknessPx)
-                                }
-                            }
-                            "CHECKERBOARD" -> {
-                                val maxDim = kotlin.math.max(size.width, size.height) * 2f
-                                val cols = (maxDim / spacingPx).toInt() + 1
-                                val rows = (maxDim / spacingPx).toInt() + 1
-                                for (i in -cols..cols) {
-                                    for (j in -rows..rows) {
-                                        if ((i + j) % 2 == 0) {
-                                            drawRect(
-                                                color = primary,
-                                                topLeft = Offset(i * spacingPx, j * spacingPx),
-                                                size = androidx.compose.ui.geometry.Size(spacingPx, spacingPx)
-                                            )
-                                        }
+                    val bitmap = MathTextureCache.getOrCreate(style)
+                    if (bitmap != null) {
+                        drawIntoCanvas { canvas ->
+                            val nativeCanvas = canvas.nativeCanvas
+                            nativeCanvas.save()
+                            val paint = android.graphics.Paint().apply {
+                                isAntiAlias = true
+                                shader = android.graphics.BitmapShader(bitmap, android.graphics.Shader.TileMode.REPEAT, android.graphics.Shader.TileMode.REPEAT).apply {
+                                    val matrix = android.graphics.Matrix().apply {
+                                        postRotate(style.angle)
                                     }
+                                    setLocalMatrix(matrix)
                                 }
                             }
-                            "STRIPES" -> {
-                                val maxDim = kotlin.math.max(size.width, size.height) * 2f
-                                val cols = (maxDim / spacingPx).toInt() + 1
-                                val rows = (maxDim / spacingPx).toInt() + 1
-                                for (i in -rows * 2..cols * 2) {
-                                    drawLine(
-                                        color = primary,
-                                        start = Offset(i * spacingPx, -maxDim),
-                                        end = Offset((i + rows * 2) * spacingPx, maxDim),
-                                        strokeWidth = thicknessPx
-                                    )
-                                }
-                            }
-                            "DOTS" -> {
-                                val maxDim = kotlin.math.max(size.width, size.height) * 2f
-                                val cols = (maxDim / spacingPx).toInt() + 1
-                                val rows = (maxDim / spacingPx).toInt() + 1
-                                for (i in -cols..cols) {
-                                    for (j in -rows..rows) {
-                                        drawCircle(
-                                            color = primary,
-                                            radius = thicknessPx,
-                                            center = Offset(i * spacingPx, j * spacingPx)
-                                        )
-                                    }
-                                }
-                            }
+                            nativeCanvas.drawRect(0f, 0f, size.width, size.height, paint)
+                            nativeCanvas.restore()
                         }
+                    } else {
+                        // Fallback secondary background
+                        val secondary = if (style.secondaryColor == AndroidColor.TRANSPARENT) Color.Transparent else Color(style.secondaryColor)
+                        drawRect(secondary)
                     }
                 }
                 is FillStyle.SvgPattern -> {
-                    // Draw checkerboard under SVG patterns
                     drawPreviewCheckerboard()
                     if (style.svgContent.isNotEmpty()) {
-                        try {
-                            val svgObj = com.caverock.androidsvg.SVG.getFromString(style.svgContent)
+                        val bitmap = SvgPatternCache.getOrCreate(style)
+                        if (bitmap != null) {
                             drawIntoCanvas { canvas ->
                                 val nativeCanvas = canvas.nativeCanvas
                                 nativeCanvas.save()
-                                
-                                // Apply transform parameters to preview
-                                nativeCanvas.scale(style.scaleX, style.scaleY)
-                                nativeCanvas.rotate(style.rotation)
-                                nativeCanvas.translate(style.offsetX, style.offsetY)
-                                
-                                svgObj.documentWidth = size.width
-                                svgObj.documentHeight = size.height
-                                svgObj.renderToCanvas(nativeCanvas)
+                                val paint = android.graphics.Paint().apply {
+                                    isAntiAlias = true
+                                    shader = android.graphics.BitmapShader(bitmap, android.graphics.Shader.TileMode.REPEAT, android.graphics.Shader.TileMode.REPEAT).apply {
+                                        val matrix = android.graphics.Matrix().apply {
+                                            postScale(style.scaleX, style.scaleY)
+                                            postRotate(style.rotation)
+                                            postTranslate(style.offsetX, style.offsetY)
+                                        }
+                                        setLocalMatrix(matrix)
+                                    }
+                                }
+                                nativeCanvas.drawRect(0f, 0f, size.width, size.height, paint)
                                 nativeCanvas.restore()
                             }
-                        } catch (e: Exception) {
+                        } else {
                             // Fallback outline
                             val cols = 6
                             val rows = 4
@@ -1452,10 +1573,53 @@ fun LargeFillStylePreview(
                 }
                 is FillStyle.ImageTexture -> {
                     drawPreviewCheckerboard()
-                    // Draw image texture details
-                    drawRect(Color(0x331E88E5))
-                    val paintColor = Color(0xFF1E88E5)
-                    drawCircle(paintColor.copy(alpha=0.3f), radius = size.minDimension / 3.5f, center = Offset(size.width / 2f, size.height / 2f))
+                    if (style.imagePath.isNotEmpty()) {
+                        val bitmap = ImageTextureCache.getOrCreate(style.imagePath)
+                        if (bitmap != null) {
+                            drawIntoCanvas { canvas ->
+                                val nativeCanvas = canvas.nativeCanvas
+                                nativeCanvas.save()
+                                val paint = android.graphics.Paint().apply {
+                                    isAntiAlias = true
+                                    shader = android.graphics.BitmapShader(bitmap, android.graphics.Shader.TileMode.REPEAT, android.graphics.Shader.TileMode.REPEAT).apply {
+                                        val matrix = android.graphics.Matrix().apply {
+                                            val targetSize = 500f
+                                            val baseScaleX = targetSize / bitmap.width
+                                            val baseScaleY = targetSize / bitmap.height
+                                            postScale(baseScaleX * style.scaleX, baseScaleY * style.scaleY)
+                                            postRotate(style.rotation)
+                                            postTranslate(style.offsetX, style.offsetY)
+                                        }
+                                        setLocalMatrix(matrix)
+                                    }
+                                    alpha = (style.opacity * 255).toInt().coerceIn(0, 255)
+                                    if (style.tintColor != android.graphics.Color.TRANSPARENT && style.tintMix > 0f) {
+                                        val filterColor = (style.tintColor and 0x00FFFFFF) or (((style.tintMix).coerceIn(0f, 1f) * 255).toInt() shl 24)
+                                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                                            val blendMode = try {
+                                                android.graphics.BlendMode.valueOf(style.blendModeName)
+                                            } catch (e: Exception) {
+                                                android.graphics.BlendMode.SRC_ATOP
+                                            }
+                                            colorFilter = android.graphics.BlendModeColorFilter(filterColor, blendMode)
+                                        } else {
+                                            val pdMode = try {
+                                                android.graphics.PorterDuff.Mode.valueOf(style.blendModeName)
+                                            } catch (e: Exception) {
+                                                if (style.blendModeName == "DIFFERENCE") android.graphics.PorterDuff.Mode.MULTIPLY else android.graphics.PorterDuff.Mode.SRC_ATOP
+                                            }
+                                            colorFilter = android.graphics.PorterDuffColorFilter(filterColor, pdMode)
+                                        }
+                                    }
+                                }
+                                nativeCanvas.drawRect(0f, 0f, size.width, size.height, paint)
+                                nativeCanvas.restore()
+                            }
+                        }
+                    } else {
+                        // Empty/no texture placeholder
+                        drawRect(Color(0x1F1E88E5))
+                    }
                 }
             }
         }
@@ -1506,96 +1670,54 @@ fun CirclePresetPreview(
                     drawRect(Color(style.color))
                 }
                 is FillStyle.MathTexture -> {
-                    val primary = Color(style.primaryColor)
-                    val secondary = if (style.secondaryColor == AndroidColor.TRANSPARENT) Color.Transparent else Color(style.secondaryColor)
-                    
-                    drawPreviewCheckerboard()
-                    drawRect(secondary)
-                    
-                    val scale = 0.2f
-                    val spacingPx = style.spacing * scale
-                    val thicknessPx = style.thickness * scale
-                    
-                    rotate(degrees = style.angle) {
-                        when (style.patternName.uppercase()) {
-                            "GRID" -> {
-                                val maxDim = kotlin.math.max(size.width, size.height) * 2f
-                                val cols = (maxDim / spacingPx).toInt() + 1
-                                val rows = (maxDim / spacingPx).toInt() + 1
-                                for (i in -cols..cols) {
-                                    val x = i * spacingPx
-                                    drawLine(primary, start = Offset(x, -maxDim), end = Offset(x, maxDim), strokeWidth = thicknessPx)
-                                }
-                                for (j in -rows..rows) {
-                                    val y = j * spacingPx
-                                    drawLine(primary, start = Offset(-maxDim, y), end = Offset(maxDim, y), strokeWidth = thicknessPx)
-                                }
-                            }
-                            "CHECKERBOARD" -> {
-                                val maxDim = kotlin.math.max(size.width, size.height) * 2f
-                                val cols = (maxDim / spacingPx).toInt() + 1
-                                val rows = (maxDim / spacingPx).toInt() + 1
-                                for (i in -cols..cols) {
-                                    for (j in -rows..rows) {
-                                        if ((i + j) % 2 == 0) {
-                                            drawRect(
-                                                color = primary,
-                                                topLeft = Offset(i * spacingPx, j * spacingPx),
-                                                size = androidx.compose.ui.geometry.Size(spacingPx, spacingPx)
-                                            )
-                                        }
+                    val bitmap = MathTextureCache.getOrCreate(style)
+                    if (bitmap != null) {
+                        drawPreviewCheckerboard()
+                        drawIntoCanvas { canvas ->
+                            val nativeCanvas = canvas.nativeCanvas
+                            nativeCanvas.save()
+                            val paint = android.graphics.Paint().apply {
+                                isAntiAlias = true
+                                shader = android.graphics.BitmapShader(bitmap, android.graphics.Shader.TileMode.REPEAT, android.graphics.Shader.TileMode.REPEAT).apply {
+                                    val matrix = android.graphics.Matrix().apply {
+                                        postScale(0.35f, 0.35f)
+                                        postRotate(style.angle)
                                     }
+                                    setLocalMatrix(matrix)
                                 }
                             }
-                            "STRIPES" -> {
-                                val maxDim = kotlin.math.max(size.width, size.height) * 2f
-                                val cols = (maxDim / spacingPx).toInt() + 1
-                                val rows = (maxDim / spacingPx).toInt() + 1
-                                for (i in -rows * 2..cols * 2) {
-                                    drawLine(
-                                        color = primary,
-                                        start = Offset(i * spacingPx, -maxDim),
-                                        end = Offset((i + rows * 2) * spacingPx, maxDim),
-                                        strokeWidth = thicknessPx
-                                    )
-                                }
-                            }
-                            "DOTS" -> {
-                                val maxDim = kotlin.math.max(size.width, size.height) * 2f
-                                val cols = (maxDim / spacingPx).toInt() + 1
-                                val rows = (maxDim / spacingPx).toInt() + 1
-                                for (i in -cols..cols) {
-                                    for (j in -rows..rows) {
-                                        drawCircle(
-                                            color = primary,
-                                            radius = thicknessPx,
-                                            center = Offset(i * spacingPx, j * spacingPx)
-                                        )
-                                    }
-                                }
-                            }
+                            nativeCanvas.drawRect(0f, 0f, size.width, size.height, paint)
+                            nativeCanvas.restore()
                         }
+                    } else {
+                        val secondary = if (style.secondaryColor == AndroidColor.TRANSPARENT) Color.Transparent else Color(style.secondaryColor)
+                        drawPreviewCheckerboard()
+                        drawRect(secondary)
                     }
                 }
                 is FillStyle.SvgPattern -> {
                     drawPreviewCheckerboard()
                     if (style.svgContent.isNotEmpty()) {
-                        try {
-                            val svgObj = com.caverock.androidsvg.SVG.getFromString(style.svgContent)
+                        val bitmap = SvgPatternCache.getOrCreate(style)
+                        if (bitmap != null) {
                             drawIntoCanvas { canvas ->
                                 val nativeCanvas = canvas.nativeCanvas
                                 nativeCanvas.save()
-                                
-                                nativeCanvas.scale(style.scaleX * 0.35f, style.scaleY * 0.35f)
-                                nativeCanvas.rotate(style.rotation)
-                                nativeCanvas.translate(style.offsetX, style.offsetY)
-                                
-                                svgObj.documentWidth = size.width
-                                svgObj.documentHeight = size.height
-                                svgObj.renderToCanvas(nativeCanvas)
+                                val paint = android.graphics.Paint().apply {
+                                    isAntiAlias = true
+                                    shader = android.graphics.BitmapShader(bitmap, android.graphics.Shader.TileMode.REPEAT, android.graphics.Shader.TileMode.REPEAT).apply {
+                                        val matrix = android.graphics.Matrix().apply {
+                                            postScale(style.scaleX * 0.35f, style.scaleY * 0.35f)
+                                            postRotate(style.rotation)
+                                            postTranslate(style.offsetX * 0.35f, style.offsetY * 0.35f)
+                                        }
+                                        setLocalMatrix(matrix)
+                                    }
+                                }
+                                nativeCanvas.drawRect(0f, 0f, size.width, size.height, paint)
                                 nativeCanvas.restore()
                             }
-                        } catch (e: Exception) {
+                        } else {
                             val cols = 4
                             val rows = 4
                             val cellWidth = size.width / cols
@@ -1610,9 +1732,52 @@ fun CirclePresetPreview(
                 }
                 is FillStyle.ImageTexture -> {
                     drawPreviewCheckerboard()
-                    drawRect(Color(0x331E88E5))
-                    val paintColor = Color(0xFF1E88E5)
-                    drawCircle(paintColor.copy(alpha=0.3f), radius = size.minDimension / 3.5f, center = Offset(size.width / 2f, size.height / 2f))
+                    if (style.imagePath.isNotEmpty()) {
+                        val bitmap = ImageTextureCache.getOrCreate(style.imagePath)
+                        if (bitmap != null) {
+                            drawIntoCanvas { canvas ->
+                                val nativeCanvas = canvas.nativeCanvas
+                                nativeCanvas.save()
+                                val paint = android.graphics.Paint().apply {
+                                    isAntiAlias = true
+                                    shader = android.graphics.BitmapShader(bitmap, android.graphics.Shader.TileMode.REPEAT, android.graphics.Shader.TileMode.REPEAT).apply {
+                                        val matrix = android.graphics.Matrix().apply {
+                                            val targetSize = 500f
+                                            val baseScaleX = targetSize / bitmap.width
+                                            val baseScaleY = targetSize / bitmap.height
+                                            postScale(baseScaleX * style.scaleX * 0.35f, baseScaleY * style.scaleY * 0.35f)
+                                            postRotate(style.rotation)
+                                            postTranslate(style.offsetX * 0.35f, style.offsetY * 0.35f)
+                                        }
+                                        setLocalMatrix(matrix)
+                                    }
+                                    alpha = (style.opacity * 255).toInt().coerceIn(0, 255)
+                                    if (style.tintColor != android.graphics.Color.TRANSPARENT && style.tintMix > 0f) {
+                                        val filterColor = (style.tintColor and 0x00FFFFFF) or (((style.tintMix).coerceIn(0f, 1f) * 255).toInt() shl 24)
+                                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                                            val blendMode = try {
+                                                android.graphics.BlendMode.valueOf(style.blendModeName)
+                                            } catch (e: Exception) {
+                                                android.graphics.BlendMode.SRC_ATOP
+                                            }
+                                            colorFilter = android.graphics.BlendModeColorFilter(filterColor, blendMode)
+                                        } else {
+                                            val pdMode = try {
+                                                android.graphics.PorterDuff.Mode.valueOf(style.blendModeName)
+                                            } catch (e: Exception) {
+                                                if (style.blendModeName == "DIFFERENCE") android.graphics.PorterDuff.Mode.MULTIPLY else android.graphics.PorterDuff.Mode.SRC_ATOP
+                                            }
+                                            colorFilter = android.graphics.PorterDuffColorFilter(filterColor, pdMode)
+                                        }
+                                    }
+                                }
+                                nativeCanvas.drawRect(0f, 0f, size.width, size.height, paint)
+                                nativeCanvas.restore()
+                            }
+                        }
+                    } else {
+                        drawRect(Color(0x1F1E88E5))
+                    }
                 }
             }
         }

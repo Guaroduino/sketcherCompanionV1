@@ -61,7 +61,7 @@ fun StudioMenu(
         modifier = Modifier
             .width(260.sdp)
             .heightIn(max = maxMenuHeight)
-            .background(Color.White)
+            .background(theme.barBackgroundColor)
             .border(BorderStroke(1.dp, theme.iconColor.copy(alpha = 0.15f)), RoundedCornerShape(8.dp))
     ) {
         Column(
@@ -154,10 +154,18 @@ fun StudioMenu(
                         actions.onExportDxf()
                         onDismiss()
                     }
-                    SubMenuItem("Generar Render (IA)", theme.iconColor) {
-                        actions.onRender()
-                        onDismiss()
-                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                MenuItem(Icons.Default.Print, "Imprimir...", theme.iconColor) {
+                    actions.onPrintTrigger()
+                    onDismiss()
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                MenuItem(Icons.Default.AutoAwesome, "Generar Render (IA)", theme.iconColor) {
+                    actions.onRender()
+                    onDismiss()
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -168,6 +176,10 @@ fun StudioMenu(
                 }
                 MenuItem(Icons.Default.SettingsOverscan, "Escala Global", theme.iconColor) { 
                     actions.onGlobalScale()
+                    onDismiss()
+                }
+                MenuItem(Icons.Default.Style, "Personalización de UI", theme.iconColor) { 
+                    viewModel.setShowPersonalizationDialog(true)
                     onDismiss()
                 }
                 MenuItem(Icons.Default.Style, "Guardar como Plantilla", theme.iconColor) {
@@ -646,34 +658,40 @@ fun PersonalizationMenu(
     interfaceScale: Float,
     onShowIconEditor: () -> Unit
 ) {
+    if (!expanded) return
+
     val theme by viewModel.themeConfig.collectAsState()
     val scaler = LocalUiScaler.current
     val context = androidx.compose.ui.platform.LocalContext.current
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
-    val maxMenuHeight = (configuration.screenHeightDp * 0.8f).dp
+    val maxMenuHeight = (configuration.screenHeightDp * 0.85f).dp
 
     var pickingColorFor by remember { mutableStateOf<String?>(null) }
 
-    DropdownMenu(
-        expanded = expanded,
-        onDismissRequest = onDismiss,
-        modifier = Modifier
-            .width(280.sdp)
-            .heightIn(max = maxMenuHeight)
-            .background(Color.White)
-            .border(BorderStroke(1.dp, theme.iconColor.copy(alpha = 0.15f)), RoundedCornerShape(8.dp))
-    ) {
-        Column(
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = theme.barBackgroundColor,
+                contentColor = theme.iconColor
+            ),
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
+                .width(320.dp)
+                .heightIn(max = maxMenuHeight)
+                .border(BorderStroke(1.dp, theme.iconColor.copy(alpha = 0.15f)), RoundedCornerShape(16.dp))
         ) {
-            Text(
-                text = "Personalización",
-                style = MaterialTheme.typography.titleLarge,
-                color = theme.iconColor,
-                modifier = Modifier.padding(bottom = 12.dp)
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp)
+            ) {
+                Text(
+                    text = "Personalización",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = theme.iconColor,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
 
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -718,7 +736,7 @@ fun PersonalizationMenu(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "UI Presets (Workspace)",
+                        text = "Esquema de Botones",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
                         color = theme.iconColor.copy(alpha = 0.7f)
@@ -758,7 +776,7 @@ fun PersonalizationMenu(
                             DropdownMenu(
                                 expanded = expandedPresetDropdown,
                                 onDismissRequest = { expandedPresetDropdown = false },
-                                modifier = Modifier.background(Color.White)
+                                modifier = Modifier.background(theme.barBackgroundColor)
                             ) {
                                 uiPresets.forEach { presetName ->
                                     DropdownMenuItem(
@@ -815,22 +833,184 @@ fun PersonalizationMenu(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Save Workspace as UI Preset...", fontSize = 12.sp)
+                        Text("Guardar como Esquema de Botones...", fontSize = 12.sp)
                     }
+                }
+
+                // Tool Preset Selection & Controls
+                val toolPresets by viewModel.toolManager.toolPresetGroupNames.collectAsState()
+                val activeToolPreset by viewModel.toolManager.activeToolPresetGroupName.collectAsState()
+                var expandedToolPresetDropdown by remember { mutableStateOf(false) }
+                var showAddToolPresetDialog by remember { mutableStateOf(false) }
+                var newToolPresetName by remember { mutableStateOf("") }
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Presets de Herramientas",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = theme.iconColor.copy(alpha = 0.7f)
+                    )
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Dropdown selection box
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .background(theme.buttonColor.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                                .border(1.dp, theme.iconColor.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                                .clickable { expandedToolPresetDropdown = true }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = activeToolPreset,
+                                    color = theme.iconColor,
+                                    fontSize = 14.sp
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDropDown,
+                                    contentDescription = null,
+                                    tint = theme.iconColor
+                                )
+                            }
+                            
+                            DropdownMenu(
+                                expanded = expandedToolPresetDropdown,
+                                onDismissRequest = { expandedToolPresetDropdown = false },
+                                modifier = Modifier.background(theme.barBackgroundColor)
+                            ) {
+                                toolPresets.forEach { presetName ->
+                                    DropdownMenuItem(
+                                        text = { Text(presetName, color = theme.iconColor) },
+                                        onClick = {
+                                            viewModel.toolManager.loadToolPresetGroup(presetName)
+                                            expandedToolPresetDropdown = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Delete button
+                        IconButton(
+                            onClick = {
+                                viewModel.toolManager.deleteToolPresetGroup(activeToolPreset)
+                            },
+                            enabled = activeToolPreset != "Default",
+                            modifier = Modifier
+                                .size(36.dp)
+                                .border(
+                                    1.dp, 
+                                    theme.iconColor.copy(alpha = if (activeToolPreset != "Default") 0.2f else 0.05f), 
+                                    RoundedCornerShape(8.dp)
+                                )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Delete Preset",
+                                tint = if (activeToolPreset != "Default") MaterialTheme.colorScheme.error else theme.iconColor.copy(alpha = 0.3f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    // Save Current Tool Presets as Group Button
+                    Button(
+                        onClick = {
+                            newToolPresetName = ""
+                            showAddToolPresetDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = theme.buttonColor.copy(alpha = 0.15f),
+                            contentColor = theme.iconColor
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null,
+                            tint = theme.iconColor,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Save Current Tool Presets...", fontSize = 12.sp)
+                    }
+                }
+
+                // Add Tool Preset dialog popup
+                if (showAddToolPresetDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showAddToolPresetDialog = false },
+                        title = { Text("Guardar Presets de Herramientas", color = Color.Black) },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Introduce un nombre para este Grupo de Presets de Herramientas:", color = Color.Gray, fontSize = 14.sp)
+                                OutlinedTextField(
+                                    value = newToolPresetName,
+                                    onValueChange = { newToolPresetName = it },
+                                    placeholder = { Text("ej. Set de Bocetos") },
+                                    singleLine = true,
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = Color.Black,
+                                        unfocusedTextColor = Color.Black,
+                                        focusedBorderColor = theme.highlightColor,
+                                        unfocusedBorderColor = Color.LightGray
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    val trimmed = newToolPresetName.trim()
+                                    if (trimmed.isNotEmpty()) {
+                                        viewModel.toolManager.saveToolPresetGroup(trimmed)
+                                    }
+                                    showAddToolPresetDialog = false
+                                },
+                                enabled = newToolPresetName.trim().isNotEmpty(),
+                                colors = ButtonDefaults.buttonColors(containerColor = theme.highlightColor)
+                            ) {
+                                Text("Guardar", color = Color.White)
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(
+                                onClick = { showAddToolPresetDialog = false }
+                            ) {
+                                Text("Cancelar", color = Color.DarkGray)
+                            }
+                        },
+                        containerColor = Color.White
+                    )
                 }
 
                 // Add Preset dialog popup
                 if (showAddPresetDialog) {
                     AlertDialog(
                         onDismissRequest = { showAddPresetDialog = false },
-                        title = { Text("Save Workspace", color = Color.Black) },
+                        title = { Text("Guardar Esquema de Botones", color = Color.Black) },
                         text = {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Enter a name for this UI Preset (Workspace layout):", color = Color.Gray, fontSize = 14.sp)
+                                Text("Introduce un nombre para este Esquema de Botones:", color = Color.Gray, fontSize = 14.sp)
                                 OutlinedTextField(
                                     value = newPresetName,
                                     onValueChange = { newPresetName = it },
-                                    placeholder = { Text("e.g. Technical Drawing") },
+                                    placeholder = { Text("ej. Dibujo Técnico") },
                                     singleLine = true,
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedTextColor = Color.Black,
@@ -854,14 +1034,14 @@ fun PersonalizationMenu(
                                 enabled = newPresetName.trim().isNotEmpty(),
                                 colors = ButtonDefaults.buttonColors(containerColor = theme.highlightColor)
                             ) {
-                                Text("Save", color = Color.White)
+                                Text("Guardar", color = Color.White)
                             }
                         },
                         dismissButton = {
                             TextButton(
                                 onClick = { showAddPresetDialog = false }
                             ) {
-                                Text("Cancel", color = Color.DarkGray)
+                                Text("Cancelar", color = Color.DarkGray)
                             }
                         },
                         containerColor = Color.White
@@ -1098,4 +1278,5 @@ fun PersonalizationMenu(
             }
         }
     }
+}
 }

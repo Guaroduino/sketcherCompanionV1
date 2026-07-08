@@ -78,7 +78,8 @@ object ZipStorageManager {
         layers: List<Layer>,
         uri: Uri,
         components: Collection<ComponentDefinition> = emptyList(),
-        thumbnail: Bitmap? = null
+        thumbnail: Bitmap? = null,
+        toolStatesJson: String? = null
     ) {
         val contentResolver = context.contentResolver
         
@@ -92,6 +93,18 @@ object ZipStorageManager {
                 zipOut.putNextEntry(jsonEntry)
                 zipOut.write(jsonString.toByteArray(Charsets.UTF_8))
                 zipOut.closeEntry()
+
+                // Save tool_states.json if provided
+                if (toolStatesJson != null) {
+                    try {
+                        val entry = ZipEntry("tool_states.json")
+                        zipOut.putNextEntry(entry)
+                        zipOut.write(toolStatesJson.toByteArray(Charsets.UTF_8))
+                        zipOut.closeEntry()
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
 
                 // Write preview.png if thumbnail is provided
                 if (thumbnail != null) {
@@ -176,6 +189,13 @@ object ZipStorageManager {
                         if (jsonString.isNotEmpty()) {
                             val prefs = context.getSharedPreferences("toolbar_prefs", Context.MODE_PRIVATE)
                             prefs.edit().putString("saved_layout_v2", jsonString).apply()
+                        }
+                    } else if (name == "tool_states.json") {
+                        val bytes = zipIn.readBytes()
+                        val jsonString = String(bytes, Charsets.UTF_8)
+                        if (jsonString.isNotEmpty()) {
+                            val prefs = context.getSharedPreferences("tool_state_temp_prefs", Context.MODE_PRIVATE)
+                            prefs.edit().putString("temp_loaded_tool_states", jsonString).apply()
                         }
                     } else if (name == "custom_icons.json") {
                         val bytes = zipIn.readBytes()
