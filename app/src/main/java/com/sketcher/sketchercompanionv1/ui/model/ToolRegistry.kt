@@ -1,5 +1,6 @@
 package com.sketcher.sketchercompanionv1.ui.model
 
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.filled.Tune
@@ -17,12 +18,16 @@ import com.sketcher.sketchercompanionv1.R
 
 object ToolRegistry {
     var showExperimental: Boolean = true
+    var customTools: List<StudioTool> = emptyList()
 
     val allTools: List<StudioTool>
-        get() = if (showExperimental) {
-            fullToolsList
-        } else {
-            fullToolsList.filter { !it.isExperimental }
+        get() {
+            val baseList = if (showExperimental) {
+                fullToolsList
+            } else {
+                fullToolsList.filter { !it.isExperimental }
+            }
+            return baseList + customTools
         }
 
     private val fullToolsList = listOf(
@@ -136,5 +141,21 @@ object ToolRegistry {
         val tool = allTools.find { it.id == registryId } ?: return emptyList()
         val groupId = tool.parentGroupId ?: tool.id
         return allTools.filter { !it.isPlaceholder && (it.parentGroupId == groupId || it.id == groupId) && it.id != registryId }
+    }
+
+    fun getIconByName(name: String): ImageVector {
+        return when (name) {
+            "Edit" -> Icons.Default.Edit
+            "Gesture" -> Icons.Default.Gesture
+            "Brush" -> Icons.Default.Brush
+            "Palette" -> Icons.Default.Palette
+            "AutoFixNormal" -> Icons.Default.AutoFixNormal
+            "Title" -> Icons.Default.Title
+            "Build" -> Icons.Default.Build
+            "ColorLens" -> Icons.Default.ColorLens
+            "Star" -> Icons.Default.Star
+            "Favorite" -> Icons.Default.Favorite
+            else -> Icons.Default.Edit
+        }
     }
 }

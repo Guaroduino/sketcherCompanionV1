@@ -4,8 +4,11 @@ import android.content.Context
 import android.graphics.Color as AndroidColor
 import androidx.compose.runtime.*
 import com.google.gson.Gson
+import com.sketcher.sketchercompanionv1.R
 import com.sketcher.sketchercompanionv1.dto.*
 import com.sketcher.sketchercompanionv1.tools.*
+import com.sketcher.sketchercompanionv1.ui.model.ToolRegistry
+import com.sketcher.sketchercompanionv1.ui.model.StudioTool
 import com.sketcher.sketchercompanionv1.utils.toFillStyle
 import com.sketcher.sketchercompanionv1.utils.toFillStyleJson
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,7 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
 import org.json.JSONArray
 
-class ToolManager(context: Context) {
+class ToolManager(private val context: Context) {
     private val prefs = context.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE)
     private val gson = Gson()
 
@@ -76,6 +79,9 @@ class ToolManager(context: Context) {
 
     private val _activeToolPresetGroupName = MutableStateFlow<String>("Default")
     val activeToolPresetGroupName: StateFlow<String> = _activeToolPresetGroupName.asStateFlow()
+
+    private val _customTools = MutableStateFlow<List<CustomTool>>(emptyList())
+    val customTools = _customTools.asStateFlow()
 
     var currentSize by mutableFloatStateOf(2f)
         private set
@@ -1173,6 +1179,7 @@ class ToolManager(context: Context) {
             put("paint_presets_v2", prefs.getString("paint_presets_v2", null))
             put("pluma_presets_v2", prefs.getString("pluma_presets_v2", null))
             put("watercolor_presets_v2", prefs.getString("watercolor_presets_v2", null))
+            put("custom_tools_v1", prefs.getString("custom_tools_v1", null))
         }
 
         prefs.edit().putString("tool_preset_group_data_$name", data.toString()).apply()
@@ -1190,6 +1197,7 @@ class ToolManager(context: Context) {
                 remove("paint_presets_v2")
                 remove("pluma_presets_v2")
                 remove("watercolor_presets_v2")
+                remove("custom_tools_v1")
                 apply()
             }
         } else {
@@ -1197,7 +1205,7 @@ class ToolManager(context: Context) {
             try {
                 val obj = JSONObject(json)
                 prefs.edit().apply {
-                    listOf("pencil_presets_v2", "pencil_cumulative_presets_v2", "pen_presets_v2", "paint_presets_v2", "pluma_presets_v2", "watercolor_presets_v2").forEach { key ->
+                    listOf("pencil_presets_v2", "pencil_cumulative_presets_v2", "pen_presets_v2", "paint_presets_v2", "pluma_presets_v2", "watercolor_presets_v2", "custom_tools_v1").forEach { key ->
                         if (obj.has(key) && !obj.isNull(key)) {
                             putString(key, obj.getString(key))
                         } else {
@@ -1214,7 +1222,8 @@ class ToolManager(context: Context) {
         _activeToolPresetGroupName.value = name
         prefs.edit().putString("active_tool_preset_group_name", name).apply()
 
-        // Reload configs and currently active presets
+        // Reload configs and custom tools
+        loadCustomTools()
         reloadConfigs()
     }
 
@@ -1232,6 +1241,161 @@ class ToolManager(context: Context) {
             _activeToolPresetGroupName.value = "Default"
             prefs.edit().putString("active_tool_preset_group_name", "Default").apply()
             loadToolPresetGroup("Default")
+        }
+    }
+
+    fun loadCustomTools() {
+        val json = prefs.getString("custom_tools_v1", null)
+        if (json != null) {
+            try {
+                val tokenType = object : com.google.gson.reflect.TypeToken<List<CustomToolJson>>() {}.type
+                val loaded: List<CustomToolJson> = gson.fromJson(json, tokenType)
+                val mapped = loaded.map { j ->
+                    val settings = when (j.preset.settingsType) {
+                        "PencilSettings" -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PencilSettings::class.java)
+                        "PenSettings" -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PenSettings::class.java)
+                        "PlumaSettings" -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PlumaSettings::class.java)
+                        "PaintSettings" -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PaintSettings::class.java)
+                        "WatercolorSettings" -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.WatercolorSettings::class.java)
+                        else -> com.sketcher.sketchercompanionv1.tools.PencilSettings()
+                    }
+                    CustomTool(
+                        id = j.id,
+                        name = j.name,
+                        iconName = j.iconName,
+                        iconResName = j.iconResName,
+                        baseToolType = try { ToolType.valueOf(j.baseToolType) } catch (e: Exception) { ToolType.FREEHAND },
+                        preset = BrushPreset(
+                            size = j.preset.size,
+                            opacity = j.preset.opacity,
+                            settings = settings,
+                            strokeColor = j.preset.strokeColor,
+                            fillColor = j.preset.fillColor,
+                            isStrokeActive = j.preset.isStrokeActive,
+                            isFillActive = j.preset.isFillActive,
+                            fillStyle = j.preset.fillStyle?.toFillStyle(j.preset.fillColor ?: 0),
+                            strokeStyle = j.preset.strokeStyle?.toFillStyle(j.preset.strokeColor ?: 0),
+                            stabilization = j.preset.stabilization
+                        )
+                    )
+                }
+                _customTools.value = mapped
+                updateRegistryCustomTools(mapped)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        } else {
+            _customTools.value = emptyList()
+            updateRegistryCustomTools(emptyList())
+        }
+    }
+
+    private fun updateRegistryCustomTools(list: List<CustomTool>) {
+        ToolRegistry.customTools = list.map { ct ->
+            val composeIcon = ToolRegistry.getIconByName(ct.iconName)
+            val resId = ct.iconResName?.let {
+                context.resources.getIdentifier(it, "drawable", context.packageName)
+            } ?: 0
+            
+            StudioTool(
+                id = ct.id,
+                icon = composeIcon,
+                contentDescription = ct.name,
+                iconResId = if (resId != 0) resId else null,
+                isPlaceholder = false,
+                registryId = ct.id,
+                parentGroupId = null
+            )
+        }
+    }
+
+    fun saveCustomTools(list: List<CustomTool>) {
+        val jsonList = list.map { tool ->
+            CustomToolJson(
+                id = tool.id,
+                name = tool.name,
+                iconName = tool.iconName,
+                iconResName = tool.iconResName,
+                baseToolType = tool.baseToolType.name,
+                preset = BrushPresetJson(
+                    size = tool.preset.size,
+                    opacity = tool.preset.opacity,
+                    settingsType = tool.preset.settings::class.java.simpleName,
+                    settingsJson = gson.toJson(tool.preset.settings),
+                    strokeColor = tool.preset.strokeColor,
+                    fillColor = tool.preset.fillColor,
+                    isStrokeActive = tool.preset.isStrokeActive,
+                    isFillActive = tool.preset.isFillActive,
+                    fillStyle = tool.preset.fillStyle?.toFillStyleJson(),
+                    strokeStyle = tool.preset.strokeStyle?.toFillStyleJson(),
+                    stabilization = tool.preset.stabilization
+                )
+            )
+        }
+        val json = gson.toJson(jsonList)
+        prefs.edit().putString("custom_tools_v1", json).apply()
+        _customTools.value = list
+        updateRegistryCustomTools(list)
+    }
+
+    fun addCustomTool(ct: CustomTool) {
+        val current = _customTools.value.toMutableList()
+        current.removeAll { it.id == ct.id }
+        current.add(ct)
+        saveCustomTools(current)
+    }
+
+    fun removeCustomTool(id: String) {
+        val current = _customTools.value.toMutableList()
+        current.removeAll { it.id == id }
+        saveCustomTools(current)
+    }
+
+    fun applyBrushPresetDirectly(preset: BrushPreset) {
+        setToolSize(preset.size)
+        setToolOpacity(preset.opacity)
+        updateFreehandSettings(preset.settings)
+        
+        _selectedPresetIndex.value = null
+
+        val sc = preset.strokeColor ?: _strokeColor.value
+        val ss = preset.strokeStyle ?: FillStyle.Solid(sc)
+        val sa = preset.isStrokeActive ?: _isStrokeActive.value
+
+        val fc = preset.fillColor ?: _fillColor.value
+        val fs = preset.fillStyle ?: FillStyle.Solid(fc)
+        val fa = preset.isFillActive ?: _isFillActive.value
+
+        val defaultStab = if (currentTool == ToolType.FREEHAND || currentTool == ToolType.PENCIL_CUMULATIVE) 0.07f else 0f
+        val stab = preset.stabilization ?: defaultStab
+
+        _strokeColor.value = sc
+        _fillColor.value = fc
+        _isStrokeActive.value = sa
+        _isFillActive.value = fa
+        _fillStyle.value = fs
+        _strokeStyle.value = ss
+        setGlobalStabilization(stab)
+
+        val config = toolConfigs[currentTool]!!
+        val updated = config.copy(
+            size = preset.size,
+            opacity = preset.opacity,
+            settings = preset.settings,
+            strokeColor = sc,
+            fillColor = fc,
+            isStrokeActive = sa,
+            isFillActive = fa,
+            stabilization = stab
+        )
+        toolConfigs[currentTool] = updated
+        persistToolConfigColorState(currentTool, updated)
+        
+        prefs.edit().apply {
+            putFloat("tool_size_${currentTool.name}", preset.size)
+            putFloat("tool_alpha_${currentTool.name}", preset.opacity)
+            putFloat("tool_stabilization_${currentTool.name}", stab)
+            apply()
         }
     }
 

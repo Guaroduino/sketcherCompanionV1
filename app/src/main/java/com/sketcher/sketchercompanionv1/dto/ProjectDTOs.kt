@@ -336,3 +336,22 @@ data class LibraryItemJson(
     val thumbnailFileName: String? = null
 )
 
+data class CustomTool(
+    val id: String,
+    val name: String,
+    val iconName: String,
+    val iconResName: String?,
+    val baseToolType: ToolType,
+    val preset: BrushPreset
+)
+
+data class CustomToolJson(
+    val id: String,
+    val name: String,
+    val iconName: String,
+    val iconResName: String?,
+    val baseToolType: String,
+    val preset: BrushPresetJson
+)
+
+

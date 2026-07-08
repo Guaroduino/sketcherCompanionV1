@@ -791,8 +791,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     // --- PROPERTIES PANEL STATE ---
 
     var showPropertiesPanel by mutableStateOf(false)
-
         private set
+
+    var activeCustomToolId by mutableStateOf<String?>(null)
 
 
 
@@ -1015,9 +1016,28 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    internal fun getActionForTool(id: String): () -> Unit = when(id) {
+    fun activateCustomTool(customTool: CustomTool) {
+        selectTool(customTool.baseToolType)
+        activeCustomToolId = customTool.id
+        toolManager.applyBrushPresetDirectly(customTool.preset)
+        val defaultStab = if (customTool.baseToolType == ToolType.FREEHAND || customTool.baseToolType == ToolType.PENCIL_CUMULATIVE) 0.07f else 0f
+        val presetStab = customTool.preset.stabilization ?: defaultStab
+        val presetOpacity = customTool.preset.opacity
+        updateLastActiveToolStabilization(presetStab)
+        updateLastActiveToolOpacity(presetOpacity)
+    }
 
-        "undo" -> ({ undo() })
+    internal fun getActionForTool(id: String): () -> Unit {
+        if (id.startsWith("custom_tool_")) {
+            return {
+                val ct = toolManager.customTools.value.find { it.id == id }
+                if (ct != null) {
+                    activateCustomTool(ct)
+                }
+            }
+        }
+        return when(id) {
+            "undo" -> ({ undo() })
 
         "redo" -> ({ redo() })
 
@@ -1248,8 +1268,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         "context_edit" -> ({ enterEditMode() })
 
         else -> ({})
-
     }
+}
 
 
 
@@ -1657,6 +1677,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 confirmTransform()
             }
         }
+        activeCustomToolId = null
         toolManager.selectTool(type)
     }
     val brushPresets = toolManager.brushPresets
@@ -1681,6 +1702,15 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     val fillPresets = toolManager.fillPresets
     fun saveFillPreset(index: Int, style: FillStyle) = toolManager.saveFillPreset(index, style)
 
+    val customTools = toolManager.customTools
+    fun addCustomTool(ct: CustomTool) = toolManager.addCustomTool(ct)
+    fun removeCustomTool(id: String) {
+        toolManager.removeCustomTool(id)
+        if (activeCustomToolId == id) {
+            activeCustomToolId = null
+        }
+    }
+
     // --- EXPOSED CONFIGS ---
     var fingerModeActive by mutableStateOf(false)
         private set
@@ -1695,6 +1725,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     init {
         ToolRegistry.showExperimental = showExperimentalTools
         hasPreferencesBackup = application.getSharedPreferences("sketcher_prefs_backup", Context.MODE_PRIVATE).all.isNotEmpty()
+        toolManager.loadCustomTools()
         selectTool(currentTool)
         toolbarManager.initLayout()
 

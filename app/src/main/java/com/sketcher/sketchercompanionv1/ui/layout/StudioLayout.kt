@@ -373,41 +373,32 @@ fun StudioLayout(
 
 
         when {
-
+            tool.registryId == viewModel.activeCustomToolId -> {
+                true
+            }
 
             payload == ToolPayload.PENCIL || tool.registryId == "pencil" -> {
-                currentTool == ToolType.FREEHAND
+                currentTool == ToolType.FREEHAND && viewModel.activeCustomToolId == null
             }
 
             payload == ToolPayload.PENCIL_CUMULATIVE || tool.registryId == "pencil_cumulative" -> {
-                currentTool == ToolType.PENCIL_CUMULATIVE
+                currentTool == ToolType.PENCIL_CUMULATIVE && viewModel.activeCustomToolId == null
             }
-
 
             payload == ToolPayload.PAINT || tool.registryId == "paint" -> {
-
-
-                currentTool == ToolType.PAINT
-
-
+                currentTool == ToolType.PAINT && viewModel.activeCustomToolId == null
             }
-
 
             payload == ToolPayload.PLUMA || tool.registryId == "pluma" -> {
-
-
-                currentTool == ToolType.PLUMA
-
-
+                currentTool == ToolType.PLUMA && viewModel.activeCustomToolId == null
             }
 
-
             payload == ToolPayload.PEN || tool.registryId == "pen" -> {
+                currentTool == ToolType.PEN && viewModel.activeCustomToolId == null
+            }
 
-
-                currentTool == ToolType.PEN
-
-
+            payload == ToolPayload.WATERCOLOR || tool.registryId == "watercolor" -> {
+                currentTool == ToolType.WATERCOLOR && viewModel.activeCustomToolId == null
             }
 
 

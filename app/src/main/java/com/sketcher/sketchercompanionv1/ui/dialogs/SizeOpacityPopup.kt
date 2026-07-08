@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.AddBox
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.*
@@ -63,6 +64,7 @@ fun SizeOpacityPopup(
 
     var showStrokePickerLocal by remember { mutableStateOf(false) }
     var showFillPickerLocal by remember { mutableStateOf(false) }
+    var showSaveCustomToolDialog by remember { mutableStateOf(false) }
     val isStrokeActive by viewModel.isStrokeActive.collectAsState()
     val isFillActive by viewModel.isFillActive.collectAsState()
     val strokeColorVal by viewModel.strokeColor.collectAsState()
@@ -245,10 +247,10 @@ fun SizeOpacityPopup(
                                         contentDescription = "Save Preset",
                                         modifier = Modifier.size(14.dp)
                                     )
-                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
                                     Text(
                                         text = "Guardar P${activeIndex + 1}",
-                                        fontSize = 11.sp,
+                                        fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
                                         maxLines = 1
                                     )
@@ -271,7 +273,31 @@ fun SizeOpacityPopup(
                                 ) {
                                     Text(
                                         text = "Restablecer",
-                                        fontSize = 11.sp,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
+
+                                Button(
+                                    onClick = { showSaveCustomToolDialog = true },
+                                    shape = theme.panelShape(),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = theme.highlightColor,
+                                        contentColor = theme.barBackgroundColor
+                                    ),
+                                    modifier = Modifier.weight(1.5f).height(34.dp), // slightly wider to fit name
+                                    contentPadding = PaddingValues(vertical = 0.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AddBox,
+                                        contentDescription = "Como Herramienta",
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Como Herramienta",
+                                        fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
                                         maxLines = 1
                                     )
@@ -730,6 +756,27 @@ fun SizeOpacityPopup(
                     }
                 }
             }
+        if (showSaveCustomToolDialog && selectedIndex != null) {
+            val activeIndex = selectedIndex!!
+            SaveCustomToolDialog(
+                viewModel = viewModel,
+                preset = presets[activeIndex],
+                baseToolType = viewModel.currentTool,
+                theme = theme,
+                onDismiss = { showSaveCustomToolDialog = false },
+                onConfirm = { customTool, customIconJson ->
+                    viewModel.addCustomTool(customTool)
+                    if (customIconJson != null) {
+                        val currentTheme = viewModel.themeConfig.value
+                        val updatedIcons = currentTheme.customIcons.toMutableMap().apply {
+                            put(customTool.id, customIconJson)
+                        }
+                        viewModel.updateTheme(currentTheme.copy(customIcons = updatedIcons))
+                    }
+                    showSaveCustomToolDialog = false
+                }
+            )
+        }
         }
     }
 }
