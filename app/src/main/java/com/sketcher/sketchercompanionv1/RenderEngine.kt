@@ -136,6 +136,11 @@ class RenderEngine {
     var canvasSizeConfig: CanvasSizeConfig? = null // For bounds/grid centering
     var canvasBackgroundColor: Int = Color.WHITE
     var canvasBackgroundStyle: FillStyle = FillStyle.Solid(Color.WHITE)
+    var workspaceBackgroundColor: Int = Color.parseColor("#FFEEEEEE")
+        set(value) {
+            field = value
+            workspacePaint.color = value
+        }
     
     var isDebugWireframe: Boolean = false
 

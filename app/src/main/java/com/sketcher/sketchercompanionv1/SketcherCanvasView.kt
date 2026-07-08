@@ -994,6 +994,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                 localRenderEngine.canvasSizeConfig = renderEngine.canvasSizeConfig
                 localRenderEngine.canvasBackgroundStyle = renderEngine.canvasBackgroundStyle
                 localRenderEngine.canvasBackgroundColor = renderEngine.canvasBackgroundColor
+                localRenderEngine.workspaceBackgroundColor = renderEngine.workspaceBackgroundColor
                 localRenderEngine.isDebugWireframe = renderEngine.isDebugWireframe
 
                 localRenderEngine.drawLayers(
@@ -1186,6 +1187,14 @@ class SketcherCanvasView(context: Context) : View(context) {
             if (canvasBackgroundStyle !is FillStyle.Solid || (canvasBackgroundStyle as FillStyle.Solid).color != value) {
                 canvasBackgroundStyle = FillStyle.Solid(value)
             }
+            redrawAllCache()
+        }
+
+    var workspaceBackgroundColor: Int = android.graphics.Color.parseColor("#FFEEEEEE")
+        set(value) {
+            if (field == value) return
+            field = value
+            renderEngine.workspaceBackgroundColor = value
             redrawAllCache()
         }
 

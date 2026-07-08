@@ -1294,6 +1294,7 @@ fun StudioLayout(
 
                 view.canvasBackgroundStyle = viewModel.backgroundStyle
                 view.canvasBackgroundColor = viewModel.backgroundColor
+                view.workspaceBackgroundColor = theme.canvasColor.toArgb()
 
 
                 view.canvasSizeConfig = viewModel.canvasSizeConfig

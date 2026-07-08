@@ -1104,6 +1104,12 @@ fun PersonalizationMenu(
                     labelColor = theme.iconColor,
                     onClick = { pickingColorFor = "highlight" }
                 )
+                ColorPreviewRow(
+                    label = "Canvas Color",
+                    color = theme.canvasColor,
+                    labelColor = theme.iconColor,
+                    onClick = { pickingColorFor = "canvas" }
+                )
 
                 if (pickingColorFor != null) {
                     val initialColor = when(pickingColorFor) {
@@ -1111,6 +1117,7 @@ fun PersonalizationMenu(
                         "button" -> theme.buttonColor
                         "icon" -> theme.iconColor
                         "highlight" -> theme.highlightColor
+                        "canvas" -> theme.canvasColor
                         else -> Color.Transparent
                     }
                     ColorPickerDialog(
@@ -1127,6 +1134,7 @@ fun PersonalizationMenu(
                                 "button" -> viewModel.updateTheme(theme.copy(buttonColor = newColor, recentColors = newRecents))
                                 "icon" -> viewModel.updateTheme(theme.copy(iconColor = newColor, recentColors = newRecents))
                                 "highlight" -> viewModel.updateTheme(theme.copy(highlightColor = newColor, recentColors = newRecents))
+                                "canvas" -> viewModel.updateTheme(theme.copy(canvasColor = newColor, recentColors = newRecents))
                             }
                             pickingColorFor = null
                         }

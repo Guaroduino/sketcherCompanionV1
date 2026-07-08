@@ -12,6 +12,7 @@ data class UiThemeConfig(
     val menuButtonColor: Color = Color.White,
     val iconColor: Color = Color(0xFF424242),
     val highlightColor: Color = Color(0xFFE0E0E0),
+    val canvasColor: Color = Color(0xFFEEEEEE),
     val barElevation: androidx.compose.ui.unit.Dp = 8.dp,
     val isRound: Boolean = false,
     val shadowAngle: Float = 24f,
