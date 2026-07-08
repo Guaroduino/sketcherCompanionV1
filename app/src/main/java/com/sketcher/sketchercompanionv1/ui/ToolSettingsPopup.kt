@@ -272,6 +272,18 @@ fun FreehandSettingsContent(
                 valueRange = 0f..1.0f,
                 onValueChange = { onSettingsChanged(currentSettings.copy(smoothing = it)) }
             )
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Simular Presión (Velocidad)")
+                Switch(
+                    checked = currentSettings.simulatePressure,
+                    onCheckedChange = { onSettingsChanged(currentSettings.copy(simulatePressure = it)) }
+                )
+            }
             HorizontalDivider()
             Text("Opciones de Punta", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             SettingSlider(

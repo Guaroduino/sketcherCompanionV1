@@ -150,7 +150,7 @@ object PerfectFreehandGenerator {
         // Apply debounce / jitter filtering at the extremes
         val sanitized = ArrayList<StrokePoint>()
         sanitized.add(input[0])
-        val minMoveThreshold = 1.0f // 1.0 pixel threshold to filter noise
+        val minMoveThreshold = 0.4f // 0.4 pixel threshold to filter noise
         
         for (i in 1 until input.size) {
             val p = input[i]
@@ -219,9 +219,9 @@ object PerfectFreehandGenerator {
             
             val point = pool.obtain()
             if (isComplete && isLastPoint) {
-                // Smoothly interpolate the final point with a higher factor (0.5) to draw it closer to the raw end
+                // Smoothly interpolate the final point with a higher factor (0.8) to draw it closer to the raw end
                 // without forcing an abrupt, unsmoothed jump.
-                val finalT = max(t, 0.5f)
+                val finalT = max(t, 0.8f)
                 PerfectFreehandUtils.lrp(prev.point, pool.obtain(rawP.x, rawP.y), finalT, point)
             } else {
                 PerfectFreehandUtils.lrp(prev.point, pool.obtain(rawP.x, rawP.y), t, point)

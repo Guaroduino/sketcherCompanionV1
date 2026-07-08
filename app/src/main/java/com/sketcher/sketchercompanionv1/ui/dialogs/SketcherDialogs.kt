@@ -205,8 +205,7 @@ fun SettingsDialog(
     onCloudBackup: () -> Unit,
     onCloudRestore: () -> Unit,
     isSyncingCloud: Boolean,
-    cloudSyncMessage: String?,
-    onWipeCloud: () -> Unit
+    cloudSyncMessage: String?
 ) {
     var resolutionText by remember { mutableStateOf(currentScaleConfig.basePixelsPerMillimeter.toString()) }
     var selectedUnit by remember { mutableStateOf(DistanceUnit.fromSymbol(currentScaleConfig.unitName)) }
@@ -533,21 +532,6 @@ fun SettingsDialog(
                             Spacer(modifier = Modifier.width(4.sdp))
                             Text("Cloud Restore", fontSize = 12.ssp)
                         }
-                    }
-                    Spacer(modifier = Modifier.height(8.sdp))
-                    Button(
-                        onClick = onWipeCloud,
-                        enabled = !isSyncingCloud,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFC62828),
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(8.sdp)
-                    ) {
-                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.sdp))
-                        Spacer(modifier = Modifier.width(8.sdp))
-                        Text("Borrar Datos en la Nube", fontSize = 12.ssp)
                     }
                 }
 

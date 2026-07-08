@@ -143,6 +143,18 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     private val prefs = application.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE)
 
+    private fun getSafeInt(key: String, default: Int): Int {
+        return try {
+            prefs.getInt(key, default)
+        } catch (e: Exception) {
+            try {
+                prefs.getLong(key, default.toLong()).toInt()
+            } catch (ex: Exception) {
+                default
+            }
+        }
+    }
+
     private val themeRepository = ThemeRepository(application)
 
     private val toolbarRepository = ToolbarRepository(application)
@@ -724,7 +736,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     // Toolbar Appearance
 
-    var toolbarBackgroundColor by mutableIntStateOf(prefs.getInt("toolbar_background_color", AndroidColor.WHITE))
+    var toolbarBackgroundColor by mutableIntStateOf(getSafeInt("toolbar_background_color", AndroidColor.WHITE))
 
     fun updateToolbarBackgroundColor(color: Int) { 
 
@@ -792,6 +804,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     var showPropertiesPanel by mutableStateOf(false)
         private set
+
+    var showCustomToolsManagerDialog by mutableStateOf(false)
 
     var activeCustomToolId by mutableStateOf<String?>(null)
 
@@ -1350,7 +1364,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         buttonSpacingFactor = prefs.getFloat("button_spacing_factor", 1.0f)
 
-        toolbarBackgroundColor = prefs.getInt("toolbar_background_color", AndroidColor.WHITE)
+        toolbarBackgroundColor = getSafeInt("toolbar_background_color", AndroidColor.WHITE)
 
         toolbarAlpha = prefs.getFloat("toolbar_alpha", 0.9f)
 
@@ -1579,6 +1593,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     var hasUnsavedChanges: Boolean = false
     var hasUnsavedChangesSinceLastAutosave: Boolean = false
 
+    private var lastInteractionTime = System.currentTimeMillis()
+    private var lastAutosaveTime = System.currentTimeMillis()
+    private val AUTOSAVE_INTERVAL_MS = 120_000L // 2 minutes
+
+    fun registerUserInteraction() {
+        lastInteractionTime = System.currentTimeMillis()
+    }
+
 
 
     // --- THEME ENGINE ---
@@ -1677,9 +1699,28 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 confirmTransform()
             }
         }
+        val prevCustomId = activeCustomToolId
+        if (prevCustomId != null) {
+            toolManager.reloadToolConfigAndSettings(currentTool)
+        }
         activeCustomToolId = null
         toolManager.selectTool(type)
     }
+
+    fun saveActiveCustomToolChanges() {
+        val customId = activeCustomToolId ?: return
+        toolManager.saveActiveCustomToolChanges(customId)
+    }
+
+    fun revertCustomToolChanges() {
+        val customId = activeCustomToolId ?: return
+        toolManager.revertCustomToolChanges(customId)
+    }
+
+    fun isCustomToolModified(customId: String): Boolean {
+        return toolManager.isCustomToolModified(customId)
+    }
+
     val brushPresets = toolManager.brushPresets
     val selectedPresetIndex = toolManager.selectedPresetIndex
     fun saveBrushPreset(index: Int) = toolManager.saveBrushPreset(index)
@@ -1729,11 +1770,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         selectTool(currentTool)
         toolbarManager.initLayout()
 
-        // Periodic background autosave (runs every 30 seconds if there are changes)
+        // Periodic background autosave (runs every 2 minutes if there are changes and user is idle)
         viewModelScope.launch {
             while (true) {
-                kotlinx.coroutines.delay(30_000)
-                if (hasUnsavedChangesSinceLastAutosave) {
+                kotlinx.coroutines.delay(10_000)
+                val now = System.currentTimeMillis()
+                if (hasUnsavedChangesSinceLastAutosave &&
+                    (now - lastAutosaveTime >= AUTOSAVE_INTERVAL_MS) &&
+                    (now - lastInteractionTime >= 3_000)) {
                     autoSaveProject(application)
                 }
             }
@@ -4838,7 +4882,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
 
     private fun autoSaveProject(context: Context) {
-
+        lastAutosaveTime = System.currentTimeMillis()
         val autosaveFile = java.io.File(context.cacheDir, "autosave.skc")
 
         saveProjectToZip(context, android.net.Uri.fromFile(autosaveFile), isAutosave = true)
@@ -4879,7 +4923,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
 
         // Generate thumbnail on Main thread (safe from ConcurrentModificationException)
-        val thumbnailBmp = try {
+        val thumbnailBmp = if (isAutosave) null else try {
             val firstPage = pages.firstOrNull()
             if (firstPage != null) {
                 renderExportBitmap(
@@ -5041,6 +5085,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                         hasUnsavedChanges = false
                         hasUnsavedChangesSinceLastAutosave = false
+                        lastAutosaveTime = System.currentTimeMillis()
 
                         android.widget.Toast.makeText(context, "Proyecto guardado correctamente", android.widget.Toast.LENGTH_SHORT).show()
 

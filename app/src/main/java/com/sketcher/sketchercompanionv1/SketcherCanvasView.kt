@@ -879,7 +879,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                 val bakedFillStyle = stroke.fillStyle.copyWithOpacity(stroke.fillStyle.opacity * activeFillOpacity)
                 val bakedFillColor = if (stroke.isFillEnabled) {
                     val alpha = (android.graphics.Color.alpha(stroke.fillColor) / 255f)
-                    val finalAlpha = (alpha * activeFillOpacity * 255).toInt().coerceIn(0, 255)
+                    val finalAlpha = (alpha * activeStrokeStyle.opacity * activeFillOpacity * 255).toInt().coerceIn(0, 255)
                     (stroke.fillColor and 0x00FFFFFF) or (finalAlpha shl 24)
                 } else {
                     stroke.fillColor
@@ -2752,6 +2752,7 @@ class SketcherCanvasView(context: Context) : View(context) {
 
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        onUserInteraction?.invoke()
         if (event.actionMasked == MotionEvent.ACTION_DOWN && isTouchInsideFloatingBar(event.x, event.y)) {
             return false
         }
@@ -3645,6 +3646,8 @@ class SketcherCanvasView(context: Context) : View(context) {
     // --- CALLBACKS ---
 
     var onStrokeCompleted: ((VectorStroke) -> Unit)? = null
+
+    var onUserInteraction: (() -> Unit)? = null
 
     var onFillCompleted: ((FillData) -> Unit)? = null
 

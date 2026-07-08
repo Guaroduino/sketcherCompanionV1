@@ -21,6 +21,18 @@ class ToolManager(private val context: Context) {
     private val prefs = context.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE)
     private val gson = Gson()
 
+    private fun getSafeInt(key: String, default: Int): Int {
+        return try {
+            prefs.getInt(key, default)
+        } catch (e: Exception) {
+            try {
+                prefs.getLong(key, default.toLong()).toInt()
+            } catch (ex: Exception) {
+                default
+            }
+        }
+    }
+
     // --- TOOL STATE & CONFIG ---
     var currentTool by mutableStateOf(
         try { 
@@ -70,7 +82,7 @@ class ToolManager(private val context: Context) {
 
     private val lastPresetIndexPerTool = mutableMapOf<ToolType, Int>().apply {
         ToolType.entries.forEach { type ->
-            put(type, prefs.getInt("last_preset_index_${type.name}", 0))
+            put(type, getSafeInt("last_preset_index_${type.name}", 0))
         }
     }
 
@@ -168,8 +180,8 @@ class ToolManager(private val context: Context) {
         val defaultFillActive = (type == ToolType.PAINT || type == ToolType.WATERCOLOR)
         val defaultStabilization = if (type == ToolType.FREEHAND || type == ToolType.PENCIL_CUMULATIVE) 0.07f else 0f
 
-        val sc = prefs.getInt("tool_stroke_color_${type.name}", defaultStrokeColor)
-        val fc = prefs.getInt("tool_fill_color_${type.name}", defaultFillColor)
+        val sc = getSafeInt("tool_stroke_color_${type.name}", defaultStrokeColor)
+        val fc = getSafeInt("tool_fill_color_${type.name}", defaultFillColor)
         val sa = prefs.getBoolean("tool_stroke_active_${type.name}", defaultStrokeActive)
         val fa = prefs.getBoolean("tool_fill_active_${type.name}", defaultFillActive)
         val stab = prefs.getFloat("tool_stabilization_${type.name}", defaultStabilization)
@@ -829,6 +841,104 @@ class ToolManager(private val context: Context) {
         }
     }
 
+    fun saveActiveCustomToolChanges(customId: String) {
+        val mapped = _customTools.value.map { ct ->
+            if (ct.id == customId) {
+                val sc = _strokeColor.value
+                val fc = _fillColor.value
+                val sa = _isStrokeActive.value
+                val fa = _isFillActive.value
+                val ss = _strokeStyle.value
+                val fs = _fillStyle.value
+                val stab = smoothing.value
+                
+                ct.copy(
+                    preset = BrushPreset(
+                        size = _brushSize.value,
+                        opacity = _brushOpacity.value,
+                        settings = currentFreehandSettings,
+                        strokeColor = sc,
+                        fillColor = fc,
+                        isStrokeActive = sa,
+                        isFillActive = fa,
+                        fillStyle = fs,
+                        strokeStyle = ss,
+                        stabilization = stab
+                    )
+                )
+            } else {
+                ct
+            }
+        }
+        _customTools.value = mapped
+        updateRegistryCustomTools(mapped)
+        saveCustomTools(mapped)
+    }
+
+    fun isCustomToolModified(customId: String): Boolean {
+        val ct = _customTools.value.find { it.id == customId } ?: return false
+        val config = toolConfigs[currentTool] ?: return false
+        val preset = ct.preset
+        
+        if (config.size != preset.size) return true
+        if (config.opacity != preset.opacity) return true
+        if (currentFreehandSettings != preset.settings) return true
+        if (smoothing.value != (preset.stabilization ?: 0f)) return true
+        if (_strokeColor.value != (preset.strokeColor ?: 0)) return true
+        if (_fillColor.value != (preset.fillColor ?: 0)) return true
+        if (_isStrokeActive.value != (preset.isStrokeActive ?: true)) return true
+        if (_isFillActive.value != (preset.isFillActive ?: false)) return true
+        
+        val fsJson = config.fillStyle?.let { gson.toJson(it) }
+        val ssJson = config.strokeStyle?.let { gson.toJson(it) }
+        val presetFsJson = preset.fillStyle?.let { gson.toJson(it.toFillStyleJson()) }
+        val presetSsJson = preset.strokeStyle?.let { gson.toJson(it.toFillStyleJson()) }
+        if (fsJson != presetFsJson) return true
+        if (ssJson != presetSsJson) return true
+        
+        return false
+    }
+
+    fun revertCustomToolChanges(customId: String) {
+        val ct = _customTools.value.find { it.id == customId } ?: return
+        applyBrushPresetDirectly(ct.preset)
+    }
+
+    fun reloadToolConfigAndSettings(type: ToolType) {
+        val reloadedSettings = when(type) {
+            ToolType.FREEHAND -> loadFreehandSettings()
+            ToolType.PEN -> loadPenSettings()
+            ToolType.PLUMA -> loadPlumaSettings()
+            ToolType.PAINT -> loadPaintSettings()
+            ToolType.WATERCOLOR -> loadWatercolorSettings()
+            ToolType.PENCIL_CUMULATIVE -> loadPencilCumulativeSettings()
+            else -> null
+        }
+        if (reloadedSettings != null) {
+            val tool = activeTools[type]
+            if (tool != null) {
+                tool.settings = reloadedSettings
+            }
+        }
+        
+        val defSize = when(type) {
+            ToolType.PAINT -> 10f
+            ToolType.WATERCOLOR -> 20f
+            ToolType.FREEHAND -> 2f
+            ToolType.PEN -> 2f
+            ToolType.PLUMA -> 2.5f
+            ToolType.PENCIL_CUMULATIVE -> 2f
+            else -> 2f
+        }
+        val defOpacity = when(type) {
+            ToolType.WATERCOLOR -> 0.4f
+            ToolType.PENCIL_CUMULATIVE -> 0.5f
+            else -> 1f
+        }
+        val currentSettings = activeTools[type]?.settings ?: com.sketcher.sketchercompanionv1.tools.PencilSettings()
+        toolConfigs[type] = loadToolConfig(type, defSize, defOpacity, currentSettings)
+    }
+
     fun setFingerMode(enabled: Boolean) {
         fingerModeActive = enabled
         toolConfigs.keys.toList().forEach { type ->
@@ -1404,7 +1514,7 @@ class ToolManager(private val context: Context) {
     }
 
     fun getExplicitStrokeColor(tool: ToolType, presetIndex: Int, defaultColor: Int): Int {
-        return prefs.getInt("preset_stroke_color_${tool.name}_$presetIndex", defaultColor)
+        return getSafeInt("preset_stroke_color_${tool.name}_$presetIndex", defaultColor)
     }
 
     fun getExplicitStrokeStyle(tool: ToolType, presetIndex: Int): FillStyle? {
@@ -1431,7 +1541,7 @@ class ToolManager(private val context: Context) {
     }
 
     fun getExplicitFillColor(tool: ToolType, presetIndex: Int, defaultColor: Int): Int {
-        return prefs.getInt("preset_fill_color_${tool.name}_$presetIndex", defaultColor)
+        return getSafeInt("preset_fill_color_${tool.name}_$presetIndex", defaultColor)
     }
 
     fun getExplicitFillStyle(tool: ToolType, presetIndex: Int): FillStyle? {
@@ -1573,10 +1683,21 @@ class ToolManager(private val context: Context) {
                     is Boolean -> editor.putBoolean(key, v)
                     is Float -> editor.putFloat(key, v)
                     is Int -> editor.putInt(key, v)
-                    is Long -> editor.putLong(key, v)
+                    is Long -> {
+                        if (v >= Int.MIN_VALUE && v <= Int.MAX_VALUE) {
+                            editor.putInt(key, v.toInt())
+                        } else {
+                            editor.putLong(key, v)
+                        }
+                    }
                     is Double -> {
                         if (v % 1 == 0.0) {
-                            editor.putInt(key, v.toInt())
+                            val lv = v.toLong()
+                            if (lv >= Int.MIN_VALUE && lv <= Int.MAX_VALUE) {
+                                editor.putInt(key, lv.toInt())
+                            } else {
+                                editor.putLong(key, lv)
+                            }
                         } else {
                             editor.putFloat(key, v.toFloat())
                         }

@@ -444,8 +444,7 @@ class MainActivity : ComponentActivity() {
                                 onCloudBackup = { sketchViewModel.triggerCloudBackup(context) },
                                 onCloudRestore = { sketchViewModel.triggerCloudRestore(context) },
                                 isSyncingCloud = sketchViewModel.isSyncingCloud,
-                                cloudSyncMessage = sketchViewModel.cloudSyncMessage,
-                                onWipeCloud = { sketchViewModel.wipeCloudProjects(context) }
+                                cloudSyncMessage = sketchViewModel.cloudSyncMessage
                             )
                         }
 
@@ -636,6 +635,16 @@ class MainActivity : ComponentActivity() {
             } else {
                 Toast.makeText(context, "Error al preparar documento para imprimir", Toast.LENGTH_SHORT).show()
             }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        try {
+            val viewModel = androidx.lifecycle.ViewModelProvider(this)[SketcherViewModel::class.java]
+            viewModel.autoSyncCloud(this)
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 }

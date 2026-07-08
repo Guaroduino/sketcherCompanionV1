@@ -1103,6 +1103,7 @@ fun StudioLayout(
 
                     onStrokeCompleted = { stroke -> viewModel.addVectorStroke(stroke) }
 
+                    onUserInteraction = { viewModel.registerUserInteraction() }
 
                     onHybridStrokeCompleted = { s, f -> viewModel.addHybridStroke(s, f) }
 
@@ -1246,7 +1247,7 @@ fun StudioLayout(
 
 
                 view.activeFillColor = fillColorVal
-                view.activeFillStyle = fillStyleVal
+                view.activeFillStyle = fillStyleVal.copyWithOpacity(fillStyleVal.opacity * brushOpacity)
                 view.activeFillOpacity = fillOpacityVal
 
 
@@ -4400,6 +4401,14 @@ fun StudioLayout(
                 showIconEditorDialog = true
                 viewModel.setShowPersonalizationDialog(false)
             }
+        )
+    }
+
+    if (viewModel.showCustomToolsManagerDialog) {
+        com.sketcher.sketchercompanionv1.ui.dialogs.CustomToolsManagerDialog(
+            viewModel = viewModel,
+            theme = theme,
+            onDismiss = { viewModel.showCustomToolsManagerDialog = false }
         )
     }
 

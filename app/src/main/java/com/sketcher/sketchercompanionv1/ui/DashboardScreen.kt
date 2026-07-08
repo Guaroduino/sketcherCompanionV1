@@ -85,6 +85,7 @@ fun DashboardScreen(
     var showDeleteConfirmDialog by remember { mutableStateOf<DashboardItem?>(null) }
     var showCustomizeCoverDialog by remember { mutableStateOf<DashboardItem.Folder?>(null) }
     var showHistoryDialog by remember { mutableStateOf<DashboardItem.Project?>(null) }
+    var showWipeConfirmationDialog by remember { mutableStateOf(false) }
 
     // SAF launcher for importing external files
     val importLauncher = rememberLauncherForActivityResult(
@@ -218,6 +219,21 @@ fun DashboardScreen(
                                 },
                                 onClick = {
                                     viewModel.togglePublicLibrary()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Borrar Datos en la Nube", fontSize = 14.sp * scaleFactor, color = Color(0xFFC62828)) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp * scaleFactor),
+                                        tint = Color(0xFFC62828)
+                                    )
+                                },
+                                onClick = {
+                                    showSettingsPopup = false
+                                    showWipeConfirmationDialog = true
                                 }
                             )
                         }
@@ -550,6 +566,40 @@ fun DashboardScreen(
             dismissButton = {
                 TextButton(
                     onClick = { showDeleteConfirmDialog = null },
+                    colors = ButtonDefaults.textButtonColors(contentColor = theme.iconColor)
+                ) {
+                    Text("Cancelar", fontSize = 14.sp * scaleFactor)
+                }
+            },
+            containerColor = theme.barBackgroundColor
+        )
+    }
+
+    if (showWipeConfirmationDialog) {
+        AlertDialog(
+            onDismissRequest = { showWipeConfirmationDialog = false },
+            title = { Text("Confirmar eliminación de la nube", fontSize = 18.sp * scaleFactor, color = theme.iconColor) },
+            text = {
+                Text(
+                    text = "¿Está seguro de que desea eliminar todos los proyectos, carpetas, biblioteca y configuraciones sincronizados en Firebase? Esta acción borrará la nube permanentemente y no afectará tus dibujos locales en esta tableta.",
+                    fontSize = 14.sp * scaleFactor,
+                    color = theme.iconColor.copy(alpha = 0.8f)
+                )
+            },
+            confirmButton = {
+                Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    onClick = {
+                        showWipeConfirmationDialog = false
+                        viewModel.wipeCloudProjects(context)
+                    }
+                ) {
+                    Text("Borrar Todo", fontSize = 14.sp * scaleFactor, color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showWipeConfirmationDialog = false },
                     colors = ButtonDefaults.textButtonColors(contentColor = theme.iconColor)
                 ) {
                     Text("Cancelar", fontSize = 14.sp * scaleFactor)

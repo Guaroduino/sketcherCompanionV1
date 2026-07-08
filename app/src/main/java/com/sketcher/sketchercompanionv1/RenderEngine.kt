@@ -706,6 +706,60 @@ class RenderEngine {
      }
 
      private fun drawVectorStroke(canvas: Canvas, stroke: VectorStroke, viewMatrix: Matrix, alphaMultiplier: Float = 1f) {
+        val isPaintOrWatercolor = stroke.brushType == "PAINT" || stroke.brushType == "WATERCOLOR"
+        if (isPaintOrWatercolor) {
+            val strokeOpacity = stroke.strokeStyle.opacity
+            val totalOpacity = alphaMultiplier * strokeOpacity
+            
+            if (totalOpacity < 1f) {
+                val bounds = stroke.getBoundingBox(emptyMap())
+                val tempBounds = RectF(bounds)
+                val pad = stroke.maxWidth.coerceAtLeast(4f) * 1.5f
+                tempBounds.inset(-pad, -pad)
+                
+                val savePaint = layerAlphaPaint.apply { alpha = (totalOpacity * 255).toInt().coerceIn(0, 255) }
+                val saveCount = canvas.saveLayer(tempBounds, savePaint)
+                
+                // 1. Draw Fill (if enabled)
+                if (stroke.isFillEnabled && stroke.fillPath != null) {
+                    val relativeFillAlpha = if (stroke.brushType == "WATERCOLOR") {
+                        stroke.fillStyle.opacity
+                    } else {
+                        if (strokeOpacity > 0f) (stroke.fillStyle.opacity / strokeOpacity).coerceIn(0f, 1f) else 0f
+                    }
+                    vectorPaint.style = Paint.Style.FILL
+                    applyFillStyle(vectorPaint, stroke.fillStyle.copyWithOpacity(1f), relativeFillAlpha)
+                    canvas.drawPath(stroke.fillPath, vectorPaint)
+                    vectorPaint.shader = null
+                }
+                
+                // 2. Draw Stroke outline (if enabled)
+                if (stroke.isStrokeEnabled) {
+                    stroke.getBrushRenderer().draw(canvas, stroke, vectorPaint, 1f) { p, alpha ->
+                        applyFillStyle(p, stroke.strokeStyle.copyWithOpacity(1f), alpha)
+                    }
+                }
+                
+                canvas.restoreToCount(saveCount)
+            } else {
+                // 1. Draw Fill (if enabled) directly
+                if (stroke.isFillEnabled && stroke.fillPath != null) {
+                    vectorPaint.style = Paint.Style.FILL
+                    applyFillStyle(vectorPaint, stroke.fillStyle, alphaMultiplier)
+                    canvas.drawPath(stroke.fillPath, vectorPaint)
+                    vectorPaint.shader = null
+                }
+                
+                // 2. Draw Stroke outline (if enabled) directly
+                if (stroke.isStrokeEnabled) {
+                    stroke.getBrushRenderer().draw(canvas, stroke, vectorPaint, alphaMultiplier) { p, alpha ->
+                        applyFillStyle(p, stroke.strokeStyle, alphaMultiplier * alpha)
+                    }
+                }
+            }
+            return
+        }
+
         // Pass 1: FILL (if enabled)
         if (stroke.isFillEnabled && stroke.fillPath != null) {
             vectorPaint.style = Paint.Style.FILL

@@ -102,15 +102,20 @@ fun SizeOpacityPopup(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val dialogTitle = when (viewModel.currentTool) {
-                            ToolType.FREEHAND -> "Pencil Settings"
-                            ToolType.PAINT -> "Paint Settings"
-                            ToolType.PEN -> "Pen Settings"
-                            ToolType.PLUMA -> "Pluma Settings"
-                            ToolType.ERASER -> "Ajustes de Borrador de Trazo"
-                            ToolType.POINT_ERASER -> "Ajustes de Borrador de Puntos"
-                            ToolType.CUT_ERASER -> "Ajustes de Borrador de Corte"
-                            else -> "Brush Settings"
+                        val dialogTitle = if (viewModel.activeCustomToolId != null) {
+                            val ct = viewModel.toolManager.customTools.value.find { it.id == viewModel.activeCustomToolId }
+                            if (ct != null) "${ct.name} Settings" else "Brush Settings"
+                        } else {
+                            when (viewModel.currentTool) {
+                                ToolType.FREEHAND -> "Pencil Settings"
+                                ToolType.PAINT -> "Paint Settings"
+                                ToolType.PEN -> "Pen Settings"
+                                ToolType.PLUMA -> "Pluma Settings"
+                                ToolType.ERASER -> "Ajustes de Borrador de Trazo"
+                                ToolType.POINT_ERASER -> "Ajustes de Borrador de Puntos"
+                                ToolType.CUT_ERASER -> "Ajustes de Borrador de Corte"
+                                else -> "Brush Settings"
+                            }
                         }
                         Text(
                             text = dialogTitle,
@@ -130,41 +135,42 @@ fun SizeOpacityPopup(
                     if (!isEraser) {
                         // Presets Section
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            text = "Presets",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = theme.iconColor.copy(alpha = 0.6f)
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceEvenly
-                        ) {
-                            presets.forEachIndexed { index, preset ->
-                                val isSelected = selectedIndex == index
-                                val isModified = if (isSelected) viewModel.isPresetModified(index) else false
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                            if (viewModel.activeCustomToolId == null) {
+                                Text(
+                                    text = "Presets",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = theme.iconColor.copy(alpha = 0.6f)
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceEvenly
                                 ) {
-                                    PresetButton(
-                                        preset = preset,
-                                        index = index,
-                                        isSelected = isSelected,
-                                        isModified = isModified,
-                                        theme = theme,
-                                        onClick = { viewModel.selectBrushPreset(index) },
-                                        onLongClick = { viewModel.saveBrushPreset(index) }
-                                    )
-                                    Text(
-                                        text = "${preset.size.toInt()}",
-                                        fontSize = 10.sp,
-                                        color = if (isSelected) theme.highlightColor else theme.iconColor.copy(alpha = 0.6f),
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                    )
+                                    presets.forEachIndexed { index, preset ->
+                                        val isSelected = selectedIndex == index
+                                        val isModified = if (isSelected) viewModel.isPresetModified(index) else false
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            PresetButton(
+                                                preset = preset,
+                                                index = index,
+                                                isSelected = isSelected,
+                                                isModified = isModified,
+                                                theme = theme,
+                                                onClick = { viewModel.selectBrushPreset(index) },
+                                                onLongClick = { viewModel.saveBrushPreset(index) }
+                                            )
+                                            Text(
+                                                text = "${preset.size.toInt()}",
+                                                fontSize = 10.sp,
+                                                color = if (isSelected) theme.highlightColor else theme.iconColor.copy(alpha = 0.6f),
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                        }
+                                    }
                                 }
                             }
-                        }
-
                         // Preview & Save button Row
                         Row(
                             modifier = Modifier
@@ -217,6 +223,67 @@ fun SizeOpacityPopup(
                                     fillStyle = fillStyleVal,
                                     isFillActive = isFillActive
                                 )
+                            }
+                        }
+
+                        val activeCustomToolIdVal = viewModel.activeCustomToolId
+                        if (activeCustomToolIdVal != null) {
+                            val isModified = viewModel.isCustomToolModified(activeCustomToolIdVal)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Button(
+                                    onClick = { viewModel.saveActiveCustomToolChanges() },
+                                    enabled = isModified,
+                                    shape = theme.panelShape(),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = theme.highlightColor,
+                                        contentColor = theme.barBackgroundColor,
+                                        disabledContainerColor = theme.buttonColor.copy(alpha = 0.1f),
+                                        disabledContentColor = theme.iconColor.copy(alpha = 0.3f)
+                                    ),
+                                    modifier = Modifier.weight(1f).height(34.dp),
+                                    contentPadding = PaddingValues(vertical = 0.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Save,
+                                        contentDescription = "Guardar Cambios",
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Guardar",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
+
+                                OutlinedButton(
+                                    onClick = { viewModel.revertCustomToolChanges() },
+                                    enabled = isModified,
+                                    shape = theme.panelShape(),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        contentColor = theme.iconColor,
+                                        disabledContentColor = theme.iconColor.copy(alpha = 0.3f)
+                                    ),
+                                    border = BorderStroke(
+                                        width = 1.dp,
+                                        color = if (isModified) theme.iconColor.copy(alpha = 0.4f) else theme.iconColor.copy(alpha = 0.1f)
+                                    ),
+                                    modifier = Modifier.weight(1f).height(34.dp),
+                                    contentPadding = PaddingValues(vertical = 0.dp)
+                                ) {
+                                    Text(
+                                        text = "Restablecer",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
                             }
                         }
 
@@ -723,14 +790,19 @@ fun SizeOpacityPopup(
                                             isFlattenedOuterStrokeEnabled = viewModel.toolManager.isFlattenedOuterStrokeEnabled,
                                             onToggleFlattenedOuterStroke = { viewModel.toolManager.toggleFlattenedOuterStroke() },
                                             showFlatStrokeOption = false,
-                                            title = when(toolType) {
-                                                ToolType.FREEHAND -> "Ajustes de Lápiz"
-                                                ToolType.PENCIL_CUMULATIVE -> "Ajustes de Lápiz Acumulativo"
-                                                ToolType.PEN -> "Ajustes de Pluma Estilográfica"
-                                                ToolType.PLUMA -> "Ajustes de Pluma Caligráfica"
-                                                ToolType.PAINT -> "Ajustes de Pintura"
-                                                ToolType.WATERCOLOR -> "Ajustes de Acuarela"
-                                                else -> "Ajustes de Pincel"
+                                            title = if (viewModel.activeCustomToolId != null) {
+                                                val ct = viewModel.toolManager.customTools.value.find { it.id == viewModel.activeCustomToolId }
+                                                if (ct != null) "Ajustes de ${ct.name}" else "Ajustes de Pincel"
+                                            } else {
+                                                when(toolType) {
+                                                    ToolType.FREEHAND -> "Ajustes de Lápiz"
+                                                    ToolType.PENCIL_CUMULATIVE -> "Ajustes de Lápiz Acumulativo"
+                                                    ToolType.PEN -> "Ajustes de Pluma Estilográfica"
+                                                    ToolType.PLUMA -> "Ajustes de Pluma Caligráfica"
+                                                    ToolType.PAINT -> "Ajustes de Pintura"
+                                                    ToolType.WATERCOLOR -> "Ajustes de Acuarela"
+                                                    else -> "Ajustes de Pincel"
+                                                }
                                             }
                                         )
                                     }

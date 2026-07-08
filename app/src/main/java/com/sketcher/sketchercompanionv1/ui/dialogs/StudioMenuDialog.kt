@@ -182,6 +182,10 @@ fun StudioMenu(
                     viewModel.setShowPersonalizationDialog(true)
                     onDismiss()
                 }
+                MenuItem(Icons.Default.Build, "Administrador de Herramientas", theme.iconColor) { 
+                    viewModel.showCustomToolsManagerDialog = true
+                    onDismiss()
+                }
                 MenuItem(Icons.Default.Style, "Guardar como Plantilla", theme.iconColor) {
                     actions.onTemplatesSaveTrigger()
                     onDismiss()

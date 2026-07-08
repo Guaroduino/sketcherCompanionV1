@@ -109,31 +109,20 @@ fun ToolPropertiesPanel(
                         .weight(1f, fill = false)
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(16.dp)                ) {
-                    if (viewModel.activeCustomToolId != null) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 24.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "Las herramientas basadas en presets no tienen ajustes configurables.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = theme.iconColor.copy(alpha = 0.6f),
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    } else {
-                        val toolType = viewModel.currentTool
-                        when {
-                            toolType == ToolType.FREEHAND || toolType == ToolType.PENCIL_CUMULATIVE || toolType == ToolType.PEN || toolType == ToolType.PLUMA || toolType == ToolType.PAINT || toolType == ToolType.WATERCOLOR -> {
-                                FreehandSettingsContent(
-                                    currentSettings = viewModel.currentFreehandSettings,
-                                    onSettingsChanged = { viewModel.updateFreehandSettings(it) },
-                                    isFlattenedOuterStrokeEnabled = viewModel.toolManager.isFlattenedOuterStrokeEnabled,
-                                    onToggleFlattenedOuterStroke = { viewModel.toolManager.toggleFlattenedOuterStroke() },
-                                    showFlatStrokeOption = false,
-                                    title = when(toolType) {
+                    val toolType = viewModel.currentTool
+                    when {
+                        toolType == ToolType.FREEHAND || toolType == ToolType.PENCIL_CUMULATIVE || toolType == ToolType.PEN || toolType == ToolType.PLUMA || toolType == ToolType.PAINT || toolType == ToolType.WATERCOLOR -> {
+                            FreehandSettingsContent(
+                                currentSettings = viewModel.currentFreehandSettings,
+                                onSettingsChanged = { viewModel.updateFreehandSettings(it) },
+                                isFlattenedOuterStrokeEnabled = viewModel.toolManager.isFlattenedOuterStrokeEnabled,
+                                onToggleFlattenedOuterStroke = { viewModel.toolManager.toggleFlattenedOuterStroke() },
+                                showFlatStrokeOption = false,
+                                title = if (viewModel.activeCustomToolId != null) {
+                                    val ct = viewModel.toolManager.customTools.value.find { it.id == viewModel.activeCustomToolId }
+                                    if (ct != null) "Ajustes de ${ct.name}" else "Ajustes de Pincel"
+                                } else {
+                                    when(toolType) {
                                         ToolType.FREEHAND -> "Ajustes de Lápiz"
                                         ToolType.PENCIL_CUMULATIVE -> "Ajustes de Lápiz Acumulativo"
                                         ToolType.PEN -> "Ajustes de Pluma Estilográfica"
@@ -142,23 +131,23 @@ fun ToolPropertiesPanel(
                                         ToolType.WATERCOLOR -> "Ajustes de Acuarela"
                                         else -> "Ajustes de Pincel"
                                     }
-                                )
-                            }
-                            toolType == ToolType.ERASER || toolType == ToolType.POINT_ERASER || toolType == ToolType.CUT_ERASER -> {
-                                EraserSettingsContent(
-                                    selectionScope = viewModel.selectionScope,
-                                    onToggleSelectionScope = {
-                                        viewModel.selectionScope = if (viewModel.selectionScope == SketcherViewModel.SelectionScope.CURRENT_LAYER)
-                                            SketcherViewModel.SelectionScope.ALL_LAYERS else SketcherViewModel.SelectionScope.CURRENT_LAYER
-                                    }
-                                )
-                            }
-                            else -> {
-                                Text(
-                                    text = "No additional properties for this tool.",
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
+                                }
+                            )
+                        }
+                        toolType == ToolType.ERASER || toolType == ToolType.POINT_ERASER || toolType == ToolType.CUT_ERASER -> {
+                            EraserSettingsContent(
+                                selectionScope = viewModel.selectionScope,
+                                onToggleSelectionScope = {
+                                    viewModel.selectionScope = if (viewModel.selectionScope == SketcherViewModel.SelectionScope.CURRENT_LAYER)
+                                        SketcherViewModel.SelectionScope.ALL_LAYERS else SketcherViewModel.SelectionScope.CURRENT_LAYER
+                                }
+                            )
+                        }
+                        else -> {
+                            Text(
+                                text = "No additional properties for this tool.",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
                         }
                     }
                 }

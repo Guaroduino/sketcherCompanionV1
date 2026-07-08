@@ -124,7 +124,7 @@ class PlumaTool(
             thinning = s.thinning,
             smoothing = s.smoothing,
             streamline = s.smoothing * 0.8f,
-            simulatePressure = true,
+            simulatePressure = s.simulatePressure,
             taperStart = s.taperStart,
             taperEnd = s.taperEnd,
             capStart = s.capStart,
