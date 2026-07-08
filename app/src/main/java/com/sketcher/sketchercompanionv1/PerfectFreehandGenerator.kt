@@ -147,7 +147,36 @@ object PerfectFreehandGenerator {
         val t = MIN_STREAMLINE_T + (1f - streamline) * STREAMLINE_T_RANGE
         val maxVel = max(0.1f, settings.velocityMaxInput)
 
-        var pts = input.toMutableList()
+        // Apply debounce / jitter filtering at the extremes
+        val sanitized = ArrayList<StrokePoint>()
+        sanitized.add(input[0])
+        val minMoveThreshold = 1.0f // 1.0 pixel threshold to filter noise
+        
+        for (i in 1 until input.size) {
+            val p = input[i]
+            val isLast = i == input.size - 1
+            val prevP = sanitized.last()
+            val dist = hypot(p.x - prevP.x, p.y - prevP.y)
+            
+            if (isLast) {
+                if (isComplete) {
+                    // Filter out lift-off tremor if the final point is too close to the previous point
+                    if (dist >= minMoveThreshold || sanitized.size == 1) {
+                        sanitized.add(p)
+                    }
+                } else {
+                    // Keep live drawing responsive
+                    sanitized.add(p)
+                }
+            } else {
+                // Filter out intermediate micro-jitter
+                if (dist >= minMoveThreshold) {
+                    sanitized.add(p)
+                }
+            }
+        }
+
+        var pts = sanitized.toMutableList()
 
         if (pts.size == 2) {
             val last = pts[1]
@@ -190,7 +219,10 @@ object PerfectFreehandGenerator {
             
             val point = pool.obtain()
             if (isComplete && isLastPoint) {
-                point.set(rawP.x, rawP.y)
+                // Smoothly interpolate the final point with a higher factor (0.5) to draw it closer to the raw end
+                // without forcing an abrupt, unsmoothed jump.
+                val finalT = max(t, 0.5f)
+                PerfectFreehandUtils.lrp(prev.point, pool.obtain(rawP.x, rawP.y), finalT, point)
             } else {
                 PerfectFreehandUtils.lrp(prev.point, pool.obtain(rawP.x, rawP.y), t, point)
             }
