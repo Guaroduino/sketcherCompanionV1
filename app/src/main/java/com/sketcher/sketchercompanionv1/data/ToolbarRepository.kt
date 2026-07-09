@@ -195,6 +195,50 @@ class ToolbarRepository(context: Context) {
         prefs.edit().remove("ui_preset_data_$name").apply()
     }
 
+    fun renameUiPreset(oldName: String, newName: String) {
+        val json = prefs.getString("ui_preset_data_$oldName", null) ?: return
+        
+        val list = getUiPresetsNames().toMutableList()
+        if (list.contains(oldName)) {
+            list.remove(oldName)
+            if (!list.contains(newName)) {
+                list.add(newName)
+            }
+            val jsonList = gson.toJson(list)
+            prefs.edit().putString("ui_presets_names", jsonList).apply()
+        }
+        
+        prefs.edit().putString("ui_preset_data_$newName", json).apply()
+        prefs.edit().remove("ui_preset_data_$oldName").apply()
+    }
+
+    fun copyUiPreset(oldName: String, newName: String) {
+        val json = prefs.getString("ui_preset_data_$oldName", null) ?: return
+        
+        val list = getUiPresetsNames().toMutableList()
+        if (!list.contains(newName)) {
+            list.add(newName)
+            val jsonList = gson.toJson(list)
+            prefs.edit().putString("ui_presets_names", jsonList).apply()
+        }
+        
+        prefs.edit().putString("ui_preset_data_$newName", json).apply()
+    }
+
+    fun getUiPresetJson(name: String): String? {
+        return prefs.getString("ui_preset_data_$name", null)
+    }
+
+    fun saveUiPresetJson(name: String, json: String) {
+        val list = getUiPresetsNames().toMutableList()
+        if (!list.contains(name)) {
+            list.add(name)
+            val jsonList = gson.toJson(list)
+            prefs.edit().putString("ui_presets_names", jsonList).apply()
+        }
+        prefs.edit().putString("ui_preset_data_$name", json).apply()
+    }
+
     fun getActiveUiPresetName(): String {
         return prefs.getString("active_ui_preset_name", "Default") ?: "Default"
     }

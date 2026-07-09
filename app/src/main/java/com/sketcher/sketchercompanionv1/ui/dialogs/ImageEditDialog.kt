@@ -174,7 +174,8 @@ fun ImageEditDialog(
     ) {
         Surface(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth(0.95f)
+                .fillMaxHeight(0.95f)
                 .padding((16 * scaler.scaleFactor).dp),
             shape = RoundedCornerShape((16 * scaler.scaleFactor).dp),
             color = theme.barBackgroundColor,
@@ -615,147 +616,154 @@ fun ImageEditDialog(
                 Spacer(modifier = Modifier.height((12 * scaler.scaleFactor).dp))
                 
                 // Control parameters (Tolerances or crop controls)
-                if (currentMode == EditMode.CHROMA_KEY) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        if (transparentColors.isNotEmpty()) {
-                            Text(
-                                text = "Colores seleccionados (toca para editar tolerancia):",
-                                fontSize = (13 * scaler.scaleFactor).sp,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = theme.iconColor,
-                                modifier = Modifier.padding(bottom = (4 * scaler.scaleFactor).dp)
-                            )
-                            
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy((8 * scaler.scaleFactor).dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height((48 * scaler.scaleFactor).dp)
-                            ) {
-                                itemsIndexed(transparentColors) { index, colorValue ->
-                                    val isSelected = index == selectedColorIndex
-                                    Box(
-                                        modifier = Modifier
-                                            .size((36 * scaler.scaleFactor).dp)
-                                            .clip(CircleShape)
-                                            .background(Color(colorValue))
-                                            .border(
-                                                width = if (isSelected) 3.dp else 1.dp,
-                                                color = if (isSelected) theme.highlightColor else Color.White,
-                                                shape = CircleShape
-                                            )
-                                            .clickable {
-                                                selectedColorIndex = index
-                                            }
-                                    )
-                                }
-                            }
-                            
-                            Spacer(modifier = Modifier.height((8 * scaler.scaleFactor).dp))
-                            
-                            if (selectedColorIndex in transparentColors.indices) {
-                                val activeTolerance = transparentColorTolerances[selectedColorIndex]
-                                val activeColor = transparentColors[selectedColorIndex]
-                                
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy((8 * scaler.scaleFactor).dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size((24 * scaler.scaleFactor).dp)
-                                            .clip(CircleShape)
-                                            .background(Color(activeColor))
-                                            .border(1.dp, Color.White, CircleShape)
-                                    )
-                                    
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = "Tolerancia: ${activeTolerance.toInt()}",
-                                            fontSize = (13 * scaler.scaleFactor).sp,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = theme.iconColor
-                                        )
-                                        Slider(
-                                            value = activeTolerance,
-                                            onValueChange = { newTol ->
-                                                val updated = transparentColorTolerances.toMutableList()
-                                                updated[selectedColorIndex] = newTol
-                                                transparentColorTolerances = updated
-                                                if (transparentColors.size == 1) {
-                                                    overallTolerance = newTol
-                                                }
-                                            },
-                                            valueRange = 0f..100f,
-                                            colors = SliderDefaults.colors(
-                                                thumbColor = theme.highlightColor,
-                                                activeTrackColor = theme.highlightColor
-                                            )
-                                        )
-                                    }
-                                    
-                                    IconButton(
-                                        onClick = {
-                                            val updatedColors = transparentColors.toMutableList()
-                                            val updatedTols = transparentColorTolerances.toMutableList()
-                                            updatedColors.removeAt(selectedColorIndex)
-                                            updatedTols.removeAt(selectedColorIndex)
-                                            transparentColors = updatedColors
-                                            transparentColorTolerances = updatedTols
-                                            selectedColorIndex = if (updatedColors.isNotEmpty()) updatedColors.size - 1 else -1
-                                        },
-                                        modifier = Modifier.size(scaler.baseButtonSize)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.Delete,
-                                            contentDescription = "Eliminar color",
-                                            tint = Color.Red.copy(alpha = 0.8f),
-                                            modifier = Modifier.size(scaler.baseIconSize)
-                                        )
-                                    }
-                                }
-                            }
-                        } else {
-                            Text(
-                                text = "Toca la imagen para seleccionar un color transparente",
-                                fontSize = (13 * scaler.scaleFactor).sp,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = theme.iconColor.copy(alpha = 0.6f),
-                                modifier = Modifier.padding(vertical = (12 * scaler.scaleFactor).dp)
-                            )
-                        }
-                    }
-                } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Start
-                    ) {
-                        if (cropRect != null || cropPath != null) {
-                            Button(
-                                onClick = {
-                                    cropRect = null
-                                    cropPath = null
-                                },
-                                modifier = Modifier.height(scaler.baseButtonSize),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color.Gray.copy(alpha = 0.2f),
-                                    contentColor = theme.iconColor
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    if (currentMode == EditMode.CHROMA_KEY) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            if (transparentColors.isNotEmpty()) {
+                                Text(
+                                    text = "Colores seleccionados (toca para editar tolerancia):",
+                                    fontSize = (13 * scaler.scaleFactor).sp,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = theme.iconColor,
+                                    modifier = Modifier.padding(bottom = (4 * scaler.scaleFactor).dp)
                                 )
-                            ) {
-                                Text("Limpiar Recorte", fontSize = (13 * scaler.scaleFactor).sp)
+                                
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy((8 * scaler.scaleFactor).dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height((48 * scaler.scaleFactor).dp)
+                                ) {
+                                    itemsIndexed(transparentColors) { index, colorValue ->
+                                        val isSelected = index == selectedColorIndex
+                                        Box(
+                                            modifier = Modifier
+                                                .size((36 * scaler.scaleFactor).dp)
+                                                .clip(CircleShape)
+                                                .background(Color(colorValue))
+                                                .border(
+                                                    width = if (isSelected) 3.dp else 1.dp,
+                                                    color = if (isSelected) theme.highlightColor else Color.White,
+                                                    shape = CircleShape
+                                                )
+                                                .clickable {
+                                                    selectedColorIndex = index
+                                                }
+                                        )
+                                    }
+                                }
+                                
+                                Spacer(modifier = Modifier.height((8 * scaler.scaleFactor).dp))
+                                
+                                if (selectedColorIndex in transparentColors.indices) {
+                                    val activeTolerance = transparentColorTolerances[selectedColorIndex]
+                                    val activeColor = transparentColors[selectedColorIndex]
+                                    
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy((8 * scaler.scaleFactor).dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size((24 * scaler.scaleFactor).dp)
+                                                .clip(CircleShape)
+                                                .background(Color(activeColor))
+                                                .border(1.dp, Color.White, CircleShape)
+                                        )
+                                        
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "Tolerancia: ${activeTolerance.toInt()}",
+                                                fontSize = (13 * scaler.scaleFactor).sp,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = theme.iconColor
+                                            )
+                                            Slider(
+                                                value = activeTolerance,
+                                                onValueChange = { newTol ->
+                                                    val updated = transparentColorTolerances.toMutableList()
+                                                    updated[selectedColorIndex] = newTol
+                                                    transparentColorTolerances = updated
+                                                    if (transparentColors.size == 1) {
+                                                        overallTolerance = newTol
+                                                    }
+                                                },
+                                                valueRange = 0f..100f,
+                                                colors = SliderDefaults.colors(
+                                                    thumbColor = theme.highlightColor,
+                                                    activeTrackColor = theme.highlightColor
+                                                )
+                                            )
+                                        }
+                                        
+                                        IconButton(
+                                            onClick = {
+                                                val updatedColors = transparentColors.toMutableList()
+                                                val updatedTols = transparentColorTolerances.toMutableList()
+                                                updatedColors.removeAt(selectedColorIndex)
+                                                updatedTols.removeAt(selectedColorIndex)
+                                                transparentColors = updatedColors
+                                                transparentColorTolerances = updatedTols
+                                                selectedColorIndex = if (updatedColors.isNotEmpty()) updatedColors.size - 1 else -1
+                                            },
+                                            modifier = Modifier.size(scaler.baseButtonSize)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Delete,
+                                                contentDescription = "Eliminar color",
+                                                tint = Color.Red.copy(alpha = 0.8f),
+                                                modifier = Modifier.size(scaler.baseIconSize)
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                Text(
+                                    text = "Toca la imagen para seleccionar un color transparente",
+                                    fontSize = (13 * scaler.scaleFactor).sp,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = theme.iconColor.copy(alpha = 0.6f),
+                                    modifier = Modifier.padding(vertical = (12 * scaler.scaleFactor).dp)
+                                )
                             }
-                        } else {
-                            Text(
-                                text = if (currentMode == EditMode.CROP_RECT) 
-                                    "Arrastra sobre la imagen para definir el recorte rectangular" 
-                                    else "Dibuja un trazo cerrado sobre la imagen para definir el recorte libre",
-                                fontSize = (13 * scaler.scaleFactor).sp,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = theme.iconColor.copy(alpha = 0.6f),
-                                modifier = Modifier.padding(vertical = (12 * scaler.scaleFactor).dp)
-                            )
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Start
+                        ) {
+                            if (cropRect != null || cropPath != null) {
+                                Button(
+                                    onClick = {
+                                        cropRect = null
+                                        cropPath = null
+                                    },
+                                    modifier = Modifier.height(scaler.baseButtonSize),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color.Gray.copy(alpha = 0.2f),
+                                        contentColor = theme.iconColor
+                                    )
+                                ) {
+                                    Text("Limpiar Recorte", fontSize = (13 * scaler.scaleFactor).sp)
+                                }
+                            } else {
+                                Text(
+                                    text = if (currentMode == EditMode.CROP_RECT) 
+                                        "Arrastra sobre la imagen para definir el recorte rectangular" 
+                                        else "Dibuja un trazo cerrado sobre la imagen para definir el recorte libre",
+                                    fontSize = (13 * scaler.scaleFactor).sp,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = theme.iconColor.copy(alpha = 0.6f),
+                                    modifier = Modifier.padding(vertical = (12 * scaler.scaleFactor).dp)
+                                )
+                            }
                         }
                     }
                 }

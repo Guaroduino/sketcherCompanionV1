@@ -433,14 +433,16 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         onViewportsChanged = { viewports -> projectionViewports = viewports }
     )
 
-    val toolbarManager = com.sketcher.sketchercompanionv1.managers.ToolbarManager(
-        toolbarRepository = toolbarRepository,
-        prefs = prefs,
-        getDefaultStrokeColor = { strokeColor.value },
-        getDefaultFillColor = { fillColor.value },
-        activateTool = { payload, id -> activateTool(payload, id) },
-        getActionForTool = { id -> getActionForTool(id) }
-    )
+    val toolbarManager by lazy {
+        com.sketcher.sketchercompanionv1.managers.ToolbarManager(
+            toolbarRepository = toolbarRepository,
+            prefs = prefs,
+            getDefaultStrokeColor = { strokeColor.value },
+            getDefaultFillColor = { fillColor.value },
+            activateTool = { payload, id -> activateTool(payload, id) },
+            getActionForTool = { id -> getActionForTool(id) }
+        )
+    }
 
 
 
@@ -1840,7 +1842,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                             fillStyle = ct.preset.fillStyle?.toFillStyleJson(),
                             strokeStyle = ct.preset.strokeStyle?.toFillStyleJson(),
                             stabilization = ct.preset.stabilization
-                        )
+                        ),
+                        customIconJson = ct.customIconJson
                     )
                     val jsonStr = gson.toJson(jsonObj)
                     val type = object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type
@@ -1861,6 +1864,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         
         toolManager.loadCustomTools()
         selectTool(currentTool)
+        
+        fetchUiPresetsCloud()
+        
         toolbarManager.initLayout()
 
         // Periodic background autosave (runs every 2 minutes if there are changes and user is idle)
@@ -1872,6 +1878,59 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     (now - lastAutosaveTime >= AUTOSAVE_INTERVAL_MS) &&
                     (now - lastInteractionTime >= 3_000)) {
                     autoSaveProject(application)
+                }
+            }
+        }
+    }
+
+    // --- UI PRESETS CLOUD SYNC ---
+
+    fun resetDefaultUiPreset() {
+        toolbarManager.resetDefaultUiPreset()
+    }
+    fun saveUiPresetCloud(name: String) {
+        toolbarManager.saveUiPreset(name)
+        val json = toolbarManager.getUiPresetJson(name)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            cloudSyncRepository.syncUiPreset(name, json)
+        }
+    }
+
+    fun renameUiPresetCloud(oldName: String, newName: String) {
+        toolbarManager.renameUiPreset(oldName, newName)
+        val newJson = toolbarManager.getUiPresetJson(newName)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            cloudSyncRepository.syncUiPreset(oldName, null)
+            cloudSyncRepository.syncUiPreset(newName, newJson)
+        }
+    }
+
+    fun copyUiPresetCloud(oldName: String, newName: String) {
+        toolbarManager.copyUiPreset(oldName, newName)
+        val newJson = toolbarManager.getUiPresetJson(newName)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            cloudSyncRepository.syncUiPreset(newName, newJson)
+        }
+    }
+
+    fun deleteUiPresetCloud(name: String) {
+        toolbarManager.deleteUiPreset(name)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            cloudSyncRepository.syncUiPreset(name, null)
+        }
+    }
+
+    private fun fetchUiPresetsCloud() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val result = cloudSyncRepository.getAllUiPresets()
+            if (result.isSuccess) {
+                val presets = result.getOrNull() ?: emptyList()
+                presets.forEach { preset ->
+                    val name = preset["name"] as? String
+                    val data = preset["data"] as? String
+                    if (name != null && data != null && name != "Default") {
+                        toolbarManager.importUiPreset(name, data)
+                    }
                 }
             }
         }
@@ -3979,7 +4038,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         return Pair(bounds, 1f)
 
     }
-    fun renderExportBitmap(
+
+    fun renderExportBitmap(
         config: ExportPngConfig,
         customLayers: List<Layer>? = null,
         customBgColor: Int? = null,
@@ -4508,6 +4568,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     var activeTextEditState by mutableStateOf<com.sketcher.sketchercompanionv1.dto.TextEditState?>(null)
         private set
 
+    var activeTextElementForEdit by mutableStateOf<TextElement?>(null)
+        private set
+
+    var activeEditTextRef by mutableStateOf<android.widget.EditText?>(null)
+
     val selectedTextElement: TextElement?
         get() = selectionManager.selectedElements.firstOrNull() as? TextElement
 
@@ -4515,6 +4580,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         get() = selectionManager.selectedElements.size == 1 && selectedTextElement != null
 
     fun startEditingText(element: TextElement) {
+        selectionManager.clearSelection()
+        selectionManager.selectedElements.add(element)
+        activeTextElementForEdit = element
+        
         activeTextEditState = com.sketcher.sketchercompanionv1.dto.TextEditState(
             isNewText = false,
             elementId = element.id,
@@ -4528,22 +4597,52 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun startCreatingText(x: Float, y: Float) {
-        activeTextEditState = com.sketcher.sketchercompanionv1.dto.TextEditState(
-            isNewText = true,
-            elementId = java.util.UUID.randomUUID().toString(),
+        val matrix = android.graphics.Matrix().apply { postTranslate(x, y) }
+        val values = FloatArray(9).apply { matrix.getValues(this) }
+        val newElement = TextElement(
+            id = java.util.UUID.randomUUID().toString(),
             textHtml = "",
+            width = 300f,
+            matrixValues = values,
             defaultTextColor = strokeColor.value,
             defaultTextSize = 16f,
             fontFamilyName = "sans-serif",
             alignment = "LEFT",
-            styleTemplateName = "BODY",
+            styleTemplateName = "BODY"
+        )
+        
+        performSnapshotAction("Crear Texto") {
+            activeContainer.add(newElement)
+        }
+        selectionManager.clearSelection()
+        selectionManager.selectedElements.add(newElement)
+        activeTextElementForEdit = newElement
+
+        activeTextEditState = com.sketcher.sketchercompanionv1.dto.TextEditState(
+            isNewText = true,
+            elementId = newElement.id,
+            textHtml = "",
+            defaultTextColor = newElement.defaultTextColor,
+            defaultTextSize = newElement.defaultTextSize,
+            fontFamilyName = newElement.fontFamilyName,
+            alignment = newElement.alignment,
+            styleTemplateName = newElement.styleTemplateName,
             initialX = x,
             initialY = y
         )
     }
 
     fun dismissTextEdits() {
+        val element = activeTextElementForEdit
+        if (element != null && activeTextEditState?.isNewText == true && element.textHtml.isBlank()) {
+            // Remove empty new text
+            performSnapshotAction("Cancelar Texto") {
+                activeContainer.remove(element)
+            }
+            selectionManager.clearSelection()
+        }
         activeTextEditState = null
+        activeTextElementForEdit = null
     }
 
     fun applyTextEdits(
@@ -4555,29 +4654,16 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         template: String?
     ) {
         val state = activeTextEditState ?: return
+        val element = activeTextElementForEdit ?: return
+        
         activeTextEditState = null
+        activeTextElementForEdit = null
 
-        performSnapshotAction(if (state.isNewText) "Crear Texto" else "Editar Texto") {
-            if (state.isNewText) {
-                val matrix = android.graphics.Matrix().apply { postTranslate(state.initialX, state.initialY) }
-                val values = FloatArray(9).apply { matrix.getValues(this) }
-                val newText = TextElement(
-                    id = state.elementId,
-                    textHtml = html,
-                    width = 300f,
-                    matrixValues = values,
-                    defaultTextColor = color,
-                    defaultTextSize = size,
-                    fontFamilyName = font,
-                    alignment = alignment,
-                    styleTemplateName = template
-                )
-                activeContainer.add(newText)
-            } else {
-                val index = activeContainer.indexOfFirst { it is TextElement && it.id == state.elementId }
-                if (index != -1) {
-                    val orig = activeContainer[index] as TextElement
-                    val updated = orig.copy(
+        performSnapshotAction("Editar Texto") {
+            val index = activeContainer.indexOfFirst { it is TextElement && it.id == state.elementId }
+            if (index != -1) {
+                val orig = activeContainer[index] as TextElement
+                val updated = orig.copy(
                         textHtml = html,
                         defaultTextColor = color,
                         defaultTextSize = size,
@@ -4588,7 +4674,6 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     activeContainer[index] = updated
                 }
             }
-        }
     }
 
     fun updateSelectedTextProperty(actionName: String, updateBlock: (TextElement) -> TextElement) {
@@ -6897,18 +6982,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             if (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null) {
                 launchIO {
                     try {
-                        val libraryItems = _globalLibraryItems.value
-                        val libraryJson = com.google.gson.Gson().toJson(com.sketcher.sketchercompanionv1.dto.LibraryStateJson(
-                            libraryItems.map { item ->
-                                when (item) {
-                                    is com.sketcher.sketchercompanionv1.LibraryFolder -> com.sketcher.sketchercompanionv1.dto.LibraryItemJson("FOLDER", item.id, item.name, item.parentId)
-                                    is com.sketcher.sketchercompanionv1.LibraryComponent -> com.sketcher.sketchercompanionv1.dto.LibraryItemJson("COMPONENT", item.id, item.name, item.parentId, item.definition.toComponentDefinitionJson(), item.thumbnailFileName)
-                                    else -> com.sketcher.sketchercompanionv1.dto.LibraryItemJson("UNKNOWN", item.id, item.name, item.parentId)
-                                }
-                            }
-                        ))
                         val localLibraryFile = getLibraryFile(context)
-                        localLibraryFile.writeText(libraryJson)
+                        val libraryJson = localLibraryFile.readText()
                         val timestamp = localLibraryFile.lastModified()
                         val assetsDir = getLibraryAssetsDir(context)
                         val backupRes = cloudSyncRepository.backupLibrary(libraryJson, timestamp, assetsDir)
@@ -6989,18 +7064,26 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun deleteLibraryItem(context: Context, id: String) {
+        deleteLibraryItems(context, setOf(id))
+    }
+
+    fun deleteLibraryItems(context: Context, ids: Set<String>) {
         fun getChildrenIds(parentId: String): List<String> {
             val children = _globalLibraryItems.value.filter { it.parentId == parentId }
             return children.map { it.id } + children.flatMap { getChildrenIds(it.id) }
         }
-        val toDelete = setOf(id) + getChildrenIds(id)
+        val toDelete = ids + ids.flatMap { getChildrenIds(it) }.toSet()
         _globalLibraryItems.value = _globalLibraryItems.value.filterNot { it.id in toDelete }
         saveGlobalLibrary(context)
     }
 
     fun moveLibraryItem(context: Context, id: String, newParentId: String?) {
+        moveLibraryItems(context, setOf(id), newParentId)
+    }
+
+    fun moveLibraryItems(context: Context, ids: Set<String>, newParentId: String?) {
         _globalLibraryItems.value = _globalLibraryItems.value.map {
-            if (it.id == id) {
+            if (it.id in ids) {
                 when (it) {
                     is LibraryFolder -> it.copy(parentId = newParentId)
                     is LibraryComponent -> it.copy(parentId = newParentId)
@@ -7504,8 +7587,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         scaleRatio: Float = 1.0f,
         canvasSizeConfig: com.sketcher.sketchercompanionv1.dto.CanvasSizeConfig? = null,
         backgroundStyle: com.sketcher.sketchercompanionv1.dto.FillStyle? = null,
-        uiPresetName: String? = null,
-        toolPresetName: String? = null
+        uiPresetName: String? = null
     ) {
         val dir = currentDirectory ?: return
         val pid = UUID.randomUUID().toString()
@@ -7546,12 +7628,6 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 toolbarManager.onProjectUiPresetLoaded(uiPresetName)
             } else {
                 toolbarManager.onProjectUiPresetCleared()
-            }
-
-            if (toolPresetName != null) {
-                toolManager.loadToolPresetGroup(toolPresetName)
-            } else {
-                toolManager.loadToolPresetGroup("Default")
             }
         }
         
@@ -7819,6 +7895,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     fun exitEditorToDashboard(context: Context) {
         hasUnsavedChangesSinceLastAutosave = true
         saveCurrentProjectLocal(context)
+        clearProjectState()
         showDashboard = true
         refreshLocalItems()
         autoSyncCloud(context)
@@ -7826,8 +7903,21 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     fun exitEditorWithoutSaving(context: Context) {
         hasUnsavedChangesSinceLastAutosave = false
+        clearProjectState()
         showDashboard = true
         refreshLocalItems()
+    }
+
+    private fun clearProjectState() {
+        pages.clear()
+        undoStack.clear()
+        redoStack.clear()
+        componentLibrary.clear()
+        projectId = ""
+        currentFileUri = null
+        hasUnsavedChanges = false
+        hasUnsavedChangesSinceLastAutosave = false
+        updateUndoRedoSupport()
     }
 
     // --- CLOUD SYNC LOGIC ---
@@ -7860,19 +7950,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                 // 2. Recopilar Librería
                 cloudSyncMessage = "Respaldando librería..."
-                val libraryItems = _globalLibraryItems.value
-                val libraryJson = com.google.gson.Gson().toJson(com.sketcher.sketchercompanionv1.dto.LibraryStateJson(
-                    libraryItems.map { item ->
-                        when (item) {
-                            is com.sketcher.sketchercompanionv1.LibraryFolder -> com.sketcher.sketchercompanionv1.dto.LibraryItemJson("FOLDER", item.id, item.name, item.parentId)
-                            is com.sketcher.sketchercompanionv1.LibraryComponent -> com.sketcher.sketchercompanionv1.dto.LibraryItemJson("COMPONENT", item.id, item.name, item.parentId, item.definition.toComponentDefinitionJson(), item.thumbnailFileName)
-                            else -> com.sketcher.sketchercompanionv1.dto.LibraryItemJson("UNKNOWN", item.id, item.name, item.parentId)
-                        }
-                    }
-                ))
-                // Write to local file first to establish a local timestamp
+                LibraryManager.saveLibrary(context, _globalLibraryItems.value)
                 val localLibraryFile = getLibraryFile(context)
-                localLibraryFile.writeText(libraryJson)
+                val libraryJson = localLibraryFile.readText()
                 val timestamp = localLibraryFile.lastModified()
                 val assetsDir = getLibraryAssetsDir(context)
                 val libResult = cloudSyncRepository.backupLibrary(libraryJson, timestamp, assetsDir)
@@ -7991,6 +8071,20 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                                 toolManager.onCustomToolAddedOrUpdated = null
                                 toolManager.onCustomToolRemoved = null
                                 toolManager.saveCustomTools(mapped)
+                                
+                                val currentTheme = _themeConfig.value
+                                val newCustomIcons = currentTheme.customIcons.toMutableMap()
+                                var iconsChanged = false
+                                mapped.forEach { ct ->
+                                    if (ct.customIconJson != null) {
+                                        newCustomIcons[ct.id] = ct.customIconJson
+                                        iconsChanged = true
+                                    }
+                                }
+                                if (iconsChanged) {
+                                    updateTheme(currentTheme.copy(customIcons = newCustomIcons))
+                                }
+
                                 
                                 // Re-bind callbacks
                                 toolManager.onCustomToolAddedOrUpdated = { ct ->
@@ -8160,6 +8254,20 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                                 toolManager.onCustomToolAddedOrUpdated = null
                                 toolManager.onCustomToolRemoved = null
                                 toolManager.saveCustomTools(mapped)
+                                
+                                val currentTheme = _themeConfig.value
+                                val newCustomIcons = currentTheme.customIcons.toMutableMap()
+                                var iconsChanged = false
+                                mapped.forEach { ct ->
+                                    if (ct.customIconJson != null) {
+                                        newCustomIcons[ct.id] = ct.customIconJson
+                                        iconsChanged = true
+                                    }
+                                }
+                                if (iconsChanged) {
+                                    updateTheme(currentTheme.copy(customIcons = newCustomIcons))
+                                }
+
                                 
                                 toolManager.onCustomToolAddedOrUpdated = { ct ->
                                     viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {

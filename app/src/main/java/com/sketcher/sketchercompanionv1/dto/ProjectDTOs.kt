@@ -348,7 +348,8 @@ data class CustomTool(
     val iconName: String,
     val iconResName: String?,
     val baseToolType: ToolType,
-    val preset: BrushPreset
+    val preset: BrushPreset,
+    val customIconJson: String? = null
 )
 
 data class CustomToolJson(
@@ -357,7 +358,8 @@ data class CustomToolJson(
     val iconName: String,
     val iconResName: String?,
     val baseToolType: String,
-    val preset: BrushPresetJson
+    val preset: BrushPresetJson,
+    val customIconJson: String? = null
 )
 
 

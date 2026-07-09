@@ -46,7 +46,6 @@ fun CreateProjectDialog(
     initialName: String,
     theme: UiThemeConfig,
     uiPresets: List<String>,
-    toolPresets: List<String>,
     onDismiss: () -> Unit,
     onConfirm: (
         name: String,
@@ -54,8 +53,7 @@ fun CreateProjectDialog(
         scaleRatio: Float,
         canvasSizeConfig: com.sketcher.sketchercompanionv1.dto.CanvasSizeConfig?,
         backgroundStyle: com.sketcher.sketchercompanionv1.dto.FillStyle?,
-        uiPresetName: String?,
-        toolPresetName: String?
+        uiPresetName: String?
     ) -> Unit
 ) {
     val context = LocalContext.current
@@ -73,10 +71,8 @@ fun CreateProjectDialog(
 
     var selectedUiPreset by remember { mutableStateOf("Default") }
     var expandedUiPreset by remember { mutableStateOf(false) }
-
-    var selectedToolPreset by remember { mutableStateOf("Default") }
-    var expandedToolPreset by remember { mutableStateOf(false) }
     
+
     var selectedScale by remember { mutableStateOf(1f) }
     var expandedScale by remember { mutableStateOf(false) }
 
@@ -259,42 +255,6 @@ fun CreateProjectDialog(
                     }
                 }
 
-                // Presets de Herramientas Dropdown (only visible when no template is selected)
-                if (selectedTemplate == null) {
-                    Text(text = "Presets de Herramientas", fontSize = 14.sp, color = theme.iconColor.copy(alpha = 0.7f))
-                    ExposedDropdownMenuBox(
-                        expanded = expandedToolPreset,
-                        onExpandedChange = { expandedToolPreset = !expandedToolPreset },
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = selectedToolPreset,
-                            onValueChange = {},
-                            readOnly = true,
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedToolPreset) },
-                            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(
-                                focusedTextColor = theme.iconColor,
-                                unfocusedTextColor = theme.iconColor,
-                                focusedBorderColor = theme.highlightColor
-                            ),
-                            modifier = Modifier.menuAnchor().fillMaxWidth()
-                        )
-                        ExposedDropdownMenu(
-                            expanded = expandedToolPreset,
-                            onDismissRequest = { expandedToolPreset = false },
-                            modifier = Modifier.background(theme.barBackgroundColor)
-                        ) {
-                            val allToolPresets = if (toolPresets.contains("Default")) toolPresets else listOf("Default") + toolPresets
-                            allToolPresets.forEach { option ->
-                                DropdownMenuItem(
-                                    text = { Text(option, color = theme.iconColor) },
-                                    onClick = { selectedToolPreset = option; expandedToolPreset = false }
-                                )
-                            }
-                        }
-                    }
-                }
-
                 // Global Scale Dropdown
                 Text(text = "Escala Global Inicial", fontSize = 14.sp, color = theme.iconColor.copy(alpha = 0.7f))
                 ExposedDropdownMenuBox(
@@ -369,8 +329,7 @@ fun CreateProjectDialog(
                                     selectedScale,
                                     sizeConfig,
                                     bgStyle,
-                                    if (selectedTemplate != null) null else selectedUiPreset,
-                                    if (selectedTemplate != null) null else selectedToolPreset
+                                    if (selectedTemplate != null) null else selectedUiPreset
                                 )
                             }
                         },

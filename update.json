@@ -1,7 +1,7 @@
 {
-  "versionCode": 71,
-  "versionName": "1.0.70",
+  "versionCode": 85,
+  "versionName": "1.0.84",
   "apkUrl": "https://firebasestorage.googleapis.com/v0/b/sketchercompanionapp.firebasestorage.app/o/updates%2Fapp-debug.apk?alt=media",
-  "releaseNotes": "Actualización de Sketcher Companion V1",
+  "releaseNotes": "Feature: Seleccion multiple en la libreria. Manten presionado un elemento para entrar al modo seleccion.",
   "forceUpdate": false
 }

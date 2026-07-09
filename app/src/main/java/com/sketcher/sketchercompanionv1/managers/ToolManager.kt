@@ -92,12 +92,6 @@ class ToolManager(private val context: Context) {
         }
     }
 
-    private val _toolPresetGroupNames = MutableStateFlow<List<String>>(listOf("Default"))
-    val toolPresetGroupNames: StateFlow<List<String>> = _toolPresetGroupNames.asStateFlow()
-
-    private val _activeToolPresetGroupName = MutableStateFlow<String>("Default")
-    val activeToolPresetGroupName: StateFlow<String> = _activeToolPresetGroupName.asStateFlow()
-
     var onCustomToolAddedOrUpdated: ((CustomTool) -> Unit)? = null
     var onCustomToolRemoved: ((String) -> Unit)? = null
 
@@ -262,10 +256,6 @@ class ToolManager(private val context: Context) {
         _brushPresets.value = loadBrushPresetsForTool(currentTool)
         _fillPresets.value = loadFillPresets()
         selectTool(currentTool)
-
-        val names = getToolPresetGroupNames()
-        _toolPresetGroupNames.value = if (names.contains("Default")) names else listOf("Default") + names
-        _activeToolPresetGroupName.value = prefs.getString("active_tool_preset_group_name", "Default") ?: "Default"
     }
 
     // --- LOGIC METHODS ---
@@ -385,6 +375,10 @@ class ToolManager(private val context: Context) {
         val config = toolConfigs[currentTool]!!
         toolConfigs[currentTool] = config.copy(size = size)
         prefs.edit().putFloat("tool_size_${currentTool.name}", size).apply()
+        
+        activeCustomToolId?.let { customId ->
+            saveActiveCustomToolChanges(customId)
+        }
     }
 
     fun setToolOpacity(opacity: Float) {
@@ -393,6 +387,10 @@ class ToolManager(private val context: Context) {
         val config = toolConfigs[currentTool]!!
         toolConfigs[currentTool] = config.copy(opacity = opacity)
         prefs.edit().putFloat("tool_alpha_${currentTool.name}", opacity).apply()
+        
+        activeCustomToolId?.let { customId ->
+            saveActiveCustomToolChanges(customId)
+        }
     }
 
     fun updateBrushSize(newSize: Float) = setToolSize(newSize)
@@ -716,29 +714,42 @@ class ToolManager(private val context: Context) {
         return (rgb and 0x00FFFFFF) or (alpha shl 24)
     }
 
+    private fun getUpdatedStyleWithColor(currentStyle: FillStyle, color: Int): FillStyle {
+        return when (currentStyle) {
+            is FillStyle.ImageTexture -> currentStyle.copy(
+                tintColor = color,
+                tintMix = if (currentStyle.tintMix == 0f) 1f else currentStyle.tintMix
+            )
+            is FillStyle.MathTexture -> currentStyle.copy(primaryColor = color)
+            is FillStyle.SvgPattern -> currentStyle
+            is FillStyle.Solid -> currentStyle.copy(color = color)
+        }
+    }
+
     fun setStrokeColor(color: Int) {
         _strokeColor.value = color
-        _strokeStyle.value = FillStyle.Solid(color)
+        val newStyle = getUpdatedStyleWithColor(_strokeStyle.value, color)
+        _strokeStyle.value = newStyle
         _isStrokeActive.value = true
         val isPaintOrWatercolor = (currentTool == ToolType.PAINT || currentTool == ToolType.WATERCOLOR)
         if (isPaintOrWatercolor) {
             _fillColor.value = color
-            _fillStyle.value = FillStyle.Solid(color)
+            _fillStyle.value = getUpdatedStyleWithColor(_fillStyle.value, color)
         }
         
         val idx = _selectedPresetIndex.value ?: 0
-        setExplicitStrokeColorState(currentTool, idx, true, color, FillStyle.Solid(color))
+        setExplicitStrokeColorState(currentTool, idx, true, color, newStyle)
         if (isPaintOrWatercolor) {
-            setExplicitFillColorState(currentTool, idx, true, color, FillStyle.Solid(color))
+            setExplicitFillColorState(currentTool, idx, true, color, _fillStyle.value)
         }
 
         val config = toolConfigs[currentTool]!!
         val updated = config.copy(
             strokeColor = color,
-            strokeStyle = FillStyle.Solid(color).toFillStyleJson(),
+            strokeStyle = newStyle.toFillStyleJson(),
             isStrokeActive = true,
             fillColor = if (isPaintOrWatercolor) color else config.fillColor,
-            fillStyle = if (isPaintOrWatercolor) FillStyle.Solid(color).toFillStyleJson() else config.fillStyle,
+            fillStyle = if (isPaintOrWatercolor) _fillStyle.value.toFillStyleJson() else config.fillStyle,
             isFillActive = if (isPaintOrWatercolor) true else config.isFillActive
         )
         toolConfigs[currentTool] = updated
@@ -784,11 +795,12 @@ class ToolManager(private val context: Context) {
 
     fun setFillColor(color: Int) {
         _fillColor.value = color
-        _fillStyle.value = FillStyle.Solid(color)
+        val newStyle = getUpdatedStyleWithColor(_fillStyle.value, color)
+        _fillStyle.value = newStyle
         _isFillActive.value = true
         
         val idx = _selectedPresetIndex.value ?: 0
-        setExplicitFillColorState(currentTool, idx, true, color, FillStyle.Solid(color))
+        setExplicitFillColorState(currentTool, idx, true, color, newStyle)
 
         var finalStrokeColor = _strokeColor.value
         var finalStrokeStyle = _strokeStyle.value
@@ -797,7 +809,7 @@ class ToolManager(private val context: Context) {
         val settings = currentFreehandSettings as? com.sketcher.sketchercompanionv1.tools.WatercolorSettings
         if (currentTool == ToolType.WATERCOLOR && settings?.linkStrokeToFill == true) {
             finalStrokeColor = adjustColorBrightness(color, settings.strokeBrightnessOffset)
-            finalStrokeStyle = FillStyle.Solid(finalStrokeColor)
+            finalStrokeStyle = getUpdatedStyleWithColor(_strokeStyle.value, finalStrokeColor)
             finalStrokeActive = true
             _strokeColor.value = finalStrokeColor
             _strokeStyle.value = finalStrokeStyle
@@ -808,7 +820,7 @@ class ToolManager(private val context: Context) {
         val config = toolConfigs[currentTool]!!
         val updated = config.copy(
             fillColor = color,
-            fillStyle = FillStyle.Solid(color).toFillStyleJson(),
+            fillStyle = newStyle.toFillStyleJson(),
             isFillActive = true,
             strokeColor = if (currentTool == ToolType.WATERCOLOR && settings?.linkStrokeToFill == true) finalStrokeColor else config.strokeColor,
             strokeStyle = if (currentTool == ToolType.WATERCOLOR && settings?.linkStrokeToFill == true) finalStrokeStyle.toFillStyleJson() else config.strokeStyle,
@@ -951,12 +963,23 @@ class ToolManager(private val context: Context) {
                 val ss = _strokeStyle.value
                 val fs = _fillStyle.value
                 val stab = smoothing.value
+                val currentFreehandSettings = activeTools[currentTool]?.settings ?: com.sketcher.sketchercompanionv1.tools.PencilSettings()
+                
+                // Ensure the settings object has the correct size and opacity before saving
+                val updatedSettings = when (currentFreehandSettings) {
+                    is com.sketcher.sketchercompanionv1.tools.PencilSettings -> currentFreehandSettings.copy(size = _brushSize.value, opacity = _brushOpacity.value)
+                    is com.sketcher.sketchercompanionv1.tools.PenSettings -> currentFreehandSettings.copy(size = _brushSize.value, opacity = _brushOpacity.value)
+                    is com.sketcher.sketchercompanionv1.tools.PlumaSettings -> currentFreehandSettings.copy(size = _brushSize.value, opacity = _brushOpacity.value)
+                    is com.sketcher.sketchercompanionv1.tools.PaintSettings -> currentFreehandSettings.copy(size = _brushSize.value, opacity = _brushOpacity.value)
+                    is com.sketcher.sketchercompanionv1.tools.WatercolorSettings -> currentFreehandSettings.copy(size = _brushSize.value, opacity = _brushOpacity.value)
+                    else -> currentFreehandSettings
+                }
                 
                 ct.copy(
                     preset = BrushPreset(
                         size = _brushSize.value,
                         opacity = _brushOpacity.value,
-                        settings = currentFreehandSettings,
+                        settings = updatedSettings,
                         strokeColor = sc,
                         fillColor = fc,
                         isStrokeActive = sa,
@@ -1279,6 +1302,14 @@ class ToolManager(private val context: Context) {
         when (style) {
             is FillStyle.Solid -> {
                 obj.put("color", style.color)
+                style.imagePath?.let { obj.put("imagePath", it) }
+                obj.put("scaleX", style.scaleX.toDouble())
+                obj.put("scaleY", style.scaleY.toDouble())
+                obj.put("rotation", style.rotation.toDouble())
+                obj.put("offsetX", style.offsetX.toDouble())
+                obj.put("offsetY", style.offsetY.toDouble())
+                obj.put("tintMix", style.tintMix.toDouble())
+                obj.put("blendModeName", style.blendModeName)
             }
             is FillStyle.SvgPattern -> {
                 obj.put("svgContent", style.svgContent)
@@ -1319,7 +1350,17 @@ class ToolManager(private val context: Context) {
             val type = FillType.valueOf(typeStr)
             return when (type) {
                 FillType.SOLID -> {
-                    FillStyle.Solid(color = obj.getInt("color"))
+                    FillStyle.Solid(
+                        color = obj.getInt("color"),
+                        imagePath = if (obj.has("imagePath")) obj.getString("imagePath") else null,
+                        scaleX = obj.optDouble("scaleX", 1.0).toFloat(),
+                        scaleY = obj.optDouble("scaleY", 1.0).toFloat(),
+                        rotation = obj.optDouble("rotation", 0.0).toFloat(),
+                        offsetX = obj.optDouble("offsetX", 0.0).toFloat(),
+                        offsetY = obj.optDouble("offsetY", 0.0).toFloat(),
+                        tintMix = obj.optDouble("tintMix", 1.0).toFloat(),
+                        blendModeName = obj.optString("blendModeName", "SRC_ATOP")
+                    )
                 }
                 FillType.SVG_PATTERN -> {
                     FillStyle.SvgPattern(
@@ -1362,97 +1403,7 @@ class ToolManager(private val context: Context) {
         }
     }
 
-    // --- TOOL PRESETS GROUPS (Presets de Herramientas) ---
-
-    fun getToolPresetGroupNames(): List<String> {
-        val json = prefs.getString("tool_preset_group_names", null) ?: return emptyList()
-        return try {
-            gson.fromJson(json, object : com.google.gson.reflect.TypeToken<List<String>>() {}.type)
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
-
-    fun saveToolPresetGroup(name: String) {
-        val list = getToolPresetGroupNames().toMutableList()
-        if (!list.contains(name)) {
-            list.add(name)
-            val jsonList = gson.toJson(list)
-            prefs.edit().putString("tool_preset_group_names", jsonList).apply()
-        }
-        _toolPresetGroupNames.value = if (list.contains("Default")) list else listOf("Default") + list
-
-        val data = JSONObject().apply {
-            put("pencil_presets_v2", prefs.getString("pencil_presets_v2", null))
-            put("pencil_cumulative_presets_v2", prefs.getString("pencil_cumulative_presets_v2", null))
-            put("pen_presets_v2", prefs.getString("pen_presets_v2", null))
-            put("paint_presets_v2", prefs.getString("paint_presets_v2", null))
-            put("pluma_presets_v2", prefs.getString("pluma_presets_v2", null))
-            put("watercolor_presets_v2", prefs.getString("watercolor_presets_v2", null))
-            put("custom_tools_v1", prefs.getString("custom_tools_v1", null))
-        }
-
-        prefs.edit().putString("tool_preset_group_data_$name", data.toString()).apply()
-        
-        _activeToolPresetGroupName.value = name
-        prefs.edit().putString("active_tool_preset_group_name", name).apply()
-    }
-
-    fun loadToolPresetGroup(name: String) {
-        if (name == "Default") {
-            prefs.edit().apply {
-                remove("pencil_presets_v2")
-                remove("pencil_cumulative_presets_v2")
-                remove("pen_presets_v2")
-                remove("paint_presets_v2")
-                remove("pluma_presets_v2")
-                remove("watercolor_presets_v2")
-                remove("custom_tools_v1")
-                apply()
-            }
-        } else {
-            val json = prefs.getString("tool_preset_group_data_$name", null) ?: return
-            try {
-                val obj = JSONObject(json)
-                prefs.edit().apply {
-                    listOf("pencil_presets_v2", "pencil_cumulative_presets_v2", "pen_presets_v2", "paint_presets_v2", "pluma_presets_v2", "watercolor_presets_v2", "custom_tools_v1").forEach { key ->
-                        if (obj.has(key) && !obj.isNull(key)) {
-                            putString(key, obj.getString(key))
-                        } else {
-                            remove(key)
-                        }
-                    }
-                    apply()
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-        
-        _activeToolPresetGroupName.value = name
-        prefs.edit().putString("active_tool_preset_group_name", name).apply()
-
-        // Reload configs and custom tools
-        loadCustomTools()
-        reloadConfigs()
-    }
-
-    fun deleteToolPresetGroup(name: String) {
-        val list = getToolPresetGroupNames().toMutableList()
-        if (list.contains(name)) {
-            list.remove(name)
-            val jsonList = gson.toJson(list)
-            prefs.edit().putString("tool_preset_group_names", jsonList).apply()
-        }
-        _toolPresetGroupNames.value = if (list.contains("Default")) list else listOf("Default") + list
-        prefs.edit().remove("tool_preset_group_data_$name").apply()
-        
-        if (_activeToolPresetGroupName.value == name) {
-            _activeToolPresetGroupName.value = "Default"
-            prefs.edit().putString("active_tool_preset_group_name", "Default").apply()
-            loadToolPresetGroup("Default")
-        }
-    }
+    // --- CUSTOM TOOLS LOGIC ---
 
     fun loadCustomTools() {
         val json = prefs.getString("custom_tools_v1", null)
@@ -1488,6 +1439,8 @@ class ToolManager(private val context: Context) {
                             strokeStyle = j.preset.strokeStyle?.toFillStyle(j.preset.strokeColor ?: 0),
                             stabilization = j.preset.stabilization
                         )
+                    ,
+                        customIconJson = j.customIconJson
                     )
                 }
                 
@@ -1505,6 +1458,12 @@ class ToolManager(private val context: Context) {
         } else {
             if (!hasInitialized) populateDefaultCustomTools()
         }
+    }
+
+    fun restoreDefaultBrushes() {
+        populateDefaultCustomTools()
+        // Trigger sync for all default brushes
+        _customTools.value.forEach { onCustomToolAddedOrUpdated?.invoke(it) }
     }
 
     private fun populateDefaultCustomTools() {
@@ -1596,7 +1555,9 @@ class ToolManager(private val context: Context) {
                     strokeStyle = tool.preset.strokeStyle?.toFillStyleJson(),
                     stabilization = tool.preset.stabilization
                 )
-            )
+            ,
+                    customIconJson = tool.customIconJson
+                )
         }
         val json = gson.toJson(jsonList)
         prefs.edit().putString("custom_tools_v1", json).apply()
@@ -1635,13 +1596,39 @@ class ToolManager(private val context: Context) {
         updateFreehandSettings(preset.settings)
         
         _selectedPresetIndex.value = null
+        
+        val customId = activeCustomToolId
+        val useExplicitStroke = if (customId != null) prefs.getBoolean("custom_stroke_explicit_$customId", false) else false
+        val useExplicitFill = if (customId != null) prefs.getBoolean("custom_fill_explicit_$customId", false) else false
 
-        val sc = preset.strokeColor ?: _strokeColor.value
-        val ss = preset.strokeStyle ?: FillStyle.Solid(sc)
+        val sc = if (useExplicitStroke) {
+            getSafeInt("custom_stroke_color_$customId", preset.strokeColor ?: _strokeColor.value)
+        } else {
+            preset.strokeColor ?: _strokeColor.value
+        }
+        
+        val ssStr = if (useExplicitStroke) prefs.getString("custom_stroke_style_v2_$customId", null) else null
+        val ss = if (ssStr != null) {
+            try { jsonToFillStyle(ssStr) ?: FillStyle.Solid(sc) } catch(e: Exception) { FillStyle.Solid(sc) }
+        } else {
+            preset.strokeStyle ?: FillStyle.Solid(sc)
+        }
+        
         val sa = preset.isStrokeActive ?: _isStrokeActive.value
 
-        val fc = preset.fillColor ?: _fillColor.value
-        val fs = preset.fillStyle ?: FillStyle.Solid(fc)
+        val fc = if (useExplicitFill) {
+            getSafeInt("custom_fill_color_$customId", preset.fillColor ?: _fillColor.value)
+        } else {
+            preset.fillColor ?: _fillColor.value
+        }
+        
+        val fsStr = if (useExplicitFill) prefs.getString("custom_fill_style_v2_$customId", null) else null
+        val fs = if (fsStr != null) {
+            try { jsonToFillStyle(fsStr) ?: FillStyle.Solid(fc) } catch(e: Exception) { FillStyle.Solid(fc) }
+        } else {
+            preset.fillStyle ?: FillStyle.Solid(fc)
+        }
+        
         val fa = preset.isFillActive ?: _isFillActive.value
 
         val defaultStab = if (currentTool == ToolType.FREEHAND || currentTool == ToolType.PENCIL_CUMULATIVE) 0.07f else 0f
@@ -1680,6 +1667,8 @@ class ToolManager(private val context: Context) {
             putFloat("tool_stabilization_${currentTool.name}", stab)
             apply()
         }
+        
+        updatePresetFlows()
     }
 
     fun getIsStrokeColorPreset(tool: ToolType, presetIndex: Int): Boolean {
@@ -1696,15 +1685,29 @@ class ToolManager(private val context: Context) {
     }
 
     fun setExplicitStrokeColorState(tool: ToolType, presetIndex: Int, explicit: Boolean, color: Int, style: FillStyle?) {
-        prefs.edit().apply {
-            putBoolean("preset_stroke_explicit_${tool.name}_$presetIndex", explicit)
-            putInt("preset_stroke_color_${tool.name}_$presetIndex", color)
-            if (style != null) {
-                putString("preset_stroke_style_v2_${tool.name}_$presetIndex", fillStyleToJson(style))
-            } else {
-                remove("preset_stroke_style_v2_${tool.name}_$presetIndex")
+        val customId = activeCustomToolId
+        if (customId != null) {
+            prefs.edit().apply {
+                putBoolean("custom_stroke_explicit_$customId", explicit)
+                putInt("custom_stroke_color_$customId", color)
+                if (style != null) {
+                    putString("custom_stroke_style_v2_$customId", fillStyleToJson(style))
+                } else {
+                    remove("custom_stroke_style_v2_$customId")
+                }
+                apply()
             }
-            apply()
+        } else {
+            prefs.edit().apply {
+                putBoolean("preset_stroke_explicit_${tool.name}_$presetIndex", explicit)
+                putInt("preset_stroke_color_${tool.name}_$presetIndex", color)
+                if (style != null) {
+                    putString("preset_stroke_style_v2_${tool.name}_$presetIndex", fillStyleToJson(style))
+                } else {
+                    remove("preset_stroke_style_v2_${tool.name}_$presetIndex")
+                }
+                apply()
+            }
         }
         updatePresetFlows()
     }
@@ -1723,15 +1726,29 @@ class ToolManager(private val context: Context) {
     }
 
     fun setExplicitFillColorState(tool: ToolType, presetIndex: Int, explicit: Boolean, color: Int, style: FillStyle?) {
-        prefs.edit().apply {
-            putBoolean("preset_fill_explicit_${tool.name}_$presetIndex", explicit)
-            putInt("preset_fill_color_${tool.name}_$presetIndex", color)
-            if (style != null) {
-                putString("preset_fill_style_v2_${tool.name}_$presetIndex", fillStyleToJson(style))
-            } else {
-                remove("preset_fill_style_v2_${tool.name}_$presetIndex")
+        val customId = activeCustomToolId
+        if (customId != null) {
+            prefs.edit().apply {
+                putBoolean("custom_fill_explicit_$customId", explicit)
+                putInt("custom_fill_color_$customId", color)
+                if (style != null) {
+                    putString("custom_fill_style_v2_$customId", fillStyleToJson(style))
+                } else {
+                    remove("custom_fill_style_v2_$customId")
+                }
+                apply()
             }
-            apply()
+        } else {
+            prefs.edit().apply {
+                putBoolean("preset_fill_explicit_${tool.name}_$presetIndex", explicit)
+                putInt("preset_fill_color_${tool.name}_$presetIndex", color)
+                if (style != null) {
+                    putString("preset_fill_style_v2_${tool.name}_$presetIndex", fillStyleToJson(style))
+                } else {
+                    remove("preset_fill_style_v2_${tool.name}_$presetIndex")
+                }
+                apply()
+            }
         }
         updatePresetFlows()
     }
@@ -1741,27 +1758,8 @@ class ToolManager(private val context: Context) {
         if (customId != null) {
             val ct = _customTools.value.find { it.id == customId }
             if (ct != null) {
-                val preset = ct.preset
-                
-                val presetSc = preset.strokeColor ?: AndroidColor.BLACK
-                val presetSs = preset.strokeStyle ?: FillStyle.Solid(presetSc)
-                val presetSa = preset.isStrokeActive ?: true
-                
-                val currentSc = _strokeColor.value
-                val currentSs = _strokeStyle.value
-                val currentSa = _isStrokeActive.value
-                
-                _isStrokeColorPreset.value = (currentSc == presetSc && currentSs == presetSs && currentSa == presetSa)
-                
-                val presetFc = preset.fillColor ?: AndroidColor.WHITE
-                val presetFs = preset.fillStyle ?: FillStyle.Solid(presetFc)
-                val presetFa = preset.isFillActive ?: true
-                
-                val currentFc = _fillColor.value
-                val currentFs = _fillStyle.value
-                val currentFa = _isFillActive.value
-                
-                _isFillColorPreset.value = (currentFc == presetFc && currentFs == presetFs && currentFa == presetFa)
+                _isStrokeColorPreset.value = !prefs.getBoolean("custom_stroke_explicit_$customId", false)
+                _isFillColorPreset.value = !prefs.getBoolean("custom_fill_explicit_$customId", false)
             } else {
                 _isStrokeColorPreset.value = true
                 _isFillColorPreset.value = true
@@ -1793,6 +1791,13 @@ class ToolManager(private val context: Context) {
                         remove("preset_stroke_style_v2_${currentTool.name}_$idx")
                         apply()
                     }
+                } else {
+                    prefs.edit().apply {
+                        putBoolean("custom_stroke_explicit_$customId", false)
+                        remove("custom_stroke_color_$customId")
+                        remove("custom_stroke_style_v2_$customId")
+                        apply()
+                    }
                 }
                 val sc = preset.strokeColor ?: AndroidColor.BLACK
                 val ss = preset.strokeStyle ?: FillStyle.Solid(sc)
@@ -1816,6 +1821,13 @@ class ToolManager(private val context: Context) {
                         putBoolean("preset_fill_explicit_${currentTool.name}_$idx", false)
                         remove("preset_fill_color_${currentTool.name}_$idx")
                         remove("preset_fill_style_v2_${currentTool.name}_$idx")
+                        apply()
+                    }
+                } else {
+                    prefs.edit().apply {
+                        putBoolean("custom_fill_explicit_$customId", false)
+                        remove("custom_fill_color_$customId")
+                        remove("custom_fill_style_v2_$customId")
                         apply()
                     }
                 }

@@ -26,6 +26,11 @@ data class TextElement(
         return m
     }
 
+    fun setMatrix(matrix: Matrix) {
+        matrix.getValues(matrixValues)
+    }
+
+
     override fun getBoundingBox(library: Map<String, ComponentDefinition>): RectF {
         val spanned = Html.fromHtml(textHtml, Html.FROM_HTML_MODE_LEGACY)
         val paint = TextPaint().apply {

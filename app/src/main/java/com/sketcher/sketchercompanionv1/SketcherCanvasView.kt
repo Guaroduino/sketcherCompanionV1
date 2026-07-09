@@ -256,13 +256,24 @@ class SketcherCanvasView(context: Context) : View(context) {
     // Viewport indicators for live canvas projection
 
     var projectionViewports: List<SketcherViewModel.ProjectionViewport> = emptyList()
-
         set(value) {
-
             field = value
-
             invalidate()
+        }
 
+    var hiddenElementId: String? = null
+        set(value) {
+            if (field != value) {
+                field = value
+                renderEngine.hiddenElementId = value
+                redrawAllCache()
+            }
+        }
+
+    var activeTextElementForEdit: TextElement? = null
+        set(value) {
+            field = value
+            invalidate()
         }
 
 
@@ -371,13 +382,17 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     // Grip Editing Drag States
 
-    private var activeDraggedStroke: VectorStroke? = null
-
-    private var activeDraggedPointIndex: Int = -1
-
-    private var originalStrokePoints: List<StrokePoint>? = null
-
     private var isDraggingGrip = false
+    var activeDraggedStroke: VectorStroke? = null
+    var activeDraggedPointIndex: Int = -1
+    var originalStrokePoints: List<StrokePoint>? = null
+
+    // Text grip dragging
+    var isDraggingTextWidthGrip: Boolean = false
+    var draggingTextGripSide: Int = 0 // 1 for right, -1 for left
+    var initialTextDragWidth: Float = 0f
+    var initialTouchX: Float = 0f
+    var initialTouchY: Float = 0f
 
     
 
@@ -996,6 +1011,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                 localRenderEngine.canvasBackgroundColor = renderEngine.canvasBackgroundColor
                 localRenderEngine.workspaceBackgroundColor = renderEngine.workspaceBackgroundColor
                 localRenderEngine.isDebugWireframe = renderEngine.isDebugWireframe
+                localRenderEngine.hiddenElementId = renderEngine.hiddenElementId
 
                 localRenderEngine.drawLayers(
                     canvas, 
@@ -1989,6 +2005,10 @@ class SketcherCanvasView(context: Context) : View(context) {
         canvas.restore()
 
 
+
+        activeTextElementForEdit?.let { textElement ->
+            renderEngine.drawTextWidthGrips(canvas, textElement, viewMatrix, resources.displayMetrics.density)
+        }
 
         // 2. Draw Live Content (Stroke & Fill)
 
@@ -3016,21 +3036,101 @@ class SketcherCanvasView(context: Context) : View(context) {
             ToolType.CHAMFER -> handleChamferInput(event)
 
             ToolType.TEXT -> {
-                if (event.actionMasked == MotionEvent.ACTION_UP) {
-                    tempTouchPoint[0] = event.x
-                    tempTouchPoint[1] = event.y
-                    inverseMatrix.mapPoints(tempTouchPoint)
-                    
-                    val touchX = tempTouchPoint[0]
-                    val touchY = tempTouchPoint[1]
-                    
-                    val clickedText = findTextElementAt(touchX, touchY)
-                    if (clickedText != null) {
-                        selectionManager?.clearSelection()
-                        selectionManager?.selectedElements?.add(clickedText)
-                        invalidate()
-                    } else {
-                        onCreateTextRequested?.invoke(touchX, touchY)
+                val density = resources.displayMetrics.density
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        isDraggingTextWidthGrip = false
+                        val activeText = activeTextElementForEdit
+                        if (activeText != null) {
+                            val screenMatrix = Matrix()
+                            screenMatrix.set(viewMatrix)
+                            screenMatrix.postConcat(activeText.getMatrix())
+                            
+                            val leftAnchor = FloatArray(2).apply { this[0] = 0f; this[1] = 0f }
+                            val rightAnchor = FloatArray(2).apply { this[0] = activeText.width; this[1] = 0f }
+                            screenMatrix.mapPoints(leftAnchor)
+                            screenMatrix.mapPoints(rightAnchor)
+                            
+                            val distLeft = kotlin.math.hypot(event.x - leftAnchor[0], event.y - leftAnchor[1])
+                            val distRight = kotlin.math.hypot(event.x - rightAnchor[0], event.y - rightAnchor[1])
+                            
+                            val targetDist = 28f * density
+                            if (distRight < targetDist && distRight <= distLeft) {
+                                isDraggingTextWidthGrip = true
+                                draggingTextGripSide = 1
+                                initialTextDragWidth = activeText.width
+                                initialTouchX = event.x
+                                initialTouchY = event.y
+                                parent.requestDisallowInterceptTouchEvent(true)
+                            } else if (distLeft < targetDist) {
+                                isDraggingTextWidthGrip = true
+                                draggingTextGripSide = -1
+                                initialTextDragWidth = activeText.width
+                                initialTouchX = event.x
+                                initialTouchY = event.y
+                                parent.requestDisallowInterceptTouchEvent(true)
+                            }
+                        }
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        if (isDraggingTextWidthGrip && activeTextElementForEdit != null) {
+                            val activeText = activeTextElementForEdit!!
+                            val inverse = Matrix()
+                            val screenMatrix = Matrix()
+                            screenMatrix.set(viewMatrix)
+                            screenMatrix.postConcat(activeText.getMatrix())
+                            screenMatrix.invert(inverse)
+                            
+                            val ptsStart = floatArrayOf(initialTouchX, initialTouchY)
+                            val ptsEnd = floatArrayOf(event.x, event.y)
+                            inverse.mapPoints(ptsStart)
+                            inverse.mapPoints(ptsEnd)
+                            
+                            val localDx = ptsEnd[0] - ptsStart[0]
+                            
+                            if (draggingTextGripSide == 1) {
+                                activeText.width = maxOf(20f, initialTextDragWidth + localDx)
+                            } else {
+                                val newWidth = maxOf(20f, initialTextDragWidth - localDx)
+                                val widthDiff = newWidth - initialTextDragWidth
+                                
+                                val m = activeText.getMatrix()
+                                m.preTranslate(-widthDiff, 0f)
+                                activeText.setMatrix(m)
+                                
+                                activeText.width = newWidth
+                                initialTextDragWidth = newWidth
+                                initialTouchX = event.x
+                                initialTouchY = event.y
+                            }
+                            // Important: force redraw
+                            invalidate()
+                            // Force redraw cache since text might be hidden or shown 
+                            // actually it's activeTextElementForEdit so it's not cached
+                        }
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        if (isDraggingTextWidthGrip) {
+                            isDraggingTextWidthGrip = false
+                            // Recompose overlay by notifying viewModel
+                            onUserInteraction?.invoke()
+                        } else {
+                            tempTouchPoint[0] = event.x
+                            tempTouchPoint[1] = event.y
+                            inverseMatrix.mapPoints(tempTouchPoint)
+                            
+                            val touchX = tempTouchPoint[0]
+                            val touchY = tempTouchPoint[1]
+                            
+                            val clickedText = findTextElementAt(touchX, touchY)
+                            if (clickedText != null) {
+                                selectionManager?.clearSelection()
+                                selectionManager?.selectedElements?.add(clickedText)
+                                invalidate()
+                            } else {
+                                onCreateTextRequested?.invoke(touchX, touchY)
+                            }
+                        }
                     }
                 }
                 true

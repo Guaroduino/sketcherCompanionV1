@@ -234,13 +234,37 @@ object MathTextureCache {
 
 object ImageTextureCache {
     private val cache = LruCache<String, Bitmap>(8) // Max 8 large image textures in memory
+    
+    private var localTexturesDir: File? = null
+    private var localLibraryAssetsDir: File? = null
+
+    fun init(context: Context) {
+        if (localTexturesDir == null) {
+            localTexturesDir = File(context.filesDir, "textures")
+            val currentUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "guest"
+            localLibraryAssetsDir = File(context.filesDir, "users/$currentUid/library_assets")
+        }
+    }
 
     fun getOrCreate(imagePath: String): Bitmap? {
         var bitmap = cache.get(imagePath)
         if (bitmap != null) return bitmap
 
         try {
-            val file = File(imagePath)
+            var file = File(imagePath)
+            
+            // If the path isn't an absolute path that exists, try resolving it as a relative filename
+            if (!file.exists() && !file.isAbsolute) {
+                val fallbackTex = localTexturesDir?.let { File(it, file.name) }
+                val fallbackLib = localLibraryAssetsDir?.let { File(it, file.name) }
+                
+                if (fallbackTex?.exists() == true) {
+                    file = fallbackTex
+                } else if (fallbackLib?.exists() == true) {
+                    file = fallbackLib
+                }
+            }
+
             if (file.exists()) {
                 val opts = BitmapFactory.Options().apply {
                     // Limit texture dimensions to 1024x1024 to save memory and avoid GL crashes
@@ -257,7 +281,7 @@ object ImageTextureCache {
                 }
                 bitmap = BitmapFactory.decodeFile(file.absolutePath, decodeOpts)
                 if (bitmap != null) {
-                    cache.put(imagePath, bitmap)
+                    cache.put(imagePath, bitmap) // Cache by the requested key
                 }
                 return bitmap
             }

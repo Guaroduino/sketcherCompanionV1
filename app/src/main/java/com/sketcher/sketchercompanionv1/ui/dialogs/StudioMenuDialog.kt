@@ -714,25 +714,13 @@ fun PersonalizationMenu(
                     )
                 }
 
-                // Edit Toolbars Switch
-                val isEditModeByVM by viewModel.isEditMode.collectAsState()
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Edit Toolbars", color = theme.iconColor)
-                    Switch(
-                        checked = isEditModeByVM,
-                        onCheckedChange = { viewModel.toggleEditMode() }
-                    )
-                }
-
                 // UI Preset Selection & Controls
+                val isEditModeByVM by viewModel.isEditMode.collectAsState()
                 val uiPresets by viewModel.toolbarManager.uiPresetsNames.collectAsState()
                 val activeUiPreset by viewModel.toolbarManager.activeUiPresetName.collectAsState()
-                var expandedPresetDropdown by remember { mutableStateOf(false) }
                 var showAddPresetDialog by remember { mutableStateOf(false) }
+                var showRenamePresetDialog by remember { mutableStateOf(false) }
+                var presetToRename by remember { mutableStateOf("") }
                 var newPresetName by remember { mutableStateOf("") }
 
                 Column(
@@ -740,80 +728,110 @@ fun PersonalizationMenu(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "Esquema de Botones",
+                        text = "Esquemas de Botones",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
                         color = theme.iconColor.copy(alpha = 0.7f)
                     )
                     
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Dropdown selection box
-                        Box(
+                    val sortedPresets = uiPresets.sortedByDescending { it == activeUiPreset }
+                    sortedPresets.forEach { presetName ->
+                        val isDefault = presetName == "Default"
+                        val isActive = presetName == activeUiPreset
+                        
+                        Row(
                             modifier = Modifier
-                                .weight(1f)
-                                .background(theme.buttonColor.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
-                                .border(1.dp, theme.iconColor.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
-                                .clickable { expandedPresetDropdown = true }
-                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                                .fillMaxWidth()
+                                .background(if (isActive) theme.highlightColor.copy(alpha = 0.15f) else theme.buttonColor.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
+                                .border(if (isActive) 2.dp else 1.dp, if (isActive) theme.highlightColor else theme.iconColor.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = activeUiPreset,
-                                    color = theme.iconColor,
-                                    fontSize = 14.sp
-                                )
-                                Icon(
-                                    imageVector = Icons.Default.ArrowDropDown,
-                                    contentDescription = null,
-                                    tint = theme.iconColor
-                                )
-                            }
+                            Text(
+                                text = presetName,
+                                color = if (isActive) theme.highlightColor else theme.iconColor,
+                                fontSize = 14.sp,
+                                modifier = Modifier.weight(1f)
+                            )
                             
-                            DropdownMenu(
-                                expanded = expandedPresetDropdown,
-                                onDismissRequest = { expandedPresetDropdown = false },
-                                modifier = Modifier.background(theme.barBackgroundColor)
-                            ) {
-                                uiPresets.forEach { presetName ->
-                                    DropdownMenuItem(
-                                        text = { Text(presetName, color = theme.iconColor) },
-                                        onClick = {
-                                            viewModel.toolbarManager.loadUiPreset(presetName)
-                                            expandedPresetDropdown = false
-                                        }
-                                    )
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (isActive) {
+                                    IconButton(
+                                        onClick = { 
+                                            viewModel.toggleEditMode()
+                                            onDismiss()
+                                        },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Build,
+                                            contentDescription = "Editar Interfaz",
+                                            tint = if (isEditModeByVM) theme.highlightColor else theme.iconColor,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+
+                                if (!isActive) {
+                                    IconButton(
+                                        onClick = { viewModel.toolbarManager.loadUiPreset(presetName) },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(imageVector = Icons.Default.Check, contentDescription = "Apply", tint = theme.iconColor, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                                
+                                if (isActive) {
+                                    IconButton(
+                                        onClick = { viewModel.saveUiPresetCloud(presetName) },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(imageVector = Icons.Default.Save, contentDescription = "Sobreescribir", tint = theme.iconColor, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+
+                                if (isDefault) {
+                                    IconButton(
+                                        onClick = { viewModel.resetDefaultUiPreset() },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(imageVector = Icons.Default.Refresh, contentDescription = "Restaurar Default", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                                
+                                if (!isDefault) {
+                                    IconButton(
+                                        onClick = { 
+                                            presetToRename = presetName
+                                            newPresetName = presetName
+                                            showRenamePresetDialog = true 
+                                        },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(imageVector = Icons.Default.Edit, contentDescription = "Rename", tint = theme.iconColor, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                                
+                                IconButton(
+                                    onClick = { 
+                                        val copyName = "$presetName Copia"
+                                        viewModel.copyUiPresetCloud(presetName, copyName)
+                                    },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(imageVector = Icons.Default.ContentCopy, contentDescription = "Copy", tint = theme.iconColor, modifier = Modifier.size(16.dp))
+                                }
+                                
+                                if (!isDefault) {
+                                    IconButton(
+                                        onClick = { viewModel.deleteUiPresetCloud(presetName) },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                                    }
                                 }
                             }
-                        }
-
-                        // Delete button
-                        IconButton(
-                            onClick = {
-                                viewModel.toolbarManager.deleteUiPreset(activeUiPreset)
-                            },
-                            enabled = activeUiPreset != "Default",
-                            modifier = Modifier
-                                .size(36.dp)
-                                .border(
-                                    1.dp, 
-                                    theme.iconColor.copy(alpha = if (activeUiPreset != "Default") 0.2f else 0.05f), 
-                                    RoundedCornerShape(8.dp)
-                                )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Delete Preset",
-                                tint = if (activeUiPreset != "Default") MaterialTheme.colorScheme.error else theme.iconColor.copy(alpha = 0.3f),
-                                modifier = Modifier.size(18.dp)
-                            )
                         }
                     }
 
@@ -823,7 +841,7 @@ fun PersonalizationMenu(
                             newPresetName = ""
                             showAddPresetDialog = true
                         },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = theme.buttonColor.copy(alpha = 0.15f),
                             contentColor = theme.iconColor
@@ -839,168 +857,6 @@ fun PersonalizationMenu(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("Guardar como Esquema de Botones...", fontSize = 12.sp)
                     }
-                }
-
-                // Tool Preset Selection & Controls
-                val toolPresets by viewModel.toolManager.toolPresetGroupNames.collectAsState()
-                val activeToolPreset by viewModel.toolManager.activeToolPresetGroupName.collectAsState()
-                var expandedToolPresetDropdown by remember { mutableStateOf(false) }
-                var showAddToolPresetDialog by remember { mutableStateOf(false) }
-                var newToolPresetName by remember { mutableStateOf("") }
-
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "Presets de Herramientas",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = theme.iconColor.copy(alpha = 0.7f)
-                    )
-                    
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Dropdown selection box
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .background(theme.buttonColor.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
-                                .border(1.dp, theme.iconColor.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
-                                .clickable { expandedToolPresetDropdown = true }
-                                .padding(horizontal = 12.dp, vertical = 8.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = activeToolPreset,
-                                    color = theme.iconColor,
-                                    fontSize = 14.sp
-                                )
-                                Icon(
-                                    imageVector = Icons.Default.ArrowDropDown,
-                                    contentDescription = null,
-                                    tint = theme.iconColor
-                                )
-                            }
-                            
-                            DropdownMenu(
-                                expanded = expandedToolPresetDropdown,
-                                onDismissRequest = { expandedToolPresetDropdown = false },
-                                modifier = Modifier.background(theme.barBackgroundColor)
-                            ) {
-                                toolPresets.forEach { presetName ->
-                                    DropdownMenuItem(
-                                        text = { Text(presetName, color = theme.iconColor) },
-                                        onClick = {
-                                            viewModel.toolManager.loadToolPresetGroup(presetName)
-                                            expandedToolPresetDropdown = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
-
-                        // Delete button
-                        IconButton(
-                            onClick = {
-                                viewModel.toolManager.deleteToolPresetGroup(activeToolPreset)
-                            },
-                            enabled = activeToolPreset != "Default",
-                            modifier = Modifier
-                                .size(36.dp)
-                                .border(
-                                    1.dp, 
-                                    theme.iconColor.copy(alpha = if (activeToolPreset != "Default") 0.2f else 0.05f), 
-                                    RoundedCornerShape(8.dp)
-                                )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Delete Preset",
-                                tint = if (activeToolPreset != "Default") MaterialTheme.colorScheme.error else theme.iconColor.copy(alpha = 0.3f),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-
-                    // Save Current Tool Presets as Group Button
-                    Button(
-                        onClick = {
-                            newToolPresetName = ""
-                            showAddToolPresetDialog = true
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = theme.buttonColor.copy(alpha = 0.15f),
-                            contentColor = theme.iconColor
-                        ),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = null,
-                            tint = theme.iconColor,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Save Current Tool Presets...", fontSize = 12.sp)
-                    }
-                }
-
-                // Add Tool Preset dialog popup
-                if (showAddToolPresetDialog) {
-                    AlertDialog(
-                        onDismissRequest = { showAddToolPresetDialog = false },
-                        title = { Text("Guardar Presets de Herramientas", color = Color.Black) },
-                        text = {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Introduce un nombre para este Grupo de Presets de Herramientas:", color = Color.Gray, fontSize = 14.sp)
-                                OutlinedTextField(
-                                    value = newToolPresetName,
-                                    onValueChange = { newToolPresetName = it },
-                                    placeholder = { Text("ej. Set de Bocetos") },
-                                    singleLine = true,
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedTextColor = Color.Black,
-                                        unfocusedTextColor = Color.Black,
-                                        focusedBorderColor = theme.highlightColor,
-                                        unfocusedBorderColor = Color.LightGray
-                                    ),
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-                        },
-                        confirmButton = {
-                            Button(
-                                onClick = {
-                                    val trimmed = newToolPresetName.trim()
-                                    if (trimmed.isNotEmpty()) {
-                                        viewModel.toolManager.saveToolPresetGroup(trimmed)
-                                    }
-                                    showAddToolPresetDialog = false
-                                },
-                                enabled = newToolPresetName.trim().isNotEmpty(),
-                                colors = ButtonDefaults.buttonColors(containerColor = theme.highlightColor)
-                            ) {
-                                Text("Guardar", color = Color.White)
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(
-                                onClick = { showAddToolPresetDialog = false }
-                            ) {
-                                Text("Cancelar", color = Color.DarkGray)
-                            }
-                        },
-                        containerColor = Color.White
-                    )
                 }
 
                 // Add Preset dialog popup
@@ -1031,7 +887,7 @@ fun PersonalizationMenu(
                                 onClick = {
                                     val trimmed = newPresetName.trim()
                                     if (trimmed.isNotEmpty()) {
-                                        viewModel.toolbarManager.saveUiPreset(trimmed)
+                                        viewModel.saveUiPresetCloud(trimmed)
                                     }
                                     showAddPresetDialog = false
                                 },
@@ -1044,6 +900,54 @@ fun PersonalizationMenu(
                         dismissButton = {
                             TextButton(
                                 onClick = { showAddPresetDialog = false }
+                            ) {
+                                Text("Cancelar", color = Color.DarkGray)
+                            }
+                        },
+                        containerColor = Color.White
+                    )
+                }
+
+                // Rename Preset dialog popup
+                if (showRenamePresetDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showRenamePresetDialog = false },
+                        title = { Text("Renombrar Esquema de Botones", color = Color.Black) },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Introduce el nuevo nombre:", color = Color.Gray, fontSize = 14.sp)
+                                OutlinedTextField(
+                                    value = newPresetName,
+                                    onValueChange = { newPresetName = it },
+                                    singleLine = true,
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedTextColor = Color.Black,
+                                        unfocusedTextColor = Color.Black,
+                                        focusedBorderColor = theme.highlightColor,
+                                        unfocusedBorderColor = Color.LightGray
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    val trimmed = newPresetName.trim()
+                                    if (trimmed.isNotEmpty() && trimmed != presetToRename) {
+                                        viewModel.renameUiPresetCloud(presetToRename, trimmed)
+                                    }
+                                    showRenamePresetDialog = false
+                                },
+                                enabled = newPresetName.trim().isNotEmpty(),
+                                colors = ButtonDefaults.buttonColors(containerColor = theme.highlightColor)
+                            ) {
+                                Text("Renombrar", color = Color.White)
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(
+                                onClick = { showRenamePresetDialog = false }
                             ) {
                                 Text("Cancelar", color = Color.DarkGray)
                             }

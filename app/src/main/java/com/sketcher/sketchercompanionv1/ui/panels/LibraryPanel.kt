@@ -5,6 +5,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -59,7 +61,10 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
     val canAddToLibrary = selection.size == 1 && selection.first() is ComponentInstance
 
     var currentFolderId by remember { mutableStateOf<String?>(null) }
-    var selectedLibraryItemId by remember { mutableStateOf<String?>(null) }
+    var selectedItemIds by remember { mutableStateOf(setOf<String>()) }
+    var isSelectionMode by remember { mutableStateOf(false) }
+    var showMoveDialog by remember { mutableStateOf(false) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var isGridView by remember { mutableStateOf(true) }
     
     var showNewFolderDialog by remember { mutableStateOf(false) }
@@ -117,7 +122,8 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
 
     // Clear selection when changing folders
     LaunchedEffect(currentFolderId) {
-        selectedLibraryItemId = null
+        selectedItemIds = emptySet()
+        isSelectionMode = false
     }
 
     LaunchedEffect(Unit) {
@@ -132,47 +138,80 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (currentFolderId != null) {
+            if (isSelectionMode) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     AppIconButton(
-                        onClick = { currentFolderId = currentFolder?.parentId },
-                        icon = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Volver",
+                        onClick = { 
+                            isSelectionMode = false
+                            selectedItemIds = emptySet()
+                        },
+                        icon = Icons.Default.Close,
+                        contentDescription = "Cancelar",
                         tint = theme.iconColor,
                         buttonSize = 24.dp
                     )
                     Spacer(modifier = Modifier.width(4.sdp))
+                    Text(
+                        "${selectedItemIds.size} seleccionados",
+                        color = theme.iconColor,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
-                Text(
-                    currentFolder?.name ?: "LIBRERÍA",
-                    color = theme.iconColor,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            
-            Row(horizontalArrangement = Arrangement.spacedBy(4.sdp), verticalAlignment = Alignment.CenterVertically) {
-                if (!viewModel.showDashboard && canAddToLibrary) {
-                    OutlinerActionButton(Icons.Default.Add, "Añadir a Librería", theme.iconColor, backgroundColor = theme.buttonColor) {
-                        viewModel.addToGlobalLibrary(context, "Nuevo Componente", currentFolderId)
+                
+                Row(horizontalArrangement = Arrangement.spacedBy(4.sdp), verticalAlignment = Alignment.CenterVertically) {
+                    if (selectedItemIds.isNotEmpty()) {
+                        OutlinerActionButton(Icons.Default.DriveFileMove, "Mover", theme.iconColor, backgroundColor = theme.buttonColor) {
+                            showMoveDialog = true
+                        }
+                        OutlinerActionButton(Icons.Default.Delete, "Eliminar", MaterialTheme.colorScheme.error, backgroundColor = theme.buttonColor) {
+                            showDeleteConfirmDialog = true
+                        }
                     }
                 }
-
-                AppIconButton(
-                    onClick = { isGridView = !isGridView },
-                    icon = if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
-                    contentDescription = "Toggle Grid/List",
-                    tint = theme.iconColor,
-                    buttonSize = 24.dp
-                )
-                
-                OutlinerActionButton(Icons.Default.CreateNewFolder, "Nueva Carpeta", theme.iconColor, backgroundColor = theme.buttonColor) {
-                    showNewFolderDialog = true
-                    newName = "Nueva Carpeta"
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (currentFolderId != null) {
+                        AppIconButton(
+                            onClick = { currentFolderId = currentFolder?.parentId },
+                            icon = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Volver",
+                            tint = theme.iconColor,
+                            buttonSize = 24.dp
+                        )
+                        Spacer(modifier = Modifier.width(4.sdp))
+                    }
+                    Text(
+                        currentFolder?.name ?: "LIBRERÍA",
+                        color = theme.iconColor,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
+                
+                Row(horizontalArrangement = Arrangement.spacedBy(4.sdp), verticalAlignment = Alignment.CenterVertically) {
+                    if (!viewModel.showDashboard && canAddToLibrary) {
+                        OutlinerActionButton(Icons.Default.Add, "Añadir a Librería", theme.iconColor, backgroundColor = theme.buttonColor) {
+                            viewModel.addToGlobalLibrary(context, "Nuevo Componente", currentFolderId)
+                        }
+                    }
 
-                OutlinerActionButton(Icons.Default.FileUpload, "Subir", theme.iconColor, backgroundColor = theme.buttonColor) {
-                    uploadLauncher.launch(arrayOf("*/*"))
+                    AppIconButton(
+                        onClick = { isGridView = !isGridView },
+                        icon = if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
+                        contentDescription = "Toggle Grid/List",
+                        tint = theme.iconColor,
+                        buttonSize = 24.dp
+                    )
+                    
+                    OutlinerActionButton(Icons.Default.CreateNewFolder, "Nueva Carpeta", theme.iconColor, backgroundColor = theme.buttonColor) {
+                        showNewFolderDialog = true
+                        newName = "Nueva Carpeta"
+                    }
+
+                    OutlinerActionButton(Icons.Default.FileUpload, "Subir", theme.iconColor, backgroundColor = theme.buttonColor) {
+                        uploadLauncher.launch(arrayOf("*/*"))
+                    }
                 }
             }
         }
@@ -180,7 +219,7 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
         HorizontalDivider(color = theme.iconColor.copy(alpha = 0.1f))
         
         // --- ADD TO CANVAS BUTTON (Only shows if a component is selected) ---
-        val selectedItem = currentItems.find { it.id == selectedLibraryItemId }
+        val selectedItem = if (!isSelectionMode && selectedItemIds.size == 1) currentItems.find { it.id == selectedItemIds.first() } else null
         if (selectedItem != null && selectedItem is LibraryComponent && !viewModel.showDashboard) {
             Button(
                 onClick = { viewModel.instantiateFromGlobalLibrary(selectedItem) },
@@ -209,14 +248,23 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
                     LibraryItemGridCell(
                         item = item,
                         theme = theme,
-                        isSelected = item.id == selectedLibraryItemId,
+                        isSelected = item.id in selectedItemIds,
                         isSynced = isLibrarySynced,
                         onClick = {
-                            if (item is LibraryFolder) {
-                                currentFolderId = item.id
+                            if (isSelectionMode) {
+                                selectedItemIds = if (item.id in selectedItemIds) selectedItemIds - item.id else selectedItemIds + item.id
+                                if (selectedItemIds.isEmpty()) isSelectionMode = false
                             } else {
-                                selectedLibraryItemId = if (selectedLibraryItemId == item.id) null else item.id
+                                if (item is LibraryFolder) {
+                                    currentFolderId = item.id
+                                } else {
+                                    selectedItemIds = if (selectedItemIds.contains(item.id)) emptySet() else setOf(item.id)
+                                }
                             }
+                        },
+                        onLongClick = {
+                            isSelectionMode = true
+                            selectedItemIds = selectedItemIds + item.id
                         },
                         onRename = { 
                             showRenameDialog = item
@@ -238,14 +286,23 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
                     LibraryItemListCell(
                         item = item,
                         theme = theme,
-                        isSelected = item.id == selectedLibraryItemId,
+                        isSelected = item.id in selectedItemIds,
                         isSynced = isLibrarySynced,
                         onClick = {
-                            if (item is LibraryFolder) {
-                                currentFolderId = item.id
+                            if (isSelectionMode) {
+                                selectedItemIds = if (item.id in selectedItemIds) selectedItemIds - item.id else selectedItemIds + item.id
+                                if (selectedItemIds.isEmpty()) isSelectionMode = false
                             } else {
-                                selectedLibraryItemId = if (selectedLibraryItemId == item.id) null else item.id
+                                if (item is LibraryFolder) {
+                                    currentFolderId = item.id
+                                } else {
+                                    selectedItemIds = if (selectedItemIds.contains(item.id)) emptySet() else setOf(item.id)
+                                }
                             }
+                        },
+                        onLongClick = {
+                            isSelectionMode = true
+                            selectedItemIds = selectedItemIds + item.id
                         },
                         onRename = { 
                             showRenameDialog = item
@@ -347,6 +404,46 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
         )
     }
     
+    if (showDeleteConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmDialog = false },
+            title = { Text("Eliminar elementos", color = theme.iconColor) },
+            text = { Text("¿Estás seguro de que deseas eliminar los ${selectedItemIds.size} elementos seleccionados?", color = theme.iconColor) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteLibraryItems(context, selectedItemIds)
+                        selectedItemIds = emptySet()
+                        isSelectionMode = false
+                        showDeleteConfirmDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = Color.White)
+                ) { Text("Eliminar") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showDeleteConfirmDialog = false },
+                    colors = ButtonDefaults.textButtonColors(contentColor = theme.iconColor)
+                ) { Text("Cancelar") }
+            },
+            containerColor = theme.barBackgroundColor
+        )
+    }
+
+    if (showMoveDialog) {
+        MoveItemsDialog(
+            theme = theme,
+            libraryItems = libraryItems,
+            onDismiss = { showMoveDialog = false },
+            onMove = { targetFolderId ->
+                viewModel.moveLibraryItems(context, selectedItemIds, targetFolderId)
+                selectedItemIds = emptySet()
+                isSelectionMode = false
+                showMoveDialog = false
+            }
+        )
+    }
+
     // --- IMPORT DIALOGS ---
     val imgState = importImageEditState
     if (imgState != null) {
@@ -398,6 +495,7 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun LibraryItemGridCell(
     item: LibraryItem,
@@ -405,6 +503,7 @@ fun LibraryItemGridCell(
     isSelected: Boolean,
     isSynced: Boolean,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
     assetsDir: File
@@ -418,7 +517,7 @@ fun LibraryItemGridCell(
             .aspectRatio(1f)
             .clip(RoundedCornerShape(8.sdp))
             .background(if (isSelected) theme.highlightColor.copy(alpha = 0.2f) else Color.Transparent)
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(4.sdp)
     ) {
         Column(
@@ -514,6 +613,7 @@ fun LibraryItemGridCell(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun LibraryItemListCell(
     item: LibraryItem,
@@ -521,6 +621,7 @@ fun LibraryItemListCell(
     isSelected: Boolean,
     isSynced: Boolean,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
     assetsDir: File
@@ -534,7 +635,7 @@ fun LibraryItemListCell(
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.sdp))
             .background(if (isSelected) theme.highlightColor.copy(alpha = 0.2f) else Color.Transparent)
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(8.sdp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -615,4 +716,50 @@ fun LibraryItemListCell(
             }
         }
     }
+}
+
+@Composable
+fun MoveItemsDialog(
+    theme: com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig,
+    libraryItems: List<LibraryItem>,
+    onDismiss: () -> Unit,
+    onMove: (String?) -> Unit
+) {
+    val folders = libraryItems.filterIsInstance<LibraryFolder>()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Mover a...", color = theme.iconColor) },
+        text = {
+            LazyColumn {
+                item {
+                    Text(
+                        text = "📁 Raíz",
+                        color = theme.iconColor,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onMove(null) }
+                            .padding(vertical = 12.dp)
+                    )
+                }
+                items(folders) { folder ->
+                    Text(
+                        text = "📁 ${folder.name}",
+                        color = theme.iconColor,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onMove(folder.id) }
+                            .padding(vertical = 12.dp, horizontal = 16.dp)
+                    )
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                colors = ButtonDefaults.textButtonColors(contentColor = theme.iconColor)
+            ) { Text("Cancelar") }
+        },
+        containerColor = theme.barBackgroundColor
+    )
 }

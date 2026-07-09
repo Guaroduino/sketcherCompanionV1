@@ -143,6 +143,7 @@ class RenderEngine {
         }
     
     var isDebugWireframe: Boolean = false
+    var hiddenElementId: String? = null
 
     // --- TEMPORARY OBJECTS (Avoid allocations in draw) ---
     private val tempMatrix = Matrix()
@@ -674,6 +675,16 @@ class RenderEngine {
         viewMatrix: Matrix,
         alphaMultiplier: Float = 1f
     ) {
+         val elementId = when (element) {
+             is TextElement -> element.id
+             is ImageElement -> element.id
+             is GroupElement -> element.id
+             is SvgElement -> element.id
+             is ComponentInstance -> element.id
+             else -> null
+         }
+         if (elementId != null && elementId == hiddenElementId) return
+
          when (element) {
              is VectorStroke -> drawVectorStroke(canvas, element, viewMatrix, alphaMultiplier)
              is FillData -> drawFill(canvas, element, alphaMultiplier)
@@ -894,6 +905,46 @@ class RenderEngine {
         if (isDebugWireframe && stroke.points.isNotEmpty()) {
             drawDebugWireframe(canvas, stroke.points, viewMatrix, stroke.path, stroke.paths)
         }
+    }
+
+    fun drawTextWidthGrips(canvas: Canvas, element: TextElement, viewMatrix: Matrix, density: Float) {
+        val size = 6f * density
+        val pts = FloatArray(2)
+        
+        gripHandlePaint.style = Paint.Style.FILL
+        gripHandlePaint.color = Color.WHITE
+        gripHandleBorderPaint.strokeWidth = 1.5f * density
+        
+        // The text bounds in local space
+        val w = element.width
+        val h = element.getBoundingBox(emptyMap()).let {
+            // getBoundingBox is already transformed by element matrix, but we need local height.
+            // Actually, getBoundingBox does mapRect.
+            // Let's just use an estimate for height or just draw at the middle of local Y.
+            // The local bounds are (0, 0) to (w, localHeight)
+            val tempRect = RectF(0f, 0f, element.width, 100f) // Fallback height
+            tempRect
+        }
+        // Actually, just draw at local y = 0 or middle? Let's do local x=w, y=0. Or middle of line 1.
+        // It's easier to draw them at (0, 0) and (w, 0) in local coords, but centered vertically is better.
+        // Let's put the handle at local (w, 0) for now, or just left and right.
+        
+        val leftAnchor = FloatArray(2).apply { this[0] = 0f; this[1] = 0f }
+        val rightAnchor = FloatArray(2).apply { this[0] = element.width; this[1] = 0f }
+        
+        val combinedMatrix = Matrix(viewMatrix)
+        combinedMatrix.preConcat(element.getMatrix())
+        
+        combinedMatrix.mapPoints(leftAnchor)
+        combinedMatrix.mapPoints(rightAnchor)
+        
+        // Draw Left Grip
+        canvas.drawCircle(leftAnchor[0], leftAnchor[1], size, gripHandlePaint)
+        canvas.drawCircle(leftAnchor[0], leftAnchor[1], size, gripHandleBorderPaint)
+        
+        // Draw Right Grip
+        canvas.drawCircle(rightAnchor[0], rightAnchor[1], size, gripHandlePaint)
+        canvas.drawCircle(rightAnchor[0], rightAnchor[1], size, gripHandleBorderPaint)
     }
 
     fun drawGrips(canvas: Canvas, stroke: VectorStroke, viewMatrix: Matrix, density: Float) {

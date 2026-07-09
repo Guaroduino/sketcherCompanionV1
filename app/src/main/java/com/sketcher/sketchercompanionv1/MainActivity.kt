@@ -88,6 +88,7 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(Unit) {
                 // Copy default textures from assets to local storage in background
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    com.sketcher.sketchercompanionv1.utils.ImageTextureCache.init(context)
                     com.sketcher.sketchercompanionv1.utils.ImageTextureCache.copyDefaultTexturesFromAssets(context)
                 }
 
@@ -253,7 +254,13 @@ class MainActivity : ComponentActivity() {
                 uri?.let { sketchViewModel.saveProjectToZip(context, it) }
             }
             val loadLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-                uri?.let { sketchViewModel.loadProjectFromZip(context, it) }
+                uri?.let { 
+                    if (!sketchViewModel.showDashboard) {
+                        sketchViewModel.hasUnsavedChangesSinceLastAutosave = true
+                        sketchViewModel.saveCurrentProjectLocal(context)
+                    }
+                    sketchViewModel.loadProjectFromZip(context, it) 
+                }
             }
             val importImageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
                 uri?.let { sketchViewModel.insertImage(context, it) }
@@ -286,7 +293,11 @@ class MainActivity : ComponentActivity() {
  
             val projectActions = remember {
                 com.sketcher.sketchercompanionv1.ui.model.ProjectActions(
-                    onNew = { sketchViewModel.clear() },
+                    onNew = { 
+                        sketchViewModel.hasUnsavedChangesSinceLastAutosave = true
+                        sketchViewModel.saveCurrentProjectLocal(context)
+                        sketchViewModel.clear() 
+                    },
                     onSave = {
                         if (sketchViewModel.currentFileUri != null) {
                             sketchViewModel.saveProjectToZip(context, sketchViewModel.currentFileUri!!)
@@ -359,6 +370,9 @@ class MainActivity : ComponentActivity() {
                         androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
                             val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
                                 if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE || event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                                    if (!sketchViewModel.showDashboard) {
+                                        sketchViewModel.hasUnsavedChangesSinceLastAutosave = true
+                                    }
                                     sketchViewModel.saveCurrentProjectLocal(context)
                                 }
                             }

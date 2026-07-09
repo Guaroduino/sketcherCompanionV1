@@ -326,12 +326,54 @@ class CloudSyncRepository {
         }
     }
 
+    // --- UI PRESETS SYNC ---
+    suspend fun syncUiPreset(presetName: String, presetData: String?): Result<Unit> {
+        val user = auth.currentUser ?: return Result.failure(Exception("User not authenticated"))
+        return try {
+            val docRef = firestore.collection("users").document(user.uid)
+                .collection("ui_presets").document(presetName)
+            
+            if (presetData == null) {
+                // Delete
+                docRef.delete().await()
+            } else {
+                // Save or Update
+                val dataToSave = mapOf(
+                    "name" to presetName,
+                    "data" to presetData,
+                    "updatedAt" to System.currentTimeMillis()
+                )
+                docRef.set(dataToSave).await()
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getAllUiPresets(): Result<List<Map<String, Any>>> {
+        val user = auth.currentUser ?: return Result.failure(Exception("User not authenticated"))
+        return try {
+            val snapshot = firestore.collection("users").document(user.uid)
+                .collection("ui_presets").get().await()
+            val presets = snapshot.documents.map { it.data ?: emptyMap<String, Any>() }
+            Result.success(presets)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     // --- LIBRARY SYNC ---
     suspend fun backupLibrary(jsonString: String, timestamp: Long, assetsDir: File): Result<Unit> {
         val user = auth.currentUser ?: return Result.failure(Exception("User not authenticated"))
         return try {
-            // 1. Save JSON to Firestore
-            val libraryData = mapOf("state" to jsonString, "timestamp" to timestamp)
+            // 1. Save JSON to Firebase Storage to bypass 1MB limit
+            val stateBytes = jsonString.toByteArray(Charsets.UTF_8)
+            val stateRef = storage.reference.child("users/${user.uid}/library_state/global_library.json")
+            stateRef.putBytes(stateBytes).await()
+
+            // 1.5. Save timestamp to Firestore
+            val libraryData = mapOf("timestamp" to timestamp)
             firestore.collection("users").document(user.uid)
                 .collection("library").document("state")
                 .set(libraryData).await()
@@ -341,7 +383,7 @@ class CloudSyncRepository {
                 assetsDir.listFiles()?.forEach { file ->
                     if (file.isFile) {
                         val ref = storage.reference.child("users/${user.uid}/library_assets/${file.name}")
-                        ref.putFile(Uri.fromFile(file)).await()
+                        ref.putFile(android.net.Uri.fromFile(file)).await()
                     }
                 }
             }
@@ -366,12 +408,23 @@ class CloudSyncRepository {
     suspend fun restoreLibrary(assetsDir: File): Result<Pair<String, Long>> {
         val user = auth.currentUser ?: return Result.failure(Exception("User not authenticated"))
         return try {
-            // 1. Download JSON from Firestore
+            // 1. Download JSON from Firestore or Storage
             val snapshot = firestore.collection("users").document(user.uid)
                 .collection("library").document("state").get().await()
             
-            val jsonString = snapshot.getString("state") ?: return Result.failure(Exception("No library found"))
+            var jsonString = snapshot.getString("state")
             val timestamp = (snapshot.get("timestamp") as? Number)?.toLong() ?: 0L
+
+            if (jsonString == null) {
+                try {
+                    val stateRef = storage.reference.child("users/${user.uid}/library_state/global_library.json")
+                    val maxDownloadSize = 25L * 1024 * 1024 // 25MB limit for library state JSON
+                    val bytes = stateRef.getBytes(maxDownloadSize).await()
+                    jsonString = String(bytes, Charsets.UTF_8)
+                } catch (e: Exception) {
+                    return Result.failure(Exception("No library found"))
+                }
+            }
 
             // 2. Download assets
             val listResult = storage.reference.child("users/${user.uid}/library_assets").listAll().await()

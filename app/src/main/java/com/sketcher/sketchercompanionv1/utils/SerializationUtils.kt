@@ -347,7 +347,7 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         simulatePressure = false
     )
 
-    val useEvenOdd = this.brushType != "PLUMA"
+    val useEvenOdd = this.brushType != "PLUMA" && this.brushType != "PEN"
     val exactPath = ExactPathSerializer.stringToPath(this.exactSvgPath, useEvenOdd)
     val exactFillPath = ExactPathSerializer.stringToPath(this.exactFillSvgPath, useEvenOdd)
     
@@ -585,7 +585,7 @@ fun FillStyle.toFillStyleJson(): FillStyleJson {
         is FillStyle.Solid -> FillStyleJson(
             type = "SOLID", 
             color = this.color,
-            imagePath = this.imagePath,
+            imagePath = this.imagePath?.let { java.io.File(it).name },
             scaleX = this.scaleX,
             scaleY = this.scaleY,
             rotation = this.rotation,
@@ -616,7 +616,7 @@ fun FillStyle.toFillStyleJson(): FillStyleJson {
         )
         is FillStyle.ImageTexture -> FillStyleJson(
             type = "IMAGE_TEXTURE",
-            imagePath = this.imagePath,
+            imagePath = this.imagePath.let { java.io.File(it).name },
             scaleX = this.scaleX,
             scaleY = this.scaleY,
             rotation = this.rotation,
@@ -706,3 +706,25 @@ private fun Path.flatten(precision: Float): List<Point> {
     return points
 }
 
+fun com.sketcher.sketchercompanionv1.LayerElement.collectAllAssetPaths(outPaths: MutableSet<String>) {
+    fun checkFillStyle(style: com.sketcher.sketchercompanionv1.dto.FillStyle?) {
+        if (style is com.sketcher.sketchercompanionv1.dto.FillStyle.ImageTexture && style.imagePath.isNotEmpty()) {
+            outPaths.add(style.imagePath)
+        } else if (style is com.sketcher.sketchercompanionv1.dto.FillStyle.Solid && !style.imagePath.isNullOrEmpty()) {
+            outPaths.add(style.imagePath)
+        }
+    }
+    when (this) {
+        is com.sketcher.sketchercompanionv1.VectorStroke -> {
+            checkFillStyle(this.fillStyle)
+            checkFillStyle(this.strokeStyle)
+        }
+        is com.sketcher.sketchercompanionv1.GroupElement -> {
+            this.elements.forEach { it.collectAllAssetPaths(outPaths) }
+        }
+        is com.sketcher.sketchercompanionv1.ComponentInstance -> {
+            // Components' definition assets are handled separately at definition level
+        }
+        else -> { /* Other elements don't have fillStyle textures currently */ }
+    }
+}

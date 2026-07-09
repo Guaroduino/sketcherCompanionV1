@@ -23,6 +23,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.graphics.Typeface
+import android.text.Spannable
+import android.text.style.BulletSpan
+import android.text.style.StyleSpan
+import android.text.style.UnderlineSpan
+import android.widget.EditText
+import androidx.compose.material.icons.filled.FormatBold
+import androidx.compose.material.icons.filled.FormatItalic
+import androidx.compose.material.icons.filled.FormatListBulleted
+import androidx.compose.material.icons.filled.FormatUnderlined
+import androidx.compose.material.icons.filled.Check
 import com.sketcher.sketchercompanionv1.TextElement
 import com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler
 import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
@@ -37,6 +48,7 @@ fun TextFormatContextBar(
     onSizeChange: (Float) -> Unit,         // Change base size
     onFontChange: (String) -> Unit,        // "sans-serif", "serif", "monospace"
     onColorClick: () -> Unit,
+    activeEditTextRef: EditText? = null,
     modifier: Modifier = Modifier
 ) {
     val scaler = LocalUiScaler.current
@@ -66,11 +78,45 @@ fun TextFormatContextBar(
                 modifier = Modifier.size(36.dp * scaleFactor)
             ) {
                 Icon(
-                    imageVector = Icons.Default.Edit,
-                    contentDescription = "Editar contenido",
+                    imageVector = if (activeEditTextRef != null) Icons.Default.Check else Icons.Default.Edit,
+                    contentDescription = if (activeEditTextRef != null) "Guardar" else "Editar contenido",
                     tint = theme.iconColor,
                     modifier = Modifier.size(20.dp * scaleFactor)
                 )
+            }
+            
+            if (activeEditTextRef != null) {
+                Divider(modifier = Modifier.height(24.dp * scaleFactor).width(1.dp), color = theme.highlightColor)
+                
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp * scaleFactor)
+                ) {
+                    IconButton(
+                        onClick = { toggleStyleSpan(activeEditTextRef, Typeface.BOLD) },
+                        modifier = Modifier.size(30.dp * scaleFactor)
+                    ) {
+                        Icon(Icons.Default.FormatBold, "Negrita", tint = theme.iconColor, modifier = Modifier.size(18.dp * scaleFactor))
+                    }
+                    IconButton(
+                        onClick = { toggleStyleSpan(activeEditTextRef, Typeface.ITALIC) },
+                        modifier = Modifier.size(30.dp * scaleFactor)
+                    ) {
+                        Icon(Icons.Default.FormatItalic, "Cursiva", tint = theme.iconColor, modifier = Modifier.size(18.dp * scaleFactor))
+                    }
+                    IconButton(
+                        onClick = { toggleUnderlineSpan(activeEditTextRef) },
+                        modifier = Modifier.size(30.dp * scaleFactor)
+                    ) {
+                        Icon(Icons.Default.FormatUnderlined, "Subrayado", tint = theme.iconColor, modifier = Modifier.size(18.dp * scaleFactor))
+                    }
+                    IconButton(
+                        onClick = { toggleBulletSpan(activeEditTextRef) },
+                        modifier = Modifier.size(30.dp * scaleFactor)
+                    ) {
+                        Icon(Icons.Default.FormatListBulleted, "Viñetas", tint = theme.iconColor, modifier = Modifier.size(18.dp * scaleFactor))
+                    }
+                }
             }
 
             Divider(modifier = Modifier.height(24.dp * scaleFactor).width(1.dp), color = theme.highlightColor)
@@ -268,5 +314,70 @@ fun TextFormatContextBar(
                 )
             }
         }
+    }
+}
+
+private fun toggleStyleSpan(editText: EditText, style: Int) {
+    val start = editText.selectionStart
+    val end = editText.selectionEnd
+    if (start == -1 || end == -1 || start == end) return
+
+    val spannable = editText.text
+    val spans = spannable.getSpans(start, end, StyleSpan::class.java)
+    var found = false
+    for (span in spans) {
+        if (span.style == style) {
+            spannable.removeSpan(span)
+            found = true
+        }
+    }
+    if (!found) {
+        spannable.setSpan(StyleSpan(style), start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+    }
+}
+
+private fun toggleUnderlineSpan(editText: EditText) {
+    val start = editText.selectionStart
+    val end = editText.selectionEnd
+    if (start == -1 || end == -1 || start == end) return
+
+    val spannable = editText.text
+    val spans = spannable.getSpans(start, end, UnderlineSpan::class.java)
+    if (spans.isNotEmpty()) {
+        for (span in spans) {
+            spannable.removeSpan(span)
+        }
+    } else {
+        spannable.setSpan(UnderlineSpan(), start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+    }
+}
+
+private fun toggleBulletSpan(editText: EditText) {
+    val start = editText.selectionStart
+    val end = editText.selectionEnd
+    if (start == -1 || end == -1) return
+
+    val spannable = editText.text
+    
+    val textLength = spannable.length
+    val selStart = start.coerceIn(0, textLength)
+    val selEnd = end.coerceIn(0, textLength)
+
+    var pStart = selStart
+    while (pStart > 0 && spannable[pStart - 1] != '\n') {
+        pStart--
+    }
+    var pEnd = selEnd
+    while (pEnd < textLength && spannable[pEnd] != '\n') {
+        pEnd++
+    }
+
+    val spans = spannable.getSpans(pStart, pEnd, BulletSpan::class.java)
+    if (spans.isNotEmpty()) {
+        for (span in spans) {
+            spannable.removeSpan(span)
+        }
+    } else {
+        spannable.setSpan(BulletSpan(12), pStart, pEnd, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
     }
 }

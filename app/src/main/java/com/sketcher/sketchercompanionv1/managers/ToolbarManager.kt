@@ -102,9 +102,9 @@ class ToolbarManager(
         }
 
         val loaded = toolbarRepository.loadLayout()
-        val layoutResetV11 = prefs.getInt("layout_reset_v11", 0)
+        val layoutResetV12 = prefs.getInt("layout_reset_v12", 0)
         
-        if (loaded != null && layoutResetV11 >= 1) {
+        if (loaded != null && layoutResetV12 >= 1) {
             _assignedTools.value = loaded.assignedMap
             _assignedToolColors.value = loaded.toolColors
             _assignedToolStabilization.value = loaded.toolStabilization
@@ -127,8 +127,37 @@ class ToolbarManager(
                 toolOpacity = _assignedToolOpacity.value
             )
             toolbarRepository.saveUiPreset("Default", currentState)
-            prefs.edit().putInt("layout_reset_v11", 1).apply()
+            prefs.edit().putInt("layout_reset_v12", 1).apply()
         }
+    }
+
+    fun resetDefaultUiPreset() {
+        _assignedTools.value = emptyMap()
+        _assignedToolColors.value = emptyMap()
+        _assignedToolStabilization.value = emptyMap()
+        _assignedToolOpacity.value = emptyMap()
+        _contextualToolbar.value = emptyList()
+        
+        initToolbarState()
+        
+        val toolsWithActions = _toolbarState.value.mapValues { (_, list) ->
+            list.map { tool -> bindToolActions(migrateTool(tool)) }
+        }
+        _toolbarState.value = toolsWithActions
+        
+        val currentState = com.sketcher.sketchercompanionv1.data.ToolbarStateResult(
+            tools = _toolbarState.value,
+            assignedMap = _assignedTools.value,
+            toolColors = _assignedToolColors.value,
+            contextualTools = _contextualToolbar.value,
+            toolStabilization = _assignedToolStabilization.value,
+            toolOpacity = _assignedToolOpacity.value
+        )
+        toolbarRepository.saveUiPreset("Default", currentState)
+        
+        _activeUiPresetName.value = "Default"
+        toolbarRepository.setActiveUiPresetName("Default")
+        saveLayout()
     }
 
     private fun migrateTool(tool: StudioTool): StudioTool {
@@ -533,11 +562,11 @@ class ToolbarManager(
     private fun initToolbarState() {
         if (_assignedTools.value.isEmpty()) {
             _assignedTools.value = mapOf(
-                "pencil" to ToolPayload.PENCIL,
-                "pen" to ToolPayload.PEN,
-                "paint" to ToolPayload.PAINT,
-                "watercolor" to ToolPayload.WATERCOLOR,
-                "pluma" to ToolPayload.PLUMA,
+                "default_pencil" to ToolPayload.PENCIL,
+                "default_pen" to ToolPayload.PEN,
+                "default_paint" to ToolPayload.PAINT,
+                "default_watercolor" to ToolPayload.WATERCOLOR,
+                "default_pluma" to ToolPayload.PLUMA,
                 "eraser" to ToolPayload.ERASER,
                 "stroke_color" to ToolPayload.STROKE_COLOR,
                 "fill_color" to ToolPayload.FILL_COLOR
@@ -555,12 +584,12 @@ class ToolbarManager(
             ToolLocation.RightBar to listOfNotNull(
                 ToolRegistry.getToolById(StudioTool.SIZE_OPACITY_TOOL_ID),
                 ToolRegistry.getToolById("brush_workshop"),
-                ToolRegistry.getToolById("pencil")?.copy(
+                ToolRegistry.getToolById("default_pencil")?.copy(
                     subTools = listOfNotNull(
-                        ToolRegistry.getToolById("pen"),
-                        ToolRegistry.getToolById("paint"),
-                        ToolRegistry.getToolById("watercolor"),
-                        ToolRegistry.getToolById("pluma")
+                        ToolRegistry.getToolById("default_pen"),
+                        ToolRegistry.getToolById("default_paint"),
+                        ToolRegistry.getToolById("default_watercolor"),
+                        ToolRegistry.getToolById("default_pluma")
                     )
                 ),
                 ToolRegistry.getToolById("stroke_freehand"),
@@ -629,11 +658,11 @@ class ToolbarManager(
             _contextualToolbar.value = contextualWithActions
         } else {
             _assignedTools.value = mapOf(
-                "pencil" to ToolPayload.PENCIL,
-                "pen" to ToolPayload.PEN,
-                "paint" to ToolPayload.PAINT,
-                "watercolor" to ToolPayload.WATERCOLOR,
-                "pluma" to ToolPayload.PLUMA,
+                "default_pencil" to ToolPayload.PENCIL,
+                "default_pen" to ToolPayload.PEN,
+                "default_paint" to ToolPayload.PAINT,
+                "default_watercolor" to ToolPayload.WATERCOLOR,
+                "default_pluma" to ToolPayload.PLUMA,
                 "eraser" to ToolPayload.ERASER,
                 "stroke_color" to ToolPayload.STROKE_COLOR,
                 "fill_color" to ToolPayload.FILL_COLOR
@@ -717,6 +746,32 @@ class ToolbarManager(
         if (_activeUiPresetName.value == name) {
             loadUiPreset("Default")
         }
+    }
+
+    fun renameUiPreset(oldName: String, newName: String) {
+        if (oldName == "Default" || newName == "Default") return
+        toolbarRepository.renameUiPreset(oldName, newName)
+        _uiPresetsNames.value = toolbarRepository.getUiPresetsNames()
+        
+        if (_activeUiPresetName.value == oldName) {
+            _activeUiPresetName.value = newName
+            toolbarRepository.setActiveUiPresetName(newName)
+        }
+    }
+
+    fun copyUiPreset(oldName: String, newName: String) {
+        if (newName == "Default") return
+        toolbarRepository.copyUiPreset(oldName, newName)
+        _uiPresetsNames.value = toolbarRepository.getUiPresetsNames()
+    }
+
+    fun getUiPresetJson(name: String): String? {
+        return toolbarRepository.getUiPresetJson(name)
+    }
+
+    fun importUiPreset(name: String, json: String) {
+        toolbarRepository.saveUiPresetJson(name, json)
+        _uiPresetsNames.value = toolbarRepository.getUiPresetsNames()
     }
 
     fun onProjectUiPresetLoaded(name: String) {

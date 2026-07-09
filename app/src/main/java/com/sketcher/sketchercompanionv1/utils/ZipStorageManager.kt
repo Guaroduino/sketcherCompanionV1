@@ -159,6 +159,32 @@ object ZipStorageManager {
                 components.forEach { component ->
                     collectAssets(component.elements, savedFileNames, zipOut)
                 }
+
+                // 2.5 Write Textures from FillStyles
+                val texturePaths = mutableSetOf<String>()
+                layers.forEach { layer ->
+                    layer.elements.forEach { it.collectAllAssetPaths(texturePaths) }
+                }
+                components.forEach { component ->
+                    component.elements.forEach { it.collectAllAssetPaths(texturePaths) }
+                }
+                texturePaths.forEach { absPath ->
+                    try {
+                        val file = java.io.File(absPath)
+                        if (file.exists()) {
+                            val fileName = file.name
+                            if (fileName.isNotEmpty() && savedFileNames.add(fileName)) {
+                                val entryName = "$DIR_ASSETS$fileName"
+                                val imageEntry = java.util.zip.ZipEntry(entryName)
+                                zipOut.putNextEntry(imageEntry)
+                                java.io.FileInputStream(file).use { it.copyTo(zipOut) }
+                                zipOut.closeEntry()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
             }
         }
     }
@@ -243,6 +269,18 @@ object ZipStorageManager {
                                     val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
                                     if (bitmap != null) {
                                         bitmapMap[cleanName] = bitmap
+                                    }
+                                    
+                                    // Save to local textures directory for ImageTextureCache to find via relative paths
+                                    try {
+                                        val texDir = java.io.File(context.filesDir, "textures")
+                                        if (!texDir.exists()) texDir.mkdirs()
+                                        val texFile = java.io.File(texDir, cleanName)
+                                        if (!texFile.exists()) {
+                                            java.io.FileOutputStream(texFile).use { it.write(bytes) }
+                                        }
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
                                     }
                                 }
                             }

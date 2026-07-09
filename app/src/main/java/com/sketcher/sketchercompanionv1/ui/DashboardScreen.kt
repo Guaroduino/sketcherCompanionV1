@@ -495,15 +495,13 @@ fun DashboardScreen(
 
     if (showCreateProjectDialog) {
         val uiPresets by viewModel.toolbarManager.uiPresetsNames.collectAsState()
-        val toolPresets by viewModel.toolManager.toolPresetGroupNames.collectAsState()
         com.sketcher.sketchercompanionv1.ui.dialogs.CreateProjectDialog(
             initialName = remember(items) { getUniqueProjectName(items) },
             theme = theme,
             uiPresets = uiPresets,
-            toolPresets = toolPresets,
             onDismiss = { showCreateProjectDialog = false },
-            onConfirm = { name, templateFile, scaleRatio, canvasSizeConfig, backgroundStyle, uiPresetName, toolPresetName ->
-                viewModel.createLocalProject(context, name, templateFile, scaleRatio, canvasSizeConfig, backgroundStyle, uiPresetName, toolPresetName)
+            onConfirm = { name, templateFile, scaleRatio, canvasSizeConfig, backgroundStyle, uiPresetName ->
+                viewModel.createLocalProject(context, name, templateFile, scaleRatio, canvasSizeConfig, backgroundStyle, uiPresetName)
                 showCreateProjectDialog = false
             }
         )

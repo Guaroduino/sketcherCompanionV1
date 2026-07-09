@@ -42,6 +42,7 @@ import androidx.compose.foundation.verticalScroll
 
 
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.graphicsLayer
 
 
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -1330,7 +1331,7 @@ fun StudioLayout(
 
 
                 view.currentSelectionMode = viewModel.currentSelectionMode
-
+                view.activeTextElementForEdit = viewModel.activeTextElementForEdit
 
                 // Synchronize Camera Matrix (Studio UI Activation)
 
@@ -1393,13 +1394,98 @@ fun StudioLayout(
 
 
                 view.invalidate()
-
-
             }
-
-
         )
 
+        // --- TEXT EDIT OVERLAY ---
+        val activeTextElementForEdit = viewModel.activeTextElementForEdit
+        if (activeTextElementForEdit != null) {
+            val currentCameraMatrix by viewModel.cameraMatrix.collectAsState()
+            
+            val screenMatrix = android.graphics.Matrix()
+            screenMatrix.set(currentCameraMatrix)
+            screenMatrix.postConcat(activeTextElementForEdit.getMatrix())
+            
+            val values = FloatArray(9)
+            screenMatrix.getValues(values)
+            val tx = values[android.graphics.Matrix.MTRANS_X]
+            val ty = values[android.graphics.Matrix.MTRANS_Y]
+            val sx = values[android.graphics.Matrix.MSCALE_X]
+            val sy = values[android.graphics.Matrix.MSCALE_Y]
+            val angle = kotlin.math.atan2(values[android.graphics.Matrix.MSKEW_Y], values[android.graphics.Matrix.MSCALE_X]) * (180.0 / kotlin.math.PI).toFloat()
+
+            val initialTextHtml = remember(activeTextElementForEdit.id) { activeTextElementForEdit.textHtml }
+
+            // To sync the width without causing an infinite re-render loop
+            val textWidthDp = with(androidx.compose.ui.platform.LocalDensity.current) { activeTextElementForEdit.width.toDp() }
+
+            AndroidView(
+                modifier = Modifier
+                    .graphicsLayer {
+                        translationX = tx
+                        translationY = ty
+                        scaleX = sx
+                        scaleY = sy
+                        rotationZ = angle
+                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+                    }
+                    .width(textWidthDp),
+                factory = { ctx ->
+                    android.widget.EditText(ctx).apply {
+                        setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                        setPadding(0, 0, 0, 0)
+                        setTextColor(activeTextElementForEdit.defaultTextColor)
+                        textSize = activeTextElementForEdit.defaultTextSize
+                        gravity = android.view.Gravity.TOP or android.view.Gravity.START
+                        inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                        
+                        try {
+                            typeface = android.graphics.Typeface.create(activeTextElementForEdit.fontFamilyName, android.graphics.Typeface.NORMAL)
+                        } catch (e: Exception) {}
+
+                        if (initialTextHtml.isNotEmpty()) {
+                            setText(android.text.Html.fromHtml(initialTextHtml, android.text.Html.FROM_HTML_MODE_LEGACY))
+                        }
+                        
+                        addTextChangedListener(object : android.text.TextWatcher {
+                            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                            override fun afterTextChanged(s: android.text.Editable?) {
+                                if (s != null) {
+                                    val html = android.text.Html.toHtml(s, android.text.Html.TO_HTML_PARAGRAPH_LINES_CONSECUTIVE)
+                                    activeTextElementForEdit.textHtml = html
+                                    // Update the canvas to reflect new height if needed
+                                    canvasViewRef.value?.redrawAllCache()
+                                }
+                            }
+                        })
+                        
+                        post { 
+                            requestFocus()
+                            val imm = ctx.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                            imm.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                        }
+                        
+                        // Set the ref to viewModel for styling
+                        viewModel.activeEditTextRef = this
+                    }
+                },
+                update = { editText ->
+                    editText.setTextColor(activeTextElementForEdit.defaultTextColor)
+                    editText.textSize = activeTextElementForEdit.defaultTextSize
+                    try {
+                        editText.typeface = android.graphics.Typeface.create(activeTextElementForEdit.fontFamilyName, android.graphics.Typeface.NORMAL)
+                    } catch (e: Exception) {}
+                    
+                    val align = when (activeTextElementForEdit.alignment) {
+                        "CENTER" -> android.view.Gravity.CENTER_HORIZONTAL
+                        "RIGHT" -> android.view.Gravity.END
+                        else -> android.view.Gravity.START
+                    }
+                    editText.gravity = android.view.Gravity.TOP or align
+                }
+            )
+        }
 
         // --- 0. BACKGROUND UI LAYERS (Scale Indicator) ---
 
@@ -3566,7 +3652,13 @@ fun StudioLayout(
                     com.sketcher.sketchercompanionv1.ui.components.TextFormatContextBar(
                         element = selectedText,
                         theme = theme,
-                        onEditTextClick = { viewModel.startEditingText(selectedText) },
+                        onEditTextClick = { 
+                            if (viewModel.activeTextElementForEdit != null) {
+                                viewModel.dismissTextEdits()
+                            } else {
+                                viewModel.startEditingText(selectedText)
+                            }
+                        },
                         onStyleChange = { template ->
                             viewModel.updateSelectedTextProperty("Cambiar Estilo de Texto") {
                                 val newSize = when (template) {
@@ -3596,7 +3688,8 @@ fun StudioLayout(
                         },
                         onColorClick = {
                             viewModel.editTool(com.sketcher.sketchercompanionv1.ui.components.ToolPayload.STROKE_COLOR, "text_color")
-                        }
+                        },
+                        activeEditTextRef = viewModel.activeEditTextRef
                     )
                 } else {
                     ContextActionBar(
@@ -3661,11 +3754,10 @@ fun StudioLayout(
 
 
                 Button(
-
-
-                    onClick = { viewModel.toggleEditMode() },
-
-
+                    onClick = { 
+                        viewModel.toggleEditMode() 
+                        viewModel.setShowPersonalizationDialog(true)
+                    },
                     colors = ButtonDefaults.buttonColors(
 
 
@@ -4472,16 +4564,7 @@ fun StudioLayout(
         )
     }
 
-    viewModel.activeTextEditState?.let { editState ->
-        com.sketcher.sketchercompanionv1.ui.dialogs.TextEditDialog(
-            state = editState,
-            theme = theme,
-            onDismiss = { viewModel.dismissTextEdits() },
-            onConfirm = { html, color, size, font, alignment, template ->
-                viewModel.applyTextEdits(html, color, size, font, alignment, template)
-            }
-        )
-    }
+    // TextEditDialog is now replaced by In-Place WYSIWYG editing
 
 
 }

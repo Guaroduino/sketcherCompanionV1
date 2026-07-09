@@ -90,11 +90,20 @@ fun CustomToolsManagerDialog(
                             .fillMaxWidth(),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = "No tienes herramientas personalizadas creadas.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = theme.iconColor.copy(alpha = 0.6f)
-                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "No tienes herramientas personalizadas creadas.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = theme.iconColor.copy(alpha = 0.6f)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Button(
+                                onClick = { viewModel.toolManager.restoreDefaultBrushes() },
+                                colors = ButtonDefaults.buttonColors(containerColor = theme.highlightColor)
+                            ) {
+                                Text("Restaurar Pinceles Base", color = theme.barBackgroundColor)
+                            }
+                        }
                     }
                 } else {
                     LazyColumn(

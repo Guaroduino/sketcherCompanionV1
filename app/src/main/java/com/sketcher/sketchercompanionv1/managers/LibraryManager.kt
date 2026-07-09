@@ -16,6 +16,7 @@ import com.sketcher.sketchercompanionv1.dto.LibraryStateJson
 import com.sketcher.sketchercompanionv1.utils.toLayerElementJson
 import com.sketcher.sketchercompanionv1.utils.toComponentDefinitionJson
 import com.sketcher.sketchercompanionv1.utils.toComponentDefinition
+import com.sketcher.sketchercompanionv1.utils.collectAllAssetPaths
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -85,9 +86,9 @@ object LibraryManager {
 
             val assetsDir = File(userDir, ASSETS_DIR_NAME)
             val jsonString = file.readText(Charsets.UTF_8)
-            val stateJson = Gson().fromJson(jsonString, LibraryStateJson::class.java)
+            val stateJson = try { Gson().fromJson(jsonString, LibraryStateJson::class.java) } catch (e: Exception) { null }
 
-            stateJson.items.mapNotNull { itemJson ->
+            stateJson?.items?.mapNotNull { itemJson ->
                 when (itemJson.type) {
                     "FOLDER" -> LibraryFolder(itemJson.id, itemJson.name, itemJson.parentId)
                     "COMPONENT" -> {
@@ -146,12 +147,16 @@ object LibraryManager {
                     }
                     else -> null
                 }
-            }
+            } ?: emptyList()
         }
     }
 
     private fun saveAssets(elements: List<LayerElement>, assetsDir: File) {
+        val texturePaths = mutableSetOf<String>()
+
         elements.forEach { element ->
+            element.collectAllAssetPaths(texturePaths)
+
             if (element is ImageElement) {
                 val file = File(assetsDir, element.imageFileName)
                 if (!file.exists()) {
@@ -168,6 +173,25 @@ object LibraryManager {
                 saveAssets(element.elements, assetsDir)
             } else if (element is com.sketcher.sketchercompanionv1.ComponentInstance) {
                 // Not supported to save recursive components right now unless we fetch their definition
+            }
+        }
+
+        // Copy texture files
+        texturePaths.forEach { absPath ->
+            try {
+                val sourceFile = java.io.File(absPath)
+                if (sourceFile.exists()) {
+                    val destFile = java.io.File(assetsDir, sourceFile.name)
+                    if (!destFile.exists()) {
+                        java.io.FileInputStream(sourceFile).use { input ->
+                            java.io.FileOutputStream(destFile).use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
     }
