@@ -1,7 +1,7 @@
 {
-  "versionCode": 85,
-  "versionName": "1.0.84",
+  "versionCode": 87,
+  "versionName": "1.0.86",
   "apkUrl": "https://firebasestorage.googleapis.com/v0/b/sketchercompanionapp.firebasestorage.app/o/updates%2Fapp-debug.apk?alt=media",
-  "releaseNotes": "Feature: Seleccion multiple en la libreria. Manten presionado un elemento para entrar al modo seleccion.",
+  "releaseNotes": "Publicación desde asistente para actualizar dispositivos",
   "forceUpdate": false
 }
