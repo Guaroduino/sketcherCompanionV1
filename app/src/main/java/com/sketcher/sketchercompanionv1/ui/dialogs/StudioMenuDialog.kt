@@ -182,7 +182,7 @@ fun StudioMenu(
                     viewModel.setShowPersonalizationDialog(true)
                     onDismiss()
                 }
-                MenuItem(Icons.Default.Build, "Administrador de Herramientas", theme.iconColor) { 
+                MenuItem(Icons.Default.Build, "Taller de Pinceles", theme.iconColor) { 
                     viewModel.showCustomToolsManagerDialog = true
                     onDismiss()
                 }

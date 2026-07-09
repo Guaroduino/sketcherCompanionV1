@@ -7,6 +7,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -147,6 +148,68 @@ fun ToolPropertiesPanel(
                             Text(
                                 text = "No additional properties for this tool.",
                                 style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                }
+
+                val activeCustomToolIdVal = viewModel.activeCustomToolId
+                if (activeCustomToolIdVal != null) {
+                    val isModified = viewModel.isCustomToolModified(activeCustomToolIdVal)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = { viewModel.saveActiveCustomToolChanges() },
+                            enabled = isModified,
+                            shape = theme.panelShape(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = theme.highlightColor,
+                                contentColor = theme.barBackgroundColor,
+                                disabledContainerColor = theme.buttonColor.copy(alpha = 0.1f),
+                                disabledContentColor = theme.iconColor.copy(alpha = 0.3f)
+                            ),
+                            modifier = Modifier.weight(1f).height(36.dp),
+                            contentPadding = PaddingValues(vertical = 0.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Save,
+                                contentDescription = "Guardar Cambios",
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Guardar",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = { viewModel.revertCustomToolChanges() },
+                            enabled = isModified,
+                            shape = theme.panelShape(),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = theme.iconColor,
+                                disabledContentColor = theme.iconColor.copy(alpha = 0.3f)
+                            ),
+                            border = BorderStroke(
+                                width = 1.dp,
+                                color = if (isModified) theme.iconColor.copy(alpha = 0.4f) else theme.iconColor.copy(alpha = 0.1f)
+                            ),
+                            modifier = Modifier.weight(1f).height(36.dp),
+                            contentPadding = PaddingValues(vertical = 0.dp)
+                        ) {
+                            Text(
+                                text = "Restablecer",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
                             )
                         }
                     }

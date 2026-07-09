@@ -1,6 +1,7 @@
 package com.sketcher.sketchercompanionv1.tools
 
 import com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode
+import com.sketcher.sketchercompanionv1.dto.StrokeEndOptions
 
 /**
  * Interface representing the independent settings of any drawing tool.
@@ -22,10 +23,8 @@ data class PencilSettings(
     val smoothing: Float = 0.5f,
     val streamline: Float = 0.5f,
     val simulatePressure: Boolean = false,
-    val taperStart: Float = 0.0f,
-    val taperEnd: Float = 0.0f,
-    val capStart: Boolean = true,
-    val capEnd: Boolean = true,
+    val start: StrokeEndOptions = StrokeEndOptions(cap = true, taperEnabled = false),
+    val end: StrokeEndOptions = StrokeEndOptions(cap = true, taperEnabled = false),
     val isComplete: Boolean = false,
     val predictionLatency: Long = 15L,
     val simplificationTolerance: Float = 0.0f,
@@ -58,10 +57,8 @@ data class PlumaSettings(
     override val velocityThinning: Float = 0.0f,
     val smoothing: Float = 0.5f,
     val simulatePressure: Boolean = true,
-    val taperStart: Float = 0.0f,
-    val taperEnd: Float = 0.0f,
-    val capStart: Boolean = true,
-    val capEnd: Boolean = true,
+    val start: StrokeEndOptions = StrokeEndOptions(cap = true, taperEnabled = false),
+    val end: StrokeEndOptions = StrokeEndOptions(cap = true, taperEnabled = false),
     val useCurveForPolygon: Boolean = true,
     val simplificationTolerance: Float = 0.0f,
     val isSimplificationEnabled: Boolean = false,
@@ -78,7 +75,9 @@ data class PaintSettings(
     override val velocityThinning: Float = 0.0f,
     val smoothing: Float = 0.5f,
     val paintOutlineWidth: Float = 2.0f,
-    val paintJoinPrevious: Boolean = true
+    val paintJoinPrevious: Boolean = true,
+    val start: StrokeEndOptions = StrokeEndOptions(cap = false, taperEnabled = false),
+    val end: StrokeEndOptions = StrokeEndOptions(cap = false, taperEnabled = false)
 ) : ToolSettings
 
 /**
@@ -98,7 +97,11 @@ data class WatercolorSettings(
     val watercolorCenterOpacity: Float = 0.8f,
     val watercolorEdgeRingOpacity: Float = 1.0f,
     val watercolorEdgeRingWidth: Float = 2.0f,
-    val paintJoinPrevious: Boolean = true
+    val paintJoinPrevious: Boolean = true,
+    val linkStrokeToFill: Boolean = false,
+    val strokeBrightnessOffset: Float = 0.0f,
+    val start: StrokeEndOptions = StrokeEndOptions(cap = false, taperEnabled = false),
+    val end: StrokeEndOptions = StrokeEndOptions(cap = false, taperEnabled = false)
 ) : ToolSettings
 
 fun com.sketcher.sketchercompanionv1.dto.FreehandSettings.toToolSettings(toolType: com.sketcher.sketchercompanionv1.dto.ToolType): ToolSettings {
@@ -112,10 +115,8 @@ fun com.sketcher.sketchercompanionv1.dto.FreehandSettings.toToolSettings(toolTyp
             smoothing = this.smoothing,
             minWidthRatio = this.minWidthRatio,
             simulatePressure = this.simulatePressure,
-            taperStart = this.taperStart,
-            taperEnd = this.taperEnd,
-            capStart = this.capStart,
-            capEnd = this.capEnd,
+            start = this.start,
+            end = this.end,
             useCurveForPolygon = this.useCurveForPolygon,
             simplificationTolerance = this.simplificationTolerance,
             isSimplificationEnabled = this.isSimplificationEnabled,
@@ -131,10 +132,8 @@ fun com.sketcher.sketchercompanionv1.dto.FreehandSettings.toToolSettings(toolTyp
             smoothing = this.smoothing,
             minWidthRatio = this.minWidthRatio,
             simulatePressure = this.simulatePressure,
-            taperStart = this.taperStart,
-            taperEnd = this.taperEnd,
-            capStart = this.capStart,
-            capEnd = this.capEnd,
+            start = this.start,
+            end = this.end,
             useCurveForPolygon = this.useCurveForPolygon,
             simplificationTolerance = this.simplificationTolerance,
             isSimplificationEnabled = this.isSimplificationEnabled,
@@ -155,10 +154,8 @@ fun com.sketcher.sketchercompanionv1.dto.FreehandSettings.toToolSettings(toolTyp
             velocityThinning = this.velocityThinning,
             smoothing = this.smoothing,
             simulatePressure = this.simulatePressure,
-            taperStart = this.taperStart,
-            taperEnd = this.taperEnd,
-            capStart = this.capStart,
-            capEnd = this.capEnd,
+            start = this.start,
+            end = this.end,
             useCurveForPolygon = this.useCurveForPolygon,
             simplificationTolerance = this.simplificationTolerance,
             isSimplificationEnabled = this.isSimplificationEnabled,
@@ -171,7 +168,9 @@ fun com.sketcher.sketchercompanionv1.dto.FreehandSettings.toToolSettings(toolTyp
             velocityThinning = this.velocityThinning,
             smoothing = this.smoothing,
             paintOutlineWidth = this.paintOutlineWidth,
-            paintJoinPrevious = this.paintJoinPrevious
+            paintJoinPrevious = this.paintJoinPrevious,
+            start = this.start,
+            end = this.end
         )
         com.sketcher.sketchercompanionv1.dto.ToolType.WATERCOLOR -> WatercolorSettings(
             size = 20f,
@@ -187,7 +186,11 @@ fun com.sketcher.sketchercompanionv1.dto.FreehandSettings.toToolSettings(toolTyp
             watercolorCenterOpacity = this.watercolorCenterOpacity,
             watercolorEdgeRingOpacity = this.watercolorEdgeRingOpacity,
             watercolorEdgeRingWidth = this.watercolorEdgeRingWidth,
-            paintJoinPrevious = this.paintJoinPrevious
+            paintJoinPrevious = this.paintJoinPrevious,
+            linkStrokeToFill = this.linkStrokeToFill,
+            strokeBrightnessOffset = this.strokeBrightnessOffset,
+            start = this.start,
+            end = this.end
         )
         else -> PencilSettings()
     }
@@ -203,10 +206,8 @@ fun ToolSettings.toFreehandSettings(toolType: com.sketcher.sketchercompanionv1.d
             smoothing = this.smoothing,
             minWidthRatio = this.minWidthRatio,
             simulatePressure = this.simulatePressure,
-            taperStart = this.taperStart,
-            taperEnd = this.taperEnd,
-            capStart = this.capStart,
-            capEnd = this.capEnd,
+            start = this.start,
+            end = this.end,
             useCurveForPolygon = this.useCurveForPolygon,
             simplificationTolerance = this.simplificationTolerance,
             isSimplificationEnabled = this.isSimplificationEnabled,
@@ -223,10 +224,8 @@ fun ToolSettings.toFreehandSettings(toolType: com.sketcher.sketchercompanionv1.d
             velocityThinning = this.velocityThinning,
             smoothing = this.smoothing,
             simulatePressure = this.simulatePressure,
-            taperStart = this.taperStart,
-            taperEnd = this.taperEnd,
-            capStart = this.capStart,
-            capEnd = this.capEnd,
+            start = this.start,
+            end = this.end,
             useCurveForPolygon = this.useCurveForPolygon
         )
         is PaintSettings -> base.copy(
@@ -234,7 +233,9 @@ fun ToolSettings.toFreehandSettings(toolType: com.sketcher.sketchercompanionv1.d
             velocityThinning = this.velocityThinning,
             smoothing = this.smoothing,
             paintOutlineWidth = this.paintOutlineWidth,
-            paintJoinPrevious = this.paintJoinPrevious
+            paintJoinPrevious = this.paintJoinPrevious,
+            start = this.start,
+            end = this.end
         )
         is WatercolorSettings -> base.copy(
             thinning = this.thinning,
@@ -248,7 +249,11 @@ fun ToolSettings.toFreehandSettings(toolType: com.sketcher.sketchercompanionv1.d
             watercolorCenterOpacity = this.watercolorCenterOpacity,
             watercolorEdgeRingOpacity = this.watercolorEdgeRingOpacity,
             watercolorEdgeRingWidth = this.watercolorEdgeRingWidth,
-            paintJoinPrevious = this.paintJoinPrevious
+            paintJoinPrevious = this.paintJoinPrevious,
+            linkStrokeToFill = this.linkStrokeToFill,
+            strokeBrightnessOffset = this.strokeBrightnessOffset,
+            start = this.start,
+            end = this.end
         )
         else -> base
     }

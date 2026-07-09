@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoFixNormal
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.BorderColor
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.Brush
@@ -70,6 +71,7 @@ enum class ToolPayload(val label: String, val icon: ImageVector, val iconResId: 
     PAINT("Paint", Icons.Default.Brush, R.drawable.ic_tabler_paint),
     WATERCOLOR("Acuarela", Icons.Default.Palette, R.drawable.ic_tabler_watercolor),
     PLUMA("Pluma", Icons.Default.Gesture, R.drawable.ic_tabler_pluma),
+    CUSTOM("Pincel Personalizado", Icons.Default.Brush, null),
     PENCIL_CUMULATIVE("Pencil Acumulativo", Icons.Default.Edit, R.drawable.ic_tabler_pencil_cumulative),
     STABILIZE("Estabilización", Icons.Default.Timeline, R.drawable.ic_tabler_stabilization),
     TEXT("Texto", Icons.Default.Title)
@@ -104,6 +106,7 @@ fun AssignableToolButton(
     showPersonalizationDialog: Boolean = false,
     isColorPreset: Boolean = false,
     isStabilizePreset: Boolean = false,
+    isLocked: Boolean = false,
     dropdownContent: @Composable (() -> Unit)? = null
 ) {
     val scaler = LocalUiScaler.current
@@ -270,8 +273,18 @@ fun AssignableToolButton(
                                 modifier = Modifier
                                     .size(18.dp * scaleFactor)
                                     .clip(CircleShape)
-                                    .background(backgroundColor)
-                            )
+                                    .background(backgroundColor),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isLocked) {
+                                    Icon(
+                                        imageVector = Icons.Default.Lock,
+                                        contentDescription = "Locked to Fill Color",
+                                        tint = iconColor.copy(alpha = 0.85f),
+                                        modifier = Modifier.size(10.dp * scaleFactor)
+                                    )
+                                }
+                            }
                         }
                     } else {
                         // FillStyle or Color preview for Fill

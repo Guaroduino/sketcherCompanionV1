@@ -14,7 +14,15 @@ sealed interface FillStyle {
     val opacity: Float
 
     data class Solid(
-        val color: Int
+        val color: Int,
+        val imagePath: String? = null,
+        val scaleX: Float = 1.0f,
+        val scaleY: Float = 1.0f,
+        val rotation: Float = 0.0f,
+        val offsetX: Float = 0.0f,
+        val offsetY: Float = 0.0f,
+        val tintMix: Float = 1.0f,
+        val blendModeName: String = "SRC_ATOP"
     ) : FillStyle {
         override val type = FillType.SOLID
         override val opacity: Float
@@ -65,7 +73,7 @@ fun FillStyle.copyWithOpacity(newOpacity: Float): FillStyle {
     return when (this) {
         is FillStyle.Solid -> {
             val alpha = (newOpacity * 255f).toInt().coerceIn(0, 255)
-            FillStyle.Solid((this.color and 0x00FFFFFF) or (alpha shl 24))
+            this.copy(color = (this.color and 0x00FFFFFF) or (alpha shl 24))
         }
         is FillStyle.MathTexture -> this.copy(opacity = newOpacity)
         is FillStyle.SvgPattern -> this.copy(opacity = newOpacity)

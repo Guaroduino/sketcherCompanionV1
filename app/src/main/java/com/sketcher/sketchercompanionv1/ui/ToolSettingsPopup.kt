@@ -12,6 +12,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.sketcher.sketchercompanionv1.dto.FreehandSettings
 import com.sketcher.sketchercompanionv1.dto.ToolType
+import com.sketcher.sketchercompanionv1.dto.StrokeEndOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import com.sketcher.sketchercompanionv1.SketcherViewModel
 import androidx.compose.ui.text.font.FontWeight
 
@@ -146,49 +150,12 @@ fun FreehandSettingsContent(
                 )
             }
 
-            HorizontalDivider()
-            
-            Text("Opciones de Punta", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-
-            // Taper
-            SettingSlider(
-                label = "Afilado de Inicio: ${currentSettings.taperStart.toInt()}px",
-                value = currentSettings.taperStart,
-                valueRange = 0f..150f,
-                onValueChange = { onSettingsChanged(currentSettings.copy(taperStart = it)) }
+            TaperingSettings(
+                start = currentSettings.start,
+                end = currentSettings.end,
+                onStartChanged = { onSettingsChanged(currentSettings.copy(start = it)) },
+                onEndChanged = { onSettingsChanged(currentSettings.copy(end = it)) }
             )
-            
-            SettingSlider(
-                label = "Afilado de Fin: ${currentSettings.taperEnd.toInt()}px",
-                value = currentSettings.taperEnd,
-                valueRange = 0f..150f,
-                onValueChange = { onSettingsChanged(currentSettings.copy(taperEnd = it)) }
-            )
-
-            // Caps
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Punta Redonda (Inicio)")
-                Switch(
-                    checked = currentSettings.capStart,
-                    onCheckedChange = { onSettingsChanged(currentSettings.copy(capStart = it)) }
-                )
-            }
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Punta Redonda (Fin)")
-                Switch(
-                    checked = currentSettings.capEnd,
-                    onCheckedChange = { onSettingsChanged(currentSettings.copy(capEnd = it)) }
-                )
-            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -284,42 +251,12 @@ fun FreehandSettingsContent(
                     onCheckedChange = { onSettingsChanged(currentSettings.copy(simulatePressure = it)) }
                 )
             }
-            HorizontalDivider()
-            Text("Opciones de Punta", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            SettingSlider(
-                label = "Afilado de Inicio: ${currentSettings.taperStart.toInt()}px",
-                value = currentSettings.taperStart,
-                valueRange = 0f..150f,
-                onValueChange = { onSettingsChanged(currentSettings.copy(taperStart = it)) }
+            TaperingSettings(
+                start = currentSettings.start,
+                end = currentSettings.end,
+                onStartChanged = { onSettingsChanged(currentSettings.copy(start = it)) },
+                onEndChanged = { onSettingsChanged(currentSettings.copy(end = it)) }
             )
-            SettingSlider(
-                label = "Afilado de Fin: ${currentSettings.taperEnd.toInt()}px",
-                value = currentSettings.taperEnd,
-                valueRange = 0f..150f,
-                onValueChange = { onSettingsChanged(currentSettings.copy(taperEnd = it)) }
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Punta Redonda (Inicio)")
-                Switch(
-                    checked = currentSettings.capStart,
-                    onCheckedChange = { onSettingsChanged(currentSettings.copy(capStart = it)) }
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Punta Redonda (Fin)")
-                Switch(
-                    checked = currentSettings.capEnd,
-                    onCheckedChange = { onSettingsChanged(currentSettings.copy(capEnd = it)) }
-                )
-            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -396,6 +333,12 @@ fun FreehandSettingsContent(
                     onCheckedChange = { onSettingsChanged(currentSettings.copy(paintJoinPrevious = it)) }
                 )
             }
+            TaperingSettings(
+                start = currentSettings.start,
+                end = currentSettings.end,
+                onStartChanged = { onSettingsChanged(currentSettings.copy(start = it)) },
+                onEndChanged = { onSettingsChanged(currentSettings.copy(end = it)) }
+            )
         }
         is com.sketcher.sketchercompanionv1.tools.WatercolorSettings -> {
             SettingSlider(
@@ -420,6 +363,58 @@ fun FreehandSettingsContent(
                 valueRange = 0.5f..15f,
                 onValueChange = { onSettingsChanged(currentSettings.copy(paintOutlineWidth = it)) }
             )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Fusionar con trazos anteriores")
+                }
+                Switch(
+                    checked = currentSettings.paintJoinPrevious,
+                    onCheckedChange = { onSettingsChanged(currentSettings.copy(paintJoinPrevious = it)) }
+                )
+            }
+            
+            // Lock toggle and Brightness offset slider
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                val isLocked = currentSettings.linkStrokeToFill
+                IconButton(
+                    onClick = {
+                        onSettingsChanged(currentSettings.copy(linkStrokeToFill = !isLocked))
+                    }
+                ) {
+                    Icon(
+                        imageVector = if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                        contentDescription = "Link Stroke to Fill Color",
+                        tint = if (isLocked) MaterialTheme.colorScheme.primary else Color.LightGray,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                Box(modifier = Modifier.weight(1f)) {
+                    SettingSlider(
+                        label = if (isLocked) {
+                            "Stroke offset: ${if (currentSettings.strokeBrightnessOffset >= 0) "+" else ""}${(currentSettings.strokeBrightnessOffset * 100).toInt()}% brightness"
+                        } else {
+                            "Stroke offset (desvinculado)"
+                        },
+                        value = currentSettings.strokeBrightnessOffset,
+                        onValueChange = {
+                            onSettingsChanged(currentSettings.copy(strokeBrightnessOffset = it))
+                        },
+                        valueRange = -1.0f..1.0f,
+                        showValueOnRight = true,
+                        valueFormatter = { String.format("%+d%%", (it * 100).toInt()) },
+                        enabled = isLocked
+                    )
+                }
+            }
             HorizontalDivider()
             Text("Ajustes de Acuarela", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             SettingSlider(
@@ -469,6 +464,12 @@ fun FreehandSettingsContent(
                     )
                 }
             }
+            TaperingSettings(
+                start = currentSettings.start,
+                end = currentSettings.end,
+                onStartChanged = { onSettingsChanged(currentSettings.copy(start = it)) },
+                onEndChanged = { onSettingsChanged(currentSettings.copy(end = it)) }
+            )
         }
     }
 
@@ -514,6 +515,64 @@ fun EraserSettingsContent(
         Switch(
             checked = selectionScope == SketcherViewModel.SelectionScope.ALL_LAYERS,
             onCheckedChange = { onToggleSelectionScope() }
+        )
+    }
+}
+
+@Composable
+fun TaperingSettings(
+    start: StrokeEndOptions,
+    end: StrokeEndOptions,
+    onStartChanged: (StrokeEndOptions) -> Unit,
+    onEndChanged: (StrokeEndOptions) -> Unit
+) {
+    HorizontalDivider()
+    
+    Text("Opciones de Punta (Afilado/Taper)", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+
+    // Taper
+    SettingSlider(
+        label = "Afilado de Inicio: ${(start.customTaper ?: 0f).toInt()}px",
+        value = start.customTaper ?: 0f,
+        valueRange = 0f..150f,
+        onValueChange = { 
+            val taperVal = if (it == 0f) null else it
+            onStartChanged(start.copy(customTaper = taperVal, taperEnabled = taperVal != null)) 
+        }
+    )
+    
+    SettingSlider(
+        label = "Afilado de Fin: ${(end.customTaper ?: 0f).toInt()}px",
+        value = end.customTaper ?: 0f,
+        valueRange = 0f..150f,
+        onValueChange = { 
+            val taperVal = if (it == 0f) null else it
+            onEndChanged(end.copy(customTaper = taperVal, taperEnabled = taperVal != null)) 
+        }
+    )
+
+    // Caps
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text("Punta Redonda (Inicio)")
+        Switch(
+            checked = start.cap,
+            onCheckedChange = { onStartChanged(start.copy(cap = it)) }
+        )
+    }
+    
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text("Punta Redonda (Fin)")
+        Switch(
+            checked = end.cap,
+            onCheckedChange = { onEndChanged(end.copy(cap = it)) }
         )
     }
 }

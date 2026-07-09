@@ -194,7 +194,60 @@ class RenderEngine {
                 val origColor = style.color
                 val origAlpha = Color.alpha(origColor)
                 val newAlpha = (origAlpha * alphaMultiplier).toInt().coerceIn(0, 255)
-                paint.color = (origColor and 0x00FFFFFF) or (newAlpha shl 24)
+                val solidColor = (origColor and 0x00FFFFFF) or (newAlpha shl 24)
+                
+                if (style.imagePath != null) {
+                    val bitmap = ImageTextureCache.getOrCreate(style.imagePath)
+                    if (bitmap != null) {
+                        val shader = BitmapShader(bitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+                        tempShaderMatrix.reset()
+                        val basePxPerMm = scaleConfig.basePixelsPerMillimeter.coerceAtLeast(0.001f)
+                        val targetSizePx = 100f * basePxPerMm
+                        val baseScaleX = targetSizePx / bitmap.width
+                        val baseScaleY = targetSizePx / bitmap.height
+                        val matrix = tempShaderMatrix.apply {
+                            postScale(baseScaleX * style.scaleX, baseScaleY * style.scaleY)
+                            postRotate(style.rotation)
+                            postTranslate(style.offsetX, style.offsetY)
+                        }
+                        shader.setLocalMatrix(matrix)
+                        paint.shader = shader
+                        
+                        val filterColor = if (style.tintMix > 0f) {
+                            val mixAlpha = (style.tintMix.coerceIn(0f, 1f) * 255).toInt()
+                            (solidColor and 0x00FFFFFF) or (mixAlpha shl 24)
+                        } else {
+                            solidColor
+                        }
+                        
+                        val finalAlpha = (style.opacity * alphaMultiplier * 255).toInt().coerceIn(0, 255)
+                        paint.color = Color.argb(finalAlpha, 255, 255, 255)
+                        
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                            val blendMode = try {
+                                android.graphics.BlendMode.valueOf(style.blendModeName)
+                            } catch (e: Exception) {
+                                android.graphics.BlendMode.SRC_ATOP
+                            }
+                            paint.colorFilter = android.graphics.BlendModeColorFilter(filterColor, blendMode)
+                        } else {
+                            val pdMode = try {
+                                PorterDuff.Mode.valueOf(style.blendModeName)
+                            } catch (e: Exception) {
+                                if (style.blendModeName == "DIFFERENCE") PorterDuff.Mode.MULTIPLY else PorterDuff.Mode.SRC_ATOP
+                            }
+                            paint.colorFilter = PorterDuffColorFilter(filterColor, pdMode)
+                        }
+                    } else {
+                        paint.color = solidColor
+                        paint.shader = null
+                        paint.colorFilter = null
+                    }
+                } else {
+                    paint.color = solidColor
+                    paint.shader = null
+                    paint.colorFilter = null
+                }
             }
             is FillStyle.SvgPattern -> {
                 val bitmap = SvgPatternCache.getOrCreate(style)
@@ -708,10 +761,12 @@ class RenderEngine {
      private fun drawVectorStroke(canvas: Canvas, stroke: VectorStroke, viewMatrix: Matrix, alphaMultiplier: Float = 1f) {
         val isPaintOrWatercolor = stroke.brushType == "PAINT" || stroke.brushType == "WATERCOLOR"
         if (isPaintOrWatercolor) {
-            val strokeOpacity = stroke.strokeStyle.opacity
-            val totalOpacity = alphaMultiplier * strokeOpacity
+            val strokeOpacity = if (stroke.isStrokeEnabled) stroke.strokeStyle.opacity else 0f
+            val fillOpacity = if (stroke.isFillEnabled && stroke.fillPath != null) stroke.fillStyle.opacity else 0f
+            val baseOpacity = maxOf(strokeOpacity, fillOpacity)
+            val totalOpacity = alphaMultiplier * baseOpacity
             
-            if (totalOpacity < 1f) {
+            if (totalOpacity < 1f && totalOpacity > 0f) {
                 val bounds = stroke.getBoundingBox(emptyMap())
                 val tempBounds = RectF(bounds)
                 val pad = stroke.maxWidth.coerceAtLeast(4f) * 1.5f
@@ -722,11 +777,7 @@ class RenderEngine {
                 
                 // 1. Draw Fill (if enabled)
                 if (stroke.isFillEnabled && stroke.fillPath != null) {
-                    val relativeFillAlpha = if (stroke.brushType == "WATERCOLOR") {
-                        stroke.fillStyle.opacity
-                    } else {
-                        if (strokeOpacity > 0f) (stroke.fillStyle.opacity / strokeOpacity).coerceIn(0f, 1f) else 0f
-                    }
+                    val relativeFillAlpha = if (baseOpacity > 0f) fillOpacity / baseOpacity else 0f
                     vectorPaint.style = Paint.Style.FILL
                     applyFillStyle(vectorPaint, stroke.fillStyle.copyWithOpacity(1f), relativeFillAlpha)
                     canvas.drawPath(stroke.fillPath, vectorPaint)
@@ -735,13 +786,14 @@ class RenderEngine {
                 
                 // 2. Draw Stroke outline (if enabled)
                 if (stroke.isStrokeEnabled) {
-                    stroke.getBrushRenderer().draw(canvas, stroke, vectorPaint, 1f) { p, alpha ->
+                    val relativeStrokeAlpha = if (baseOpacity > 0f) strokeOpacity / baseOpacity else 0f
+                    stroke.getBrushRenderer().draw(canvas, stroke, vectorPaint, relativeStrokeAlpha) { p, alpha ->
                         applyFillStyle(p, stroke.strokeStyle.copyWithOpacity(1f), alpha)
                     }
                 }
                 
                 canvas.restoreToCount(saveCount)
-            } else {
+            } else if (totalOpacity >= 1f) {
                 // 1. Draw Fill (if enabled) directly
                 if (stroke.isFillEnabled && stroke.fillPath != null) {
                     vectorPaint.style = Paint.Style.FILL

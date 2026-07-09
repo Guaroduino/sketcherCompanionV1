@@ -195,7 +195,7 @@ fun ToolPickerDialog(
                     verticalArrangement = Arrangement.spacedBy(8.sdp)
                 ) {
                     val isContextSlot = location == ToolLocation.ContextBar
-                    items(ToolRegistry.allTools.filter { !it.isPlaceholder && it.isContextual == isContextSlot && it.parentGroupId == null }) { tool ->
+                    items(ToolRegistry.allTools.filter { !it.isPlaceholder && it.isContextual == isContextSlot }) { tool ->
                         ToolItem(tool = tool, theme = theme, scaler = scaler) {
                             if (isAddingAdditional) {
                                 onAddSubTool?.invoke(tool)

@@ -49,6 +49,7 @@ fun StudioToolButton(
     theme: UiThemeConfig,
     scaler: UiScaler,
     brushSize: Float,
+    isStrokeColorLocked: Boolean = false,
     resolveIsActive: (StudioTool) -> Boolean,
     resolveIsActionButton: (StudioTool) -> Boolean,
     onSlotEditClick: (ToolLocation, Int) -> Unit,
@@ -162,6 +163,7 @@ fun StudioToolButton(
                     ToolPayload.FILL_COLOR -> isFillColorPresetVal
                     else -> false
                 },
+                isLocked = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && isStrokeColorLocked),
                 isStabilizePreset = if (assignedToolsMap[tool.id] == ToolPayload.STABILIZE) {
                     val btnStab = assignedStabMap[tool.id] ?: presetStab
                     val btnOpacity = assignedOpacityMap[tool.id] ?: presetOpacity
@@ -289,6 +291,7 @@ fun BoxScope.StudioLeftBar(
     assignedOpacityMap: Map<String, Float> = emptyMap(),
     presetStab: Float = 0f,
     presetOpacity: Float = 1f,
+    isStrokeColorLocked: Boolean = false,
     studioMenuContent: @Composable () -> Unit = {},
     personalizationMenuContent: @Composable () -> Unit = {}
 ) {
@@ -347,6 +350,7 @@ fun BoxScope.StudioLeftBar(
                         assignedOpacityMap = assignedOpacityMap,
                         presetStab = presetStab,
                         presetOpacity = presetOpacity,
+                        isStrokeColorLocked = isStrokeColorLocked,
                         studioMenuContent = studioMenuContent,
                         personalizationMenuContent = personalizationMenuContent
                     )
@@ -405,6 +409,7 @@ fun BoxScope.StudioRightBar(
     assignedOpacityMap: Map<String, Float> = emptyMap(),
     presetStab: Float = 0f,
     presetOpacity: Float = 1f,
+    isStrokeColorLocked: Boolean = false,
     studioMenuContent: @Composable () -> Unit = {},
     personalizationMenuContent: @Composable () -> Unit = {}
 ) {
@@ -463,6 +468,7 @@ fun BoxScope.StudioRightBar(
                         assignedOpacityMap = assignedOpacityMap,
                         presetStab = presetStab,
                         presetOpacity = presetOpacity,
+                        isStrokeColorLocked = isStrokeColorLocked,
                         studioMenuContent = studioMenuContent,
                         personalizationMenuContent = personalizationMenuContent
                     )

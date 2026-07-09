@@ -305,14 +305,12 @@ object PerfectFreehandGenerator {
         
         val easing: (Float) -> Float = { t -> t }
 
-        val capStart = settings.capStart
-        val capEnd = settings.capEnd
+        val capStart = settings.start.cap
+        val capEnd = settings.end.cap
         
-        val hermiteEase: (Float) -> Float = { t -> t * t * (3 - 2 * t) }
-
         val totalLength = points.last().runningLength
-        val taperStart = settings.taperStart
-        val taperEnd = settings.taperEnd
+        val taperStart = if (settings.start.taperEnabled) settings.start.customTaper ?: max(size, totalLength) else 0f
+        val taperEnd = if (settings.end.taperEnabled) settings.end.customTaper ?: max(size, totalLength) else 0f
 
         val minDistance = (size * smoothing).pow(2)
         val minWidth = size * minWidthRatio
@@ -361,29 +359,25 @@ object PerfectFreehandGenerator {
 
             if (firstRadius == null) firstRadius = radius
             
-            if (taperStart > 0f) {
+            val ts = if (taperStart > 0f) {
                 val dist = curr.runningLength
-                if (dist < taperStart) {
-                    val tf = hermiteEase(dist / taperStart)
-                    radius *= tf
-                }
-            }
-            if (taperEnd > 0f) {
-                val distFromEnd = totalLength - curr.runningLength
-                if (distFromEnd < taperEnd) {
-                    val tf = hermiteEase(distFromEnd / taperEnd)
-                    radius *= tf
-                }
-            }
+                if (dist < taperStart) StrokeEasings.easeInOut(dist / taperStart) else 1f
+            } else 1f
             
-            radius = max(0.01f, radius)
+            val te = if (taperEnd > 0f) {
+                val distFromEnd = totalLength - curr.runningLength
+                if (distFromEnd < taperEnd) StrokeEasings.easeOutCubic((totalLength - curr.runningLength) / taperEnd) else 1f
+            } else 1f
+            
+            radius = max(0.01f, radius * min(ts, te))
 
             val nextVector = if (i < points.size - 1) points[i + 1].vector else points[i].vector
             val nextDpr = if (i < points.size - 1) PerfectFreehandUtils.dpr(curr.vector, nextVector) else 1.0f
             val prevDpr = PerfectFreehandUtils.dpr(curr.vector, prevVector)
 
-            val isPointSharpCorner = prevDpr < 0 && !isPrevPointSharpCorner
-            val isNextPointSharpCorner = nextDpr < 0
+            val maxDprForSharpCorner = size / 128f
+            val isPointSharpCorner = prevDpr < maxDprForSharpCorner && !isPrevPointSharpCorner
+            val isNextPointSharpCorner = nextDpr < maxDprForSharpCorner
 
             if (isPointSharpCorner || isNextPointSharpCorner) {
                 // Calculate the actual angle difference between incoming and outgoing directions
@@ -469,9 +463,11 @@ object PerfectFreehandGenerator {
         val endCap = ArrayList<Vec2>()
 
         if (points.size == 1) {
-            val r = firstRadius ?: radius
-            val dot = drawDot(pool, firstPoint, r)
-            return OutlineResult(dot, emptyList(), dot, r)
+            if (!(taperStart > 0f || taperEnd > 0f) || settings.isComplete) {
+                val r = firstRadius ?: radius
+                val dot = drawDot(pool, firstPoint, r)
+                return OutlineResult(dot, emptyList(), dot, r)
+            }
         }
         
         val endTaperingActive = taperEnd > 0f

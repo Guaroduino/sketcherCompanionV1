@@ -305,8 +305,8 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     val freehandSettings = when (val s = settings) {
         is com.sketcher.sketchercompanionv1.tools.PencilSettings -> FreehandSettings(
             size = s.size, thinning = s.thinning, smoothing = s.smoothing, streamline = s.streamline,
-            simulatePressure = s.simulatePressure, taperStart = s.taperStart, taperEnd = s.taperEnd,
-            capStart = s.capStart, capEnd = s.capEnd, isComplete = s.isComplete,
+            simulatePressure = s.simulatePressure, start = s.start, end = s.end,
+            isComplete = s.isComplete,
             predictionLatency = s.predictionLatency, simplificationTolerance = s.simplificationTolerance,
             velocityThinning = s.velocityThinning, velocityMaxInput = s.velocityMaxInput,
             useCurveForPolygon = s.useCurveForPolygon, isSimplificationEnabled = s.isSimplificationEnabled,
@@ -314,29 +314,31 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         )
         is com.sketcher.sketchercompanionv1.tools.PenSettings -> FreehandSettings(
             size = s.size, thinning = 0f, smoothing = s.smoothing, streamline = 0f,
-            simulatePressure = false, taperStart = 0f, taperEnd = 0f, capStart = true, capEnd = true,
+            simulatePressure = false, start = com.sketcher.sketchercompanionv1.dto.StrokeEndOptions(cap = true, taperEnabled = false), end = com.sketcher.sketchercompanionv1.dto.StrokeEndOptions(cap = true, taperEnabled = false),
             isComplete = false, useCurveForPolygon = true, isSimplificationEnabled = false
         )
         is com.sketcher.sketchercompanionv1.tools.PlumaSettings -> FreehandSettings(
             size = s.size, thinning = s.thinning, smoothing = s.smoothing, streamline = s.smoothing * 0.8f,
-            simulatePressure = true, taperStart = s.taperStart, taperEnd = s.taperEnd,
-            capStart = s.capStart, capEnd = s.capEnd, isComplete = false,
+            simulatePressure = true, start = s.start, end = s.end,
+            isComplete = false,
             useCurveForPolygon = s.useCurveForPolygon, simplificationTolerance = s.simplificationTolerance,
             isSimplificationEnabled = s.isSimplificationEnabled, minWidthRatio = s.minWidthRatio
         )
         is com.sketcher.sketchercompanionv1.tools.PaintSettings -> FreehandSettings(
             size = s.size, thinning = s.thinning, smoothing = s.smoothing, streamline = s.smoothing * 0.8f,
-            simulatePressure = false, capStart = false, capEnd = false,
+            simulatePressure = false, start = com.sketcher.sketchercompanionv1.dto.StrokeEndOptions(cap = false), end = com.sketcher.sketchercompanionv1.dto.StrokeEndOptions(cap = false),
             paintOutlineWidth = s.paintOutlineWidth, paintJoinPrevious = s.paintJoinPrevious
         )
         is com.sketcher.sketchercompanionv1.tools.WatercolorSettings -> FreehandSettings(
             size = s.size, thinning = s.thinning, smoothing = s.smoothing, streamline = s.smoothing * 0.8f,
-            simulatePressure = false, capStart = false, capEnd = false,
+            simulatePressure = false, start = com.sketcher.sketchercompanionv1.dto.StrokeEndOptions(cap = false), end = com.sketcher.sketchercompanionv1.dto.StrokeEndOptions(cap = false),
             paintOutlineWidth = s.paintOutlineWidth, watercolorJitterSegment = s.watercolorJitterSegment,
             watercolorJitterDeviation = s.watercolorJitterDeviation, watercolorBlurRadius = s.watercolorBlurRadius,
             watercolorEdgeMode = s.watercolorEdgeMode, watercolorCenterOpacity = s.watercolorCenterOpacity,
             watercolorEdgeRingOpacity = s.watercolorEdgeRingOpacity, watercolorEdgeRingWidth = s.watercolorEdgeRingWidth,
-            paintJoinPrevious = s.paintJoinPrevious
+            paintJoinPrevious = s.paintJoinPrevious,
+            linkStrokeToFill = s.linkStrokeToFill,
+            strokeBrightnessOffset = s.strokeBrightnessOffset
         )
         else -> FreehandSettings()
     }.copy(
@@ -580,7 +582,18 @@ fun FillJson.toFillData(): FillData {
 
 fun FillStyle.toFillStyleJson(): FillStyleJson {
     return when (this) {
-        is FillStyle.Solid -> FillStyleJson(type = "SOLID", color = this.color)
+        is FillStyle.Solid -> FillStyleJson(
+            type = "SOLID", 
+            color = this.color,
+            imagePath = this.imagePath,
+            scaleX = this.scaleX,
+            scaleY = this.scaleY,
+            rotation = this.rotation,
+            offsetX = this.offsetX,
+            offsetY = this.offsetY,
+            tintMix = this.tintMix,
+            blendModeName = this.blendModeName
+        )
         is FillStyle.SvgPattern -> FillStyleJson(
             type = "SVG_PATTERN",
             svgContent = this.svgContent,
@@ -620,7 +633,17 @@ fun FillStyle.toFillStyleJson(): FillStyleJson {
 fun FillStyleJson?.toFillStyle(fallbackColor: Int): FillStyle {
     if (this == null) return FillStyle.Solid(fallbackColor)
     return when (this.type) {
-        "SOLID" -> FillStyle.Solid(this.color ?: fallbackColor)
+        "SOLID" -> FillStyle.Solid(
+            color = this.color ?: fallbackColor,
+            imagePath = this.imagePath,
+            scaleX = this.scaleX ?: 1f,
+            scaleY = this.scaleY ?: 1f,
+            rotation = this.rotation ?: 0f,
+            offsetX = this.offsetX ?: 0f,
+            offsetY = this.offsetY ?: 0f,
+            tintMix = this.tintMix ?: 1f,
+            blendModeName = this.blendModeName ?: "SRC_ATOP"
+        )
         "SVG_PATTERN" -> FillStyle.SvgPattern(
             svgContent = this.svgContent ?: "",
             scaleX = this.scaleX ?: 1f,

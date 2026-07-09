@@ -471,9 +471,10 @@ class StrokePipeline(
 
         // 2. Incremental preview for FREEHAND only when stroke is long enough
         val result: PerfectFreehandGenerator.FreehandResult
-        var committedPathToSend: Path? = if (activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR) committedPath else null
+        var committedPathToSend: Path? = if ((activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR) && activeTool != ToolType.WATERCOLOR) committedPath else null
 
         if (activeStrokeType == StrokeType.FREEHAND &&
+            activeTool != ToolType.WATERCOLOR &&
             livePoints.size >= INCREMENTAL_MIN_POINTS) {
 
             // -- Bake head if we have enough new points since last commit --
@@ -541,8 +542,7 @@ class StrokePipeline(
             val tailPoints = livePoints.subList(tailStart, livePoints.size)
             val tailRadius = if (committedLastRadius > 0f) committedLastRadius else settings.size / 2f
             val tailSettings = settings.copy(
-                capStart = false,
-                taperStart = 0f,
+                start = settings.start.copy(cap = false, taperEnabled = false),
                 thinning = 0f,
                 velocityThinning = 0f,
                 simulatePressure = false,

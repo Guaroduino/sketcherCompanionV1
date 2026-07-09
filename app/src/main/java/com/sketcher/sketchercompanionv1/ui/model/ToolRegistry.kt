@@ -31,8 +31,7 @@ object ToolRegistry {
         }
 
     private val fullToolsList = listOf(
-        StudioTool("pencil", Icons.Default.Edit, "Pencil", R.drawable.ic_tabler_pencil, isPlaceholder = false),
-        StudioTool("pen", Icons.Default.Gesture, "Pen", R.drawable.ic_tabler_pen, isPlaceholder = false, parentGroupId = "pencil"),
+        StudioTool("brush_workshop", Icons.Default.Brush, "Taller de Pinceles", R.drawable.ic_tabler_paint, isPlaceholder = false),
         StudioTool("eraser", Icons.Default.AutoFixNormal, "Borrador", R.drawable.ic_tabler_eraser, isPlaceholder = false, subTools = listOf(
             StudioTool("eraser", Icons.Default.AutoFixNormal, "Borrador de Trazo", R.drawable.ic_tabler_eraser, isPlaceholder = false, parentGroupId = "eraser"),
             StudioTool("point_eraser", Icons.Default.AutoFixNormal, "Borrador de Puntos", R.drawable.ic_tabler_point_eraser, isPlaceholder = false, parentGroupId = "eraser"),
@@ -40,10 +39,6 @@ object ToolRegistry {
         )),
         StudioTool("point_eraser", Icons.Default.AutoFixNormal, "Borrador de Puntos", R.drawable.ic_tabler_point_eraser, isPlaceholder = false, parentGroupId = "eraser"),
         StudioTool("cut_eraser", Icons.Default.AutoFixNormal, "Borrador de Corte", R.drawable.ic_tabler_cut_eraser, isPlaceholder = false, parentGroupId = "eraser"),
-        StudioTool("paint", Icons.Default.Brush, "Paint", R.drawable.ic_tabler_paint, isPlaceholder = false, parentGroupId = "pencil"),
-        StudioTool("watercolor", Icons.Default.Palette, "Acuarela", R.drawable.ic_tabler_watercolor, isPlaceholder = false, parentGroupId = "pencil", isExperimental = true),
-        StudioTool("pluma", Icons.Default.Gesture, "Pluma", R.drawable.ic_tabler_pluma, isPlaceholder = false, parentGroupId = "pencil"),
-        StudioTool("pencil_cumulative", Icons.Default.Edit, "Pencil Acumulativo", R.drawable.ic_tabler_pencil_cumulative, isPlaceholder = false, parentGroupId = "pencil", isExperimental = true),
         StudioTool("text", Icons.Default.Title, "Texto", isPlaceholder = false),
         
         StudioTool("stroke_freehand", Icons.Default.Gesture, "Mano Alzada", R.drawable.ic_tabler_stroke_freehand, isPlaceholder = false, subTools = listOf(

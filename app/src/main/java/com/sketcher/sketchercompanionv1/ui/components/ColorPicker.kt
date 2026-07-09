@@ -68,7 +68,7 @@ fun ColorPickerDialog(
             contentColor = theme.iconColor,
             modifier = Modifier
                 .width(450.sdp)
-                .heightIn(max = 600.sdp)
+                .heightIn(max = 500.dp)
                 .clip(RoundedCornerShape(16.sdp))
         ) {
             Column(

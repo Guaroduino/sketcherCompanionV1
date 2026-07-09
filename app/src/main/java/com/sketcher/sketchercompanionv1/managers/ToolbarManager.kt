@@ -535,6 +535,9 @@ class ToolbarManager(
             _assignedTools.value = mapOf(
                 "pencil" to ToolPayload.PENCIL,
                 "pen" to ToolPayload.PEN,
+                "paint" to ToolPayload.PAINT,
+                "watercolor" to ToolPayload.WATERCOLOR,
+                "pluma" to ToolPayload.PLUMA,
                 "eraser" to ToolPayload.ERASER,
                 "stroke_color" to ToolPayload.STROKE_COLOR,
                 "fill_color" to ToolPayload.FILL_COLOR
@@ -551,7 +554,15 @@ class ToolbarManager(
             ToolLocation.LeftBar to listOf(),
             ToolLocation.RightBar to listOfNotNull(
                 ToolRegistry.getToolById(StudioTool.SIZE_OPACITY_TOOL_ID),
-                ToolRegistry.getToolById("pencil"),
+                ToolRegistry.getToolById("brush_workshop"),
+                ToolRegistry.getToolById("pencil")?.copy(
+                    subTools = listOfNotNull(
+                        ToolRegistry.getToolById("pen"),
+                        ToolRegistry.getToolById("paint"),
+                        ToolRegistry.getToolById("watercolor"),
+                        ToolRegistry.getToolById("pluma")
+                    )
+                ),
                 ToolRegistry.getToolById("stroke_freehand"),
                 ToolRegistry.getToolById(StudioTool.STABILIZATION_TOOL_ID),
                 ToolRegistry.getToolById("divider"),
@@ -620,6 +631,9 @@ class ToolbarManager(
             _assignedTools.value = mapOf(
                 "pencil" to ToolPayload.PENCIL,
                 "pen" to ToolPayload.PEN,
+                "paint" to ToolPayload.PAINT,
+                "watercolor" to ToolPayload.WATERCOLOR,
+                "pluma" to ToolPayload.PLUMA,
                 "eraser" to ToolPayload.ERASER,
                 "stroke_color" to ToolPayload.STROKE_COLOR,
                 "fill_color" to ToolPayload.FILL_COLOR
@@ -721,6 +735,52 @@ class ToolbarManager(
     fun onProjectUiPresetCleared() {
         _activeUiPresetName.value = "Default"
         toolbarRepository.setActiveUiPresetName("Default")
+    }
+
+    private fun removeToolFromListRecursive(list: List<StudioTool>, targetId: String): List<StudioTool> {
+        return list.mapNotNull { tool ->
+            if (tool.registryId == targetId) null
+            else tool.copy(subTools = removeToolFromListRecursive(tool.subTools, targetId))
+        }
+    }
+
+    fun removeToolFromAllLayouts(toolId: String) {
+        _toolbarState.value = _toolbarState.value.mapValues { (_, tools) ->
+            removeToolFromListRecursive(tools, toolId)
+        }
+        _contextualToolbar.value = removeToolFromListRecursive(_contextualToolbar.value, toolId)
+        
+        _assignedTools.value = _assignedTools.value - toolId
+        _assignedToolColors.value = _assignedToolColors.value - toolId
+        _assignedToolStabilization.value = _assignedToolStabilization.value - toolId
+        _assignedToolOpacity.value = _assignedToolOpacity.value - toolId
+        
+        saveLayout()
+
+        val presets = toolbarRepository.getUiPresetsNames()
+        for (presetName in presets) {
+            val loaded = toolbarRepository.loadUiPreset(presetName)
+            if (loaded != null) {
+                val cleanTools = loaded.tools.mapValues { (_, tools) ->
+                    removeToolFromListRecursive(tools, toolId)
+                }
+                val cleanContextual = removeToolFromListRecursive(loaded.contextualTools, toolId)
+                val cleanAssigned = loaded.assignedMap - toolId
+                val cleanColors = loaded.toolColors - toolId
+                val cleanStab = loaded.toolStabilization - toolId
+                val cleanOpacity = loaded.toolOpacity - toolId
+                
+                val cleanResult = com.sketcher.sketchercompanionv1.data.ToolbarStateResult(
+                    tools = cleanTools,
+                    assignedMap = cleanAssigned,
+                    toolColors = cleanColors,
+                    contextualTools = cleanContextual,
+                    toolStabilization = cleanStab,
+                    toolOpacity = cleanOpacity
+                )
+                toolbarRepository.saveUiPreset(presetName, cleanResult)
+            }
+        }
     }
 
     private fun saveLayout() {

@@ -33,7 +33,8 @@ fun SettingSlider(
     valueFormatter: (Float) -> String = { "${(it * 100).toInt()}%" },
     layoutHorizontal: Boolean = false,
     onValueChangeFinished: (() -> Unit)? = null,
-    exponent: Float = 1f
+    exponent: Float = 1f,
+    enabled: Boolean = true
 ) {
     val scaler = LocalUiScaler.current
     val scaleFactor = scaler.scaleFactor
@@ -69,7 +70,8 @@ fun SettingSlider(
                 steps = steps,
                 colors = sliderColors,
                 onValueChangeFinished = onValueChangeFinished,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                enabled = enabled
             )
             Text(
                 text = valueFormatter(value),
@@ -107,7 +109,8 @@ fun SettingSlider(
                 steps = steps,
                 colors = sliderColors,
                 onValueChangeFinished = onValueChangeFinished,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                enabled = enabled
             )
         }
     }

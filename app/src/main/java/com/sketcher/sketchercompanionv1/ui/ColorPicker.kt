@@ -3,9 +3,11 @@ import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
 
 import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -50,6 +52,24 @@ fun ColorPickerDialog(
     var hue by remember { mutableFloatStateOf(0f) }
     var saturation by remember { mutableFloatStateOf(1f) }
     var value by remember { mutableFloatStateOf(1f) }
+    var isGridView by remember { mutableStateOf(false) }
+
+    val colorMatrix = remember {
+        listOf(
+            // Row 1: Grayscale / Neutrals
+            Color(0xFFFFFFFF), Color(0xFFE0E0E0), Color(0xFFBDBDBD), Color(0xFF9E9E9E), Color(0xFF757575), Color(0xFF616161), Color(0xFF424242), Color(0xFF000000),
+            // Row 2: Reds & Pinks
+            Color(0xFFFFEBEE), Color(0xFFFFCDD2), Color(0xFFEF9A9A), Color(0xFFE57373), Color(0xFFEF5350), Color(0xFFF44336), Color(0xFFE53935), Color(0xFFD32F2F),
+            // Row 3: Oranges & Yellows
+            Color(0xFFFFF8E1), Color(0xFFFFECB3), Color(0xFFFFE082), Color(0xFFFFD54F), Color(0xFFFFCA28), Color(0xFFFFB300), Color(0xFFFFA000), Color(0xFFFF8F00),
+            // Row 4: Greens
+            Color(0xFFE8F5E9), Color(0xFFC8E6C9), Color(0xFFA5D6A7), Color(0xFF81C784), Color(0xFF66BB6A), Color(0xFF4CAF50), Color(0xFF43A047), Color(0xFF388E3C),
+            // Row 5: Blues / Cyans
+            Color(0xFFE3F2FD), Color(0xFFBBDEFB), Color(0xFF90CAF9), Color(0xFF64B5F6), Color(0xFF42A5F5), Color(0xFF2196F3), Color(0xFF1E88E5), Color(0xFF1565C0),
+            // Row 6: Purples / Magentas
+            Color(0xFFF3E5F5), Color(0xFFE1BEE7), Color(0xFFCE93D8), Color(0xFFBA68C8), Color(0xFFAB47BC), Color(0xFF9C27B0), Color(0xFF8E24AA), Color(0xFF7B1FA2)
+        )
+    }
     
     // Convert initial color to HSV once
     LaunchedEffect(Unit) {
@@ -58,6 +78,9 @@ fun ColorPickerDialog(
         hue = hsv[0]
         saturation = hsv[1]
         value = hsv[2]
+        if (value < 0.05f) {
+            value = 0.5f
+        }
     }
 
     val currentColor = remember(hue, saturation, value) {
@@ -73,7 +96,7 @@ fun ColorPickerDialog(
         Surface(
             modifier = Modifier
                 .width(450.sdp)
-                .heightIn(max = 600.sdp)
+                .heightIn(max = 500.dp)
                 .clip(RoundedCornerShape(16.sdp)),
             shape = RoundedCornerShape(16.sdp),
             color = theme.barBackgroundColor,
@@ -101,15 +124,82 @@ fun ColorPickerDialog(
                             .border(2.sdp, Color.Gray, CircleShape)
                     )
 
-                    // Color Wheel (Hue + Saturation)
-                    ColorWheel(
-                        hue = hue,
-                        saturation = saturation,
-                        onColorChange = { h, s -> 
-                            hue = h
-                            saturation = s
+                    // Toggle Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.sdp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (isGridView) "Palette Grid" else "Color Wheel",
+                            fontSize = 11.ssp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                            color = theme.iconColor
+                        )
+                        TextButton(
+                            onClick = { isGridView = !isGridView },
+                            colors = ButtonDefaults.textButtonColors(contentColor = theme.iconColor),
+                            border = BorderStroke(1.sdp, theme.iconColor.copy(alpha = 0.3f)),
+                            shape = RoundedCornerShape(8.sdp),
+                            modifier = Modifier.height(28.sdp),
+                            contentPadding = PaddingValues(horizontal = 12.sdp, vertical = 2.sdp)
+                        ) {
+                            Text(if (isGridView) "Show Wheel" else "Show Grid", fontSize = 10.ssp)
                         }
-                    )
+                    }
+
+                    if (isGridView) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.sdp),
+                            verticalArrangement = Arrangement.spacedBy(8.sdp)
+                        ) {
+                            val columns = 8
+                            val colorRows = colorMatrix.chunked(columns)
+                            colorRows.forEach { rowColors ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceEvenly
+                                ) {
+                                    rowColors.forEach { cellColor ->
+                                        val isSelected = cellColor.toArgb() == currentColor.toArgb()
+                                        Box(
+                                            modifier = Modifier
+                                                .size(28.sdp)
+                                                .clip(CircleShape)
+                                                .background(cellColor)
+                                                .border(
+                                                    width = if (isSelected) 2.sdp else 1.sdp,
+                                                    color = if (isSelected) theme.iconColor else Color.LightGray,
+                                                    shape = CircleShape
+                                                )
+                                                .clickable {
+                                                    val cellHsv = FloatArray(3)
+                                                    AndroidColor.colorToHSV(cellColor.toArgb(), cellHsv)
+                                                    hue = cellHsv[0]
+                                                    saturation = cellHsv[1]
+                                                    value = cellHsv[2]
+                                                }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // Color Wheel (Hue + Saturation)
+                        ColorWheel(
+                            hue = hue,
+                            saturation = saturation,
+                            onColorChange = { h, s -> 
+                                hue = h
+                                saturation = s
+                                if (value < 0.1f) {
+                                    value = 0.5f
+                                }
+                            }
+                        )
+                    }
                     
                     // Saturation Slider
                     SaturationSlider(

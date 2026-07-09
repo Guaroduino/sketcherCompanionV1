@@ -292,6 +292,40 @@ class CloudSyncRepository {
         }
     }
 
+    // --- CUSTOM BRUSHES SYNC ---
+    suspend fun syncCustomBrush(brushId: String, brushData: Map<String, Any>?): Result<Unit> {
+        val user = auth.currentUser ?: return Result.failure(Exception("User not authenticated"))
+        return try {
+            val docRef = firestore.collection("users").document(user.uid)
+                .collection("custom_brushes").document(brushId)
+            
+            if (brushData == null) {
+                // Delete
+                docRef.delete().await()
+            } else {
+                // Save or Update
+                val dataToSave = brushData.toMutableMap()
+                dataToSave["updatedAt"] = System.currentTimeMillis()
+                docRef.set(dataToSave).await()
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getAllCustomBrushes(): Result<List<Map<String, Any>>> {
+        val user = auth.currentUser ?: return Result.failure(Exception("User not authenticated"))
+        return try {
+            val snapshot = firestore.collection("users").document(user.uid)
+                .collection("custom_brushes").get().await()
+            val brushes = snapshot.documents.map { it.data ?: emptyMap<String, Any>() }
+            Result.success(brushes)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     // --- LIBRARY SYNC ---
     suspend fun backupLibrary(jsonString: String, timestamp: Long, assetsDir: File): Result<Unit> {
         val user = auth.currentUser ?: return Result.failure(Exception("User not authenticated"))

@@ -12,6 +12,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 
 import androidx.compose.foundation.Canvas
 
+import androidx.compose.foundation.BorderStroke
+
 import androidx.compose.foundation.background
 
 import androidx.compose.foundation.border
@@ -106,7 +108,9 @@ fun FillStylePickerDialog(
 
     onDisable: (() -> Unit)? = null,
 
-    onRevertToPreset: (() -> Unit)? = null
+    onRevertToPreset: (() -> Unit)? = null,
+
+    basePixelsPerMillimeter: Float = 5.0f
 
 ) {
 
@@ -127,6 +131,17 @@ fun FillStylePickerDialog(
         )
 
     }
+
+
+    var solidImagePath by remember { mutableStateOf<String?>(if (initialStyle is FillStyle.Solid) initialStyle.imagePath else null) }
+    var solidImgScaleX by remember { mutableFloatStateOf(if (initialStyle is FillStyle.Solid) initialStyle.scaleX else 1f) }
+    var solidImgScaleY by remember { mutableFloatStateOf(if (initialStyle is FillStyle.Solid) initialStyle.scaleY else 1f) }
+    var solidImgRotation by remember { mutableFloatStateOf(if (initialStyle is FillStyle.Solid) initialStyle.rotation else 0f) }
+    var solidImgOffsetX by remember { mutableFloatStateOf(if (initialStyle is FillStyle.Solid) initialStyle.offsetX else 0f) }
+    var solidImgOffsetY by remember { mutableFloatStateOf(if (initialStyle is FillStyle.Solid) initialStyle.offsetY else 0f) }
+    var solidImgTintMix by remember { mutableFloatStateOf(if (initialStyle is FillStyle.Solid) initialStyle.tintMix else 1f) }
+    var solidImgBlendModeName by remember { mutableStateOf(if (initialStyle is FillStyle.Solid) initialStyle.blendModeName else "SRC_ATOP") }
+    var pickingImageTarget by remember { mutableStateOf<String?>("IMAGE_TEXTURE") }
 
     // SVG Pattern State
 
@@ -297,7 +312,8 @@ fun FillStylePickerDialog(
 
                     if (localPath != null) {
 
-                        imagePath = localPath
+                        if (pickingImageTarget == "SOLID") solidImagePath = localPath
+                        else imagePath = localPath
 
                     }
 
@@ -317,9 +333,9 @@ fun FillStylePickerDialog(
 
     var pickingMathColorTarget by remember { mutableStateOf<String?>(null) } // "PRIMARY" or "SECONDARY"
 
-    val currentPreviewStyle = remember(selectedTab, solidColor, svgContent, svgScaleX, svgScaleY, svgRotation, svgOffsetX, svgOffsetY, mathPatternName, mathPrimaryColor, mathSecondaryColor, mathSpacing, mathThickness, mathAngle, imagePath, imgScaleX, imgScaleY, imgRotation, imgOffsetX, imgOffsetY, imgOpacity, imgTintColor, imgTintMix, imgBlendModeName) {
+    val currentPreviewStyle = remember(selectedTab, solidColor, solidImagePath, solidImgScaleX, solidImgScaleY, solidImgRotation, solidImgOffsetX, solidImgOffsetY, solidImgTintMix, solidImgBlendModeName, svgContent, svgScaleX, svgScaleY, svgRotation, svgOffsetX, svgOffsetY, mathPatternName, mathPrimaryColor, mathSecondaryColor, mathSpacing, mathThickness, mathAngle, imagePath, imgScaleX, imgScaleY, imgRotation, imgOffsetX, imgOffsetY, imgOpacity, imgTintColor, imgTintMix, imgBlendModeName) {
         when (selectedTab) {
-            FillType.SOLID -> FillStyle.Solid(solidColor)
+            FillType.SOLID -> FillStyle.Solid(solidColor, solidImagePath, solidImgScaleX, solidImgScaleY, solidImgRotation, solidImgOffsetX, solidImgOffsetY, solidImgTintMix, solidImgBlendModeName)
             FillType.SVG_PATTERN -> FillStyle.SvgPattern(svgContent, svgScaleX, svgScaleY, svgRotation, svgOffsetX, svgOffsetY)
             FillType.MATH_TEXTURE -> FillStyle.MathTexture(mathPatternName, mathPrimaryColor, mathSecondaryColor, mathSpacing, mathThickness, mathAngle)
             FillType.IMAGE_TEXTURE -> FillStyle.ImageTexture(imagePath, imgScaleX, imgScaleY, imgRotation, imgOffsetX, imgOffsetY, imgOpacity, imgTintColor, imgTintMix, imgBlendModeName)
@@ -332,7 +348,7 @@ fun FillStylePickerDialog(
 
             modifier = Modifier
                 .width(450.sdp)
-                .heightIn(max = 700.sdp)
+                .heightIn(max = 580.dp)
                 .clip(RoundedCornerShape(16.sdp)),
 
             shape = RoundedCornerShape(16.sdp),
@@ -363,6 +379,8 @@ fun FillStylePickerDialog(
 
                     style = currentPreviewStyle,
 
+                    basePixelsPerMillimeter = basePixelsPerMillimeter,
+
                     modifier = Modifier
 
                         .fillMaxWidth()
@@ -391,6 +409,14 @@ fun FillStylePickerDialog(
                                 when (preset) {
                                     is FillStyle.Solid -> {
                                         solidColor = preset.color
+                                        solidImagePath = preset.imagePath
+                                        solidImgScaleX = preset.scaleX
+                                        solidImgScaleY = preset.scaleY
+                                        solidImgRotation = preset.rotation
+                                        solidImgOffsetX = preset.offsetX
+                                        solidImgOffsetY = preset.offsetY
+                                        solidImgTintMix = preset.tintMix
+                                        solidImgBlendModeName = preset.blendModeName
                                     }
                                     is FillStyle.SvgPattern -> {
                                         svgContent = preset.svgContent
@@ -431,9 +457,12 @@ fun FillStylePickerDialog(
 
                 TabRow(
 
-                    selectedTabIndex = selectedTab.ordinal, containerColor = theme.barBackgroundColor, contentColor = theme.iconColor,
-
-                    modifier = Modifier.fillMaxWidth().height(40.sdp)
+                    selectedTabIndex = selectedTab.ordinal,
+                    containerColor = Color.Transparent,
+                    contentColor = theme.iconColor,
+                    indicator = {},
+                    divider = {},
+                    modifier = Modifier.fillMaxWidth().height(42.sdp)
 
                 ) {
 
@@ -446,13 +475,32 @@ fun FillStylePickerDialog(
                             FillType.IMAGE_TEXTURE -> "Img Tex"
                         }
 
+                        val isSelected = selectedTab == type
+
                         Tab(
 
-                            selected = selectedTab == type,
+                            selected = isSelected,
 
                             onClick = { selectedTab = type },
 
-                            text = { Text(tabName, fontSize = 10.ssp) }
+                            modifier = Modifier
+                                .padding(horizontal = 2.sdp, vertical = 2.sdp)
+                                .clip(RoundedCornerShape(topStart = 8.sdp, topEnd = 8.sdp))
+                                .background(if (isSelected) theme.buttonColor.copy(alpha = 0.15f) else Color.Transparent)
+                                .border(
+                                    width = 1.sdp,
+                                    color = if (isSelected) theme.iconColor else theme.iconColor.copy(alpha = 0.3f),
+                                    shape = RoundedCornerShape(topStart = 8.sdp, topEnd = 8.sdp)
+                                ),
+
+                            text = {
+                                Text(
+                                    tabName,
+                                    fontSize = 10.ssp,
+                                    fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal,
+                                    color = theme.iconColor
+                                )
+                            }
 
                         )
 
@@ -479,7 +527,24 @@ fun FillStylePickerDialog(
                             SolidColorSelector(
 
                                 initialColor = solidColor,
-
+                                imagePath = solidImagePath,
+                                scaleX = solidImgScaleX,
+                                scaleY = solidImgScaleY,
+                                rotation = solidImgRotation,
+                                offsetX = solidImgOffsetX,
+                                offsetY = solidImgOffsetY,
+                                tintMix = solidImgTintMix,
+                                blendModeName = solidImgBlendModeName,
+                                onChooseImage = { pickingImageTarget = "SOLID"; imageLauncher.launch("image/*") },
+                                onClearImage = { solidImagePath = null },
+                                onScaleXChanged = { solidImgScaleX = it },
+                                onScaleYChanged = { solidImgScaleY = it },
+                                onRotationChanged = { solidImgRotation = it },
+                                onOffsetXChanged = { solidImgOffsetX = it },
+                                onOffsetYChanged = { solidImgOffsetY = it },
+                                onTintMixChanged = { solidImgTintMix = it },
+                                onBlendModeChanged = { solidImgBlendModeName = it },
+                                theme = theme,
                                 onColorChanged = { solidColor = it }
 
                             )
@@ -575,7 +640,7 @@ fun FillStylePickerDialog(
                                 onRotationChanged = { imgRotation = it },
                                 onOffsetXChanged = { imgOffsetX = it },
                                 onOffsetYChanged = { imgOffsetY = it },
-                                onChooseImage = { imageLauncher.launch("image/*") },
+                                onChooseImage = { pickingImageTarget = "IMAGE_TEXTURE"; imageLauncher.launch("image/*") },
                                 onChooseTexture = { imagePath = it },
                                 onBlendModeChanged = { imgBlendModeName = it },
                                 theme = theme
@@ -601,13 +666,19 @@ fun FillStylePickerDialog(
                         Button(
                             onClick = onRevertToPreset,
                             shape = RoundedCornerShape(8.sdp),
+                            border = BorderStroke(1.sdp, theme.iconColor.copy(alpha = 0.4f)),
                             colors = ButtonDefaults.buttonColors(containerColor = theme.highlightColor, contentColor = theme.barBackgroundColor)
                         ) {
                             Text("Preset", fontSize = 12.ssp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                         }
                     }
 
-                    TextButton(onClick = onDismiss, shape = RoundedCornerShape(8.sdp), colors = ButtonDefaults.textButtonColors(contentColor = theme.iconColor)) {
+                    TextButton(
+                        onClick = onDismiss,
+                        shape = RoundedCornerShape(8.sdp),
+                        border = BorderStroke(1.sdp, theme.iconColor.copy(alpha = 0.4f)),
+                        colors = ButtonDefaults.textButtonColors(contentColor = theme.iconColor)
+                    ) {
 
                         Text("Cancel", fontSize = 12.ssp)
 
@@ -615,7 +686,12 @@ fun FillStylePickerDialog(
 
                     if (onDisable != null) {
 
-                        TextButton(onClick = { onDisable(); onDismiss() }, shape = RoundedCornerShape(8.sdp), colors = ButtonDefaults.textButtonColors(contentColor = theme.iconColor)) {
+                        TextButton(
+                            onClick = { onDisable(); onDismiss() },
+                            shape = RoundedCornerShape(8.sdp),
+                            border = BorderStroke(1.sdp, theme.iconColor.copy(alpha = 0.4f)),
+                            colors = ButtonDefaults.textButtonColors(contentColor = theme.iconColor)
+                        ) {
 
                             Text("Clear", fontSize = 12.ssp)
 
@@ -631,7 +707,7 @@ fun FillStylePickerDialog(
 
                             val styleResult = when (selectedTab) {
 
-                                FillType.SOLID -> FillStyle.Solid(solidColor)
+                                FillType.SOLID -> FillStyle.Solid(solidColor, solidImagePath, solidImgScaleX, solidImgScaleY, solidImgRotation, solidImgOffsetX, solidImgOffsetY, solidImgTintMix, solidImgBlendModeName)
 
                                 FillType.SVG_PATTERN -> FillStyle.SvgPattern(
 
@@ -688,6 +764,8 @@ fun FillStylePickerDialog(
 
                         shape = RoundedCornerShape(8.sdp),
 
+                        border = BorderStroke(1.sdp, theme.iconColor.copy(alpha = 0.4f)),
+
                         colors = ButtonDefaults.buttonColors(containerColor = theme.buttonColor, contentColor = theme.iconColor)
 
                     ) {
@@ -736,22 +814,49 @@ fun FillStylePickerDialog(
 }
 
 @Composable
-
 fun SolidColorSelector(
-
     initialColor: Int,
-
-    onColorChanged: (Int) -> Unit
-
+    imagePath: String?,
+    scaleX: Float,
+    scaleY: Float,
+    rotation: Float,
+    offsetX: Float,
+    offsetY: Float,
+    tintMix: Float,
+    blendModeName: String,
+    onColorChanged: (Int) -> Unit,
+    onChooseImage: () -> Unit,
+    onClearImage: () -> Unit,
+    onScaleXChanged: (Float) -> Unit,
+    onScaleYChanged: (Float) -> Unit,
+    onRotationChanged: (Float) -> Unit,
+    onOffsetXChanged: (Float) -> Unit,
+    onOffsetYChanged: (Float) -> Unit,
+    onTintMixChanged: (Float) -> Unit,
+    onBlendModeChanged: (String) -> Unit,
+    theme: com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
 ) {
-
-    // We import and leverage the Wheel and Sliders of our own app color picker
-
     var hue by remember { mutableFloatStateOf(0f) }
-
     var saturation by remember { mutableFloatStateOf(1f) }
-
     var value by remember { mutableFloatStateOf(1f) }
+    var isGridView by remember { mutableStateOf(false) }
+
+    val colorMatrix = remember {
+        listOf(
+            // Row 1: Grayscale / Neutrals
+            Color(0xFFFFFFFF), Color(0xFFE0E0E0), Color(0xFFBDBDBD), Color(0xFF9E9E9E), Color(0xFF757575), Color(0xFF616161), Color(0xFF424242), Color(0xFF000000),
+            // Row 2: Reds & Pinks
+            Color(0xFFFFEBEE), Color(0xFFFFCDD2), Color(0xFFEF9A9A), Color(0xFFE57373), Color(0xFFEF5350), Color(0xFFF44336), Color(0xFFE53935), Color(0xFFD32F2F),
+            // Row 3: Oranges & Yellows
+            Color(0xFFFFF8E1), Color(0xFFFFECB3), Color(0xFFFFE082), Color(0xFFFFD54F), Color(0xFFFFCA28), Color(0xFFFFB300), Color(0xFFFFA000), Color(0xFFFF8F00),
+            // Row 4: Greens
+            Color(0xFFE8F5E9), Color(0xFFC8E6C9), Color(0xFFA5D6A7), Color(0xFF81C784), Color(0xFF66BB6A), Color(0xFF4CAF50), Color(0xFF43A047), Color(0xFF388E3C),
+            // Row 5: Blues / Cyans
+            Color(0xFFE3F2FD), Color(0xFFBBDEFB), Color(0xFF90CAF9), Color(0xFF64B5F6), Color(0xFF42A5F5), Color(0xFF2196F3), Color(0xFF1E88E5), Color(0xFF1565C0),
+            // Row 6: Purples / Magentas
+            Color(0xFFF3E5F5), Color(0xFFE1BEE7), Color(0xFFCE93D8), Color(0xFFBA68C8), Color(0xFFAB47BC), Color(0xFF9C27B0), Color(0xFF8E24AA), Color(0xFF7B1FA2)
+        )
+    }
 
     LaunchedEffect(Unit) {
         val hsv = FloatArray(3)
@@ -759,19 +864,13 @@ fun SolidColorSelector(
         hue = hsv[0]
         saturation = hsv[1]
         value = hsv[2]
+        if (value < 0.05f) {
+            value = 0.5f
+        }
     }
 
-    val currentColor = remember(hue, saturation, value) {
-
-        Color.hsv(hue, saturation, value)
-
-    }
-
-    LaunchedEffect(currentColor) {
-
-        onColorChanged(currentColor.toArgb())
-
-    }
+    val currentColor = remember(hue, saturation, value) { Color.hsv(hue, saturation, value) }
+    LaunchedEffect(currentColor) { onColorChanged(currentColor.toArgb()) }
 
     val scrollState = rememberScrollState()
     Column(
@@ -779,32 +878,184 @@ fun SolidColorSelector(
         verticalArrangement = Arrangement.spacedBy(8.sdp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.sdp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = if (isGridView) "Palette Grid" else "Color Wheel",
+                fontSize = 11.ssp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                color = theme.iconColor
+            )
+            TextButton(
+                onClick = { isGridView = !isGridView },
+                colors = ButtonDefaults.textButtonColors(contentColor = theme.iconColor),
+                border = BorderStroke(1.sdp, theme.iconColor.copy(alpha = 0.3f)),
+                shape = RoundedCornerShape(8.sdp),
+                modifier = Modifier.height(28.sdp),
+                contentPadding = PaddingValues(horizontal = 12.sdp, vertical = 2.sdp)
+            ) {
+                Text(if (isGridView) "Show Wheel" else "Show Grid", fontSize = 10.ssp)
+            }
+        }
 
-        ColorWheel(
-            hue = hue,
-            saturation = saturation,
-            onColorChange = { h, s -> hue = h; saturation = s }
-        )
-
+        if (isGridView) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.sdp),
+                verticalArrangement = Arrangement.spacedBy(8.sdp)
+            ) {
+                val columns = 8
+                val colorRows = colorMatrix.chunked(columns)
+                colorRows.forEach { rowColors ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        rowColors.forEach { cellColor ->
+                            val isSelected = cellColor.toArgb() == currentColor.toArgb()
+                            Box(
+                                modifier = Modifier
+                                    .size(28.sdp)
+                                    .clip(CircleShape)
+                                    .background(cellColor)
+                                    .border(
+                                        width = if (isSelected) 2.sdp else 1.sdp,
+                                        color = if (isSelected) theme.iconColor else Color.LightGray,
+                                        shape = CircleShape
+                                    )
+                                    .clickable {
+                                        val cellHsv = FloatArray(3)
+                                        AndroidColor.colorToHSV(cellColor.toArgb(), cellHsv)
+                                        hue = cellHsv[0]
+                                        saturation = cellHsv[1]
+                                        value = cellHsv[2]
+                                    }
+                            )
+                        }
+                    }
+                }
+            }
+        } else {
+            ColorWheel(hue = hue, saturation = saturation, onColorChange = { h, s -> 
+                hue = h
+                saturation = s
+                if (value < 0.1f) {
+                    value = 0.5f
+                }
+            })
+        }
         Spacer(modifier = Modifier.height(4.sdp))
         Text("Saturation", fontSize = 10.ssp, modifier = Modifier.align(Alignment.Start))
-        SaturationSlider(
-            saturation = saturation,
-            hue = hue,
-            value = value,
-            onSaturationChange = { saturation = it }
-        )
-
+        SaturationSlider(saturation = saturation, hue = hue, value = value, onSaturationChange = { saturation = it })
         Spacer(modifier = Modifier.height(4.sdp))
         Text("Brightness", fontSize = 10.ssp, modifier = Modifier.align(Alignment.Start))
-        ValueSlider(
-            value = value,
-            hue = hue,
-            saturation = saturation,
-            onValueChange = { value = it }
-        )
-    }
+        ValueSlider(value = value, hue = hue, saturation = saturation, onValueChange = { value = it })
 
+        Spacer(modifier = Modifier.height(12.sdp))
+        HorizontalDivider()
+        Text("Optional Blend Image", fontSize = 11.ssp, modifier = Modifier.align(Alignment.Start), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = theme.iconColor)
+        
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.sdp),
+            horizontalArrangement = Arrangement.spacedBy(12.sdp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Button(
+                onClick = onChooseImage,
+                modifier = Modifier.height(30.sdp),
+                shape = RoundedCornerShape(8.sdp),
+                contentPadding = PaddingValues(horizontal = 12.sdp, vertical = 2.sdp)
+            ) {
+                Text("Choose Image", fontSize = 10.ssp)
+            }
+            if (imagePath != null) {
+                OutlinedButton(
+                    onClick = onClearImage,
+                    modifier = Modifier.height(30.sdp),
+                    shape = RoundedCornerShape(8.sdp),
+                    contentPadding = PaddingValues(horizontal = 12.sdp, vertical = 2.sdp)
+                ) {
+                    Text("Clear Image", fontSize = 10.ssp)
+                }
+            }
+        }
+
+        if (imagePath != null) {
+            val file = java.io.File(imagePath)
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.sdp),
+                horizontalArrangement = Arrangement.spacedBy(12.sdp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val bitmap = remember(imagePath) { ImageTextureCache.getOrCreate(imagePath) }
+                if (bitmap != null) {
+                    androidx.compose.foundation.Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = "Texture thumbnail",
+                        modifier = Modifier.size(50.sdp).clip(RoundedCornerShape(8.sdp)).border(1.sdp, Color.LightGray, RoundedCornerShape(8.sdp)),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                    )
+                }
+                Column(horizontalAlignment = Alignment.Start) {
+                    Text("Texture: ${file.name}", fontSize = 10.ssp, color = theme.iconColor, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Text("Dimensions: ${bitmap?.width ?: 0}x${bitmap?.height ?: 0}", fontSize = 8.ssp, color = theme.iconColor.copy(alpha = 0.6f))
+                }
+            }
+
+            Text("Blend Mode", fontSize = 11.ssp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = theme.iconColor, modifier = Modifier.align(Alignment.Start))
+            val blendModes = listOf("SRC_ATOP", "MULTIPLY", "SCREEN", "DARKEN", "LIGHTEN", "OVERLAY", "ADD", "DIFFERENCE")
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.sdp)
+            ) {
+                blendModes.forEach { mode ->
+                    val isSelected = blendModeName == mode
+                    val label = when (mode) {
+                        "SRC_ATOP" -> "Normal"
+                        "MULTIPLY" -> "Multiply"
+                        "SCREEN" -> "Screen"
+                        "DARKEN" -> "Darken"
+                        "LIGHTEN" -> "Lighten"
+                        "OVERLAY" -> "Overlay"
+                        "ADD" -> "Add"
+                        "DIFFERENCE" -> "Difference"
+                        else -> mode
+                    }
+                    Box(
+                        modifier = Modifier
+                            .height(30.sdp)
+                            .clip(RoundedCornerShape(8.sdp))
+                            .background(if (isSelected) theme.highlightColor else theme.buttonColor.copy(alpha = 0.2f))
+                            .border(
+                                width = if (isSelected) 2.sdp else 1.sdp,
+                                color = if (isSelected) theme.iconColor else Color.Gray.copy(alpha = 0.4f),
+                                shape = RoundedCornerShape(8.sdp)
+                            )
+                            .clickable { onBlendModeChanged(mode) }
+                            .padding(horizontal = 12.sdp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(text = label, fontSize = 10.ssp, color = if (isSelected) theme.barBackgroundColor else theme.iconColor, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.sdp))
+            SliderRow(label = "Color Tint Mix", value = tintMix, range = 0f..1f, theme = theme, onValueChange = onTintMixChanged)
+            
+            HorizontalDivider()
+            Text("Image Transformations", fontSize = 11.ssp, modifier = Modifier.align(Alignment.Start))
+            SliderRow(label = "Scale X", value = scaleX, range = 0.1f..4.0f, theme = theme, exponent = 2f, onValueChange = onScaleXChanged)
+            SliderRow(label = "Scale Y", value = scaleY, range = 0.1f..4.0f, theme = theme, exponent = 2f, onValueChange = onScaleYChanged)
+            SliderRow(label = "Rotation", value = rotation, range = -180f..180f, theme = theme, onValueChange = onRotationChanged)
+            SliderRow(label = "Offset X", value = offsetX, range = -200f..200f, theme = theme, onValueChange = onOffsetXChanged)
+            SliderRow(label = "Offset Y", value = offsetY, range = -200f..200f, theme = theme, onValueChange = onOffsetYChanged)
+        }
+    }
 }
 
 @Composable
@@ -1466,9 +1717,9 @@ fun SliderRow(
             onValueChange = internalOnValueChange,
             modifier = Modifier.weight(1f).height(24.sdp),
             colors = SliderDefaults.colors(
-                thumbColor = theme.buttonColor,
-                activeTrackColor = theme.buttonColor,
-                inactiveTrackColor = theme.highlightColor.copy(alpha = 0.24f)
+                thumbColor = theme.highlightColor,
+                activeTrackColor = theme.highlightColor,
+                inactiveTrackColor = theme.iconColor.copy(alpha = 0.35f)
             )
         )
         Text(
@@ -1483,6 +1734,7 @@ fun SliderRow(
 @Composable
 fun LargeFillStylePreview(
     style: FillStyle,
+    basePixelsPerMillimeter: Float = 5.0f,
     modifier: Modifier
 ) {
     Box(
@@ -1508,7 +1760,64 @@ fun LargeFillStylePreview(
 
             when (style) {
                 is FillStyle.Solid -> {
-                    drawRect(Color(style.color))
+                    if (style.imagePath != null && style.imagePath.isNotEmpty()) {
+                        drawPreviewCheckerboard()
+                        val bitmap = ImageTextureCache.getOrCreate(style.imagePath)
+                        if (bitmap != null) {
+                            drawIntoCanvas { canvas ->
+                                val nativeCanvas = canvas.nativeCanvas
+                                nativeCanvas.save()
+                                val paint = android.graphics.Paint().apply {
+                                    isAntiAlias = true
+                                    shader = android.graphics.BitmapShader(bitmap, android.graphics.Shader.TileMode.REPEAT, android.graphics.Shader.TileMode.REPEAT).apply {
+                                        val matrix = android.graphics.Matrix().apply {
+                                            val basePxPerMm = basePixelsPerMillimeter.coerceAtLeast(0.001f)
+                                            val targetSizePx = 100f * basePxPerMm
+                                            val baseScaleX = targetSizePx / bitmap.width
+                                            val baseScaleY = targetSizePx / bitmap.height
+                                            postScale(baseScaleX * style.scaleX, baseScaleY * style.scaleY)
+                                            postRotate(style.rotation)
+                                            postTranslate(style.offsetX, style.offsetY)
+                                        }
+                                        setLocalMatrix(matrix)
+                                    }
+                                    
+                                    val solidColor = style.color
+                                    val filterColor = if (style.tintMix > 0f) {
+                                        val mixAlpha = (style.tintMix.coerceIn(0f, 1f) * 255).toInt()
+                                        (solidColor and 0x00FFFFFF) or (mixAlpha shl 24)
+                                    } else {
+                                        solidColor
+                                    }
+                                    
+                                    val finalAlpha = (style.opacity * 255).toInt().coerceIn(0, 255)
+                                    color = android.graphics.Color.argb(finalAlpha, 255, 255, 255)
+                                    
+                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                                        val blendMode = try {
+                                            android.graphics.BlendMode.valueOf(style.blendModeName)
+                                        } catch (e: Exception) {
+                                            android.graphics.BlendMode.SRC_ATOP
+                                        }
+                                        colorFilter = android.graphics.BlendModeColorFilter(filterColor, blendMode)
+                                    } else {
+                                        val pdMode = try {
+                                            android.graphics.PorterDuff.Mode.valueOf(style.blendModeName)
+                                        } catch (e: Exception) {
+                                            if (style.blendModeName == "DIFFERENCE") android.graphics.PorterDuff.Mode.MULTIPLY else android.graphics.PorterDuff.Mode.SRC_ATOP
+                                        }
+                                        colorFilter = android.graphics.PorterDuffColorFilter(filterColor, pdMode)
+                                    }
+                                }
+                                nativeCanvas.drawRect(0f, 0f, size.width, size.height, paint)
+                                nativeCanvas.restore()
+                            }
+                        } else {
+                            drawRect(Color(style.color))
+                        }
+                    } else {
+                        drawRect(Color(style.color))
+                    }
                 }
                 is FillStyle.MathTexture -> {
                     drawPreviewCheckerboard()
@@ -1583,9 +1892,10 @@ fun LargeFillStylePreview(
                                     isAntiAlias = true
                                     shader = android.graphics.BitmapShader(bitmap, android.graphics.Shader.TileMode.REPEAT, android.graphics.Shader.TileMode.REPEAT).apply {
                                         val matrix = android.graphics.Matrix().apply {
-                                            val targetSize = 500f
-                                            val baseScaleX = targetSize / bitmap.width
-                                            val baseScaleY = targetSize / bitmap.height
+                                            val basePxPerMm = basePixelsPerMillimeter.coerceAtLeast(0.001f)
+                                            val targetSizePx = 100f * basePxPerMm
+                                            val baseScaleX = targetSizePx / bitmap.width
+                                            val baseScaleY = targetSizePx / bitmap.height
                                             postScale(baseScaleX * style.scaleX, baseScaleY * style.scaleY)
                                             postRotate(style.rotation)
                                             postTranslate(style.offsetX, style.offsetY)

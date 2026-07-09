@@ -233,7 +233,8 @@ fun CreateNotebookDialog(
             onStyleSelected = { style ->
                 coverFillJson = style.toFillStyleJson()
                 showFillPicker = false
-            }
+            },
+            basePixelsPerMillimeter = viewModel.scaleConfig.basePixelsPerMillimeter
         )
     }
 }

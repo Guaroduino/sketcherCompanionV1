@@ -39,6 +39,9 @@ fun CustomToolsManagerDialog(
     val customTools by viewModel.customTools.collectAsState()
     val context = LocalContext.current
     var showIconEditorForToolId by remember { mutableStateOf<String?>(null) }
+    var showRenameDialogForTool by remember { mutableStateOf<CustomTool?>(null) }
+
+    var showCreateBrushDialog by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -65,13 +68,18 @@ fun CustomToolsManagerDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Administrador de Herramientas",
+                        text = "Taller de Pinceles",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = theme.highlightColor
                     )
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Close")
+                    Row {
+                        IconButton(onClick = { showCreateBrushDialog = true }) {
+                            Icon(Icons.Default.Add, contentDescription = "Crear Pincel", tint = theme.highlightColor)
+                        }
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "Close")
+                        }
                     }
                 }
 
@@ -111,7 +119,12 @@ fun CustomToolsManagerDialog(
                             }
 
                             Card(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        viewModel.activateCustomTool(tool)
+                                        onDismiss()
+                                    },
                                 shape = RoundedCornerShape(8.dp),
                                 colors = CardDefaults.cardColors(
                                     containerColor = theme.buttonColor.copy(alpha = 0.1f),
@@ -165,6 +178,19 @@ fun CustomToolsManagerDialog(
                                     ) {
                                         IconButton(
                                             onClick = {
+                                                showRenameDialogForTool = tool
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Edit,
+                                                contentDescription = "Renombrar",
+                                                tint = theme.iconColor.copy(alpha = 0.7f),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+
+                                        IconButton(
+                                            onClick = {
                                                 val newId = "custom_tool_" + UUID.randomUUID().toString()
                                                 val duplicated = tool.copy(id = newId, name = "${tool.name} Copia")
                                                 viewModel.addCustomTool(duplicated)
@@ -181,6 +207,23 @@ fun CustomToolsManagerDialog(
                                             Icon(
                                                 imageVector = Icons.Default.ContentCopy,
                                                 contentDescription = "Copiar",
+                                                tint = theme.iconColor.copy(alpha = 0.7f),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+
+                                        IconButton(
+                                            onClick = {
+                                                viewModel.activateCustomTool(tool)
+                                                if (!viewModel.showPropertiesPanel) {
+                                                    viewModel.togglePropertiesPanel()
+                                                }
+                                                onDismiss()
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Tune,
+                                                contentDescription = "Ajustes del Pincel",
                                                 tint = theme.iconColor.copy(alpha = 0.7f),
                                                 modifier = Modifier.size(20.dp)
                                             )
@@ -244,5 +287,80 @@ fun CustomToolsManagerDialog(
                 showIconEditorForToolId = null
             }
         )
+    }
+
+    if (showCreateBrushDialog) {
+        CreateBrushDialog(
+            viewModel = viewModel,
+            theme = theme,
+            onDismiss = { showCreateBrushDialog = false },
+            onBrushCreated = { newBrush ->
+                viewModel.addCustomTool(newBrush)
+                showCreateBrushDialog = false
+            }
+        )
+    }
+
+    if (showRenameDialogForTool != null) {
+        val tool = showRenameDialogForTool!!
+        var newName by remember(tool) { mutableStateOf(tool.name) }
+        Dialog(onDismissRequest = { showRenameDialogForTool = null }) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = theme.barBackgroundColor.copy(alpha = 0.98f),
+                    contentColor = theme.iconColor
+                ),
+                border = BorderStroke(1.dp, theme.iconColor.copy(alpha = 0.1f)),
+                modifier = Modifier.padding(16.dp).fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        text = "Renombrar Pincel",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = theme.highlightColor
+                    )
+                    OutlinedTextField(
+                        value = newName,
+                        onValueChange = { newName = it },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = theme.highlightColor,
+                            focusedTextColor = theme.iconColor,
+                            unfocusedTextColor = theme.iconColor,
+                            cursorColor = theme.highlightColor
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(onClick = { showRenameDialogForTool = null }) {
+                            Text("Cancelar", color = theme.iconColor)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                if (newName.isNotBlank()) {
+                                    val updated = tool.copy(name = newName)
+                                    viewModel.updateCustomTool(updated)
+                                    showRenameDialogForTool = null
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = theme.highlightColor),
+                            enabled = newName.isNotBlank()
+                        ) {
+                            Text("Guardar", color = Color.White)
+                        }
+                    }
+                }
+            }
+        }
     }
 }

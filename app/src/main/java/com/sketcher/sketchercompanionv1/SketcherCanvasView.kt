@@ -2029,7 +2029,7 @@ class SketcherCanvasView(context: Context) : View(context) {
                     }
 
                     val effectiveStrokeOpacity = if (currentTool == ToolType.WATERCOLOR) {
-                        activeLayerOpacity
+                        activeFillOpacity * activeLayerOpacity
                     } else {
                         primaryAlpha * activeLayerOpacity
                     }
@@ -2217,8 +2217,16 @@ class SketcherCanvasView(context: Context) : View(context) {
                         val isCutEraser = currentTool == ToolType.CUT_ERASER
                         val layerStrokeColor = let {
                             val origColor = if (isCutEraser) android.graphics.Color.RED else activeStrokeColor
-                            val origAlpha = if (currentTool == ToolType.WATERCOLOR) 255 else android.graphics.Color.alpha(origColor)
-                            val newAlpha = (origAlpha * activeLayerOpacity).toInt().coerceIn(0, 255)
+                            val origAlpha = if (currentTool == ToolType.WATERCOLOR) {
+                                (activeFillOpacity * 255).toInt().coerceIn(0, 255)
+                            } else {
+                                android.graphics.Color.alpha(origColor)
+                            }
+                            val newAlpha = if (currentTool == ToolType.WATERCOLOR) {
+                                origAlpha
+                            } else {
+                                (origAlpha * activeLayerOpacity).toInt().coerceIn(0, 255)
+                            }
                             (origColor and 0x00FFFFFF) or (newAlpha shl 24)
                         }
                         val layerFillColor = let {

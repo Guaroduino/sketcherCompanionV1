@@ -79,9 +79,13 @@ class ToolbarRepository(context: Context) {
                 
                 if (baseTool == null) return null
                 
-                val restoredSubTools = saved.subTools?.mapNotNull { subSaved ->
-                    reconstructStudioTool(subSaved, assignedMap)
-                } ?: emptyList()
+                val restoredSubTools = if (saved.subTools.isNullOrEmpty()) {
+                    baseTool.subTools
+                } else {
+                    saved.subTools.mapNotNull { subSaved ->
+                        reconstructStudioTool(subSaved, assignedMap)
+                    }
+                }
 
                 var restored = baseTool.copy(
                     id = saved.instanceId,

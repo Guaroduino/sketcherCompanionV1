@@ -378,27 +378,27 @@ fun StudioLayout(
             }
 
             payload == ToolPayload.PENCIL || tool.registryId == "pencil" -> {
-                currentTool == ToolType.FREEHAND && viewModel.activeCustomToolId == null
+                currentTool == ToolType.FREEHAND
             }
 
             payload == ToolPayload.PENCIL_CUMULATIVE || tool.registryId == "pencil_cumulative" -> {
-                currentTool == ToolType.PENCIL_CUMULATIVE && viewModel.activeCustomToolId == null
+                currentTool == ToolType.PENCIL_CUMULATIVE
             }
 
             payload == ToolPayload.PAINT || tool.registryId == "paint" -> {
-                currentTool == ToolType.PAINT && viewModel.activeCustomToolId == null
+                currentTool == ToolType.PAINT
             }
 
             payload == ToolPayload.PLUMA || tool.registryId == "pluma" -> {
-                currentTool == ToolType.PLUMA && viewModel.activeCustomToolId == null
+                currentTool == ToolType.PLUMA
             }
 
             payload == ToolPayload.PEN || tool.registryId == "pen" -> {
-                currentTool == ToolType.PEN && viewModel.activeCustomToolId == null
+                currentTool == ToolType.PEN
             }
 
             payload == ToolPayload.WATERCOLOR || tool.registryId == "watercolor" -> {
-                currentTool == ToolType.WATERCOLOR && viewModel.activeCustomToolId == null
+                currentTool == ToolType.WATERCOLOR
             }
 
 
@@ -781,6 +781,10 @@ fun StudioLayout(
 
 
     val isFillActiveVal by viewModel.isFillActive.collectAsState()
+
+    val currentSettings = viewModel.currentFreehandSettings
+    val isStrokeColorLocked = currentTool == com.sketcher.sketchercompanionv1.dto.ToolType.WATERCOLOR &&
+            (currentSettings as? com.sketcher.sketchercompanionv1.tools.WatercolorSettings)?.linkStrokeToFill == true
 
 
     var showRightPanel by remember { mutableStateOf(false) }
@@ -2531,6 +2535,7 @@ fun StudioLayout(
             assignedOpacityMap = assignedOpacityMap,
             presetStab = presetStab,
             presetOpacity = presetOpacity,
+            isStrokeColorLocked = isStrokeColorLocked,
             brushSizeVal = brushSizeVal,
             resolveIsActive = resolveIsActive,
             resolveIsActionButton = resolveIsActionButton,
@@ -2597,6 +2602,7 @@ fun StudioLayout(
             assignedOpacityMap = assignedOpacityMap,
             presetStab = presetStab,
             presetOpacity = presetOpacity,
+            isStrokeColorLocked = isStrokeColorLocked,
             brushSizeVal = brushSizeVal,
             resolveIsActive = resolveIsActive,
             resolveIsActionButton = resolveIsActionButton,
@@ -3055,9 +3061,18 @@ fun StudioLayout(
                                                (assignedToolsMap[tool.id] == ToolPayload.FILL_COLOR && !isFillActiveVal),
 
 
+                                       isLocked = (assignedToolsMap[tool.id] == ToolPayload.STROKE_COLOR && isStrokeColorLocked),
+
+
                                        isStabilizePreset = if (assignedToolsMap[tool.id] == ToolPayload.STABILIZE) {
+
+
                                            val btnStab = assignedStabMap[tool.id] ?: presetStab
+
+
                                            val btnOpacity = assignedOpacityMap[tool.id] ?: presetOpacity
+
+
                                            kotlin.math.abs(btnStab - presetStab) < 0.001f && kotlin.math.abs(btnOpacity - presetOpacity) < 0.001f
                                        } else false,
                                        stabilizationPreview = if (assignedToolsMap[tool.id] == ToolPayload.STABILIZE) (assignedStabMap[tool.id] ?: presetStab) else null,
@@ -3981,7 +3996,7 @@ fun StudioLayout(
         // --- BRUSH SIZE & OPACITY POPUP ---
 
 
-        if (showSizeOpacityPopup) {
+        if (showSizeOpacityPopup || viewModel.showPropertiesPanel) {
 
 
             SizeOpacityPopup(
@@ -3990,7 +4005,22 @@ fun StudioLayout(
                 viewModel = viewModel,
 
 
-                onDismiss = { showSizeOpacityPopup = false },
+                onDismiss = { 
+
+
+                    showSizeOpacityPopup = false
+
+
+                    if (viewModel.showPropertiesPanel) {
+
+
+                        viewModel.togglePropertiesPanel()
+
+
+                    }
+
+
+                },
 
 
                 theme = theme
@@ -4026,7 +4056,8 @@ fun StudioLayout(
                 onRevertToPreset = {
                     viewModel.revertToPresetColor(isStroke = true)
                     viewModel.setShowStrokeColorPicker(false)
-                }
+                },
+                basePixelsPerMillimeter = viewModel.scaleConfig.basePixelsPerMillimeter
             )
 
 
@@ -4054,7 +4085,8 @@ fun StudioLayout(
                 onRevertToPreset = {
                     viewModel.revertToPresetColor(isStroke = false)
                     viewModel.setShowFillColorPicker(false)
-                }
+                },
+                basePixelsPerMillimeter = viewModel.scaleConfig.basePixelsPerMillimeter
             )
         }
 

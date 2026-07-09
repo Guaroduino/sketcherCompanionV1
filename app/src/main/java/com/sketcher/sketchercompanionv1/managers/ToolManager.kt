@@ -80,6 +80,12 @@ class ToolManager(private val context: Context) {
     private val _isFillColorPreset = MutableStateFlow(true)
     val isFillColorPreset = _isFillColorPreset.asStateFlow()
 
+    var activeCustomToolId: String? = null
+        set(value) {
+            field = value
+            updatePresetFlows()
+        }
+
     private val lastPresetIndexPerTool = mutableMapOf<ToolType, Int>().apply {
         ToolType.entries.forEach { type ->
             put(type, getSafeInt("last_preset_index_${type.name}", 0))
@@ -91,6 +97,9 @@ class ToolManager(private val context: Context) {
 
     private val _activeToolPresetGroupName = MutableStateFlow<String>("Default")
     val activeToolPresetGroupName: StateFlow<String> = _activeToolPresetGroupName.asStateFlow()
+
+    var onCustomToolAddedOrUpdated: ((CustomTool) -> Unit)? = null
+    var onCustomToolRemoved: ((String) -> Unit)? = null
 
     private val _customTools = MutableStateFlow<List<CustomTool>>(emptyList())
     val customTools = _customTools.asStateFlow()
@@ -339,6 +348,22 @@ class ToolManager(private val context: Context) {
 
         toolConfigs[type] = config.copy(settings = settings)
         
+        if (type == ToolType.WATERCOLOR && settings is com.sketcher.sketchercompanionv1.tools.WatercolorSettings && settings.linkStrokeToFill) {
+            val sc = adjustColorBrightness(_fillColor.value, settings.strokeBrightnessOffset)
+            _strokeColor.value = sc
+            _strokeStyle.value = FillStyle.Solid(sc)
+            _isStrokeActive.value = true
+            setExplicitStrokeColorState(type, presetIdx, true, sc, FillStyle.Solid(sc))
+            val conf = toolConfigs[type]!!
+            val updatedConf = conf.copy(
+                strokeColor = sc,
+                strokeStyle = FillStyle.Solid(sc).toFillStyleJson(),
+                isStrokeActive = true
+            )
+            toolConfigs[type] = updatedConf
+            persistToolConfigColorState(type, updatedConf)
+        }
+        
         if (settings is com.sketcher.sketchercompanionv1.tools.PencilSettings && settings.isCumulativeOpacity) {
             isFlattenedOuterStrokeEnabled = false
         }
@@ -458,7 +483,7 @@ class ToolManager(private val context: Context) {
                 BrushPreset(size = 2f, opacity = 0.3f, settings = PencilSettings(thinning = 0.4f, smoothing = 0.3f, isCumulativeOpacity = true), strokeColor = AndroidColor.BLACK, fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.BLACK), stabilization = 0.07f),
                 BrushPreset(size = 5f, opacity = 0.4f, settings = PencilSettings(thinning = 0.5f, smoothing = 0.4f, isCumulativeOpacity = true), strokeColor = AndroidColor.DKGRAY, fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.DKGRAY), stabilization = 0.07f),
                 BrushPreset(size = 12f, opacity = 0.5f, settings = PencilSettings(thinning = 0.6f, smoothing = 0.5f, isCumulativeOpacity = true), strokeColor = AndroidColor.rgb(233, 30, 99), fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.rgb(233, 30, 99)), stabilization = 0.07f),
-                BrushPreset(size = 20f, opacity = 0.6f, settings = PencilSettings(thinning = 0.7f, smoothing = 0.6f, simulatePressure = true, taperStart = 20f, taperEnd = 20f, isCumulativeOpacity = true), strokeColor = AndroidColor.rgb(33, 150, 243), fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.rgb(33, 150, 243)), stabilization = 0.15f),
+                BrushPreset(size = 20f, opacity = 0.6f, settings = PencilSettings(thinning = 0.7f, smoothing = 0.6f, simulatePressure = true, start = com.sketcher.sketchercompanionv1.dto.StrokeEndOptions(taperEnabled = true, customTaper = 20f), end = com.sketcher.sketchercompanionv1.dto.StrokeEndOptions(taperEnabled = true, customTaper = 20f), isCumulativeOpacity = true), strokeColor = AndroidColor.rgb(33, 150, 243), fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.rgb(33, 150, 243)), stabilization = 0.15f),
                 BrushPreset(size = 35f, opacity = 0.4f, settings = PencilSettings(thinning = 0f, smoothing = 0.4f, isCumulativeOpacity = true), strokeColor = AndroidColor.rgb(76, 175, 80), fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.rgb(76, 175, 80)), stabilization = 0.07f)
             )
             ToolType.PEN -> listOf(
@@ -493,7 +518,7 @@ class ToolManager(private val context: Context) {
                 BrushPreset(size = 2f, opacity = 1f, settings = PencilSettings(thinning = 0.4f, smoothing = 0.3f), strokeColor = AndroidColor.BLACK, fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.BLACK), stabilization = 0.07f),
                 BrushPreset(size = 5f, opacity = 1f, settings = PencilSettings(thinning = 0.5f, smoothing = 0.4f), strokeColor = AndroidColor.DKGRAY, fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.DKGRAY), stabilization = 0.07f),
                 BrushPreset(size = 12f, opacity = 1f, settings = PencilSettings(thinning = 0.6f, smoothing = 0.5f), strokeColor = AndroidColor.rgb(233, 30, 99), fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.rgb(233, 30, 99)), stabilization = 0.07f),
-                BrushPreset(size = 20f, opacity = 0.8f, settings = PencilSettings(thinning = 0.7f, smoothing = 0.6f, simulatePressure = true, taperStart = 20f, taperEnd = 20f), strokeColor = AndroidColor.rgb(33, 150, 243), fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.rgb(33, 150, 243)), stabilization = 0.15f),
+                BrushPreset(size = 20f, opacity = 0.8f, settings = PencilSettings(thinning = 0.7f, smoothing = 0.6f, simulatePressure = true, start = com.sketcher.sketchercompanionv1.dto.StrokeEndOptions(taperEnabled = true, customTaper = 20f), end = com.sketcher.sketchercompanionv1.dto.StrokeEndOptions(taperEnabled = true, customTaper = 20f)), strokeColor = AndroidColor.rgb(33, 150, 243), fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.rgb(33, 150, 243)), stabilization = 0.15f),
                 BrushPreset(size = 35f, opacity = 0.4f, settings = PencilSettings(thinning = 0f, smoothing = 0.4f), strokeColor = AndroidColor.rgb(76, 175, 80), fillColor = AndroidColor.TRANSPARENT, isStrokeActive = true, isFillActive = false, fillStyle = FillStyle.Solid(AndroidColor.TRANSPARENT), strokeStyle = FillStyle.Solid(AndroidColor.rgb(76, 175, 80)), stabilization = 0.07f)
             )
         }
@@ -564,12 +589,17 @@ class ToolManager(private val context: Context) {
             val defaultStab = if (currentTool == ToolType.FREEHAND || currentTool == ToolType.PENCIL_CUMULATIVE) 0.07f else 0f
             val stab = preset.stabilization ?: defaultStab
 
-            _strokeColor.value = sc
+            val isLinked = currentTool == ToolType.WATERCOLOR && (preset.settings as? com.sketcher.sketchercompanionv1.tools.WatercolorSettings)?.linkStrokeToFill == true
+            val finalSc = if (isLinked) adjustColorBrightness(fc, (preset.settings as com.sketcher.sketchercompanionv1.tools.WatercolorSettings).strokeBrightnessOffset) else sc
+            val finalSs = if (isLinked) FillStyle.Solid(finalSc) else ss
+            val finalSa = if (isLinked) true else sa
+
+            _strokeColor.value = finalSc
             _fillColor.value = fc
-            _isStrokeActive.value = sa
+            _isStrokeActive.value = finalSa
             _isFillActive.value = fa
             _fillStyle.value = fs
-            _strokeStyle.value = ss
+            _strokeStyle.value = finalSs
             setGlobalStabilization(stab)
 
             // Update and persist the tool config with the preset values!
@@ -577,12 +607,12 @@ class ToolManager(private val context: Context) {
             val updated = config.copy(
                 size = preset.size,
                 opacity = preset.opacity,
-                strokeColor = sc,
+                strokeColor = finalSc,
                 fillColor = fc,
-                isStrokeActive = sa,
+                isStrokeActive = finalSa,
                 isFillActive = fa,
                 fillStyle = fs.toFillStyleJson(),
-                strokeStyle = ss.toFillStyleJson(),
+                strokeStyle = finalSs.toFillStyleJson(),
                 stabilization = stab
             )
             toolConfigs[currentTool] = updated
@@ -677,6 +707,15 @@ class ToolManager(private val context: Context) {
         prefs.edit().putString("current_stroke_type", type.name).apply()
     }
 
+    private fun adjustColorBrightness(color: Int, brightnessOffset: Float): Int {
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(color, hsv)
+        hsv[2] = (hsv[2] + brightnessOffset).coerceIn(0f, 1f)
+        val alpha = android.graphics.Color.alpha(color)
+        val rgb = android.graphics.Color.HSVToColor(hsv)
+        return (rgb and 0x00FFFFFF) or (alpha shl 24)
+    }
+
     fun setStrokeColor(color: Int) {
         _strokeColor.value = color
         _strokeStyle.value = FillStyle.Solid(color)
@@ -751,11 +790,29 @@ class ToolManager(private val context: Context) {
         val idx = _selectedPresetIndex.value ?: 0
         setExplicitFillColorState(currentTool, idx, true, color, FillStyle.Solid(color))
 
+        var finalStrokeColor = _strokeColor.value
+        var finalStrokeStyle = _strokeStyle.value
+        var finalStrokeActive = _isStrokeActive.value
+
+        val settings = currentFreehandSettings as? com.sketcher.sketchercompanionv1.tools.WatercolorSettings
+        if (currentTool == ToolType.WATERCOLOR && settings?.linkStrokeToFill == true) {
+            finalStrokeColor = adjustColorBrightness(color, settings.strokeBrightnessOffset)
+            finalStrokeStyle = FillStyle.Solid(finalStrokeColor)
+            finalStrokeActive = true
+            _strokeColor.value = finalStrokeColor
+            _strokeStyle.value = finalStrokeStyle
+            _isStrokeActive.value = true
+            setExplicitStrokeColorState(currentTool, idx, true, finalStrokeColor, finalStrokeStyle)
+        }
+
         val config = toolConfigs[currentTool]!!
         val updated = config.copy(
             fillColor = color,
             fillStyle = FillStyle.Solid(color).toFillStyleJson(),
-            isFillActive = true
+            isFillActive = true,
+            strokeColor = if (currentTool == ToolType.WATERCOLOR && settings?.linkStrokeToFill == true) finalStrokeColor else config.strokeColor,
+            strokeStyle = if (currentTool == ToolType.WATERCOLOR && settings?.linkStrokeToFill == true) finalStrokeStyle.toFillStyleJson() else config.strokeStyle,
+            isStrokeActive = if (currentTool == ToolType.WATERCOLOR && settings?.linkStrokeToFill == true) finalStrokeActive else config.isStrokeActive
         )
         toolConfigs[currentTool] = updated
         persistToolConfigColorState(currentTool, updated)
@@ -777,11 +834,29 @@ class ToolManager(private val context: Context) {
         val idx = _selectedPresetIndex.value ?: 0
         setExplicitFillColorState(currentTool, idx, true, color, style)
 
+        var finalStrokeColor = _strokeColor.value
+        var finalStrokeStyle = _strokeStyle.value
+        var finalStrokeActive = _isStrokeActive.value
+
+        val settings = currentFreehandSettings as? com.sketcher.sketchercompanionv1.tools.WatercolorSettings
+        if (currentTool == ToolType.WATERCOLOR && settings?.linkStrokeToFill == true) {
+            finalStrokeColor = adjustColorBrightness(color, settings.strokeBrightnessOffset)
+            finalStrokeStyle = FillStyle.Solid(finalStrokeColor)
+            finalStrokeActive = true
+            _strokeColor.value = finalStrokeColor
+            _strokeStyle.value = finalStrokeStyle
+            _isStrokeActive.value = true
+            setExplicitStrokeColorState(currentTool, idx, true, finalStrokeColor, finalStrokeStyle)
+        }
+
         val config = toolConfigs[currentTool]!!
         val updated = config.copy(
             fillColor = color,
             fillStyle = style.toFillStyleJson(),
-            isFillActive = true
+            isFillActive = true,
+            strokeColor = if (currentTool == ToolType.WATERCOLOR && settings?.linkStrokeToFill == true) finalStrokeColor else config.strokeColor,
+            strokeStyle = if (currentTool == ToolType.WATERCOLOR && settings?.linkStrokeToFill == true) finalStrokeStyle.toFillStyleJson() else config.strokeStyle,
+            isStrokeActive = if (currentTool == ToolType.WATERCOLOR && settings?.linkStrokeToFill == true) finalStrokeActive else config.isStrokeActive
         )
         toolConfigs[currentTool] = updated
         persistToolConfigColorState(currentTool, updated)
@@ -793,6 +868,7 @@ class ToolManager(private val context: Context) {
         val updated = config.copy(isStrokeActive = enabled)
         toolConfigs[currentTool] = updated
         persistToolConfigColorState(currentTool, updated)
+        updatePresetFlows()
     }
 
     fun toggleFill(enabled: Boolean) { 
@@ -801,6 +877,7 @@ class ToolManager(private val context: Context) {
         val updated = config.copy(isFillActive = enabled)
         toolConfigs[currentTool] = updated
         persistToolConfigColorState(currentTool, updated)
+        updatePresetFlows()
     }
 
     fun setGlobalStabilization(level: Float) {
@@ -828,8 +905,31 @@ class ToolManager(private val context: Context) {
             tool.settings = settings
         }
         currentFreehandSettings = settings
+        
+        var finalStrokeColor = _strokeColor.value
+        var finalStrokeStyle = _strokeStyle.value
+        var finalStrokeActive = _isStrokeActive.value
+
+        if (currentTool == ToolType.WATERCOLOR && settings is com.sketcher.sketchercompanionv1.tools.WatercolorSettings && settings.linkStrokeToFill) {
+            finalStrokeColor = adjustColorBrightness(_fillColor.value, settings.strokeBrightnessOffset)
+            finalStrokeStyle = FillStyle.Solid(finalStrokeColor)
+            finalStrokeActive = true
+            _strokeColor.value = finalStrokeColor
+            _strokeStyle.value = finalStrokeStyle
+            _isStrokeActive.value = true
+            val idx = _selectedPresetIndex.value ?: 0
+            setExplicitStrokeColorState(currentTool, idx, true, finalStrokeColor, finalStrokeStyle)
+        }
+
         val config = toolConfigs[currentTool]!!
-        toolConfigs[currentTool] = config.copy(settings = settings)
+        val updated = config.copy(
+            settings = settings,
+            strokeColor = if (currentTool == ToolType.WATERCOLOR && settings is com.sketcher.sketchercompanionv1.tools.WatercolorSettings && settings.linkStrokeToFill) finalStrokeColor else config.strokeColor,
+            strokeStyle = if (currentTool == ToolType.WATERCOLOR && settings is com.sketcher.sketchercompanionv1.tools.WatercolorSettings && settings.linkStrokeToFill) finalStrokeStyle.toFillStyleJson() else config.strokeStyle,
+            isStrokeActive = if (currentTool == ToolType.WATERCOLOR && settings is com.sketcher.sketchercompanionv1.tools.WatercolorSettings && settings.linkStrokeToFill) finalStrokeActive else config.isStrokeActive
+        )
+        toolConfigs[currentTool] = updated
+        persistToolConfigColorState(currentTool, updated)
         when (currentTool) {
             ToolType.PEN -> savePenSettings(settings as com.sketcher.sketchercompanionv1.tools.PenSettings)
             ToolType.FREEHAND -> saveFreehandSettings(settings as com.sketcher.sketchercompanionv1.tools.PencilSettings)
@@ -1356,6 +1456,7 @@ class ToolManager(private val context: Context) {
 
     fun loadCustomTools() {
         val json = prefs.getString("custom_tools_v1", null)
+        val hasInitialized = prefs.getBoolean("has_initialized_base_brushes", false)
         if (json != null) {
             try {
                 val tokenType = object : com.google.gson.reflect.TypeToken<List<CustomToolJson>>() {}.type
@@ -1389,15 +1490,70 @@ class ToolManager(private val context: Context) {
                         )
                     )
                 }
-                _customTools.value = mapped
-                updateRegistryCustomTools(mapped)
+                
+                if (mapped.isEmpty() && !hasInitialized) {
+                    populateDefaultCustomTools()
+                } else {
+                    if (!hasInitialized) prefs.edit().putBoolean("has_initialized_base_brushes", true).apply()
+                    _customTools.value = mapped
+                    updateRegistryCustomTools(mapped)
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
+                if (!hasInitialized) populateDefaultCustomTools()
             }
         } else {
-            _customTools.value = emptyList()
-            updateRegistryCustomTools(emptyList())
+            if (!hasInitialized) populateDefaultCustomTools()
         }
+    }
+
+    private fun populateDefaultCustomTools() {
+        prefs.edit().putBoolean("has_initialized_base_brushes", true).apply()
+        val defaultBrushes = listOf(
+            CustomTool(
+                id = "default_pencil",
+                name = "Lápiz Básico",
+                iconName = "pencil",
+                iconResName = "ic_tabler_pencil",
+                baseToolType = ToolType.FREEHAND,
+                preset = BrushPreset(size = 5f, opacity = 1f, settings = com.sketcher.sketchercompanionv1.tools.PencilSettings(), stabilization = 0.07f)
+            ),
+            CustomTool(
+                id = "default_pen",
+                name = "Bolígrafo Sólido",
+                iconName = "pen",
+                iconResName = "ic_tabler_pen",
+                baseToolType = ToolType.PEN,
+                preset = BrushPreset(size = 8f, opacity = 1f, settings = com.sketcher.sketchercompanionv1.tools.PenSettings(), stabilization = 0f)
+            ),
+            CustomTool(
+                id = "default_pluma",
+                name = "Pluma Caligráfica",
+                iconName = "pluma",
+                iconResName = "ic_tabler_pluma",
+                baseToolType = ToolType.PLUMA,
+                preset = BrushPreset(size = 15f, opacity = 1f, settings = com.sketcher.sketchercompanionv1.tools.PlumaSettings(), stabilization = 0f)
+            ),
+            CustomTool(
+                id = "default_paint",
+                name = "Pincel Acrílico",
+                iconName = "paint",
+                iconResName = "ic_tabler_paint",
+                baseToolType = ToolType.PAINT,
+                preset = BrushPreset(size = 20f, opacity = 0.8f, settings = com.sketcher.sketchercompanionv1.tools.PaintSettings(), stabilization = 0f)
+            ),
+            CustomTool(
+                id = "default_watercolor",
+                name = "Acuarela Suave",
+                iconName = "watercolor",
+                iconResName = "ic_tabler_watercolor",
+                baseToolType = ToolType.WATERCOLOR,
+                preset = BrushPreset(size = 30f, opacity = 0.5f, settings = com.sketcher.sketchercompanionv1.tools.WatercolorSettings(), stabilization = 0f)
+            )
+        )
+        _customTools.value = defaultBrushes
+        updateRegistryCustomTools(defaultBrushes)
+        saveCustomTools(defaultBrushes)
     }
 
     private fun updateRegistryCustomTools(list: List<CustomTool>) {
@@ -1453,12 +1609,24 @@ class ToolManager(private val context: Context) {
         current.removeAll { it.id == ct.id }
         current.add(ct)
         saveCustomTools(current)
+        onCustomToolAddedOrUpdated?.invoke(ct)
     }
 
     fun removeCustomTool(id: String) {
         val current = _customTools.value.toMutableList()
         current.removeAll { it.id == id }
         saveCustomTools(current)
+        onCustomToolRemoved?.invoke(id)
+    }
+
+    fun updateCustomTool(ct: CustomTool) {
+        val current = _customTools.value.toMutableList()
+        val index = current.indexOfFirst { it.id == ct.id }
+        if (index != -1) {
+            current[index] = ct
+            saveCustomTools(current)
+            onCustomToolAddedOrUpdated?.invoke(ct)
+        }
     }
 
     fun applyBrushPresetDirectly(preset: BrushPreset) {
@@ -1479,12 +1647,17 @@ class ToolManager(private val context: Context) {
         val defaultStab = if (currentTool == ToolType.FREEHAND || currentTool == ToolType.PENCIL_CUMULATIVE) 0.07f else 0f
         val stab = preset.stabilization ?: defaultStab
 
-        _strokeColor.value = sc
+        val isLinked = currentTool == ToolType.WATERCOLOR && (preset.settings as? com.sketcher.sketchercompanionv1.tools.WatercolorSettings)?.linkStrokeToFill == true
+        val finalSc = if (isLinked) adjustColorBrightness(fc, (preset.settings as com.sketcher.sketchercompanionv1.tools.WatercolorSettings).strokeBrightnessOffset) else sc
+        val finalSs = if (isLinked) FillStyle.Solid(finalSc) else ss
+        val finalSa = if (isLinked) true else sa
+
+        _strokeColor.value = finalSc
         _fillColor.value = fc
-        _isStrokeActive.value = sa
+        _isStrokeActive.value = finalSa
         _isFillActive.value = fa
         _fillStyle.value = fs
-        _strokeStyle.value = ss
+        _strokeStyle.value = finalSs
         setGlobalStabilization(stab)
 
         val config = toolConfigs[currentTool]!!
@@ -1492,9 +1665,9 @@ class ToolManager(private val context: Context) {
             size = preset.size,
             opacity = preset.opacity,
             settings = preset.settings,
-            strokeColor = sc,
+            strokeColor = finalSc,
             fillColor = fc,
-            isStrokeActive = sa,
+            isStrokeActive = finalSa,
             isFillActive = fa,
             stabilization = stab
         )
@@ -1564,22 +1737,62 @@ class ToolManager(private val context: Context) {
     }
 
     fun updatePresetFlows() {
-        val idx = _selectedPresetIndex.value ?: 0
-        _isStrokeColorPreset.value = getIsStrokeColorPreset(currentTool, idx)
-        _isFillColorPreset.value = getIsFillColorPreset(currentTool, idx)
+        val customId = activeCustomToolId
+        if (customId != null) {
+            val ct = _customTools.value.find { it.id == customId }
+            if (ct != null) {
+                val preset = ct.preset
+                
+                val presetSc = preset.strokeColor ?: AndroidColor.BLACK
+                val presetSs = preset.strokeStyle ?: FillStyle.Solid(presetSc)
+                val presetSa = preset.isStrokeActive ?: true
+                
+                val currentSc = _strokeColor.value
+                val currentSs = _strokeStyle.value
+                val currentSa = _isStrokeActive.value
+                
+                _isStrokeColorPreset.value = (currentSc == presetSc && currentSs == presetSs && currentSa == presetSa)
+                
+                val presetFc = preset.fillColor ?: AndroidColor.WHITE
+                val presetFs = preset.fillStyle ?: FillStyle.Solid(presetFc)
+                val presetFa = preset.isFillActive ?: true
+                
+                val currentFc = _fillColor.value
+                val currentFs = _fillStyle.value
+                val currentFa = _isFillActive.value
+                
+                _isFillColorPreset.value = (currentFc == presetFc && currentFs == presetFs && currentFa == presetFa)
+            } else {
+                _isStrokeColorPreset.value = true
+                _isFillColorPreset.value = true
+            }
+        } else {
+            val idx = _selectedPresetIndex.value ?: 0
+            _isStrokeColorPreset.value = getIsStrokeColorPreset(currentTool, idx)
+            _isFillColorPreset.value = getIsFillColorPreset(currentTool, idx)
+        }
     }
 
     fun revertToPresetColor(isStroke: Boolean) {
-        val idx = _selectedPresetIndex.value ?: 0
-        val list = _brushPresets.value
-        if (idx in list.indices) {
-            val preset = list[idx]
+        val customId = activeCustomToolId
+        val preset = if (customId != null) {
+            _customTools.value.find { it.id == customId }?.preset
+        } else {
+            val idx = _selectedPresetIndex.value ?: 0
+            val list = _brushPresets.value
+            if (idx in list.indices) list[idx] else null
+        }
+        
+        if (preset != null) {
             if (isStroke) {
-                prefs.edit().apply {
-                    putBoolean("preset_stroke_explicit_${currentTool.name}_$idx", false)
-                    remove("preset_stroke_color_${currentTool.name}_$idx")
-                    remove("preset_stroke_style_v2_${currentTool.name}_$idx")
-                    apply()
+                if (customId == null) {
+                    val idx = _selectedPresetIndex.value ?: 0
+                    prefs.edit().apply {
+                        putBoolean("preset_stroke_explicit_${currentTool.name}_$idx", false)
+                        remove("preset_stroke_color_${currentTool.name}_$idx")
+                        remove("preset_stroke_style_v2_${currentTool.name}_$idx")
+                        apply()
+                    }
                 }
                 val sc = preset.strokeColor ?: AndroidColor.BLACK
                 val ss = preset.strokeStyle ?: FillStyle.Solid(sc)
@@ -1597,11 +1810,14 @@ class ToolManager(private val context: Context) {
                 toolConfigs[currentTool] = updated
                 persistToolConfigColorState(currentTool, updated)
             } else {
-                prefs.edit().apply {
-                    putBoolean("preset_fill_explicit_${currentTool.name}_$idx", false)
-                    remove("preset_fill_color_${currentTool.name}_$idx")
-                    remove("preset_fill_style_v2_${currentTool.name}_$idx")
-                    apply()
+                if (customId == null) {
+                    val idx = _selectedPresetIndex.value ?: 0
+                    prefs.edit().apply {
+                        putBoolean("preset_fill_explicit_${currentTool.name}_$idx", false)
+                        remove("preset_fill_color_${currentTool.name}_$idx")
+                        remove("preset_fill_style_v2_${currentTool.name}_$idx")
+                        apply()
+                    }
                 }
                 val fc = preset.fillColor ?: AndroidColor.WHITE
                 val fs = preset.fillStyle ?: FillStyle.Solid(fc)
@@ -1639,10 +1855,13 @@ class ToolManager(private val context: Context) {
         selectTool(currentTool)
     }
 
-    fun getToolStatesJson(): String {
+    fun getToolStatesJson(activeCustomToolId: String?): String {
         val map = mutableMapOf<String, Any>()
         map["currentTool"] = currentTool.name
         map["currentStrokeType"] = currentStrokeType.name
+        if (activeCustomToolId != null) {
+            map["activeCustomToolId"] = activeCustomToolId
+        }
         
         val lastPresetIndices = mutableMapOf<String, Int>()
         lastPresetIndexPerTool.forEach { (k, v) ->
@@ -1663,7 +1882,8 @@ class ToolManager(private val context: Context) {
         return gson.toJson(map)
     }
 
-    fun restoreToolStatesFromJson(jsonStr: String) {
+    fun restoreToolStatesFromJson(jsonStr: String): String? {
+        var activeCustomId: String? = null
         try {
             val typeToken = object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type
             val map: Map<String, Any> = gson.fromJson(jsonStr, typeToken)
@@ -1723,7 +1943,11 @@ class ToolManager(private val context: Context) {
                 try {
                     val toolType = ToolType.valueOf(toolName)
                     currentTool = toolType
-                } catch(e: Exception) {}
+                } catch(e: Exception) {
+                    currentTool = ToolType.SELECTION
+                }
+            } else {
+                currentTool = ToolType.SELECTION
             }
             
             val strokeTypeName = map["currentStrokeType"]?.toString()
@@ -1735,10 +1959,13 @@ class ToolManager(private val context: Context) {
                 } catch(e: Exception) {}
             }
             
+            activeCustomId = map["activeCustomToolId"]?.toString()
+            
             selectTool(currentTool)
             
         } catch(e: Exception) {
             e.printStackTrace()
         }
+        return activeCustomId
     }
 }

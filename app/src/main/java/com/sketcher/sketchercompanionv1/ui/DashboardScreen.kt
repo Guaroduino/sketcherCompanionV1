@@ -1347,7 +1347,8 @@ fun EditNotebookCoverDialog(
             onStyleSelected = { style ->
                 coverFillJson = style.toFillStyleJson()
                 showFillPicker = false
-            }
+            },
+            basePixelsPerMillimeter = viewModel.scaleConfig.basePixelsPerMillimeter
         )
     }
 }

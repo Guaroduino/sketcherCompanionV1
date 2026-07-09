@@ -206,6 +206,12 @@ data class PathCommandJson(
     val params: List<Float> // Coordinates
 )
 
+data class StrokeEndOptions(
+    val cap: Boolean = true,
+    val taperEnabled: Boolean = false,
+    val customTaper: Float? = null
+)
+
 data class FreehandSettings(
     // Perfect Freehand Exact Params
     val size: Float = 9f,
@@ -213,10 +219,8 @@ data class FreehandSettings(
     val smoothing: Float = 0.5f,
     val streamline: Float = 0.5f,
     val simulatePressure: Boolean = false,
-    val taperStart: Float = 0.0f,
-    val taperEnd: Float = 0.0f,
-    val capStart: Boolean = true, 
-    val capEnd: Boolean = true,
+    val start: StrokeEndOptions = StrokeEndOptions(cap = true, taperEnabled = false),
+    val end: StrokeEndOptions = StrokeEndOptions(cap = true, taperEnabled = false),
     val isComplete: Boolean = false,
     
     // Custom App Params
@@ -238,7 +242,9 @@ data class FreehandSettings(
     val watercolorCenterOpacity: Float = 0.8f,
     val watercolorEdgeRingOpacity: Float = 1.0f,
     val watercolorEdgeRingWidth: Float = 2.0f,
-    val paintJoinPrevious: Boolean = true
+    val paintJoinPrevious: Boolean = true,
+    val linkStrokeToFill: Boolean = false,
+    val strokeBrightnessOffset: Float = 0.0f
 )
 
 data class BrushPreset(

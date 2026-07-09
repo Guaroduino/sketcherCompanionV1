@@ -119,6 +119,9 @@ import com.sketcher.sketchercompanionv1.data.ThemeRepository
 
 import com.sketcher.sketchercompanionv1.data.ToolbarRepository
 
+import com.sketcher.sketchercompanionv1.dto.CustomTool
+import com.sketcher.sketchercompanionv1.dto.BrushPreset
+import com.sketcher.sketchercompanionv1.dto.ToolType
 import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
 
 import com.sketcher.sketchercompanionv1.ui.components.ToolPayload
@@ -807,7 +810,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     var showCustomToolsManagerDialog by mutableStateOf(false)
 
-    var activeCustomToolId by mutableStateOf<String?>(null)
+    private var _activeCustomToolIdCompose by mutableStateOf<String?>(null)
+    var activeCustomToolId: String?
+        get() = _activeCustomToolIdCompose
+        set(value) {
+            _activeCustomToolIdCompose = value
+            toolManager.activeCustomToolId = value
+        }
 
 
 
@@ -922,7 +931,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         }
 
         when(payload) {
-
+            ToolPayload.CUSTOM -> {
+                if (toolId != null) {
+                    val ct = toolManager.customTools.value.find { it.id == toolId }
+                    if (ct != null) {
+                        activateCustomTool(ct)
+                    }
+                }
+            }
             ToolPayload.PENCIL -> {
                 selectTool(ToolType.FREEHAND)
             }
@@ -980,8 +996,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         if (payload == ToolPayload.STABILIZE) {
             lastActiveStabilizationToolId = toolId
         }
+        val settings = toolManager.currentFreehandSettings as? com.sketcher.sketchercompanionv1.tools.WatercolorSettings
+        val isLocked = currentTool == ToolType.WATERCOLOR && settings?.linkStrokeToFill == true
         when(payload) {
-            ToolPayload.STROKE_COLOR -> _showStrokeColorPicker.value = true
+            ToolPayload.STROKE_COLOR -> {
+                if (!isLocked) {
+                    _showStrokeColorPicker.value = true
+                }
+            }
             ToolPayload.FILL_COLOR -> _showFillColorPicker.value = true
             ToolPayload.STABILIZE -> _showStabilizePicker.value = true
             else -> {} // Other tools might not have edit dialogs yet
@@ -1042,15 +1064,14 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     internal fun getActionForTool(id: String): () -> Unit {
-        if (id.startsWith("custom_tool_")) {
+        val ct = toolManager.customTools.value.find { it.id == id }
+        if (ct != null) {
             return {
-                val ct = toolManager.customTools.value.find { it.id == id }
-                if (ct != null) {
-                    activateCustomTool(ct)
-                }
+                activateCustomTool(ct)
             }
         }
         return when(id) {
+            "brush_workshop" -> ({ showCustomToolsManagerDialog = true })
             "undo" -> ({ undo() })
 
         "redo" -> ({ redo() })
@@ -1077,7 +1098,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         "home_view" -> ({ resetCamera() })
 
-        "stroke_color" -> ({ _showStrokeColorPicker.value = true })
+        "stroke_color" -> ({
+            val settings = toolManager.currentFreehandSettings as? com.sketcher.sketchercompanionv1.tools.WatercolorSettings
+            val isLocked = currentTool == ToolType.WATERCOLOR && settings?.linkStrokeToFill == true
+            if (!isLocked) {
+                _showStrokeColorPicker.value = true
+            }
+        })
 
         "fill_color" -> ({ _showFillColorPicker.value = true })
 
@@ -1745,11 +1772,35 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     val customTools = toolManager.customTools
     fun addCustomTool(ct: CustomTool) = toolManager.addCustomTool(ct)
+    fun updateCustomTool(ct: CustomTool) = toolManager.updateCustomTool(ct)
     fun removeCustomTool(id: String) {
         toolManager.removeCustomTool(id)
         if (activeCustomToolId == id) {
             activeCustomToolId = null
         }
+    }
+
+    fun updateActiveCustomTool() {
+        val id = activeCustomToolId ?: return
+        val currentCt = customTools.value.find { it.id == id } ?: return
+        
+        val newSettings = toolManager.getToolConfigMap()[currentTool]?.settings
+        
+        val updatedCt = currentCt.copy(
+            preset = BrushPreset(
+                size = brushSize.value,
+                opacity = brushOpacity.value,
+                settings = newSettings ?: com.sketcher.sketchercompanionv1.tools.PencilSettings(),
+                strokeColor = strokeColor.value,
+                fillColor = fillColor.value,
+                isStrokeActive = isStrokeActive.value,
+                isFillActive = isFillActive.value,
+                fillStyle = fillStyle.value,
+                strokeStyle = strokeStyle.value,
+                stabilization = toolManager.globalStabilizationLevel
+            )
+        )
+        toolManager.updateCustomTool(updatedCt)
     }
 
     // --- EXPOSED CONFIGS ---
@@ -1766,6 +1817,48 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     init {
         ToolRegistry.showExperimental = showExperimentalTools
         hasPreferencesBackup = application.getSharedPreferences("sketcher_prefs_backup", Context.MODE_PRIVATE).all.isNotEmpty()
+        
+        toolManager.onCustomToolAddedOrUpdated = { ct ->
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val gson = com.google.gson.Gson()
+                    val jsonObj = com.sketcher.sketchercompanionv1.dto.CustomToolJson(
+                        id = ct.id,
+                        name = ct.name,
+                        iconName = ct.iconName,
+                        iconResName = ct.iconResName,
+                        baseToolType = ct.baseToolType.name,
+                        preset = com.sketcher.sketchercompanionv1.dto.BrushPresetJson(
+                            size = ct.preset.size,
+                            opacity = ct.preset.opacity,
+                            settingsType = ct.preset.settings::class.java.simpleName,
+                            settingsJson = gson.toJson(ct.preset.settings),
+                            strokeColor = ct.preset.strokeColor,
+                            fillColor = ct.preset.fillColor,
+                            isStrokeActive = ct.preset.isStrokeActive,
+                            isFillActive = ct.preset.isFillActive,
+                            fillStyle = ct.preset.fillStyle?.toFillStyleJson(),
+                            strokeStyle = ct.preset.strokeStyle?.toFillStyleJson(),
+                            stabilization = ct.preset.stabilization
+                        )
+                    )
+                    val jsonStr = gson.toJson(jsonObj)
+                    val type = object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type
+                    val map: Map<String, Any> = gson.fromJson(jsonStr, type)
+                    cloudSyncRepository.syncCustomBrush(ct.id, map)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+        
+        toolManager.onCustomToolRemoved = { id ->
+            toolbarManager.removeToolFromAllLayouts(id)
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                cloudSyncRepository.syncCustomBrush(id, null)
+            }
+        }
+        
         toolManager.loadCustomTools()
         selectTool(currentTool)
         toolbarManager.initLayout()
@@ -5013,7 +5106,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                     thumbnail = thumbnailBmp,
 
-                    toolStatesJson = toolManager.getToolStatesJson()
+                    toolStatesJson = toolManager.getToolStatesJson(activeCustomToolId)
 
                 )
 
@@ -5169,11 +5262,20 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         val tempPrefs = context.getSharedPreferences("tool_state_temp_prefs", Context.MODE_PRIVATE)
         val tempJson = tempPrefs.getString("temp_loaded_tool_states", null)
         if (tempJson != null) {
-            toolManager.restoreToolStatesFromJson(tempJson)
+            val customId = toolManager.restoreToolStatesFromJson(tempJson)
+            activeCustomToolId = customId
+            if (customId != null) {
+                val ct = toolManager.customTools.value.find { it.id == customId }
+                if (ct != null) {
+                    toolManager.applyBrushPresetDirectly(ct.preset)
+                }
+            }
             tempPrefs.edit().remove("temp_loaded_tool_states").apply()
         } else {
-            // For old projects without saved states, reset to Preset modes
+            // For old projects without saved states, reset to Preset modes and fallback to SELECTION
             toolManager.resetAllPresetOverrideStates()
+            activeCustomToolId = null
+            toolManager.selectTool(ToolType.SELECTION)
         }
 
         
@@ -5268,7 +5370,11 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         data.toolConfigs.forEach { (t, c) -> toolManager.applyToolConfig(t, c) }
 
-        selectTool(currentTool) // Refresh
+        if (activeCustomToolId == null) {
+            selectTool(currentTool) // Refresh
+        } else {
+            toolManager.selectTool(currentTool)
+        }
 
         
 
@@ -7838,6 +7944,98 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                         editor.apply()
                     }
                     
+                    // Restore custom brushes
+                    val brushesResult = cloudSyncRepository.getAllCustomBrushes()
+                    if (brushesResult.isSuccess) {
+                        val brushesList = brushesResult.getOrNull() ?: emptyList()
+                        if (brushesList.isNotEmpty()) {
+                            val gson = com.google.gson.Gson()
+                            val jsonStringList = brushesList.map { gson.toJson(it) }
+                            
+                            val tokenType = object : com.google.gson.reflect.TypeToken<List<com.sketcher.sketchercompanionv1.dto.CustomToolJson>>() {}.type
+                            val loaded: List<com.sketcher.sketchercompanionv1.dto.CustomToolJson> = gson.fromJson(gson.toJson(brushesList), tokenType)
+                            
+                            val mapped = loaded.mapNotNull { j ->
+                                try {
+                                    val settings = when (j.preset.settingsType) {
+                                        "PencilSettings" -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PencilSettings::class.java)
+                                        "PenSettings" -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PenSettings::class.java)
+                                        "PlumaSettings" -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PlumaSettings::class.java)
+                                        "PaintSettings" -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PaintSettings::class.java)
+                                        "WatercolorSettings" -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.WatercolorSettings::class.java)
+                                        else -> com.sketcher.sketchercompanionv1.tools.PencilSettings()
+                                    }
+                                    com.sketcher.sketchercompanionv1.dto.CustomTool(
+                                        id = j.id,
+                                        name = j.name,
+                                        iconName = j.iconName,
+                                        iconResName = j.iconResName,
+                                        baseToolType = try { com.sketcher.sketchercompanionv1.dto.ToolType.valueOf(j.baseToolType) } catch (e: Exception) { com.sketcher.sketchercompanionv1.dto.ToolType.FREEHAND },
+                                        preset = com.sketcher.sketchercompanionv1.dto.BrushPreset(
+                                            size = j.preset.size,
+                                            opacity = j.preset.opacity,
+                                            settings = settings,
+                                            strokeColor = j.preset.strokeColor,
+                                            fillColor = j.preset.fillColor,
+                                            isStrokeActive = j.preset.isStrokeActive,
+                                            isFillActive = j.preset.isFillActive,
+                                            fillStyle = j.preset.fillStyle?.toFillStyle(j.preset.fillColor ?: 0),
+                                            strokeStyle = j.preset.strokeStyle?.toFillStyle(j.preset.strokeColor ?: 0),
+                                            stabilization = j.preset.stabilization
+                                        )
+                                    )
+                                } catch (e: Exception) { null }
+                            }
+                            
+                            if (mapped.isNotEmpty()) {
+                                toolManager.onCustomToolAddedOrUpdated = null
+                                toolManager.onCustomToolRemoved = null
+                                toolManager.saveCustomTools(mapped)
+                                
+                                // Re-bind callbacks
+                                toolManager.onCustomToolAddedOrUpdated = { ct ->
+                                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                        try {
+                                            val gsonInner = com.google.gson.Gson()
+                                            val jsonObj = com.sketcher.sketchercompanionv1.dto.CustomToolJson(
+                                                id = ct.id,
+                                                name = ct.name,
+                                                iconName = ct.iconName,
+                                                iconResName = ct.iconResName,
+                                                baseToolType = ct.baseToolType.name,
+                                                preset = com.sketcher.sketchercompanionv1.dto.BrushPresetJson(
+                                                    size = ct.preset.size,
+                                                    opacity = ct.preset.opacity,
+                                                    settingsType = ct.preset.settings::class.java.simpleName,
+                                                    settingsJson = gsonInner.toJson(ct.preset.settings),
+                                                    strokeColor = ct.preset.strokeColor,
+                                                    fillColor = ct.preset.fillColor,
+                                                    isStrokeActive = ct.preset.isStrokeActive,
+                                                    isFillActive = ct.preset.isFillActive,
+                                                    fillStyle = ct.preset.fillStyle?.toFillStyleJson(),
+                                                    strokeStyle = ct.preset.strokeStyle?.toFillStyleJson(),
+                                                    stabilization = ct.preset.stabilization
+                                                )
+                                            )
+                                            val jsonStr = gsonInner.toJson(jsonObj)
+                                            val type = object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type
+                                            val map: Map<String, Any> = gsonInner.fromJson(jsonStr, type)
+                                            cloudSyncRepository.syncCustomBrush(ct.id, map)
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                        }
+                                    }
+                                }
+                                toolManager.onCustomToolRemoved = { id ->
+                                    toolbarManager.removeToolFromAllLayouts(id)
+                                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                        cloudSyncRepository.syncCustomBrush(id, null)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
                     // Reload local state
                     _themeConfig.value = themeRepository.getTheme()
                     // loadConfig()
@@ -7917,6 +8115,94 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     if (themePrefsMap != null) { val editor = themePrefs.edit(); editor.clear(); applyMapToPrefs(themePrefsMap, editor); editor.apply() }
                     if (toolbarPrefsMap != null) { val editor = toolbarPrefs.edit(); editor.clear(); applyMapToPrefs(toolbarPrefsMap, editor); editor.apply() }
                     _themeConfig.value = themeRepository.getTheme()
+                    
+                    val brushesResult = cloudSyncRepository.getAllCustomBrushes()
+                    if (brushesResult.isSuccess) {
+                        val brushesList = brushesResult.getOrNull() ?: emptyList()
+                        if (brushesList.isNotEmpty()) {
+                            val gson = com.google.gson.Gson()
+                            val tokenType = object : com.google.gson.reflect.TypeToken<List<com.sketcher.sketchercompanionv1.dto.CustomToolJson>>() {}.type
+                            val loaded: List<com.sketcher.sketchercompanionv1.dto.CustomToolJson> = gson.fromJson(gson.toJson(brushesList), tokenType)
+                            
+                            val mapped = loaded.mapNotNull { j ->
+                                try {
+                                    val settings = when (j.preset.settingsType) {
+                                        "PencilSettings" -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PencilSettings::class.java)
+                                        "PenSettings" -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PenSettings::class.java)
+                                        "PlumaSettings" -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PlumaSettings::class.java)
+                                        "PaintSettings" -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PaintSettings::class.java)
+                                        "WatercolorSettings" -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.WatercolorSettings::class.java)
+                                        else -> com.sketcher.sketchercompanionv1.tools.PencilSettings()
+                                    }
+                                    com.sketcher.sketchercompanionv1.dto.CustomTool(
+                                        id = j.id,
+                                        name = j.name,
+                                        iconName = j.iconName,
+                                        iconResName = j.iconResName,
+                                        baseToolType = try { com.sketcher.sketchercompanionv1.dto.ToolType.valueOf(j.baseToolType) } catch (e: Exception) { com.sketcher.sketchercompanionv1.dto.ToolType.FREEHAND },
+                                        preset = com.sketcher.sketchercompanionv1.dto.BrushPreset(
+                                            size = j.preset.size,
+                                            opacity = j.preset.opacity,
+                                            settings = settings,
+                                            strokeColor = j.preset.strokeColor,
+                                            fillColor = j.preset.fillColor,
+                                            isStrokeActive = j.preset.isStrokeActive,
+                                            isFillActive = j.preset.isFillActive,
+                                            fillStyle = j.preset.fillStyle?.toFillStyle(j.preset.fillColor ?: 0),
+                                            strokeStyle = j.preset.strokeStyle?.toFillStyle(j.preset.strokeColor ?: 0),
+                                            stabilization = j.preset.stabilization
+                                        )
+                                    )
+                                } catch (e: Exception) { null }
+                            }
+                            
+                            if (mapped.isNotEmpty()) {
+                                toolManager.onCustomToolAddedOrUpdated = null
+                                toolManager.onCustomToolRemoved = null
+                                toolManager.saveCustomTools(mapped)
+                                
+                                toolManager.onCustomToolAddedOrUpdated = { ct ->
+                                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                        try {
+                                            val gsonInner = com.google.gson.Gson()
+                                            val jsonObj = com.sketcher.sketchercompanionv1.dto.CustomToolJson(
+                                                id = ct.id,
+                                                name = ct.name,
+                                                iconName = ct.iconName,
+                                                iconResName = ct.iconResName,
+                                                baseToolType = ct.baseToolType.name,
+                                                preset = com.sketcher.sketchercompanionv1.dto.BrushPresetJson(
+                                                    size = ct.preset.size,
+                                                    opacity = ct.preset.opacity,
+                                                    settingsType = ct.preset.settings::class.java.simpleName,
+                                                    settingsJson = gsonInner.toJson(ct.preset.settings),
+                                                    strokeColor = ct.preset.strokeColor,
+                                                    fillColor = ct.preset.fillColor,
+                                                    isStrokeActive = ct.preset.isStrokeActive,
+                                                    isFillActive = ct.preset.isFillActive,
+                                                    fillStyle = ct.preset.fillStyle?.toFillStyleJson(),
+                                                    strokeStyle = ct.preset.strokeStyle?.toFillStyleJson(),
+                                                    stabilization = ct.preset.stabilization
+                                                )
+                                            )
+                                            val jsonStr = gsonInner.toJson(jsonObj)
+                                            val type = object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type
+                                            val map: Map<String, Any> = gsonInner.fromJson(jsonStr, type)
+                                            cloudSyncRepository.syncCustomBrush(ct.id, map)
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                        }
+                                    }
+                                }
+                                toolManager.onCustomToolRemoved = { id ->
+                                    toolbarManager.removeToolFromAllLayouts(id)
+                                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                        cloudSyncRepository.syncCustomBrush(id, null)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Sync Library

@@ -115,3 +115,12 @@ object PerfectFreehandUtils {
     }
 }
 
+object StrokeEasings {
+    fun identity(t: Float): Float = t
+    fun easeInOut(t: Float): Float = t * (2 - t)
+    fun easeOutCubic(t: Float): Float {
+        var tm = t
+        tm--
+        return tm * tm * tm + 1f
+    }
+}

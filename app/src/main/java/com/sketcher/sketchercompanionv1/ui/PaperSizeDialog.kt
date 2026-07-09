@@ -390,7 +390,8 @@ fun PaperSizeDialog(
                             onStyleSelected = { style ->
                                 selectedStyle = style
                                 showStylePickerDialog = false
-                            }
+                            },
+                            basePixelsPerMillimeter = pixelsPerMm
                         )
                     }
                 }
