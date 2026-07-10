@@ -2,4 +2,6 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Maps to context.cacheDir/updates/ -->
     <cache-path name="update_apks" path="updates/" />
+    <!-- Maps to context.filesDir/updates/ -->
+    <files-path name="update_apks_files" path="updates/" />
 </paths>

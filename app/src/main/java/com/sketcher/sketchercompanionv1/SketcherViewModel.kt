@@ -8062,7 +8062,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                                             fillStyle = j.preset.fillStyle?.toFillStyle(j.preset.fillColor ?: 0),
                                             strokeStyle = j.preset.strokeStyle?.toFillStyle(j.preset.strokeColor ?: 0),
                                             stabilization = j.preset.stabilization
-                                        )
+                                        ),
+                                        customIconJson = j.customIconJson
                                     )
                                 } catch (e: Exception) { null }
                             }
@@ -8109,7 +8110,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                                                     fillStyle = ct.preset.fillStyle?.toFillStyleJson(),
                                                     strokeStyle = ct.preset.strokeStyle?.toFillStyleJson(),
                                                     stabilization = ct.preset.stabilization
-                                                )
+                                                ),
+                                                customIconJson = ct.customIconJson
                                             )
                                             val jsonStr = gsonInner.toJson(jsonObj)
                                             val type = object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type
@@ -8245,7 +8247,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                                             fillStyle = j.preset.fillStyle?.toFillStyle(j.preset.fillColor ?: 0),
                                             strokeStyle = j.preset.strokeStyle?.toFillStyle(j.preset.strokeColor ?: 0),
                                             stabilization = j.preset.stabilization
-                                        )
+                                        ),
+                                        customIconJson = j.customIconJson
                                     )
                                 } catch (e: Exception) { null }
                             }
@@ -8291,7 +8294,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                                                     fillStyle = ct.preset.fillStyle?.toFillStyleJson(),
                                                     strokeStyle = ct.preset.strokeStyle?.toFillStyleJson(),
                                                     stabilization = ct.preset.stabilization
-                                                )
+                                                ),
+                                                customIconJson = ct.customIconJson
                                             )
                                             val jsonStr = gsonInner.toJson(jsonObj)
                                             val type = object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type

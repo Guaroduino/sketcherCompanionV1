@@ -17,10 +17,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.sketcher.sketchercompanionv1.dto.CustomTool
 import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
 import com.sketcher.sketchercompanionv1.ui.model.StudioTool
@@ -38,12 +40,18 @@ fun CustomToolsManagerDialog(
 ) {
     val customTools by viewModel.customTools.collectAsState()
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val isLargeScreen = configuration.screenWidthDp >= 600
+    
     var showIconEditorForToolId by remember { mutableStateOf<String?>(null) }
     var showRenameDialogForTool by remember { mutableStateOf<CustomTool?>(null) }
 
     var showCreateBrushDialog by remember { mutableStateOf(false) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -127,6 +135,8 @@ fun CustomToolsManagerDialog(
                                 )
                             }
 
+                            var expandedMenu by remember { mutableStateOf(false) }
+
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -181,25 +191,15 @@ fun CustomToolsManagerDialog(
                                         }
                                     }
 
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        IconButton(
-                                            onClick = {
-                                                showRenameDialogForTool = tool
-                                            }
+                                    if (isLargeScreen) {
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Edit,
-                                                contentDescription = "Renombrar",
-                                                tint = theme.iconColor.copy(alpha = 0.7f),
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-
-                                        IconButton(
-                                            onClick = {
+                                            IconButton(onClick = { showRenameDialogForTool = tool }) {
+                                                Icon(Icons.Default.Edit, "Renombrar", tint = theme.iconColor.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
+                                            }
+                                            IconButton(onClick = {
                                                 val newId = "custom_tool_" + UUID.randomUUID().toString()
                                                 val duplicated = tool.copy(id = newId, name = "${tool.name} Copia")
                                                 viewModel.addCustomTool(duplicated)
@@ -211,48 +211,22 @@ fun CustomToolsManagerDialog(
                                                     }
                                                     viewModel.updateTheme(currentTheme.copy(customIcons = updatedIcons))
                                                 }
+                                            }) {
+                                                Icon(Icons.Default.ContentCopy, "Copiar", tint = theme.iconColor.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
                                             }
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.ContentCopy,
-                                                contentDescription = "Copiar",
-                                                tint = theme.iconColor.copy(alpha = 0.7f),
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-
-                                        IconButton(
-                                            onClick = {
+                                            IconButton(onClick = {
                                                 viewModel.activateCustomTool(tool)
                                                 if (!viewModel.showPropertiesPanel) {
                                                     viewModel.togglePropertiesPanel()
                                                 }
                                                 onDismiss()
+                                            }) {
+                                                Icon(Icons.Default.Tune, "Ajustes del Pincel", tint = theme.iconColor.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
                                             }
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Tune,
-                                                contentDescription = "Ajustes del Pincel",
-                                                tint = theme.iconColor.copy(alpha = 0.7f),
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-
-                                        IconButton(
-                                            onClick = {
-                                                showIconEditorForToolId = tool.id
+                                            IconButton(onClick = { showIconEditorForToolId = tool.id }) {
+                                                Icon(Icons.Default.Palette, "Editar Icono", tint = theme.iconColor.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
                                             }
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Palette,
-                                                contentDescription = "Editar Icono",
-                                                tint = theme.iconColor.copy(alpha = 0.7f),
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-
-                                        IconButton(
-                                            onClick = {
+                                            IconButton(onClick = {
                                                 viewModel.removeCustomTool(tool.id)
                                                 val currentTheme = viewModel.themeConfig.value
                                                 if (currentTheme.customIcons.containsKey(tool.id)) {
@@ -261,14 +235,89 @@ fun CustomToolsManagerDialog(
                                                     }
                                                     viewModel.updateTheme(currentTheme.copy(customIcons = updatedIcons))
                                                 }
+                                            }) {
+                                                Icon(Icons.Default.Delete, "Borrar", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f), modifier = Modifier.size(20.dp))
                                             }
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Delete,
-                                                contentDescription = "Borrar",
-                                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
-                                                modifier = Modifier.size(20.dp)
-                                            )
+                                        }
+                                    } else {
+                                        Box {
+                                            IconButton(
+                                                onClick = { expandedMenu = true }
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.MoreVert,
+                                                    contentDescription = "Opciones",
+                                                    tint = theme.iconColor,
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                            }
+                                            DropdownMenu(
+                                                expanded = expandedMenu,
+                                                onDismissRequest = { expandedMenu = false },
+                                                modifier = Modifier.background(theme.barBackgroundColor)
+                                            ) {
+                                                DropdownMenuItem(
+                                                    text = { Text("Ajustes del Pincel", color = theme.iconColor) },
+                                                    onClick = {
+                                                        expandedMenu = false
+                                                        viewModel.activateCustomTool(tool)
+                                                        if (!viewModel.showPropertiesPanel) {
+                                                            viewModel.togglePropertiesPanel()
+                                                        }
+                                                        onDismiss()
+                                                    },
+                                                    leadingIcon = { Icon(Icons.Default.Tune, contentDescription = null, tint = theme.iconColor) }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("Renombrar", color = theme.iconColor) },
+                                                    onClick = {
+                                                        expandedMenu = false
+                                                        showRenameDialogForTool = tool
+                                                    },
+                                                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, tint = theme.iconColor) }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("Copiar", color = theme.iconColor) },
+                                                    onClick = {
+                                                        expandedMenu = false
+                                                        val newId = "custom_tool_" + UUID.randomUUID().toString()
+                                                        val duplicated = tool.copy(id = newId, name = "${tool.name} Copia")
+                                                        viewModel.addCustomTool(duplicated)
+                                                        val currentTheme = viewModel.themeConfig.value
+                                                        val existingIcon = currentTheme.customIcons[tool.id]
+                                                        if (existingIcon != null) {
+                                                            val updatedIcons = currentTheme.customIcons.toMutableMap().apply {
+                                                                put(newId, existingIcon)
+                                                            }
+                                                            viewModel.updateTheme(currentTheme.copy(customIcons = updatedIcons))
+                                                        }
+                                                    },
+                                                    leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null, tint = theme.iconColor) }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("Editar Icono", color = theme.iconColor) },
+                                                    onClick = {
+                                                        expandedMenu = false
+                                                        showIconEditorForToolId = tool.id
+                                                    },
+                                                    leadingIcon = { Icon(Icons.Default.Palette, contentDescription = null, tint = theme.iconColor) }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("Borrar", color = MaterialTheme.colorScheme.error) },
+                                                    onClick = {
+                                                        expandedMenu = false
+                                                        viewModel.removeCustomTool(tool.id)
+                                                        val currentTheme = viewModel.themeConfig.value
+                                                        if (currentTheme.customIcons.containsKey(tool.id)) {
+                                                            val updatedIcons = currentTheme.customIcons.toMutableMap().apply {
+                                                                remove(tool.id)
+                                                            }
+                                                            viewModel.updateTheme(currentTheme.copy(customIcons = updatedIcons))
+                                                        }
+                                                    },
+                                                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -313,7 +362,10 @@ fun CustomToolsManagerDialog(
     if (showRenameDialogForTool != null) {
         val tool = showRenameDialogForTool!!
         var newName by remember(tool) { mutableStateOf(tool.name) }
-        Dialog(onDismissRequest = { showRenameDialogForTool = null }) {
+        Dialog(
+            onDismissRequest = { showRenameDialogForTool = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
             Card(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(

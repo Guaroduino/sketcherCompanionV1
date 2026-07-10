@@ -417,12 +417,13 @@ class ToolManager(private val context: Context) {
                 val loaded: List<BrushPresetJson> = gson.fromJson(json, tokenType)
                 if (loaded.size >= 5) {
                     return loaded.map { pJson ->
-                        val settings = when (pJson.settingsType) {
-                            "PencilSettings" -> gson.fromJson(pJson.settingsJson, PencilSettings::class.java)
-                            "PenSettings" -> gson.fromJson(pJson.settingsJson, PenSettings::class.java)
-                            "PlumaSettings" -> gson.fromJson(pJson.settingsJson, PlumaSettings::class.java)
-                            "PaintSettings" -> gson.fromJson(pJson.settingsJson, PaintSettings::class.java)
-                            "WatercolorSettings" -> gson.fromJson(pJson.settingsJson, WatercolorSettings::class.java)
+                        val settings = when (type) {
+                            ToolType.FREEHAND -> gson.fromJson(pJson.settingsJson, PencilSettings::class.java)
+                            ToolType.PEN -> gson.fromJson(pJson.settingsJson, PenSettings::class.java)
+                            ToolType.PLUMA -> gson.fromJson(pJson.settingsJson, PlumaSettings::class.java)
+                            ToolType.PAINT -> gson.fromJson(pJson.settingsJson, PaintSettings::class.java)
+                            ToolType.WATERCOLOR -> gson.fromJson(pJson.settingsJson, WatercolorSettings::class.java)
+                            ToolType.PENCIL_CUMULATIVE -> gson.fromJson(pJson.settingsJson, PencilSettings::class.java)
                             else -> PencilSettings()
                         }
                         BrushPreset(
@@ -1413,12 +1414,14 @@ class ToolManager(private val context: Context) {
                 val tokenType = object : com.google.gson.reflect.TypeToken<List<CustomToolJson>>() {}.type
                 val loaded: List<CustomToolJson> = gson.fromJson(json, tokenType)
                 val mapped = loaded.map { j ->
-                    val settings = when (j.preset.settingsType) {
-                        "PencilSettings" -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PencilSettings::class.java)
-                        "PenSettings" -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PenSettings::class.java)
-                        "PlumaSettings" -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PlumaSettings::class.java)
-                        "PaintSettings" -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PaintSettings::class.java)
-                        "WatercolorSettings" -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.WatercolorSettings::class.java)
+                    val toolType = try { ToolType.valueOf(j.baseToolType) } catch (e: Exception) { ToolType.FREEHAND }
+                    val settings = when (toolType) {
+                        ToolType.FREEHAND -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PencilSettings::class.java)
+                        ToolType.PEN -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PenSettings::class.java)
+                        ToolType.PLUMA -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PlumaSettings::class.java)
+                        ToolType.PAINT -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PaintSettings::class.java)
+                        ToolType.WATERCOLOR -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.WatercolorSettings::class.java)
+                        ToolType.PENCIL_CUMULATIVE -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PencilSettings::class.java)
                         else -> com.sketcher.sketchercompanionv1.tools.PencilSettings()
                     }
                     CustomTool(
@@ -1426,7 +1429,7 @@ class ToolManager(private val context: Context) {
                         name = j.name,
                         iconName = j.iconName,
                         iconResName = j.iconResName,
-                        baseToolType = try { ToolType.valueOf(j.baseToolType) } catch (e: Exception) { ToolType.FREEHAND },
+                        baseToolType = toolType,
                         preset = BrushPreset(
                             size = j.preset.size,
                             opacity = j.preset.opacity,

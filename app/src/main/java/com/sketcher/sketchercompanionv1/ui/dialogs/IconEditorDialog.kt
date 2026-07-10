@@ -403,17 +403,6 @@ fun IconEditorDialog(
                 customIconsState = customIconsState.toMutableMap().apply {
                     put(selectedTool.registryId, json)
                 }
-                viewModel.updateTheme(theme.copy(customIcons = customIconsState))
-                
-                // ALSO update customIconJson if this is a custom tool
-                val ct = viewModel.toolManager.customTools.value.find { it.id == selectedTool.registryId }
-                if (ct != null) {
-                    val updatedCt = ct.copy(customIconJson = json)
-                    viewModel.toolManager.saveCustomTools(
-                        viewModel.toolManager.customTools.value.map { if (it.id == updatedCt.id) updatedCt else it }
-                    )
-                    viewModel.toolManager.onCustomToolAddedOrUpdated?.invoke(updatedCt)
-                }
             }
         }
     }
@@ -428,17 +417,6 @@ fun IconEditorDialog(
                 val json = Gson().toJson(activePaths.toList())
                 customIconsState = customIconsState.toMutableMap().apply {
                     put(selectedTool.registryId, json)
-                }
-                viewModel.updateTheme(theme.copy(customIcons = customIconsState))
-                
-                // ALSO update customIconJson if this is a custom tool
-                val ct = viewModel.toolManager.customTools.value.find { it.id == selectedTool.registryId }
-                if (ct != null) {
-                    val updatedCt = ct.copy(customIconJson = json)
-                    viewModel.toolManager.saveCustomTools(
-                        viewModel.toolManager.customTools.value.map { if (it.id == updatedCt.id) updatedCt else it }
-                    )
-                    viewModel.toolManager.onCustomToolAddedOrUpdated?.invoke(updatedCt)
                 }
             }
         }
@@ -1203,6 +1181,14 @@ fun IconEditorDialog(
                                             viewModel.updateTheme(theme.copy(customIcons = customIconsState.toMutableMap().apply {
                                                 put(selectedTool.registryId, jsonStr)
                                             }))
+                                            val ct = viewModel.toolManager.customTools.value.find { it.id == selectedTool.registryId }
+                                            if (ct != null) {
+                                                val updatedCt = ct.copy(customIconJson = jsonStr)
+                                                viewModel.toolManager.saveCustomTools(
+                                                    viewModel.toolManager.customTools.value.map { if (it.id == updatedCt.id) updatedCt else it }
+                                                )
+                                                viewModel.toolManager.onCustomToolAddedOrUpdated?.invoke(updatedCt)
+                                            }
                                         }
                                         onDismiss()
                                     },

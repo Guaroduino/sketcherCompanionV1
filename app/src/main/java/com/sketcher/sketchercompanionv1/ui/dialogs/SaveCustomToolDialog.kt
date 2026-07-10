@@ -278,7 +278,8 @@ fun SaveCustomToolDialog(
                                     iconName = selectedIconName,
                                     iconResName = iconResName,
                                     baseToolType = baseToolType,
-                                    preset = preset
+                                    preset = preset,
+                                    customIconJson = if (selectedIconName == "Custom") customIconJsonState else null
                                 )
                                 onConfirm(newCustomTool, if (selectedIconName == "Custom") customIconJsonState else null)
                             }

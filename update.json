@@ -1,7 +1,7 @@
 {
-  "versionCode": 87,
-  "versionName": "1.0.86",
+  "versionCode": 99,
+  "versionName": "1.0.98",
   "apkUrl": "https://firebasestorage.googleapis.com/v0/b/sketchercompanionapp.firebasestorage.app/o/updates%2Fapp-debug.apk?alt=media",
-  "releaseNotes": "Publicación desde asistente para actualizar dispositivos",
+  "releaseNotes": "Actualización menor solicitada por el usuario",
   "forceUpdate": false
 }
