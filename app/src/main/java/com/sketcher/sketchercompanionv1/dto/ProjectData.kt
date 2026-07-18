@@ -12,7 +12,7 @@ data class ProjectData(
     val canvasMetadata: CanvasMetadata,
     val componentLibrary: Map<String, ComponentDefinitionJson> = emptyMap(),
     val canvasSizeConfig: CanvasSizeConfig? = null, // null = infinite canvas
-    val uiPresetName: String? = null,
+    val workspaceProfile: WorkspaceProfileJson? = null,
     val pages: List<PageJson>? = null,
     val activePageIndex: Int = 0
 )

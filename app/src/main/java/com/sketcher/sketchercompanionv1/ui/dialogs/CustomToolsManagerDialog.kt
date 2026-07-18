@@ -203,13 +203,9 @@ fun CustomToolsManagerDialog(
                                                 val newId = "custom_tool_" + UUID.randomUUID().toString()
                                                 val duplicated = tool.copy(id = newId, name = "${tool.name} Copia")
                                                 viewModel.addCustomTool(duplicated)
-                                                val currentTheme = viewModel.themeConfig.value
-                                                val existingIcon = currentTheme.customIcons[tool.id]
+                                                val existingIcon = viewModel.globalCustomIcons.value[tool.id]
                                                 if (existingIcon != null) {
-                                                    val updatedIcons = currentTheme.customIcons.toMutableMap().apply {
-                                                        put(newId, existingIcon)
-                                                    }
-                                                    viewModel.updateTheme(currentTheme.copy(customIcons = updatedIcons))
+                                                    viewModel.saveGlobalIcon(newId, existingIcon)
                                                 }
                                             }) {
                                                 Icon(Icons.Default.ContentCopy, "Copiar", tint = theme.iconColor.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
@@ -228,13 +224,7 @@ fun CustomToolsManagerDialog(
                                             }
                                             IconButton(onClick = {
                                                 viewModel.removeCustomTool(tool.id)
-                                                val currentTheme = viewModel.themeConfig.value
-                                                if (currentTheme.customIcons.containsKey(tool.id)) {
-                                                    val updatedIcons = currentTheme.customIcons.toMutableMap().apply {
-                                                        remove(tool.id)
-                                                    }
-                                                    viewModel.updateTheme(currentTheme.copy(customIcons = updatedIcons))
-                                                }
+                                                viewModel.removeGlobalIcon(tool.id)
                                             }) {
                                                 Icon(Icons.Default.Delete, "Borrar", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f), modifier = Modifier.size(20.dp))
                                             }
@@ -283,13 +273,9 @@ fun CustomToolsManagerDialog(
                                                         val newId = "custom_tool_" + UUID.randomUUID().toString()
                                                         val duplicated = tool.copy(id = newId, name = "${tool.name} Copia")
                                                         viewModel.addCustomTool(duplicated)
-                                                        val currentTheme = viewModel.themeConfig.value
-                                                        val existingIcon = currentTheme.customIcons[tool.id]
+                                                        val existingIcon = viewModel.globalCustomIcons.value[tool.id]
                                                         if (existingIcon != null) {
-                                                            val updatedIcons = currentTheme.customIcons.toMutableMap().apply {
-                                                                put(newId, existingIcon)
-                                                            }
-                                                            viewModel.updateTheme(currentTheme.copy(customIcons = updatedIcons))
+                                                            viewModel.saveGlobalIcon(newId, existingIcon)
                                                         }
                                                     },
                                                     leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null, tint = theme.iconColor) }
@@ -307,13 +293,7 @@ fun CustomToolsManagerDialog(
                                                     onClick = {
                                                         expandedMenu = false
                                                         viewModel.removeCustomTool(tool.id)
-                                                        val currentTheme = viewModel.themeConfig.value
-                                                        if (currentTheme.customIcons.containsKey(tool.id)) {
-                                                            val updatedIcons = currentTheme.customIcons.toMutableMap().apply {
-                                                                remove(tool.id)
-                                                            }
-                                                            viewModel.updateTheme(currentTheme.copy(customIcons = updatedIcons))
-                                                        }
+                                                        viewModel.removeGlobalIcon(tool.id)
                                                     },
                                                     leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
                                                 )
@@ -331,17 +311,13 @@ fun CustomToolsManagerDialog(
 
     if (showIconEditorForToolId != null) {
         val toolId = showIconEditorForToolId!!
-        val currentIconJson = theme.customIcons[toolId]
+        val currentIconJson = viewModel.globalCustomIcons.collectAsState().value[toolId]
         IconEditorDialog(
             viewModel = viewModel,
             onDismiss = { showIconEditorForToolId = null },
             initialIconJson = currentIconJson,
             onSaveIconJson = { jsonStr ->
-                val currentTheme = viewModel.themeConfig.value
-                val updatedIcons = currentTheme.customIcons.toMutableMap().apply {
-                    put(toolId, jsonStr)
-                }
-                viewModel.updateTheme(currentTheme.copy(customIcons = updatedIcons))
+                viewModel.saveGlobalIcon(toolId, jsonStr)
                 showIconEditorForToolId = null
             }
         )

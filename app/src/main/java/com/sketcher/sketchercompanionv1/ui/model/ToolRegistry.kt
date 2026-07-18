@@ -31,7 +31,9 @@ object ToolRegistry {
         }
 
     private val fullToolsList = listOf(
+        // Workshop
         StudioTool("brush_workshop", Icons.Default.Brush, "Taller de Pinceles", R.drawable.ic_tabler_paint, isPlaceholder = false),
+
         StudioTool("eraser", Icons.Default.AutoFixNormal, "Borrador", R.drawable.ic_tabler_eraser, isPlaceholder = false, subTools = listOf(
             StudioTool("eraser", Icons.Default.AutoFixNormal, "Borrador de Trazo", R.drawable.ic_tabler_eraser, isPlaceholder = false, parentGroupId = "eraser"),
             StudioTool("point_eraser", Icons.Default.AutoFixNormal, "Borrador de Puntos", R.drawable.ic_tabler_point_eraser, isPlaceholder = false, parentGroupId = "eraser"),

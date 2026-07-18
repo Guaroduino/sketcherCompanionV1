@@ -76,7 +76,7 @@ object PdfExporter {
                         scaleConfig = page.scaleConfig
                     ),
                     componentLibrary = componentLibrary.mapValues { it.value.toComponentDefinitionJson() },
-                    uiPresetName = ""
+                    workspaceProfile = null
                 )
 
                 val bounds = calculateBounds(

@@ -16,10 +16,42 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
 import org.json.JSONArray
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.sketcher.sketchercompanionv1.data.repository.GlobalToolRepository
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 
-class ToolManager(private val context: Context) {
+class ToolManager(
+    private val context: Context,
+    private val globalToolRepository: GlobalToolRepository,
+    private val scope: CoroutineScope
+) {
     private val prefs = context.getSharedPreferences("sketcher_prefs", Context.MODE_PRIVATE)
     private val gson = Gson()
+
+    private var isProjectOpen = false
+    private var activeProjectToolsConfig: MutableMap<String, ToolConfigJson> = mutableMapOf()
+    
+    private val _globalCustomTools = MutableStateFlow<List<CustomTool>>(emptyList())
+    val globalCustomTools = _globalCustomTools.asStateFlow()
+
+    private val _projectCustomTools = MutableStateFlow<List<CustomTool>>(emptyList())
+    val projectCustomTools = _projectCustomTools.asStateFlow()
+
+    private val _customTools = MutableStateFlow<List<CustomTool>>(emptyList())
+    val customTools = _customTools.asStateFlow()
+
+    private fun updateEffectiveTools() {
+        val map = _globalCustomTools.value.associateBy { it.id }.toMutableMap()
+        _projectCustomTools.value.forEach { map[it.id] = it }
+        val effective = map.values.toList()
+        _customTools.value = effective
+        updateRegistryCustomTools(effective)
+    }
 
     private fun getSafeInt(key: String, default: Int): Int {
         return try {
@@ -95,8 +127,6 @@ class ToolManager(private val context: Context) {
     var onCustomToolAddedOrUpdated: ((CustomTool) -> Unit)? = null
     var onCustomToolRemoved: ((String) -> Unit)? = null
 
-    private val _customTools = MutableStateFlow<List<CustomTool>>(emptyList())
-    val customTools = _customTools.asStateFlow()
 
     var currentSize by mutableFloatStateOf(2f)
         private set
@@ -216,18 +246,40 @@ class ToolManager(private val context: Context) {
     }
 
     private fun persistToolConfigColorState(type: ToolType, config: ToolConfig) {
-        prefs.edit().apply {
-            putInt("tool_stroke_color_${type.name}", config.strokeColor)
-            putInt("tool_fill_color_${type.name}", config.fillColor)
-            putBoolean("tool_stroke_active_${type.name}", config.isStrokeActive)
-            putBoolean("tool_fill_active_${type.name}", config.isFillActive)
-            putFloat("tool_stabilization_${type.name}", config.stabilization)
-            
-            val fsStr = config.fillStyle?.let { gson.toJson(it) }
-            val ssStr = config.strokeStyle?.let { gson.toJson(it) }
-            putString("tool_fill_style_v2_${type.name}", fsStr)
-            putString("tool_stroke_style_v2_${type.name}", ssStr)
-            apply()
+        if (isProjectOpen) {
+            val json = ToolConfigJson(
+                size = config.size,
+                opacity = config.opacity,
+                settingsType = config.settings::class.java.simpleName,
+                settingsJson = gson.toJson(config.settings),
+                fillSettingsTolerance = config.fillSettings.tolerance,
+                isFingerMode = config.isFingerMode,
+                fingerOffsetX = config.fingerOffsetX,
+                fingerOffsetY = config.fingerOffsetY,
+                eraserShape = config.eraserShape.name,
+                strokeColor = config.strokeColor,
+                fillColor = config.fillColor,
+                isStrokeActive = config.isStrokeActive,
+                isFillActive = config.isFillActive,
+                fillStyle = config.fillStyle,
+                strokeStyle = config.strokeStyle,
+                stabilization = config.stabilization
+            )
+            activeProjectToolsConfig[type.name] = json
+        } else {
+            prefs.edit().apply {
+                putInt("tool_stroke_color_${type.name}", config.strokeColor)
+                putInt("tool_fill_color_${type.name}", config.fillColor)
+                putBoolean("tool_stroke_active_${type.name}", config.isStrokeActive)
+                putBoolean("tool_fill_active_${type.name}", config.isFillActive)
+                putFloat("tool_stabilization_${type.name}", config.stabilization)
+                
+                val fsStr = config.fillStyle?.let { gson.toJson(it) }
+                val ssStr = config.strokeStyle?.let { gson.toJson(it) }
+                putString("tool_fill_style_v2_${type.name}", fsStr)
+                putString("tool_stroke_style_v2_${type.name}", ssStr)
+                apply()
+            }
         }
     }
 
@@ -994,9 +1046,8 @@ class ToolManager(private val context: Context) {
                 ct
             }
         }
-        _customTools.value = mapped
-        updateRegistryCustomTools(mapped)
-        saveCustomTools(mapped)
+    // updateRegistryCustomTools(mapped)
+    // saveCustomTools(mapped)
     }
 
     fun isCustomToolModified(customId: String): Boolean {
@@ -1088,8 +1139,10 @@ class ToolManager(private val context: Context) {
     }
 
     private fun saveFreehandSettings(settings: com.sketcher.sketchercompanionv1.tools.PencilSettings) {
-        val json = gson.toJson(settings)
-        prefs.edit().putString("freehand_settings_v4", json).apply()
+        if (!isProjectOpen) {
+            val json = gson.toJson(settings)
+            prefs.edit().putString("freehand_settings_v4", json).apply()
+        }
     }
 
     private fun loadPaintSettings(): com.sketcher.sketchercompanionv1.tools.PaintSettings {
@@ -1098,8 +1151,10 @@ class ToolManager(private val context: Context) {
     }
 
     private fun savePaintSettings(settings: com.sketcher.sketchercompanionv1.tools.PaintSettings) {
-        val json = gson.toJson(settings)
-        prefs.edit().putString("paint_settings_v4", json).apply()
+        if (!isProjectOpen) {
+            val json = gson.toJson(settings)
+            prefs.edit().putString("paint_settings_v4", json).apply()
+        }
     }
 
     private fun loadPenSettings(): com.sketcher.sketchercompanionv1.tools.PenSettings {
@@ -1108,8 +1163,10 @@ class ToolManager(private val context: Context) {
     }
 
     private fun savePenSettings(settings: com.sketcher.sketchercompanionv1.tools.PenSettings) {
-        val json = gson.toJson(settings)
-        prefs.edit().putString("pen_settings_v4", json).apply()
+        if (!isProjectOpen) {
+            val json = gson.toJson(settings)
+            prefs.edit().putString("pen_settings_v4", json).apply()
+        }
     }
 
     private fun loadPlumaSettings(): com.sketcher.sketchercompanionv1.tools.PlumaSettings {
@@ -1118,8 +1175,10 @@ class ToolManager(private val context: Context) {
     }
 
     private fun savePlumaSettings(settings: com.sketcher.sketchercompanionv1.tools.PlumaSettings) {
-        val json = gson.toJson(settings)
-        prefs.edit().putString("pluma_settings_v4", json).apply()
+        if (!isProjectOpen) {
+            val json = gson.toJson(settings)
+            prefs.edit().putString("pluma_settings_v4", json).apply()
+        }
     }
 
     private fun loadPencilCumulativeSettings(): com.sketcher.sketchercompanionv1.tools.PencilSettings {
@@ -1128,8 +1187,10 @@ class ToolManager(private val context: Context) {
     }
 
     private fun savePencilCumulativeSettings(settings: com.sketcher.sketchercompanionv1.tools.PencilSettings) {
-        val json = gson.toJson(settings)
-        prefs.edit().putString("pencil_cumulative_settings_v2", json).apply()
+        if (!isProjectOpen) {
+            val json = gson.toJson(settings)
+            prefs.edit().putString("pencil_cumulative_settings_v2", json).apply()
+        }
     }
 
     private fun loadWatercolorSettings(): com.sketcher.sketchercompanionv1.tools.WatercolorSettings {
@@ -1138,8 +1199,10 @@ class ToolManager(private val context: Context) {
     }
 
     private fun saveWatercolorSettings(settings: com.sketcher.sketchercompanionv1.tools.WatercolorSettings) {
-        val json = gson.toJson(settings)
-        prefs.edit().putString("watercolor_settings_v2", json).apply()
+        if (!isProjectOpen) {
+            val json = gson.toJson(settings)
+            prefs.edit().putString("watercolor_settings_v2", json).apply()
+        }
     }
 
     fun getToolConfigMap(): Map<ToolType, ToolConfig> = toolConfigs.toMap()
@@ -1406,70 +1469,190 @@ class ToolManager(private val context: Context) {
 
     // --- CUSTOM TOOLS LOGIC ---
 
-    fun loadCustomTools() {
-        val json = prefs.getString("custom_tools_v1", null)
-        val hasInitialized = prefs.getBoolean("has_initialized_base_brushes", false)
-        if (json != null) {
-            try {
-                val tokenType = object : com.google.gson.reflect.TypeToken<List<CustomToolJson>>() {}.type
-                val loaded: List<CustomToolJson> = gson.fromJson(json, tokenType)
-                val mapped = loaded.map { j ->
-                    val toolType = try { ToolType.valueOf(j.baseToolType) } catch (e: Exception) { ToolType.FREEHAND }
-                    val settings = when (toolType) {
-                        ToolType.FREEHAND -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PencilSettings::class.java)
-                        ToolType.PEN -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PenSettings::class.java)
-                        ToolType.PLUMA -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PlumaSettings::class.java)
-                        ToolType.PAINT -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PaintSettings::class.java)
-                        ToolType.WATERCOLOR -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.WatercolorSettings::class.java)
-                        ToolType.PENCIL_CUMULATIVE -> gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PencilSettings::class.java)
-                        else -> com.sketcher.sketchercompanionv1.tools.PencilSettings()
-                    }
-                    CustomTool(
-                        id = j.id,
-                        name = j.name,
-                        iconName = j.iconName,
-                        iconResName = j.iconResName,
-                        baseToolType = toolType,
-                        preset = BrushPreset(
-                            size = j.preset.size,
-                            opacity = j.preset.opacity,
-                            settings = settings,
-                            strokeColor = j.preset.strokeColor,
-                            fillColor = j.preset.fillColor,
-                            isStrokeActive = j.preset.isStrokeActive,
-                            isFillActive = j.preset.isFillActive,
-                            fillStyle = j.preset.fillStyle?.toFillStyle(j.preset.fillColor ?: 0),
-                            strokeStyle = j.preset.strokeStyle?.toFillStyle(j.preset.strokeColor ?: 0),
-                            stabilization = j.preset.stabilization
-                        )
-                    ,
-                        customIconJson = j.customIconJson
-                    )
+    fun saveToolToGlobal(toolId: String) {
+        val toolType = try { ToolType.valueOf(toolId) } catch (e: Exception) { null }
+        if (toolType != null) {
+            val config = toolConfigs[toolType]
+            if (config != null) {
+                prefs.edit().apply {
+                    putInt("tool_stroke_color_${toolType.name}", config.strokeColor)
+                    putInt("tool_fill_color_${toolType.name}", config.fillColor)
+                    putBoolean("tool_stroke_active_${toolType.name}", config.isStrokeActive)
+                    putBoolean("tool_fill_active_${toolType.name}", config.isFillActive)
+                    putFloat("tool_stabilization_${toolType.name}", config.stabilization)
+                    
+                    val fsStr = config.fillStyle?.let { gson.toJson(it) }
+                    val ssStr = config.strokeStyle?.let { gson.toJson(it) }
+                    putString("tool_fill_style_v2_${toolType.name}", fsStr)
+                    putString("tool_stroke_style_v2_${toolType.name}", ssStr)
+                    putFloat("tool_size_${toolType.name}", config.size)
+                    putFloat("tool_alpha_${toolType.name}", config.opacity)
+                    apply()
                 }
                 
-                if (mapped.isEmpty() && !hasInitialized) {
-                    populateDefaultCustomTools()
-                } else {
-                    if (!hasInitialized) prefs.edit().putBoolean("has_initialized_base_brushes", true).apply()
-                    _customTools.value = mapped
-                    updateRegistryCustomTools(mapped)
+                when (toolType) {
+                    ToolType.FREEHAND -> saveFreehandSettingsToGlobal(config.settings as? com.sketcher.sketchercompanionv1.tools.PencilSettings)
+                    ToolType.PEN -> savePenSettingsToGlobal(config.settings as? com.sketcher.sketchercompanionv1.tools.PenSettings)
+                    ToolType.PAINT -> savePaintSettingsToGlobal(config.settings as? com.sketcher.sketchercompanionv1.tools.PaintSettings)
+                    ToolType.PLUMA -> savePlumaSettingsToGlobal(config.settings as? com.sketcher.sketchercompanionv1.tools.PlumaSettings)
+                    ToolType.WATERCOLOR -> saveWatercolorSettingsToGlobal(config.settings as? com.sketcher.sketchercompanionv1.tools.WatercolorSettings)
+                    ToolType.PENCIL_CUMULATIVE -> savePencilCumulativeSettingsToGlobal(config.settings as? com.sketcher.sketchercompanionv1.tools.PencilSettings)
+                    else -> {}
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                if (!hasInitialized) populateDefaultCustomTools()
             }
         } else {
-            if (!hasInitialized) populateDefaultCustomTools()
+            val ct = _customTools.value.find { it.id == toolId }
+            if (ct != null) {
+                scope.launch(Dispatchers.IO) {
+                    globalToolRepository.saveGlobalTool(ct)
+                    val currentGlobal = _globalCustomTools.value.toMutableList()
+                    val idx = currentGlobal.indexOfFirst { it.id == toolId }
+                    if (idx != -1) {
+                        currentGlobal[idx] = ct
+                    } else {
+                        currentGlobal.add(ct)
+                    }
+                    _globalCustomTools.value = currentGlobal
+                    updateEffectiveTools()
+                    onCustomToolAddedOrUpdated?.invoke(ct)
+                }
+            }
+        }
+    }
+    
+    private fun saveFreehandSettingsToGlobal(settings: com.sketcher.sketchercompanionv1.tools.PencilSettings?) {
+        if (settings != null) prefs.edit().putString("freehand_settings_v4", gson.toJson(settings)).apply()
+    }
+    
+    private fun savePenSettingsToGlobal(settings: com.sketcher.sketchercompanionv1.tools.PenSettings?) {
+        if (settings != null) prefs.edit().putString("pen_settings_v4", gson.toJson(settings)).apply()
+    }
+    
+    private fun savePaintSettingsToGlobal(settings: com.sketcher.sketchercompanionv1.tools.PaintSettings?) {
+        if (settings != null) prefs.edit().putString("paint_settings_v4", gson.toJson(settings)).apply()
+    }
+    
+    private fun savePlumaSettingsToGlobal(settings: com.sketcher.sketchercompanionv1.tools.PlumaSettings?) {
+        if (settings != null) prefs.edit().putString("pluma_settings_v4", gson.toJson(settings)).apply()
+    }
+    
+    private fun saveWatercolorSettingsToGlobal(settings: com.sketcher.sketchercompanionv1.tools.WatercolorSettings?) {
+        if (settings != null) prefs.edit().putString("watercolor_settings_v2", gson.toJson(settings)).apply()
+    }
+    
+    private fun savePencilCumulativeSettingsToGlobal(settings: com.sketcher.sketchercompanionv1.tools.PencilSettings?) {
+        if (settings != null) prefs.edit().putString("pencil_cumulative_settings_v2", gson.toJson(settings)).apply()
+    }
+
+    fun loadProjectState(projectTools: List<CustomToolJson>?, projectConfigs: Map<String, ToolConfigJson>?) {
+        isProjectOpen = true
+        activeProjectToolsConfig = projectConfigs?.toMutableMap() ?: mutableMapOf()
+        
+        val mappedTools = projectTools?.map { j ->
+            val toolType = try { ToolType.valueOf(j.baseToolType) } catch (e: Exception) { ToolType.FREEHAND }
+            val settings = when (toolType) {
+                ToolType.FREEHAND -> try { gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PencilSettings::class.java) } catch(e:Exception){com.sketcher.sketchercompanionv1.tools.PencilSettings()}
+                ToolType.PEN -> try { gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PenSettings::class.java) } catch(e:Exception){com.sketcher.sketchercompanionv1.tools.PenSettings()}
+                ToolType.PLUMA -> try { gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PlumaSettings::class.java) } catch(e:Exception){com.sketcher.sketchercompanionv1.tools.PlumaSettings()}
+                ToolType.PAINT -> try { gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PaintSettings::class.java) } catch(e:Exception){com.sketcher.sketchercompanionv1.tools.PaintSettings()}
+                ToolType.WATERCOLOR -> try { gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.WatercolorSettings::class.java) } catch(e:Exception){com.sketcher.sketchercompanionv1.tools.WatercolorSettings()}
+                ToolType.PENCIL_CUMULATIVE -> try { gson.fromJson(j.preset.settingsJson, com.sketcher.sketchercompanionv1.tools.PencilSettings::class.java) } catch(e:Exception){com.sketcher.sketchercompanionv1.tools.PencilSettings(isCumulativeOpacity = true)}
+                else -> com.sketcher.sketchercompanionv1.tools.PencilSettings()
+            }
+            CustomTool(
+                id = j.id,
+                name = j.name,
+                iconName = j.iconName,
+                iconResName = j.iconResName,
+                baseToolType = toolType,
+                preset = BrushPreset(
+                    size = j.preset.size,
+                    opacity = j.preset.opacity,
+                    settings = settings,
+                    strokeColor = j.preset.strokeColor,
+                    fillColor = j.preset.fillColor,
+                    isStrokeActive = j.preset.isStrokeActive,
+                    isFillActive = j.preset.isFillActive,
+                    isStrokeColorLocked = j.preset.isStrokeColorLocked,
+                    isFillColorLocked = j.preset.isFillColorLocked,
+                    fillStyle = j.preset.fillStyle?.toFillStyle(j.preset.fillColor ?: 0),
+                    strokeStyle = j.preset.strokeStyle?.toFillStyle(j.preset.strokeColor ?: 0),
+                    stabilization = j.preset.stabilization
+                ),
+                customIconJson = j.customIconJson
+            )
+        } ?: emptyList()
+        
+        _projectCustomTools.value = mappedTools
+        
+        projectConfigs?.forEach { (typeStr, configJson) ->
+            try {
+                val toolType = ToolType.valueOf(typeStr)
+                val settings = when (toolType) {
+                    ToolType.FREEHAND -> try { gson.fromJson(configJson.settingsJson, com.sketcher.sketchercompanionv1.tools.PencilSettings::class.java) } catch(e:Exception){com.sketcher.sketchercompanionv1.tools.PencilSettings()}
+                    ToolType.PEN -> try { gson.fromJson(configJson.settingsJson, com.sketcher.sketchercompanionv1.tools.PenSettings::class.java) } catch(e:Exception){com.sketcher.sketchercompanionv1.tools.PenSettings()}
+                    ToolType.PLUMA -> try { gson.fromJson(configJson.settingsJson, com.sketcher.sketchercompanionv1.tools.PlumaSettings::class.java) } catch(e:Exception){com.sketcher.sketchercompanionv1.tools.PlumaSettings()}
+                    ToolType.PAINT -> try { gson.fromJson(configJson.settingsJson, com.sketcher.sketchercompanionv1.tools.PaintSettings::class.java) } catch(e:Exception){com.sketcher.sketchercompanionv1.tools.PaintSettings()}
+                    ToolType.WATERCOLOR -> try { gson.fromJson(configJson.settingsJson, com.sketcher.sketchercompanionv1.tools.WatercolorSettings::class.java) } catch(e:Exception){com.sketcher.sketchercompanionv1.tools.WatercolorSettings()}
+                    ToolType.PENCIL_CUMULATIVE -> try { gson.fromJson(configJson.settingsJson, com.sketcher.sketchercompanionv1.tools.PencilSettings::class.java) } catch(e:Exception){com.sketcher.sketchercompanionv1.tools.PencilSettings(isCumulativeOpacity = true)}
+                    else -> com.sketcher.sketchercompanionv1.tools.PencilSettings()
+                }
+                toolConfigs[toolType] = ToolConfig(
+                    size = configJson.size,
+                    opacity = configJson.opacity,
+                    settings = settings,
+                    isFingerMode = configJson.isFingerMode,
+                    fingerOffsetX = configJson.fingerOffsetX,
+                    fingerOffsetY = configJson.fingerOffsetY,
+                    eraserShape = EraserShape.valueOf(configJson.eraserShape),
+                    strokeColor = configJson.strokeColor,
+                    fillColor = configJson.fillColor,
+                    isStrokeActive = configJson.isStrokeActive,
+                    isFillActive = configJson.isFillActive,
+                    fillStyle = configJson.fillStyle,
+                    strokeStyle = configJson.strokeStyle,
+                    stabilization = configJson.stabilization
+                )
+            } catch(e: Exception) {}
+        }
+        
+        updateEffectiveTools()
+        selectTool(currentTool) // re-apply the config
+    }
+
+    fun closeProject() {
+        isProjectOpen = false
+        _projectCustomTools.value = emptyList()
+        activeProjectToolsConfig.clear()
+        updateEffectiveTools()
+    }
+
+    fun loadCustomTools(onLoaded: (() -> Unit)? = null) {
+        scope.launch(Dispatchers.IO) {
+            val tools = globalToolRepository.getAllGlobalTools()
+            val hasInitialized = prefs.getBoolean("has_initialized_base_brushes", false)
+            
+            if (tools.isEmpty() && !hasInitialized) {
+                populateDefaultCustomTools()
+            } else {
+                if (!hasInitialized) prefs.edit().putBoolean("has_initialized_base_brushes", true).apply()
+                _globalCustomTools.value = tools
+                updateEffectiveTools()
+            }
+            withContext(Dispatchers.Main) {
+                onLoaded?.invoke()
+            }
         }
     }
 
     fun restoreDefaultBrushes() {
-        populateDefaultCustomTools()
-        // Trigger sync for all default brushes
-        _customTools.value.forEach { onCustomToolAddedOrUpdated?.invoke(it) }
+        scope.launch(Dispatchers.IO) {
+            populateDefaultCustomTools()
+            _globalCustomTools.value.forEach { onCustomToolAddedOrUpdated?.invoke(it) }
+        }
     }
 
-    private fun populateDefaultCustomTools() {
+    private suspend fun populateDefaultCustomTools() {
         prefs.edit().putBoolean("has_initialized_base_brushes", true).apply()
         val defaultBrushes = listOf(
             CustomTool(
@@ -1513,9 +1696,9 @@ class ToolManager(private val context: Context) {
                 preset = BrushPreset(size = 30f, opacity = 0.5f, settings = com.sketcher.sketchercompanionv1.tools.WatercolorSettings(), stabilization = 0f)
             )
         )
-        _customTools.value = defaultBrushes
-        updateRegistryCustomTools(defaultBrushes)
-        saveCustomTools(defaultBrushes)
+        globalToolRepository.saveGlobalTools(defaultBrushes)
+        _globalCustomTools.value = defaultBrushes
+        updateEffectiveTools()
     }
 
     private fun updateRegistryCustomTools(list: List<CustomTool>) {
@@ -1537,58 +1720,39 @@ class ToolManager(private val context: Context) {
         }
     }
 
-    fun saveCustomTools(list: List<CustomTool>) {
-        val jsonList = list.map { tool ->
-            CustomToolJson(
-                id = tool.id,
-                name = tool.name,
-                iconName = tool.iconName,
-                iconResName = tool.iconResName,
-                baseToolType = tool.baseToolType.name,
-                preset = BrushPresetJson(
-                    size = tool.preset.size,
-                    opacity = tool.preset.opacity,
-                    settingsType = tool.preset.settings::class.java.simpleName,
-                    settingsJson = gson.toJson(tool.preset.settings),
-                    strokeColor = tool.preset.strokeColor,
-                    fillColor = tool.preset.fillColor,
-                    isStrokeActive = tool.preset.isStrokeActive,
-                    isFillActive = tool.preset.isFillActive,
-                    fillStyle = tool.preset.fillStyle?.toFillStyleJson(),
-                    strokeStyle = tool.preset.strokeStyle?.toFillStyleJson(),
-                    stabilization = tool.preset.stabilization
-                )
-            ,
-                    customIconJson = tool.customIconJson
-                )
-        }
-        val json = gson.toJson(jsonList)
-        prefs.edit().putString("custom_tools_v1", json).apply()
-        _customTools.value = list
-        updateRegistryCustomTools(list)
-    }
-
     fun addCustomTool(ct: CustomTool) {
-        val current = _customTools.value.toMutableList()
-        current.removeAll { it.id == ct.id }
-        current.add(ct)
-        saveCustomTools(current)
+        val currentGlobal = _globalCustomTools.value.toMutableList()
+        currentGlobal.removeAll { it.id == ct.id }
+        currentGlobal.add(ct)
+        _globalCustomTools.value = currentGlobal
+        updateEffectiveTools()
+        scope.launch(Dispatchers.IO) {
+            globalToolRepository.saveGlobalTool(ct)
+        }
         onCustomToolAddedOrUpdated?.invoke(ct)
     }
 
     fun removeCustomTool(id: String) {
-        val current = _customTools.value.toMutableList()
-        current.removeAll { it.id == id }
-        saveCustomTools(current)
+        val currentGlobal = _globalCustomTools.value.toMutableList()
+        currentGlobal.removeAll { it.id == id }
+        _globalCustomTools.value = currentGlobal
+        updateEffectiveTools()
+        scope.launch(Dispatchers.IO) {
+            globalToolRepository.deleteGlobalTool(id)
+        }
         onCustomToolRemoved?.invoke(id)
     }
 
     fun updateCustomTool(ct: CustomTool) {
-        val current = _customTools.value.toMutableList()
-        val index = current.indexOfFirst { it.id == ct.id }
+        val currentGlobal = _globalCustomTools.value.toMutableList()
+        val index = currentGlobal.indexOfFirst { it.id == ct.id }
         if (index != -1) {
-            current[index] = ct
-            saveCustomTools(current)
+            currentGlobal[index] = ct
+            _globalCustomTools.value = currentGlobal
+            updateEffectiveTools()
+            scope.launch(Dispatchers.IO) {
+                globalToolRepository.saveGlobalTool(ct)
+            }
             onCustomToolAddedOrUpdated?.invoke(ct)
         }
     }
@@ -1601,35 +1765,33 @@ class ToolManager(private val context: Context) {
         _selectedPresetIndex.value = null
         
         val customId = activeCustomToolId
-        val useExplicitStroke = if (customId != null) prefs.getBoolean("custom_stroke_explicit_$customId", false) else false
-        val useExplicitFill = if (customId != null) prefs.getBoolean("custom_fill_explicit_$customId", false) else false
+        val useExplicitStroke = preset.isStrokeColorLocked
+        val useExplicitFill = preset.isFillColorLocked
 
         val sc = if (useExplicitStroke) {
-            getSafeInt("custom_stroke_color_$customId", preset.strokeColor ?: _strokeColor.value)
-        } else {
             preset.strokeColor ?: _strokeColor.value
+        } else {
+            _strokeColor.value
         }
         
-        val ssStr = if (useExplicitStroke) prefs.getString("custom_stroke_style_v2_$customId", null) else null
-        val ss = if (ssStr != null) {
-            try { jsonToFillStyle(ssStr) ?: FillStyle.Solid(sc) } catch(e: Exception) { FillStyle.Solid(sc) }
-        } else {
+        val ss = if (useExplicitStroke) {
             preset.strokeStyle ?: FillStyle.Solid(sc)
+        } else {
+            _strokeStyle.value
         }
         
         val sa = preset.isStrokeActive ?: _isStrokeActive.value
 
         val fc = if (useExplicitFill) {
-            getSafeInt("custom_fill_color_$customId", preset.fillColor ?: _fillColor.value)
-        } else {
             preset.fillColor ?: _fillColor.value
+        } else {
+            _fillColor.value
         }
         
-        val fsStr = if (useExplicitFill) prefs.getString("custom_fill_style_v2_$customId", null) else null
-        val fs = if (fsStr != null) {
-            try { jsonToFillStyle(fsStr) ?: FillStyle.Solid(fc) } catch(e: Exception) { FillStyle.Solid(fc) }
-        } else {
+        val fs = if (useExplicitFill) {
             preset.fillStyle ?: FillStyle.Solid(fc)
+        } else {
+            _fillStyle.value
         }
         
         val fa = preset.isFillActive ?: _isFillActive.value
@@ -1690,15 +1852,14 @@ class ToolManager(private val context: Context) {
     fun setExplicitStrokeColorState(tool: ToolType, presetIndex: Int, explicit: Boolean, color: Int, style: FillStyle?) {
         val customId = activeCustomToolId
         if (customId != null) {
-            prefs.edit().apply {
-                putBoolean("custom_stroke_explicit_$customId", explicit)
-                putInt("custom_stroke_color_$customId", color)
-                if (style != null) {
-                    putString("custom_stroke_style_v2_$customId", fillStyleToJson(style))
-                } else {
-                    remove("custom_stroke_style_v2_$customId")
-                }
-                apply()
+            val ct = _customTools.value.find { it.id == customId }
+            if (ct != null) {
+                val updatedPreset = ct.preset.copy(
+                    isStrokeColorLocked = explicit,
+                    strokeColor = color,
+                    strokeStyle = style
+                )
+                updateCustomTool(ct.copy(preset = updatedPreset))
             }
         } else {
             prefs.edit().apply {
@@ -1731,15 +1892,14 @@ class ToolManager(private val context: Context) {
     fun setExplicitFillColorState(tool: ToolType, presetIndex: Int, explicit: Boolean, color: Int, style: FillStyle?) {
         val customId = activeCustomToolId
         if (customId != null) {
-            prefs.edit().apply {
-                putBoolean("custom_fill_explicit_$customId", explicit)
-                putInt("custom_fill_color_$customId", color)
-                if (style != null) {
-                    putString("custom_fill_style_v2_$customId", fillStyleToJson(style))
-                } else {
-                    remove("custom_fill_style_v2_$customId")
-                }
-                apply()
+            val ct = _customTools.value.find { it.id == customId }
+            if (ct != null) {
+                val updatedPreset = ct.preset.copy(
+                    isFillColorLocked = explicit,
+                    fillColor = color,
+                    fillStyle = style
+                )
+                updateCustomTool(ct.copy(preset = updatedPreset))
             }
         } else {
             prefs.edit().apply {
@@ -1761,8 +1921,8 @@ class ToolManager(private val context: Context) {
         if (customId != null) {
             val ct = _customTools.value.find { it.id == customId }
             if (ct != null) {
-                _isStrokeColorPreset.value = !prefs.getBoolean("custom_stroke_explicit_$customId", false)
-                _isFillColorPreset.value = !prefs.getBoolean("custom_fill_explicit_$customId", false)
+                _isStrokeColorPreset.value = !ct.preset.isStrokeColorLocked
+                _isFillColorPreset.value = !ct.preset.isFillColorLocked
             } else {
                 _isStrokeColorPreset.value = true
                 _isFillColorPreset.value = true
@@ -1795,11 +1955,14 @@ class ToolManager(private val context: Context) {
                         apply()
                     }
                 } else {
-                    prefs.edit().apply {
-                        putBoolean("custom_stroke_explicit_$customId", false)
-                        remove("custom_stroke_color_$customId")
-                        remove("custom_stroke_style_v2_$customId")
-                        apply()
+                    val ct = _customTools.value.find { it.id == customId }
+                    if (ct != null) {
+                        val updatedPreset = ct.preset.copy(
+                            isStrokeColorLocked = false,
+                            strokeColor = preset.strokeColor ?: AndroidColor.BLACK,
+                            strokeStyle = preset.strokeStyle ?: FillStyle.Solid(preset.strokeColor ?: AndroidColor.BLACK)
+                        )
+                        updateCustomTool(ct.copy(preset = updatedPreset))
                     }
                 }
                 val sc = preset.strokeColor ?: AndroidColor.BLACK
@@ -1827,11 +1990,14 @@ class ToolManager(private val context: Context) {
                         apply()
                     }
                 } else {
-                    prefs.edit().apply {
-                        putBoolean("custom_fill_explicit_$customId", false)
-                        remove("custom_fill_color_$customId")
-                        remove("custom_fill_style_v2_$customId")
-                        apply()
+                    val ct = _customTools.value.find { it.id == customId }
+                    if (ct != null) {
+                        val updatedPreset = ct.preset.copy(
+                            isFillColorLocked = false,
+                            fillColor = preset.fillColor ?: AndroidColor.WHITE,
+                            fillStyle = preset.fillStyle ?: FillStyle.Solid(preset.fillColor ?: AndroidColor.WHITE)
+                        )
+                        updateCustomTool(ct.copy(preset = updatedPreset))
                     }
                 }
                 val fc = preset.fillColor ?: AndroidColor.WHITE

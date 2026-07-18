@@ -354,7 +354,6 @@ fun StudioLayout(
 
     val showGridMenuDialog by viewModel.showGridMenuDialog.collectAsState()
     val showStudioMenu by viewModel.showStudioMenu.collectAsState()
-    val showPersonalizationDialog by viewModel.showPersonalizationDialog.collectAsState()
 
     val cameraMatrix by viewModel.cameraMatrix.collectAsState()
 
@@ -2380,18 +2379,7 @@ fun StudioLayout(
                             actions = projectActions
                         )
                     } else if (topLeftTool.registryId == "settings") {
-                        com.sketcher.sketchercompanionv1.ui.dialogs.PersonalizationMenu(
-                            expanded = showPersonalizationDialog,
-                            onDismiss = { viewModel.setShowPersonalizationDialog(false) },
-                            viewModel = viewModel,
-                            swapVertical = swapVertical,
-                            swapHorizontal = swapHorizontal,
-                            interfaceScale = interfaceScale,
-                            onShowIconEditor = {
-                                showIconEditorDialog = true
-                                viewModel.setShowPersonalizationDialog(false)
-                            }
-                        )
+                        
                     }
                 }
             }
@@ -2437,18 +2425,7 @@ fun StudioLayout(
                             actions = projectActions
                         )
                     } else if (topRightTool.registryId == "settings") {
-                        com.sketcher.sketchercompanionv1.ui.dialogs.PersonalizationMenu(
-                            expanded = showPersonalizationDialog,
-                            onDismiss = { viewModel.setShowPersonalizationDialog(false) },
-                            viewModel = viewModel,
-                            swapVertical = swapVertical,
-                            swapHorizontal = swapHorizontal,
-                            interfaceScale = interfaceScale,
-                            onShowIconEditor = {
-                                showIconEditorDialog = true
-                                viewModel.setShowPersonalizationDialog(false)
-                            }
-                        )
+                        
                     }
                 }
             }
@@ -2494,18 +2471,7 @@ fun StudioLayout(
                             actions = projectActions
                         )
                     } else if (bottomLeftTool.registryId == "settings") {
-                        com.sketcher.sketchercompanionv1.ui.dialogs.PersonalizationMenu(
-                            expanded = showPersonalizationDialog,
-                            onDismiss = { viewModel.setShowPersonalizationDialog(false) },
-                            viewModel = viewModel,
-                            swapVertical = swapVertical,
-                            swapHorizontal = swapHorizontal,
-                            interfaceScale = interfaceScale,
-                            onShowIconEditor = {
-                                showIconEditorDialog = true
-                                viewModel.setShowPersonalizationDialog(false)
-                            }
-                        )
+                        
                     }
                 }
             }
@@ -2551,18 +2517,7 @@ fun StudioLayout(
                             actions = projectActions
                         )
                     } else if (bottomRightTool.registryId == "settings") {
-                        com.sketcher.sketchercompanionv1.ui.dialogs.PersonalizationMenu(
-                            expanded = showPersonalizationDialog,
-                            onDismiss = { viewModel.setShowPersonalizationDialog(false) },
-                            viewModel = viewModel,
-                            swapVertical = swapVertical,
-                            swapHorizontal = swapHorizontal,
-                            interfaceScale = interfaceScale,
-                            onShowIconEditor = {
-                                showIconEditorDialog = true
-                                viewModel.setShowPersonalizationDialog(false)
-                            }
-                        )
+                        
                     }
                 }
             }
@@ -2635,7 +2590,7 @@ fun StudioLayout(
             onEditTool = { p, id -> viewModel.editTool(p, id) },
             onSubToolClick = handleSubToolClick,
             showStudioMenu = showStudioMenu,
-            showPersonalizationDialog = showPersonalizationDialog,
+            
             studioMenuContent = {
                 com.sketcher.sketchercompanionv1.ui.dialogs.StudioMenu(
                     expanded = showStudioMenu,
@@ -2644,20 +2599,7 @@ fun StudioLayout(
                     actions = projectActions
                 )
             },
-            personalizationMenuContent = {
-                com.sketcher.sketchercompanionv1.ui.dialogs.PersonalizationMenu(
-                    expanded = showPersonalizationDialog,
-                    onDismiss = { viewModel.setShowPersonalizationDialog(false) },
-                    viewModel = viewModel,
-                    swapVertical = swapVertical,
-                    swapHorizontal = swapHorizontal,
-                    interfaceScale = interfaceScale,
-                    onShowIconEditor = {
-                        showIconEditorDialog = true
-                        viewModel.setShowPersonalizationDialog(false)
-                    }
-                )
-            }
+            personalizationMenuContent = {}
         )
 
         StudioRightBar(
@@ -2702,7 +2644,7 @@ fun StudioLayout(
             onEditTool = { p, id -> viewModel.editTool(p, id) },
             onSubToolClick = handleSubToolClick,
             showStudioMenu = showStudioMenu,
-            showPersonalizationDialog = showPersonalizationDialog,
+            
             studioMenuContent = {
                 com.sketcher.sketchercompanionv1.ui.dialogs.StudioMenu(
                     expanded = showStudioMenu,
@@ -2711,20 +2653,7 @@ fun StudioLayout(
                     actions = projectActions
                 )
             },
-            personalizationMenuContent = {
-                com.sketcher.sketchercompanionv1.ui.dialogs.PersonalizationMenu(
-                    expanded = showPersonalizationDialog,
-                    onDismiss = { viewModel.setShowPersonalizationDialog(false) },
-                    viewModel = viewModel,
-                    swapVertical = swapVertical,
-                    swapHorizontal = swapHorizontal,
-                    interfaceScale = interfaceScale,
-                    onShowIconEditor = {
-                        showIconEditorDialog = true
-                        viewModel.setShowPersonalizationDialog(false)
-                    }
-                )
-            }
+            personalizationMenuContent = {}
         )
 
         StudioTopBar(
@@ -2769,7 +2698,7 @@ fun StudioLayout(
             onEditTool = { p, id -> viewModel.editTool(p, id) },
             onSubToolClick = handleSubToolClick,
             showStudioMenu = showStudioMenu,
-            showPersonalizationDialog = showPersonalizationDialog,
+            
             studioMenuContent = {
                 com.sketcher.sketchercompanionv1.ui.dialogs.StudioMenu(
                     expanded = showStudioMenu,
@@ -2778,20 +2707,7 @@ fun StudioLayout(
                     actions = projectActions
                 )
             },
-            personalizationMenuContent = {
-                com.sketcher.sketchercompanionv1.ui.dialogs.PersonalizationMenu(
-                    expanded = showPersonalizationDialog,
-                    onDismiss = { viewModel.setShowPersonalizationDialog(false) },
-                    viewModel = viewModel,
-                    swapVertical = swapVertical,
-                    swapHorizontal = swapHorizontal,
-                    interfaceScale = interfaceScale,
-                    onShowIconEditor = {
-                        showIconEditorDialog = true
-                        viewModel.setShowPersonalizationDialog(false)
-                    }
-                )
-            }
+            personalizationMenuContent = {}
         )
 
         val bottomTools = tools[ToolLocation.BottomBar] ?: emptyList()
@@ -3220,7 +3136,7 @@ fun StudioLayout(
                                        showStudioMenu = showStudioMenu,
 
 
-                                       showPersonalizationDialog = showPersonalizationDialog,
+                                       
 
 
                                        dropdownContent = {
@@ -3245,33 +3161,7 @@ fun StudioLayout(
 
                                                 )
 
-                                            } else if (tool.registryId == "settings") {
-
-                                                com.sketcher.sketchercompanionv1.ui.dialogs.PersonalizationMenu(
-
-                                                    expanded = showPersonalizationDialog,
-
-                                                    onDismiss = { viewModel.setShowPersonalizationDialog(false) },
-
-                                                    viewModel = viewModel,
-
-                                                    swapVertical = swapVertical,
-
-                                                    swapHorizontal = swapHorizontal,
-
-                                                    interfaceScale = interfaceScale,
-
-                                                    onShowIconEditor = {
-
-                                                        showIconEditorDialog = true
-
-                                                        viewModel.setShowPersonalizationDialog(false)
-
-                                                    }
-
-                                                )
-
-                                            }
+                                            } 
 
                                        }
 
@@ -3754,55 +3644,27 @@ fun StudioLayout(
 
 
                 Button(
-                    onClick = { 
-                        viewModel.toggleEditMode() 
-                        viewModel.setShowPersonalizationDialog(true)
+                    onClick = {
+                        viewModel.toggleEditMode()
+                        if (viewModel.workspaceProfile != null) {
+                            viewModel.saveWorkspaceProfile(viewModel.workspaceProfile!!)
+                        }
+                        viewModel.showWorkspaceWorkshopDialog = true
                     },
                     colors = ButtonDefaults.buttonColors(
-
-
                         containerColor = theme.highlightColor,
-
-
                         contentColor = Color.White
-
-
                     ),
-
-
-                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp),
-
-
-                    shape = RoundedCornerShape(24.dp)
-
-
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
                 ) {
-
-
                     Row(
-
-
                         verticalAlignment = Alignment.CenterVertically,
-
-
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-
-
                         modifier = Modifier.padding(horizontal = 8.dp)
-
-
                     ) {
-
-
                         Icon(Icons.Default.Check, "Done")
-
-
                         Text("Finish Customization", style = MaterialTheme.typography.labelLarge)
-
-
                     }
-
-
                 }
 
 
@@ -4513,18 +4375,11 @@ fun StudioLayout(
 
     }
 
-    if (showPersonalizationDialog) {
-        com.sketcher.sketchercompanionv1.ui.dialogs.PersonalizationMenu(
-            expanded = showPersonalizationDialog,
-            onDismiss = { viewModel.setShowPersonalizationDialog(false) },
+    if (viewModel.showWorkspaceWorkshopDialog) {
+        com.sketcher.sketchercompanionv1.ui.dialogs.WorkspaceWorkshopDialog(
             viewModel = viewModel,
-            swapVertical = swapVertical,
-            swapHorizontal = swapHorizontal,
-            interfaceScale = interfaceScale,
-            onShowIconEditor = {
-                showIconEditorDialog = true
-                viewModel.setShowPersonalizationDialog(false)
-            }
+            theme = theme,
+            onDismiss = { viewModel.showWorkspaceWorkshopDialog = false }
         )
     }
 

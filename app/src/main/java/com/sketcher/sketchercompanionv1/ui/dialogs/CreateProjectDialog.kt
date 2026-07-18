@@ -45,7 +45,7 @@ enum class PaperDesignOption(
 fun CreateProjectDialog(
     initialName: String,
     theme: UiThemeConfig,
-    uiPresets: List<String>,
+    uiPresets: List<com.sketcher.sketchercompanionv1.ui.model.WorkspaceProfile>,
     onDismiss: () -> Unit,
     onConfirm: (
         name: String,
@@ -53,7 +53,7 @@ fun CreateProjectDialog(
         scaleRatio: Float,
         canvasSizeConfig: com.sketcher.sketchercompanionv1.dto.CanvasSizeConfig?,
         backgroundStyle: com.sketcher.sketchercompanionv1.dto.FillStyle?,
-        uiPresetName: String?
+        workspaceProfile: com.sketcher.sketchercompanionv1.ui.model.WorkspaceProfile?
     ) -> Unit
 ) {
     val context = LocalContext.current
@@ -69,7 +69,7 @@ fun CreateProjectDialog(
     var selectedPaperDesign by remember { mutableStateOf(PaperDesignOption.BLANK) }
     var expandedPaperDesign by remember { mutableStateOf(false) }
 
-    var selectedUiPreset by remember { mutableStateOf("Default") }
+    var selectedUiPreset by remember { mutableStateOf<com.sketcher.sketchercompanionv1.ui.model.WorkspaceProfile?>(null) }
     var expandedUiPreset by remember { mutableStateOf(false) }
     
 
@@ -228,7 +228,7 @@ fun CreateProjectDialog(
                         modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
                     ) {
                         OutlinedTextField(
-                            value = selectedUiPreset,
+                            value = selectedUiPreset?.name ?: "Default",
                             onValueChange = {},
                             readOnly = true,
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedUiPreset) },
@@ -244,10 +244,11 @@ fun CreateProjectDialog(
                             onDismissRequest = { expandedUiPreset = false },
                             modifier = Modifier.background(theme.barBackgroundColor)
                         ) {
-                            val allUiPresets = if (uiPresets.contains("Default")) uiPresets else listOf("Default") + uiPresets
-                            allUiPresets.forEach { option ->
+                            val defaultProfile = uiPresets.find { it.isDefault }
+                            val displayPresets = if (defaultProfile != null) uiPresets else uiPresets // We assume default is in the list
+                            displayPresets.forEach { option ->
                                 DropdownMenuItem(
-                                    text = { Text(option, color = theme.iconColor) },
+                                    text = { Text(option.name, color = theme.iconColor) },
                                     onClick = { selectedUiPreset = option; expandedUiPreset = false }
                                 )
                             }

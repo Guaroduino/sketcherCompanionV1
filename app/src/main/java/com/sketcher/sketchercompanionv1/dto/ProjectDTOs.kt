@@ -14,7 +14,33 @@ data class ProjectJson(
     val scaleConfig: ScaleConfig? = ScaleConfig(), // Default if missing
     val gridConfig: GridConfig? = GridConfig(),
     val canvasSizeConfig: CanvasSizeConfigJson? = null, // null = infinite canvas
-    val uiPresetName: String? = null
+    val workspaceProfile: WorkspaceProfileJson? = null,
+    val projectTools: List<CustomToolJson>? = null,
+    val projectToolConfigs: Map<String, ToolConfigJson>? = null
+)
+
+data class WorkspaceProfileJson(
+    val id: String,
+    val name: String,
+    val isDefault: Boolean,
+    val layoutJson: String,
+    val theme: ThemeJson
+)
+
+data class ThemeJson(
+    val barBackgroundColor: Int,
+    val buttonColor: Int,
+    val menuButtonColor: Int? = null,
+    val iconColor: Int,
+    val highlightColor: Int,
+    val canvasColor: Int? = null,
+    val barElevation: Float,
+    val isRound: Boolean,
+    val shadowAngle: Float,
+    val recentColors: List<Int>,
+    val isShadowEnabled: Boolean,
+    val shadowOpacity: Float,
+    val shadowBlur: Float
 )
 
 data class ScaleConfig(
@@ -255,6 +281,8 @@ data class BrushPreset(
     val fillColor: Int? = null,
     val isStrokeActive: Boolean? = null,
     val isFillActive: Boolean? = null,
+    val isStrokeColorLocked: Boolean = false,
+    val isFillColorLocked: Boolean = false,
     val fillStyle: FillStyle? = null,
     val strokeStyle: FillStyle? = null,
     val stabilization: Float? = null
@@ -269,6 +297,8 @@ data class BrushPresetJson(
     val fillColor: Int? = null,
     val isStrokeActive: Boolean? = null,
     val isFillActive: Boolean? = null,
+    val isStrokeColorLocked: Boolean = false,
+    val isFillColorLocked: Boolean = false,
     val fillStyle: FillStyleJson? = null,
     val strokeStyle: FillStyleJson? = null,
     val stabilization: Float? = null
@@ -300,6 +330,25 @@ data class ToolConfig(
     val fillStyle: FillStyleJson? = null,
     val strokeStyle: FillStyleJson? = null,
     val stabilization: Float = 0f
+)
+
+data class ToolConfigJson(
+    val size: Float,
+    val opacity: Float,
+    val settingsType: String,
+    val settingsJson: String,
+    val fillSettingsTolerance: Float,
+    val isFingerMode: Boolean,
+    val fingerOffsetX: Float,
+    val fingerOffsetY: Float,
+    val eraserShape: String,
+    val strokeColor: Int,
+    val fillColor: Int,
+    val isStrokeActive: Boolean,
+    val isFillActive: Boolean,
+    val fillStyle: FillStyleJson?,
+    val strokeStyle: FillStyleJson?,
+    val stabilization: Float
 )
 
 /**

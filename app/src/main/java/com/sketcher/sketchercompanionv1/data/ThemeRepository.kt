@@ -63,8 +63,7 @@ class ThemeRepository(context: Context) {
             recentColors = this.recentColors.map { it.toArgb() },
             isShadowEnabled = this.isShadowEnabled,
             shadowOpacity = this.shadowOpacity,
-            shadowBlur = this.shadowBlur.value,
-            customIcons = this.customIcons
+            shadowBlur = this.shadowBlur.value
         )
     }
 
@@ -82,8 +81,7 @@ class ThemeRepository(context: Context) {
             recentColors = this.recentColors.map { Color(it) },
             isShadowEnabled = this.isShadowEnabled,
             shadowOpacity = this.shadowOpacity,
-            shadowBlur = this.shadowBlur.dp,
-            customIcons = this.customIcons ?: emptyMap()
+            shadowBlur = this.shadowBlur.dp
         )
     }
 }

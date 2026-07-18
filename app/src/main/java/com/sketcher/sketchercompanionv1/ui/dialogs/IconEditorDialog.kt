@@ -299,7 +299,7 @@ fun IconEditorDialog(
     val scaler = LocalUiScaler.current
     
     // Local copy of custom icons map
-    var customIconsState by remember { mutableStateOf(theme.customIcons) }
+    var customIconsState by remember { mutableStateOf(viewModel.globalCustomIcons.value) }
     
     // Tools list (excluding divider)
     val customizableTools = remember {
@@ -940,11 +940,12 @@ fun IconEditorDialog(
                                             },
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        val mockTheme = theme.copy(customIcons = customIconsState)
+                                        val mockTheme = theme
                                         ToolIcon(
                                             tool = tool,
                                             theme = mockTheme,
                                             tint = theme.iconColor,
+                                            globalCustomIcons = customIconsState,
                                             iconSize = 20.dp
                                         )
                                     }
@@ -1178,16 +1179,11 @@ fun IconEditorDialog(
                                         if (onSaveIconJson != null) {
                                             onSaveIconJson(jsonStr)
                                         } else {
-                                            viewModel.updateTheme(theme.copy(customIcons = customIconsState.toMutableMap().apply {
-                                                put(selectedTool.registryId, jsonStr)
-                                            }))
+                                            viewModel.saveGlobalIcon(selectedTool.registryId, jsonStr)
                                             val ct = viewModel.toolManager.customTools.value.find { it.id == selectedTool.registryId }
                                             if (ct != null) {
                                                 val updatedCt = ct.copy(customIconJson = jsonStr)
-                                                viewModel.toolManager.saveCustomTools(
-                                                    viewModel.toolManager.customTools.value.map { if (it.id == updatedCt.id) updatedCt else it }
-                                                )
-                                                viewModel.toolManager.onCustomToolAddedOrUpdated?.invoke(updatedCt)
+                                                viewModel.toolManager.updateCustomTool(updatedCt)
                                             }
                                         }
                                         onDismiss()

@@ -41,6 +41,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         
         setContent {
             val view = androidx.compose.ui.platform.LocalView.current
@@ -356,8 +357,11 @@ class MainActivity : ComponentActivity() {
                 )
             }
   
+            val globalCustomIcons by sketchViewModel.globalCustomIcons.collectAsState()
+
             androidx.compose.runtime.CompositionLocalProvider(
-                com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler provides scaler
+                com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler provides scaler,
+                com.sketcher.sketchercompanionv1.ui.components.LocalGlobalCustomIcons provides globalCustomIcons
             ) {
                 com.sketcher.sketchercompanionv1.ui.theme.SketcherCompanionV1Theme(theme = theme) {
                     Box(modifier = androidx.compose.ui.Modifier.fillMaxSize()) {

@@ -65,6 +65,7 @@ fun SizeOpacityPopup(
     var showStrokePickerLocal by remember { mutableStateOf(false) }
     var showFillPickerLocal by remember { mutableStateOf(false) }
     var showSaveCustomToolDialog by remember { mutableStateOf(false) }
+    var showSaveConfirmation by remember { mutableStateOf(false) }
     val isStrokeActive by viewModel.isStrokeActive.collectAsState()
     val isFillActive by viewModel.isFillActive.collectAsState()
     val strokeColorVal by viewModel.strokeColor.collectAsState()
@@ -93,12 +94,12 @@ fun SizeOpacityPopup(
                 Column(
                     modifier = Modifier
                         .padding(16.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                        .fillMaxSize(),
+                    verticalArrangement = Arrangement.SpaceBetween
                 ) {
                     // Header
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -131,6 +132,13 @@ fun SizeOpacityPopup(
                         )
                     }
 
+                    // Scrollable Content
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
                     val isEraser = viewModel.currentTool == ToolType.ERASER || viewModel.currentTool == ToolType.POINT_ERASER || viewModel.currentTool == ToolType.CUT_ERASER
                     if (!isEraser) {
                         // Presets Section
@@ -609,7 +617,8 @@ fun SizeOpacityPopup(
                             showValueOnRight = true,
                             valueFormatter = { "${(it * 100).toInt()}%" }
                         )
-                    }                    // Cumulative Opacity Toggle (ONLY for PencilSettings)
+                    }
+                    // Cumulative Opacity Toggle (ONLY for PencilSettings)
                     val freehandSettings = viewModel.currentFreehandSettings
                     if (freehandSettings is com.sketcher.sketchercompanionv1.tools.PencilSettings && viewModel.currentTool == ToolType.PENCIL_CUMULATIVE) {
                         Row(
@@ -723,6 +732,38 @@ fun SizeOpacityPopup(
                             }
                         }
                     }
+                    } // end scrollable column
+
+                    // Action Buttons
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { 
+                                if (viewModel.activeCustomToolId != null) {
+                                    viewModel.activeCustomToolId = viewModel.activeCustomToolId
+                                } else {
+                                    selectedIndex?.let { viewModel.revertBrushPreset(it) }
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = theme.iconColor)
+                        ) {
+                            Text("Restaurar")
+                        }
+                        
+                        Button(
+                            onClick = { 
+                                showSaveConfirmation = true
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = theme.highlightColor, contentColor = Color.White)
+                        ) {
+                            Text("Guardar")
+                        }
+                    }
                 }
             }
         if (showSaveCustomToolDialog && selectedIndex != null) {
@@ -736,13 +777,40 @@ fun SizeOpacityPopup(
                 onConfirm = { customTool, customIconJson ->
                     viewModel.addCustomTool(customTool)
                     if (customIconJson != null) {
-                        val currentTheme = viewModel.themeConfig.value
-                        val updatedIcons = currentTheme.customIcons.toMutableMap().apply {
-                            put(customTool.id, customIconJson)
-                        }
-                        viewModel.updateTheme(currentTheme.copy(customIcons = updatedIcons))
+                        viewModel.saveGlobalIcon(customTool.id, customIconJson)
                     }
                     showSaveCustomToolDialog = false
+                }
+            )
+        }
+        if (showSaveConfirmation) {
+            AlertDialog(
+                onDismissRequest = { showSaveConfirmation = false },
+                containerColor = theme.barBackgroundColor,
+                titleContentColor = theme.iconColor,
+                textContentColor = theme.iconColor,
+                title = { Text("Sobrescribir Ajustes Globales") },
+                text = { Text("Se van a guardar estos ajustes como el estado Global (por defecto) para esta herramienta. ¿Estás seguro?") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (viewModel.activeCustomToolId != null) {
+                                viewModel.updateActiveCustomTool()
+                            } else {
+                                selectedIndex?.let { viewModel.saveBrushPreset(it) }
+                            }
+                            showSaveConfirmation = false
+                            onDismiss()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = theme.highlightColor, contentColor = Color.White)
+                    ) {
+                        Text("Sí, Guardar")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showSaveConfirmation = false }) {
+                        Text("Cancelar", color = theme.iconColor.copy(alpha = 0.8f))
+                    }
                 }
             )
         }

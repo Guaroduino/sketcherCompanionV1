@@ -12,6 +12,16 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import com.sketcher.sketchercompanionv1.R
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.layout.ContentScale
+import kotlinx.coroutines.delay
+import androidx.compose.ui.graphics.Color
 
 @Composable
 fun LoginScreen(
@@ -36,12 +46,41 @@ fun LoginScreen(
         }
     }
 
+    val backgrounds = listOf(R.drawable.fondo, R.drawable.fondo1, R.drawable.fondo2)
+    var currentBackgroundIndex by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(5000)
+            currentBackgroundIndex = (currentBackgroundIndex + 1) % backgrounds.size
+        }
+    }
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = theme.barBackgroundColor,
         contentColor = theme.iconColor
     ) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Crossfade(
+                targetState = backgrounds[currentBackgroundIndex],
+                animationSpec = tween(durationMillis = 1500),
+                label = "background_crossfade"
+            ) { bgRes ->
+                Image(
+                    painter = painterResource(id = bgRes),
+                    contentDescription = "Background",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+            
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(theme.barBackgroundColor.copy(alpha = 0.85f))
+            )
+
             Column(
                 modifier = Modifier
                     .padding(32.dp)
@@ -49,42 +88,77 @@ fun LoginScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                Image(
+                    painter = painterResource(id = R.drawable.logo),
+                    contentDescription = "Logo",
+                    modifier = Modifier.size(120.dp)
+                )
+                
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                ) {
+                    Text(
+                        text = "Sketcher",
+                        fontWeight = FontWeight.Light,
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = theme.iconColor
+                    )
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 12.dp)
+                            .height(28.dp)
+                            .width(1.dp)
+                            .background(theme.iconColor.copy(alpha = 0.5f))
+                    )
+                    Text(
+                        text = "Companion",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = theme.iconColor
+                    )
+                }
+
                 Text(
                     text = if (isRegisterMode) "Crear una cuenta" else "Iniciar Sesión",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = theme.iconColor
+                    style = MaterialTheme.typography.titleMedium,
+                    color = theme.iconColor.copy(alpha = 0.8f)
                 )
 
                 OutlinedTextField(
                     value = email,
                     onValueChange = { email = it },
-                    label = { Text("Correo Electrónico", color = theme.iconColor.copy(alpha = 0.7f)) },
+                    label = { Text("Correo Electrónico") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = theme.iconColor,
-                        unfocusedTextColor = theme.iconColor,
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White,
+                        focusedTextColor = Color.Black,
+                        unfocusedTextColor = Color.Black,
                         focusedLabelColor = theme.highlightColor,
-                        unfocusedLabelColor = theme.iconColor.copy(alpha = 0.7f),
+                        unfocusedLabelColor = Color.Gray,
                         focusedBorderColor = theme.highlightColor,
-                        unfocusedBorderColor = theme.iconColor.copy(alpha = 0.5f)
+                        unfocusedBorderColor = Color.LightGray
                     )
                 )
 
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text("Contraseña", color = theme.iconColor.copy(alpha = 0.7f)) },
+                    label = { Text("Contraseña") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = theme.iconColor,
-                        unfocusedTextColor = theme.iconColor,
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White,
+                        focusedTextColor = Color.Black,
+                        unfocusedTextColor = Color.Black,
                         focusedLabelColor = theme.highlightColor,
-                        unfocusedLabelColor = theme.iconColor.copy(alpha = 0.7f),
+                        unfocusedLabelColor = Color.Gray,
                         focusedBorderColor = theme.highlightColor,
-                        unfocusedBorderColor = theme.iconColor.copy(alpha = 0.5f)
+                        unfocusedBorderColor = Color.LightGray
                     )
                 )
 
@@ -111,7 +185,8 @@ fun LoginScreen(
                         contentColor = theme.iconColor,
                         disabledContainerColor = theme.buttonColor.copy(alpha = 0.5f),
                         disabledContentColor = theme.iconColor.copy(alpha = 0.5f)
-                    )
+                    ),
+                    border = BorderStroke(1.dp, theme.iconColor.copy(alpha = 0.3f))
                 ) {
                     if (isLoading) {
                         CircularProgressIndicator(modifier = Modifier.size(24.dp), color = theme.iconColor)
@@ -126,7 +201,8 @@ fun LoginScreen(
                         viewModel.clearError()
                     },
                     colors = ButtonDefaults.textButtonColors(
-                        contentColor = theme.highlightColor
+                        containerColor = Color.White,
+                        contentColor = Color.Black
                     )
                 ) {
                     Text(if (isRegisterMode) "¿Ya tienes cuenta? Inicia sesión" else "¿No tienes cuenta? Regístrate")
@@ -139,24 +215,37 @@ fun LoginScreen(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !isLoading,
                     colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = theme.iconColor
+                        containerColor = Color.White,
+                        contentColor = Color.Black
                     ),
-                    border = BorderStroke(1.dp, theme.iconColor.copy(alpha = 0.3f))
+                    border = BorderStroke(1.dp, Color.LightGray)
                 ) {
                     Text("Continuar con Google")
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))
 
-                TextButton(
+                OutlinedButton(
                     onClick = onSkipLogin,
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = theme.iconColor.copy(alpha = 0.8f)
-                    )
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = Color.White,
+                        contentColor = Color.Black
+                    ),
+                    border = BorderStroke(1.dp, Color.LightGray)
                 ) {
                     Text("Continuar sin cuenta (Offline)")
                 }
             }
+            
+            Text(
+                text = "Desarrollado por: Luis F. Corado. Guaroduino-2026",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.6f),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 16.dp)
+            )
         }
     }
 }

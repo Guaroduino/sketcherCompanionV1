@@ -115,8 +115,27 @@ fun DashboardScreen(
                             Row(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                Image(
+                                    painter = androidx.compose.ui.res.painterResource(id = com.sketcher.sketchercompanionv1.R.drawable.logo),
+                                    contentDescription = "Logo",
+                                    modifier = Modifier.size(32.dp * scaleFactor)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp * scaleFactor))
                                 Text(
-                                    text = "Sketcher Companion",
+                                    text = "Sketcher",
+                                    fontWeight = FontWeight.Light,
+                                    fontSize = 20.sp * scaleFactor,
+                                    color = theme.iconColor
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .padding(horizontal = 8.dp * scaleFactor)
+                                        .height(20.dp * scaleFactor)
+                                        .width(1.dp)
+                                        .background(theme.iconColor.copy(alpha = 0.5f))
+                                )
+                                Text(
+                                    text = "Companion",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 20.sp * scaleFactor,
                                     color = theme.iconColor
@@ -494,14 +513,14 @@ fun DashboardScreen(
     }
 
     if (showCreateProjectDialog) {
-        val uiPresets by viewModel.toolbarManager.uiPresetsNames.collectAsState()
+        val uiPresets by viewModel.workspaceProfileRepository.getAllProfiles().collectAsState(initial = emptyList())
         com.sketcher.sketchercompanionv1.ui.dialogs.CreateProjectDialog(
             initialName = remember(items) { getUniqueProjectName(items) },
             theme = theme,
             uiPresets = uiPresets,
             onDismiss = { showCreateProjectDialog = false },
-            onConfirm = { name, templateFile, scaleRatio, canvasSizeConfig, backgroundStyle, uiPresetName ->
-                viewModel.createLocalProject(context, name, templateFile, scaleRatio, canvasSizeConfig, backgroundStyle, uiPresetName)
+            onConfirm = { name, templateFile, scaleRatio, canvasSizeConfig, backgroundStyle, workspaceProfile ->
+                viewModel.createLocalProject(context, name, templateFile, scaleRatio, canvasSizeConfig, backgroundStyle, workspaceProfile)
                 showCreateProjectDialog = false
             }
         )

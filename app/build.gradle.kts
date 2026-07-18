@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.google.services)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -15,8 +16,8 @@ android {
         applicationId = "com.sketcher.sketchercompanionv1"
         minSdk = 26
         targetSdk = 36
-        versionCode = 99
-        versionName = "1.0.98"
+        versionCode = 105
+        versionName = "1.0.104"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -89,4 +90,9 @@ dependencies {
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.credentials.play.services.auth)
     implementation(libs.googleid)
+    
+    // Room Database
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    ksp(libs.room.compiler)
 }

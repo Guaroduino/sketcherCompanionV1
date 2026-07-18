@@ -58,6 +58,8 @@ import kotlinx.coroutines.flow.StateFlow
 
 import kotlinx.coroutines.flow.asStateFlow
 import androidx.compose.runtime.remember
+import com.sketcher.sketchercompanionv1.ui.model.toWorkspaceProfileJson
+import com.sketcher.sketchercompanionv1.ui.model.toWorkspaceProfile
 import kotlinx.coroutines.tasks.await
 import com.sketcher.sketchercompanionv1.managers.LibraryManager
 import com.sketcher.sketchercompanionv1.LibraryItem
@@ -74,6 +76,7 @@ import kotlinx.coroutines.CoroutineScope
 
 import kotlinx.coroutines.withContext
 
+import com.google.gson.reflect.TypeToken
 import com.google.gson.Gson
 
 import com.sketcher.sketchercompanionv1.dto.*
@@ -115,7 +118,7 @@ import androidx.annotation.MainThread
 
 import com.sketcher.sketchercompanionv1.command.*
 
-import com.sketcher.sketchercompanionv1.data.ThemeRepository
+
 
 import com.sketcher.sketchercompanionv1.data.ToolbarRepository
 
@@ -158,7 +161,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private val themeRepository = ThemeRepository(application)
+
 
     private val toolbarRepository = ToolbarRepository(application)
     
@@ -421,7 +424,15 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     private val projectFileManager = com.sketcher.sketchercompanionv1.managers.ProjectFileManager()
 
-    val toolManager = com.sketcher.sketchercompanionv1.managers.ToolManager(application)
+    val globalToolRepository = com.sketcher.sketchercompanionv1.data.repository.GlobalToolRepository(
+        com.sketcher.sketchercompanionv1.data.db.AppDatabase.getDatabase(application).toolDao()
+    )
+
+    val workspaceProfileRepository = com.sketcher.sketchercompanionv1.data.repository.WorkspaceProfileRepository(
+        com.sketcher.sketchercompanionv1.data.db.AppDatabase.getDatabase(application).workspaceProfileDao()
+    )
+
+    val toolManager = com.sketcher.sketchercompanionv1.managers.ToolManager(application, globalToolRepository, viewModelScope)
 
     val selectionManager = SelectionManager()
 
@@ -435,13 +446,19 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     val toolbarManager by lazy {
         com.sketcher.sketchercompanionv1.managers.ToolbarManager(
-            toolbarRepository = toolbarRepository,
-            prefs = prefs,
             getDefaultStrokeColor = { strokeColor.value },
             getDefaultFillColor = { fillColor.value },
             activateTool = { payload, id -> activateTool(payload, id) },
             getActionForTool = { id -> getActionForTool(id) }
-        )
+        ).apply {
+            onLayoutChanged = { layout ->
+                val currentProfile = workspaceProfile
+                if (currentProfile != null) {
+                    workspaceProfile = currentProfile.copy(layout = layout)
+                    hasUnsavedChangesSinceLastAutosave = true
+                }
+            }
+        }
     }
 
 
@@ -811,6 +828,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         private set
 
     var showCustomToolsManagerDialog by mutableStateOf(false)
+    var showWorkspaceWorkshopDialog by mutableStateOf(false)
+    var editingWorkspaceProfile by mutableStateOf<com.sketcher.sketchercompanionv1.ui.model.WorkspaceProfile?>(null)
 
     private var _activeCustomToolIdCompose by mutableStateOf<String?>(null)
     var activeCustomToolId: String?
@@ -916,9 +935,6 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     val showStudioMenu = _showStudioMenu.asStateFlow()
     fun setShowStudioMenu(show: Boolean) { _showStudioMenu.value = show }
 
-    private val _showPersonalizationDialog = MutableStateFlow(false)
-    val showPersonalizationDialog = _showPersonalizationDialog.asStateFlow()
-    fun setShowPersonalizationDialog(show: Boolean) { _showPersonalizationDialog.value = show }
 
 
 
@@ -1086,7 +1102,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         "menu" -> ({ _showStudioMenu.value = true })
 
-        "settings" -> ({ _showPersonalizationDialog.value = true })
+        "settings" -> ({ showWorkspaceWorkshopDialog = true })
 
         "grid_menu" -> ({ _showGridMenuDialog.value = true })
 
@@ -1352,14 +1368,6 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
 
 
-    fun reloadToolbarLayout() {
-
-        toolbarManager.reloadToolbarLayout()
-
-    }
-
-
-
     fun reloadPreferences() {
 
         showPerformanceStats = prefs.getBoolean("show_performance_stats", false)
@@ -1403,13 +1411,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         // Reload Theme Config
 
-        _themeConfig.value = themeRepository.getTheme()
+        // Reload Theme Config is handled via Workspace Profile
 
 
 
         // Reload Toolbar Layout
 
-        reloadToolbarLayout()
+
 
 
 
@@ -1598,6 +1606,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     var projectId by mutableStateOf(UUID.randomUUID().toString())
 
+    var workspaceProfile by mutableStateOf<com.sketcher.sketchercompanionv1.ui.model.WorkspaceProfile?>(null)
+
     val pages = mutableStateListOf<CanvasPage>().apply {
         add(CanvasPage(
             id = java.util.UUID.randomUUID().toString(),
@@ -1630,19 +1640,57 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         lastInteractionTime = System.currentTimeMillis()
     }
 
+    // --- GLOBAL CUSTOM ICONS ---
+    private val _globalCustomIcons = MutableStateFlow<Map<String, String>>(emptyMap())
+    val globalCustomIcons: StateFlow<Map<String, String>> = _globalCustomIcons.asStateFlow()
+
+    fun loadGlobalCustomIcons() {
+        val prefs = getApplication<android.app.Application>().getSharedPreferences("sketcher_prefs", android.content.Context.MODE_PRIVATE)
+        val jsonStr = prefs.getString("global_custom_icons", null)
+        if (jsonStr != null) {
+            try {
+                val type = object : TypeToken<Map<String, String>>() {}.type
+                val map: Map<String, String> = Gson().fromJson(jsonStr, type)
+                _globalCustomIcons.value = map
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun saveGlobalIcon(toolId: String, jsonStr: String) {
+        val updatedMap = _globalCustomIcons.value.toMutableMap().apply {
+            put(toolId, jsonStr)
+        }
+        _globalCustomIcons.value = updatedMap
+        val prefs = getApplication<android.app.Application>().getSharedPreferences("sketcher_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putString("global_custom_icons", com.google.gson.Gson().toJson(updatedMap)).apply()
+    }
+
+    fun removeGlobalIcon(toolId: String) {
+        val updatedMap = _globalCustomIcons.value.toMutableMap().apply {
+            remove(toolId)
+        }
+        _globalCustomIcons.value = updatedMap
+        val prefs = getApplication<android.app.Application>().getSharedPreferences("sketcher_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putString("global_custom_icons", com.google.gson.Gson().toJson(updatedMap)).apply()
+    }
+
 
 
     // --- THEME ENGINE ---
 
-    private val _themeConfig = MutableStateFlow(themeRepository.getTheme())
+    private val _themeConfig = MutableStateFlow(UiThemeConfig())
 
     val themeConfig: StateFlow<UiThemeConfig> = _themeConfig.asStateFlow()
 
-
-
     fun updateTheme(newConfig: UiThemeConfig) {
         _themeConfig.value = newConfig
-        themeRepository.saveTheme(newConfig)
+        val currentProfile = workspaceProfile
+        if (currentProfile != null) {
+            workspaceProfile = currentProfile.copy(theme = newConfig)
+            hasUnsavedChangesSinceLastAutosave = true
+        }
     }
 
     // --- COMPONENTS & ISOLATION ---
@@ -1817,8 +1865,18 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         private set
 
     init {
+        loadGlobalCustomIcons()
         ToolRegistry.showExperimental = showExperimentalTools
         hasPreferencesBackup = application.getSharedPreferences("sketcher_prefs_backup", Context.MODE_PRIVATE).all.isNotEmpty()
+
+        viewModelScope.launch {
+            val defaultProfile = workspaceProfileRepository.getDefaultProfile()
+            if (defaultProfile == null) {
+                resetDefaultWorkspaceProfile()
+            } else if (workspaceProfile == null) {
+                loadWorkspaceProfile(defaultProfile)
+            }
+        }
         
         toolManager.onCustomToolAddedOrUpdated = { ct ->
             viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -1839,6 +1897,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                             fillColor = ct.preset.fillColor,
                             isStrokeActive = ct.preset.isStrokeActive,
                             isFillActive = ct.preset.isFillActive,
+                            isStrokeColorLocked = ct.preset.isStrokeColorLocked,
+                            isFillColorLocked = ct.preset.isFillColorLocked,
                             fillStyle = ct.preset.fillStyle?.toFillStyleJson(),
                             strokeStyle = ct.preset.strokeStyle?.toFillStyleJson(),
                             stabilization = ct.preset.stabilization
@@ -1856,18 +1916,15 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         }
         
         toolManager.onCustomToolRemoved = { id ->
-            toolbarManager.removeToolFromAllLayouts(id)
+            toolbarManager.removeToolFromCurrentLayout(id)
             viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 cloudSyncRepository.syncCustomBrush(id, null)
             }
         }
         
-        toolManager.loadCustomTools()
+        toolManager.loadCustomTools {}
         selectTool(currentTool)
         
-        fetchUiPresetsCloud()
-        
-        toolbarManager.initLayout()
 
         // Periodic background autosave (runs every 2 minutes if there are changes and user is idle)
         viewModelScope.launch {
@@ -1883,55 +1940,80 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    // --- UI PRESETS CLOUD SYNC ---
-
-    fun resetDefaultUiPreset() {
-        toolbarManager.resetDefaultUiPreset()
+    fun loadWorkspaceProfile(profile: com.sketcher.sketchercompanionv1.ui.model.WorkspaceProfile) {
+        workspaceProfile = profile
+        toolbarManager.setToolbarLayout(profile.layout)
+        _themeConfig.value = profile.theme
+        hasUnsavedChangesSinceLastAutosave = true
     }
-    fun saveUiPresetCloud(name: String) {
-        toolbarManager.saveUiPreset(name)
-        val json = toolbarManager.getUiPresetJson(name)
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            cloudSyncRepository.syncUiPreset(name, json)
+
+    fun saveWorkspaceProfile(profile: com.sketcher.sketchercompanionv1.ui.model.WorkspaceProfile) {
+        viewModelScope.launch {
+            workspaceProfileRepository.saveProfile(profile)
+            if (workspaceProfile?.id == profile.id) {
+                workspaceProfile = profile
+                hasUnsavedChangesSinceLastAutosave = true
+            }
         }
     }
 
-    fun renameUiPresetCloud(oldName: String, newName: String) {
-        toolbarManager.renameUiPreset(oldName, newName)
-        val newJson = toolbarManager.getUiPresetJson(newName)
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            cloudSyncRepository.syncUiPreset(oldName, null)
-            cloudSyncRepository.syncUiPreset(newName, newJson)
+    fun deleteWorkspaceProfile(profile: com.sketcher.sketchercompanionv1.ui.model.WorkspaceProfile) {
+        viewModelScope.launch {
+            workspaceProfileRepository.deleteProfile(profile.id)
+            if (workspaceProfile?.id == profile.id) {
+                val defaultProfile = workspaceProfileRepository.getDefaultProfile()
+                if (defaultProfile != null) loadWorkspaceProfile(defaultProfile)
+            }
         }
     }
 
-    fun copyUiPresetCloud(oldName: String, newName: String) {
-        toolbarManager.copyUiPreset(oldName, newName)
-        val newJson = toolbarManager.getUiPresetJson(newName)
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            cloudSyncRepository.syncUiPreset(newName, newJson)
+    fun copyWorkspaceProfile(profile: com.sketcher.sketchercompanionv1.ui.model.WorkspaceProfile, newName: String) {
+        viewModelScope.launch {
+            val copy = profile.copy(
+                id = java.util.UUID.randomUUID().toString(),
+                name = newName,
+                isDefault = false,
+                isReadOnly = false
+            )
+            workspaceProfileRepository.saveProfile(copy)
+            loadWorkspaceProfile(copy)
         }
     }
 
-    fun deleteUiPresetCloud(name: String) {
-        toolbarManager.deleteUiPreset(name)
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            cloudSyncRepository.syncUiPreset(name, null)
+    fun createWorkspaceProfile(name: String, layout: com.sketcher.sketchercompanionv1.data.ToolbarStateResult, theme: com.sketcher.sketchercompanionv1.ui.theme.UiThemeConfig) {
+        viewModelScope.launch {
+            val newProfile = com.sketcher.sketchercompanionv1.ui.model.WorkspaceProfile(
+                id = java.util.UUID.randomUUID().toString(),
+                name = name,
+                isDefault = false,
+                isReadOnly = false,
+                layout = layout,
+                theme = theme
+            )
+            workspaceProfileRepository.saveProfile(newProfile)
+            loadWorkspaceProfile(newProfile)
         }
     }
 
-    private fun fetchUiPresetsCloud() {
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val result = cloudSyncRepository.getAllUiPresets()
-            if (result.isSuccess) {
-                val presets = result.getOrNull() ?: emptyList()
-                presets.forEach { preset ->
-                    val name = preset["name"] as? String
-                    val data = preset["data"] as? String
-                    if (name != null && data != null && name != "Default") {
-                        toolbarManager.importUiPreset(name, data)
-                    }
-                }
+    fun resetDefaultWorkspaceProfile() {
+        viewModelScope.launch {
+            val defaultProfile = workspaceProfileRepository.createDefaultWorkspaceProfile(
+                { strokeColor.value },
+                { fillColor.value }
+            )
+            workspaceProfileRepository.saveProfile(defaultProfile)
+            if (workspaceProfile?.id == defaultProfile.id || workspaceProfile?.isDefault == true) {
+                loadWorkspaceProfile(defaultProfile)
+            }
+        }
+    }
+
+    fun renameWorkspaceProfile(profile: com.sketcher.sketchercompanionv1.ui.model.WorkspaceProfile, newName: String) {
+        viewModelScope.launch {
+            val renamed = profile.copy(name = newName)
+            workspaceProfileRepository.saveProfile(renamed)
+            if (workspaceProfile?.id == profile.id) {
+                workspaceProfile = renamed
             }
         }
     }
@@ -5169,7 +5251,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                     canvasSizeConfig = pages.firstOrNull()?.canvasSizeConfig ?: canvasSizeConfig,
 
-                    uiPresetName = toolbarManager.activeUiPresetName.value,
+                    workspaceProfile = workspaceProfile?.toWorkspaceProfileJson(Gson(), toolbarRepository),
 
                     pages = currentPagesJson,
 
@@ -5309,7 +5391,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                     restoreProjectState(context, projectData, bitmapMap, svgMap)
 
-                    reloadToolbarLayout()
+
 
                     currentFileUri = uri
 
@@ -5467,11 +5549,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             centerPaperAsHomeCamera()
         }
 
-        if (data.uiPresetName != null) {
-            toolbarManager.onProjectUiPresetLoaded(data.uiPresetName)
-        } else {
-            toolbarManager.onProjectUiPresetCleared()
-        }
+        val profile = data.workspaceProfile?.toWorkspaceProfile(Gson(), toolbarRepository) ?: workspaceProfileRepository.createDefaultWorkspaceProfile(
+            getDefaultStrokeColor = { strokeColor.value },
+            getDefaultFillColor = { fillColor.value }
+        )
+        this.workspaceProfile = profile
+        toolbarManager.setToolbarLayout(profile.layout)
+        _themeConfig.value = profile.theme
     }
 
     
@@ -5712,7 +5796,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             ),
 
             componentLibrary = componentLibrary.mapValues { it.value.toComponentDefinitionJson() },
-            uiPresetName = toolbarManager.activeUiPresetName.value
+            workspaceProfile = workspaceProfile?.toWorkspaceProfileJson(Gson(), toolbarRepository)
         )
 
         return SvgExporter.export(projectData, layers, config)
@@ -5862,7 +5946,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                     componentLibrary = currentComponentLibrary.mapValues { it.value.toComponentDefinitionJson() },
 
-                    uiPresetName = toolbarManager.activeUiPresetName.value
+                    workspaceProfile = workspaceProfile?.toWorkspaceProfileJson(Gson(), toolbarRepository)
 
                 )
 
@@ -6458,7 +6542,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                      scaleConfig = savedScaleConfig
 
                  ),
-                 uiPresetName = toolbarManager.activeUiPresetName.value,
+                 workspaceProfile = workspaceProfile?.toWorkspaceProfileJson(Gson(), toolbarRepository),
                  pages = currentPagesJson,
                  activePageIndex = currentActivePageIndex
              )
@@ -6529,9 +6613,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                     }
 
-                    _themeConfig.value = themeRepository.getTheme()
+                    // _themeConfig.value = themeRepository.getTheme()
 
-                    reloadToolbarLayout()
+
 
                 }
 
@@ -7587,7 +7671,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         scaleRatio: Float = 1.0f,
         canvasSizeConfig: com.sketcher.sketchercompanionv1.dto.CanvasSizeConfig? = null,
         backgroundStyle: com.sketcher.sketchercompanionv1.dto.FillStyle? = null,
-        uiPresetName: String? = null
+        workspaceProfile: com.sketcher.sketchercompanionv1.ui.model.WorkspaceProfile? = null
     ) {
         val dir = currentDirectory ?: return
         val pid = UUID.randomUUID().toString()
@@ -7624,11 +7708,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 this.backgroundColor = android.graphics.Color.WHITE
             }
 
-            if (uiPresetName != null) {
-                toolbarManager.onProjectUiPresetLoaded(uiPresetName)
-            } else {
-                toolbarManager.onProjectUiPresetCleared()
-            }
+            val profile = workspaceProfile ?: workspaceProfileRepository.createDefaultWorkspaceProfile(
+                getDefaultStrokeColor = { strokeColor.value },
+                getDefaultFillColor = { fillColor.value }
+            )
+            this.workspaceProfile = profile
+            toolbarManager.setToolbarLayout(profile.layout)
         }
         
         currentFileUri = android.net.Uri.fromFile(file)
@@ -8059,6 +8144,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                                             fillColor = j.preset.fillColor,
                                             isStrokeActive = j.preset.isStrokeActive,
                                             isFillActive = j.preset.isFillActive,
+                                            isStrokeColorLocked = j.preset.isStrokeColorLocked,
+                                            isFillColorLocked = j.preset.isFillColorLocked,
                                             fillStyle = j.preset.fillStyle?.toFillStyle(j.preset.fillColor ?: 0),
                                             strokeStyle = j.preset.strokeStyle?.toFillStyle(j.preset.strokeColor ?: 0),
                                             stabilization = j.preset.stabilization
@@ -8071,19 +8158,15 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                             if (mapped.isNotEmpty()) {
                                 toolManager.onCustomToolAddedOrUpdated = null
                                 toolManager.onCustomToolRemoved = null
-                                toolManager.saveCustomTools(mapped)
+                                viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                    globalToolRepository.saveGlobalTools(mapped)
+                                    toolManager.loadCustomTools()
+                                }
                                 
-                                val currentTheme = _themeConfig.value
-                                val newCustomIcons = currentTheme.customIcons.toMutableMap()
-                                var iconsChanged = false
                                 mapped.forEach { ct ->
                                     if (ct.customIconJson != null) {
-                                        newCustomIcons[ct.id] = ct.customIconJson
-                                        iconsChanged = true
+                                        saveGlobalIcon(ct.id, ct.customIconJson!!)
                                     }
-                                }
-                                if (iconsChanged) {
-                                    updateTheme(currentTheme.copy(customIcons = newCustomIcons))
                                 }
 
                                 
@@ -8107,6 +8190,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                                                     fillColor = ct.preset.fillColor,
                                                     isStrokeActive = ct.preset.isStrokeActive,
                                                     isFillActive = ct.preset.isFillActive,
+                                                    isStrokeColorLocked = ct.preset.isStrokeColorLocked,
+                                                    isFillColorLocked = ct.preset.isFillColorLocked,
                                                     fillStyle = ct.preset.fillStyle?.toFillStyleJson(),
                                                     strokeStyle = ct.preset.strokeStyle?.toFillStyleJson(),
                                                     stabilization = ct.preset.stabilization
@@ -8133,7 +8218,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     }
                     
                     // Reload local state
-                    _themeConfig.value = themeRepository.getTheme()
+                    // _themeConfig.value = themeRepository.getTheme()
                     // loadConfig()
                 }
 
@@ -8210,7 +8295,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                     if (sketcherPrefsMap != null) { val editor = sketcherPrefs.edit(); editor.clear(); applyMapToPrefs(sketcherPrefsMap, editor); editor.apply() }
                     if (themePrefsMap != null) { val editor = themePrefs.edit(); editor.clear(); applyMapToPrefs(themePrefsMap, editor); editor.apply() }
                     if (toolbarPrefsMap != null) { val editor = toolbarPrefs.edit(); editor.clear(); applyMapToPrefs(toolbarPrefsMap, editor); editor.apply() }
-                    _themeConfig.value = themeRepository.getTheme()
+                    // _themeConfig.value = themeRepository.getTheme()
                     
                     val brushesResult = cloudSyncRepository.getAllCustomBrushes()
                     if (brushesResult.isSuccess) {
@@ -8244,6 +8329,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                                             fillColor = j.preset.fillColor,
                                             isStrokeActive = j.preset.isStrokeActive,
                                             isFillActive = j.preset.isFillActive,
+                                            isStrokeColorLocked = j.preset.isStrokeColorLocked,
+                                            isFillColorLocked = j.preset.isFillColorLocked,
                                             fillStyle = j.preset.fillStyle?.toFillStyle(j.preset.fillColor ?: 0),
                                             strokeStyle = j.preset.strokeStyle?.toFillStyle(j.preset.strokeColor ?: 0),
                                             stabilization = j.preset.stabilization
@@ -8256,19 +8343,15 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                             if (mapped.isNotEmpty()) {
                                 toolManager.onCustomToolAddedOrUpdated = null
                                 toolManager.onCustomToolRemoved = null
-                                toolManager.saveCustomTools(mapped)
+                                viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                    globalToolRepository.saveGlobalTools(mapped)
+                                    toolManager.loadCustomTools()
+                                }
                                 
-                                val currentTheme = _themeConfig.value
-                                val newCustomIcons = currentTheme.customIcons.toMutableMap()
-                                var iconsChanged = false
                                 mapped.forEach { ct ->
                                     if (ct.customIconJson != null) {
-                                        newCustomIcons[ct.id] = ct.customIconJson
-                                        iconsChanged = true
+                                        saveGlobalIcon(ct.id, ct.customIconJson!!)
                                     }
-                                }
-                                if (iconsChanged) {
-                                    updateTheme(currentTheme.copy(customIcons = newCustomIcons))
                                 }
 
                                 
@@ -8291,6 +8374,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                                                     fillColor = ct.preset.fillColor,
                                                     isStrokeActive = ct.preset.isStrokeActive,
                                                     isFillActive = ct.preset.isFillActive,
+                                                    isStrokeColorLocked = ct.preset.isStrokeColorLocked,
+                                                    isFillColorLocked = ct.preset.isFillColorLocked,
                                                     fillStyle = ct.preset.fillStyle?.toFillStyleJson(),
                                                     strokeStyle = ct.preset.strokeStyle?.toFillStyleJson(),
                                                     stabilization = ct.preset.stabilization

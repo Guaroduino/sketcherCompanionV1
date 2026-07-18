@@ -536,6 +536,7 @@ fun FillStylePickerDialog(
                                 tintMix = solidImgTintMix,
                                 blendModeName = solidImgBlendModeName,
                                 onChooseImage = { pickingImageTarget = "SOLID"; imageLauncher.launch("image/*") },
+                                onChooseTexture = { solidImagePath = it },
                                 onClearImage = { solidImagePath = null },
                                 onScaleXChanged = { solidImgScaleX = it },
                                 onScaleYChanged = { solidImgScaleY = it },
@@ -826,6 +827,7 @@ fun SolidColorSelector(
     blendModeName: String,
     onColorChanged: (Int) -> Unit,
     onChooseImage: () -> Unit,
+    onChooseTexture: (String) -> Unit,
     onClearImage: () -> Unit,
     onScaleXChanged: (Float) -> Unit,
     onScaleYChanged: (Float) -> Unit,
@@ -980,6 +982,89 @@ fun SolidColorSelector(
                     contentPadding = PaddingValues(horizontal = 12.sdp, vertical = 2.sdp)
                 ) {
                     Text("Clear Image", fontSize = 10.ssp)
+                }
+            }
+        }
+
+        val context = LocalContext.current
+        val defaultTexturesDir = remember { java.io.File(context.filesDir, "textures/default") }
+        val defaultTextures = remember {
+            if (defaultTexturesDir.exists() && defaultTexturesDir.isDirectory) {
+                defaultTexturesDir.listFiles()?.toList() ?: emptyList()
+            } else {
+                emptyList()
+            }
+        }
+
+        if (defaultTextures.isNotEmpty()) {
+            Text(
+                text = "Predefined Textures",
+                fontSize = 11.ssp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                color = theme.iconColor,
+                modifier = Modifier.padding(top = 4.sdp).align(Alignment.Start)
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.sdp)
+            ) {
+                for (textureFile in defaultTextures) {
+                    val isSelected = imagePath == textureFile.absolutePath
+                    val textureBitmap = remember(textureFile.absolutePath) {
+                        ImageTextureCache.getOrCreate(textureFile.absolutePath)
+                    }
+                    val displayName = textureFile.nameWithoutExtension
+                        .replace("-", " ")
+                        .replace("_", " ")
+                        .replaceFirstChar { if (it.isLowerCase()) it.uppercaseChar() else it }
+
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .width(70.sdp)
+                            .clip(RoundedCornerShape(8.sdp))
+                            .background(if (isSelected) theme.highlightColor.copy(alpha = 0.15f) else Color.Transparent)
+                            .border(
+                                width = if (isSelected) 2.sdp else 1.sdp,
+                                color = if (isSelected) theme.highlightColor else Color.Gray.copy(alpha = 0.4f),
+                                shape = RoundedCornerShape(8.sdp)
+                            )
+                            .clickable {
+                                onChooseTexture(textureFile.absolutePath)
+                            }
+                            .padding(4.sdp)
+                    ) {
+                        if (textureBitmap != null) {
+                            androidx.compose.foundation.Image(
+                                bitmap = textureBitmap.asImageBitmap(),
+                                contentDescription = displayName,
+                                modifier = Modifier
+                                    .size(50.sdp)
+                                    .clip(RoundedCornerShape(6.sdp)),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(50.sdp)
+                                    .background(Color.Gray.copy(alpha = 0.2f), RoundedCornerShape(6.sdp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("?", fontSize = 14.ssp, color = theme.iconColor)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.sdp))
+                        Text(
+                            text = displayName,
+                            fontSize = 8.ssp,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            color = theme.iconColor,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
                 }
             }
         }

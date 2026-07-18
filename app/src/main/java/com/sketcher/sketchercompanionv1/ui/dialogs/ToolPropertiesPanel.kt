@@ -213,6 +213,61 @@ fun ToolPropertiesPanel(
                             )
                         }
                     }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Button(
+                        onClick = { 
+                            viewModel.toolManager.saveToolToGlobal(activeCustomToolIdVal)
+                            onDismiss()
+                        },
+                        shape = theme.panelShape(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = theme.buttonColor.copy(alpha = 0.15f),
+                            contentColor = theme.highlightColor
+                        ),
+                        modifier = Modifier.fillMaxWidth().height(36.dp),
+                        contentPadding = PaddingValues(vertical = 0.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Save,
+                            contentDescription = "Sobreescribir Global",
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Guardar hacia arriba (Global)",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                } else if (viewModel.currentTool != ToolType.ERASER && viewModel.currentTool != ToolType.POINT_ERASER && viewModel.currentTool != ToolType.CUT_ERASER) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = { 
+                            viewModel.toolManager.saveToolToGlobal(viewModel.currentTool.name)
+                            onDismiss()
+                        },
+                        shape = theme.panelShape(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = theme.buttonColor.copy(alpha = 0.15f),
+                            contentColor = theme.highlightColor
+                        ),
+                        modifier = Modifier.fillMaxWidth().height(36.dp),
+                        contentPadding = PaddingValues(vertical = 0.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Save,
+                            contentDescription = "Sobreescribir Global",
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Guardar hacia arriba (Global)",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }

@@ -53,16 +53,19 @@ fun VectorIconRenderer(
     }
 }
 
+val LocalGlobalCustomIcons = androidx.compose.runtime.compositionLocalOf<Map<String, String>> { emptyMap() }
+
 @Composable
 fun ToolIcon(
     tool: StudioTool,
     theme: UiThemeConfig,
     tint: Color,
     modifier: Modifier = Modifier,
-    iconSize: Dp = 24.dp
+    iconSize: Dp = 24.dp,
+    globalCustomIcons: Map<String, String> = LocalGlobalCustomIcons.current
 ) {
-    // Try to find a custom icon in theme
-    val customIconJson = theme.customIcons[tool.registryId] ?: theme.customIcons[tool.id]
+    // Try to find a custom icon in globalCustomIcons
+    val customIconJson = globalCustomIcons[tool.registryId] ?: globalCustomIcons[tool.id]
     if (customIconJson != null) {
         val vectorIcon = remember(customIconJson) {
             try {

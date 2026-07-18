@@ -29,14 +29,14 @@ class ToolbarRepository(context: Context) {
     private val prefs = context.getSharedPreferences("toolbar_prefs", Context.MODE_PRIVATE)
     private val gson = Gson()
 
-    fun saveLayout(
+    fun createSavedLayout(
         toolbarState: Map<ToolLocation, List<StudioTool>>,
         assignedMap: Map<String, ToolPayload>,
         toolColors: Map<String, Int>,
         toolStabilization: Map<String, Float>,
         toolOpacity: Map<String, Float>,
         contextualToolbar: List<StudioTool>
-    ) {
+    ): SavedLayout {
         fun mapToolToSaved(tool: StudioTool): SavedTool {
             return SavedTool(
                 instanceId = tool.id,
@@ -52,7 +52,20 @@ class ToolbarRepository(context: Context) {
         }
         val savedContextualTools = contextualToolbar.map { mapToolToSaved(it) }
         
-        val layout = SavedLayout(savedToolsMap, assignedMap, toolColors, savedContextualTools, toolStabilization, toolOpacity)
+        return SavedLayout(savedToolsMap, assignedMap, toolColors, savedContextualTools, toolStabilization, toolOpacity)
+    }
+
+    fun saveLayout(
+        toolbarState: Map<ToolLocation, List<StudioTool>>,
+        assignedMap: Map<String, ToolPayload>,
+        toolColors: Map<String, Int>,
+        toolStabilization: Map<String, Float>,
+        toolOpacity: Map<String, Float>,
+        contextualToolbar: List<StudioTool>
+    ) {
+        val layout = createSavedLayout(
+            toolbarState, assignedMap, toolColors, toolStabilization, toolOpacity, contextualToolbar
+        )
         val json = gson.toJson(layout)
         prefs.edit().putString("saved_layout_v2", json).apply()
     }
