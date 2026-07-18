@@ -261,7 +261,8 @@ fun VectorStroke.toVectorStrokeJson(): VectorStrokeJson {
         settingsType = sType,
         settingsJson = sJson,
         exactSvgPath = ExactPathSerializer.pathToString(this.path),
-        exactFillSvgPath = this.fillPath?.let { ExactPathSerializer.pathToString(it) }
+        exactFillSvgPath = this.fillPath?.let { ExactPathSerializer.pathToString(it) },
+        customToolId = this.customToolId
     )
 }
 
@@ -500,7 +501,8 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         isScreenSpaceWidth = this.isScreenSpaceWidth ?: false,
         fillStyle = loadedFillStyle.toFillStyle(fColor),
         strokeStyle = loadedStrokeStyle.toFillStyle(sColor),
-        settings = settings
+        settings = settings,
+        customToolId = this.customToolId
     )
 }
 

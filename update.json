@@ -1,7 +1,7 @@
 {
-  "versionCode": 105,
-  "versionName": "1.0.104",
+  "versionCode": 111,
+  "versionName": "1.0.110",
   "apkUrl": "https://firebasestorage.googleapis.com/v0/b/sketchercompanionapp.firebasestorage.app/o/updates%2Fapp-debug.apk?alt=media",
-  "releaseNotes": "Agregado texturas integradas a opción Solid",
+  "releaseNotes": "Nuevos ajustes aplicados",
   "forceUpdate": false
 }

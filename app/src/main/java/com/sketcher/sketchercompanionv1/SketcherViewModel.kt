@@ -173,6 +173,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         private set
     var syncTrigger by mutableStateOf(0)
         private set
+    var showOfflineGuestProjects by mutableStateOf(false)
 
     fun incrementSyncTrigger() {
         viewModelScope.launch(Dispatchers.Main) {
@@ -827,6 +828,9 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     var showPropertiesPanel by mutableStateOf(false)
         private set
 
+    var isPanZoomLocked by mutableStateOf(false)
+        private set
+
     var showCustomToolsManagerDialog by mutableStateOf(false)
     var showWorkspaceWorkshopDialog by mutableStateOf(false)
     var editingWorkspaceProfile by mutableStateOf<com.sketcher.sketchercompanionv1.ui.model.WorkspaceProfile?>(null)
@@ -845,6 +849,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         showPropertiesPanel = !showPropertiesPanel
 
+    }
+
+    fun togglePanZoomLock() {
+        isPanZoomLocked = !isPanZoomLocked
     }
 
 
@@ -1114,6 +1122,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         "zoom_fit" -> ({ fitContent() })
 
+        "canvas_lock" -> ({ togglePanZoomLock() })
+
         "home_view" -> ({ resetCamera() })
 
         "stroke_color" -> ({
@@ -1155,6 +1165,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         "eraser" -> ({ selectTool(ToolType.ERASER) })
         "point_eraser" -> ({ selectTool(ToolType.POINT_ERASER) })
         "cut_eraser" -> ({ selectTool(ToolType.CUT_ERASER) })
+        "smart_picker" -> ({ selectTool(ToolType.SMART_PICKER) })
  
         "stroke_type" -> ({
             ensureDrawingToolActive()
@@ -4222,6 +4233,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
                  canvas.concat(matrix)
 
+                 val renderEngine = RenderEngine()
                  for (layer in targetLayers) {
 
                      if (!layer.isVisible) continue
@@ -4234,7 +4246,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                           canvas.save()
                       }
 
-                     for (element in layer.elements) RenderHelper.drawElementRecursive(canvas, element, componentLibrary)
+                     for (element in layer.elements) renderEngine.drawElementRecursive(canvas, element, componentLibrary, matrix)
 
                      canvas.restoreToCount(saveCount)
 
@@ -6070,6 +6082,109 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         eraserSnapshots.clear()
     }
 
+    var smartPickerOverlappingStrokes = mutableStateOf<List<VectorStroke>?>(null)
+        private set
+
+    fun cancelSmartPicker() {
+        smartPickerOverlappingStrokes.value = null
+    }
+
+    private fun findStrokesAtPosition(worldX: Float, worldY: Float): List<VectorStroke> {
+        val hits = mutableListOf<VectorStroke>()
+        val tolerance = 5f // 5 project units
+        val tapRect = android.graphics.RectF(worldX - tolerance, worldY - tolerance, worldX + tolerance, worldY + tolerance)
+        
+        val elements = layerManager.activeElements()
+        for (i in elements.indices.reversed()) {
+            val element = elements[i]
+            if (element !is VectorStroke) continue
+            val bounds = element.getBoundingBox(emptyMap())
+            if (android.graphics.RectF.intersects(bounds, tapRect)) {
+                // Since PathOps INTERSECT only works on filled paths, it fails for open strokes.
+                // For now, bounding box intersection is sufficient for a first pass, 
+                // but we could refine it by checking distance to path segments if needed.
+                hits.add(element)
+            }
+        }
+        return hits
+    }
+
+    fun handleSmartPick(worldX: Float, worldY: Float) {
+        val strokes = findStrokesAtPosition(worldX, worldY)
+        if (strokes.isNotEmpty()) {
+            applySampledStroke(strokes.first())
+        }
+    }
+
+    fun handleSmartPickLongPress(worldX: Float, worldY: Float) {
+        val strokes = findStrokesAtPosition(worldX, worldY)
+        if (strokes.size > 1) {
+            smartPickerOverlappingStrokes.value = strokes
+        } else if (strokes.size == 1) {
+            applySampledStroke(strokes.first())
+        }
+    }
+
+    fun applySampledStroke(stroke: VectorStroke) {
+        setStrokeColor(stroke.strokeColor ?: android.graphics.Color.BLACK)
+        setStrokeStyle(stroke.strokeStyle)
+        if (stroke.isFillEnabled) {
+            setFillColor(stroke.fillColor ?: android.graphics.Color.WHITE)
+            setFillStyle(stroke.fillStyle)
+        }
+        toggleStroke(stroke.isStrokeEnabled)
+        toggleFill(stroke.isFillEnabled)
+        
+        val customId = stroke.customToolId
+        var activatedCustomTool = false
+        if (customId != null) {
+            val customTool = toolManager.customTools.value.find { it.id == customId }
+            if (customTool != null) {
+                activateCustomTool(customTool)
+                activatedCustomTool = true
+            }
+        }
+        
+        val newToolType = try { ToolType.valueOf(stroke.brushType) } catch (e: Exception) { ToolType.FREEHAND }
+        
+        if (!activatedCustomTool) {
+            selectTool(newToolType)
+            updateBrushSize(stroke.maxWidth)
+            updateFreehandSettings(stroke.settings)
+            when (newToolType) {
+                ToolType.FREEHAND, ToolType.PENCIL_CUMULATIVE -> toolManager.saveFreehandSettingsToGlobal(stroke.settings as? com.sketcher.sketchercompanionv1.tools.PencilSettings)
+                ToolType.PEN -> toolManager.savePenSettingsToGlobal(stroke.settings as? com.sketcher.sketchercompanionv1.tools.PenSettings)
+                ToolType.PLUMA -> toolManager.savePlumaSettingsToGlobal(stroke.settings as? com.sketcher.sketchercompanionv1.tools.PlumaSettings)
+                ToolType.PAINT -> toolManager.savePaintSettingsToGlobal(stroke.settings as? com.sketcher.sketchercompanionv1.tools.PaintSettings)
+                ToolType.WATERCOLOR -> toolManager.saveWatercolorSettingsToGlobal(stroke.settings as? com.sketcher.sketchercompanionv1.tools.WatercolorSettings)
+                else -> {}
+            }
+            selectTool(newToolType) // Re-select to apply global updates
+        } else {
+            updateBrushSize(stroke.maxWidth)
+            updateFreehandSettings(stroke.settings)
+            toolManager.selectTool(currentTool)
+        }
+
+        val registryIdToReveal = if (activatedCustomTool) customId!! else {
+            when (newToolType) {
+                ToolType.FREEHAND -> "pencil"
+                ToolType.PENCIL_CUMULATIVE -> "pencil_cumulative"
+                ToolType.PEN -> "pen"
+                ToolType.PLUMA -> "pluma"
+                ToolType.PAINT -> "paint"
+                ToolType.WATERCOLOR -> "watercolor"
+                ToolType.ERASER -> "eraser"
+                ToolType.POINT_ERASER -> "point_eraser"
+                ToolType.CUT_ERASER -> "cut_eraser"
+                else -> "pencil"
+            }
+        }
+        toolbarManager.revealTool(registryIdToReveal)
+        
+        smartPickerOverlappingStrokes.value = null
+    }
+
     fun erase(x: Float, y: Float, diameterPx: Float): Boolean {
         var changed = false
 
@@ -7493,10 +7608,61 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun getProjectsRootDir(context: Context): java.io.File {
-        val currentUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "guest"
+        val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+        val currentUid = if (showOfflineGuestProjects || uid == null) "guest" else uid
         val dir = java.io.File(context.filesDir, "users/$currentUid/projects")
         if (!dir.exists()) dir.mkdirs()
         return dir
+    }
+
+    fun getOnlineUserRootDir(context: Context): java.io.File {
+        val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: return getProjectsRootDir(context)
+        val dir = java.io.File(context.filesDir, "users/$uid/projects")
+        if (!dir.exists()) dir.mkdirs()
+        return dir
+    }
+
+    fun importGuestItemToAccount(context: Context, item: DashboardItem) {
+        val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val onlineRootDir = getOnlineUserRootDir(context)
+        val guestRootDir = java.io.File(context.filesDir, "users/guest/projects")
+        
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                if (item is DashboardItem.Project) {
+                    val file = java.io.File(item.path)
+                    val relPath = try { file.toRelativeString(guestRootDir) } catch(e: Exception) { file.name }
+                    val destFile = java.io.File(onlineRootDir, relPath)
+                    destFile.parentFile?.mkdirs()
+                    if (file.exists()) {
+                        file.copyTo(destFile, overwrite = true)
+                        file.delete()
+                        uploadProjectSilently(context, destFile)
+                    }
+                } else if (item is DashboardItem.Folder) {
+                    val folder = java.io.File(item.path)
+                    val relPath = try { folder.toRelativeString(guestRootDir) } catch(e: Exception) { folder.name }
+                    val destFolder = java.io.File(onlineRootDir, relPath)
+                    destFolder.mkdirs()
+                    
+                    folder.copyRecursively(destFolder, overwrite = true)
+                    folder.deleteRecursively()
+                    
+                    destFolder.walkTopDown().forEach { f ->
+                        if (f.isFile && f.extension == "skc") {
+                            uploadProjectSilently(context, f)
+                        }
+                    }
+                    uploadFolderSilently(context, onlineRootDir, destFolder)
+                }
+                
+                withContext(Dispatchers.Main) {
+                    refreshLocalItems()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     fun getLibraryFile(context: Context): java.io.File {
@@ -8264,6 +8430,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             prefs.edit().putString("last_sync_uid", currentUid).apply()
 
             isSyncingCloud = true
+            refreshLocalItems()
             cloudSyncMessage = "Sincronizando..."
             try {
                 withContext(Dispatchers.IO) {
@@ -8731,6 +8898,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 kotlinx.coroutines.delay(2000)
                 cloudSyncMessage = null
             } finally {
+                refreshLocalItems()
                 isSyncingCloud = false
             }
         }

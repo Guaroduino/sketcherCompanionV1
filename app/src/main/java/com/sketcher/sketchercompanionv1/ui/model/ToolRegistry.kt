@@ -121,6 +121,7 @@ object ToolRegistry {
         StudioTool("zoom_out", Icons.Default.ZoomOut, "Zoom Out", R.drawable.ic_tabler_zoom_out, isPlaceholder = false),
         StudioTool("zoom_fit", Icons.Default.FitScreen, "Zoom Extends", R.drawable.ic_tabler_zoom_fit, isPlaceholder = false),
         StudioTool("home_view", Icons.Default.Home, "Reset View", R.drawable.ic_tabler_home_view, isPlaceholder = false),
+        StudioTool("canvas_lock", Icons.Outlined.Lock, "Lock Pan/Zoom", null, isPlaceholder = false),
         StudioTool("menu", Icons.Default.Menu, "Menu", R.drawable.ic_tabler_menu, isPlaceholder = false),
         StudioTool(StudioTool.PROPERTIES_TOOL_ID, Icons.Default.Tune, "Properties", isPlaceholder = false),
         StudioTool(StudioTool.STABILIZATION_TOOL_ID, Icons.Default.Timeline, "Stabilization", R.drawable.ic_tabler_stabilization, isPlaceholder = false),
@@ -128,6 +129,7 @@ object ToolRegistry {
         StudioTool("divider", Icons.Default.Remove, "Divider", R.drawable.ic_tabler_divider, isPlaceholder = false),
         StudioTool("edit", Icons.Default.Edit, "Edit", isPlaceholder = true),
         StudioTool("create", Icons.Default.Add, "Create", isPlaceholder = true),
+        StudioTool("smart_picker", Icons.Default.Colorize, "Smart Picker", null, isPlaceholder = false),
         StudioTool("stroke_color", Icons.Default.BorderColor, "Stroke Color", R.drawable.ic_tabler_stroke_color, isPlaceholder = false),
         StudioTool("fill_color", Icons.Default.FormatColorFill, "Fill Color", R.drawable.ic_tabler_fill_color, isPlaceholder = false)
     )

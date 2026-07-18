@@ -45,6 +45,7 @@ class StrokePipeline(
     var isStrokeActive: Boolean = true
     var isFillActive: Boolean = false
     var isFlattenedOuterStrokeEnabled: Boolean = true
+    var activeCustomToolId: String? = null
 
     var globalStabilizationLevel: Float = 0f
 
@@ -868,7 +869,8 @@ class StrokePipeline(
                         rightPoints = genResultRightSnap,
                         isFlattened = true,
                         fillStyle = activeFillStyleSnap,
-                        settings = activeFreehandSettingsSnap
+                        settings = activeFreehandSettingsSnap,
+                        customToolId = activeCustomToolId
                     )
 
                     var fill: FillData? = null
@@ -1048,7 +1050,8 @@ class StrokePipeline(
              rightPoints = genResult.right,
              paths = chunkPaths,
              fillStyle = activeFillStyle,
-             settings = activeFreehandSettings
+             settings = activeFreehandSettings,
+             customToolId = activeCustomToolId
         )
 
         var fill: FillData? = null

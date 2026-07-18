@@ -29,6 +29,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -258,6 +259,29 @@ fun DashboardScreen(
                         }
                     }
 
+                    if (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 4.dp * scaleFactor)
+                        ) {
+                            androidx.compose.material3.Text(
+                                text = if (viewModel.showOfflineGuestProjects) "Invitado" else "Nube",
+                                color = theme.iconColor,
+                                fontSize = 12.sp * scaleFactor,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.width(4.dp * scaleFactor))
+                            androidx.compose.material3.Switch(
+                                checked = viewModel.showOfflineGuestProjects,
+                                onCheckedChange = { isGuest ->
+                                    viewModel.showOfflineGuestProjects = isGuest
+                                    viewModel.navigateToFolder(viewModel.getProjectsRootDir(context))
+                                },
+                                modifier = Modifier.scale(0.8f)
+                            )
+                        }
+                    }
+
                     IconButton(
                         onClick = {
                             val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
@@ -314,6 +338,22 @@ fun DashboardScreen(
                     .weight(splitterPosition)
             ) {
                 HorizontalDivider(color = theme.iconColor.copy(alpha = 0.1f))
+                if (viewModel.showOfflineGuestProjects && com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFFFFF3E0))
+                            .padding(8.dp * scaleFactor),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Viendo proyectos locales de invitado. Puedes importarlos a tu cuenta.",
+                            color = Color(0xFFE65100),
+                            fontSize = 12.sp * scaleFactor,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -409,10 +449,12 @@ fun DashboardScreen(
                                         scaleFactor = scaleFactor,
                                         theme = theme,
                                         isSynced = isSynced,
+                                        isOfflineMode = viewModel.showOfflineGuestProjects,
                                         onClick = { viewModel.navigateToFolder(File(item.path)) },
                                         onRename = { showRenameDialog = item },
                                         onCustomize = { showCustomizeCoverDialog = item },
-                                        onDelete = { showDeleteConfirmDialog = item }
+                                        onDelete = { showDeleteConfirmDialog = item },
+                                        onImport = { viewModel.importGuestItemToAccount(context, item) }
                                     )
                                 }
                                 is DashboardItem.Project -> {
@@ -425,11 +467,13 @@ fun DashboardScreen(
                                         scaleFactor = scaleFactor,
                                         theme = theme,
                                         isSynced = isSynced,
+                                        isOfflineMode = viewModel.showOfflineGuestProjects,
                                         onClick = { onOpenProject(item) },
                                         onRename = { showRenameDialog = item },
                                         onMove = { showMoveDialog = item },
                                         onDelete = { showDeleteConfirmDialog = item },
-                                        onShowHistory = { showHistoryDialog = item }
+                                        onShowHistory = { showHistoryDialog = item },
+                                        onImport = { viewModel.importGuestItemToAccount(context, item) }
                                     )
                                 }
                             }
@@ -689,10 +733,12 @@ fun FolderCard(
     scaleFactor: Float,
     theme: UiThemeConfig,
     isSynced: Boolean,
+    isOfflineMode: Boolean = false,
     onClick: () -> Unit,
     onRename: () -> Unit,
     onCustomize: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onImport: (() -> Unit)? = null
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -787,6 +833,15 @@ fun FolderCard(
                                     onCustomize()
                                 }
                             )
+                            if (isOfflineMode && com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Importar a mi cuenta", fontSize = 13.sp * scaleFactor, color = theme.iconColor) },
+                                    onClick = {
+                                        showMenu = false
+                                        onImport?.invoke()
+                                    }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Borrar", fontSize = 13.sp * scaleFactor, color = MaterialTheme.colorScheme.error) },
                                 onClick = {
@@ -817,11 +872,13 @@ fun ProjectCard(
     scaleFactor: Float,
     theme: UiThemeConfig,
     isSynced: Boolean,
+    isOfflineMode: Boolean = false,
     onClick: () -> Unit,
     onRename: () -> Unit,
     onMove: () -> Unit,
     onDelete: () -> Unit,
-    onShowHistory: () -> Unit
+    onShowHistory: () -> Unit,
+    onImport: (() -> Unit)? = null
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val formattedDate = remember(project.lastModified) {
@@ -950,6 +1007,15 @@ fun ProjectCard(
                                     onMove()
                                 }
                             )
+                            if (isOfflineMode && com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Importar a mi cuenta", fontSize = 13.sp * scaleFactor, color = theme.iconColor) },
+                                    onClick = {
+                                        showMenu = false
+                                        onImport?.invoke()
+                                    }
+                                )
+                            }
                             if (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null) {
                                 DropdownMenuItem(
                                     text = { Text("Historial de Versiones", fontSize = 13.sp * scaleFactor, color = theme.iconColor) },

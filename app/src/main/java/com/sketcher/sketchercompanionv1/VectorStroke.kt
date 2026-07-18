@@ -35,6 +35,7 @@ data class VectorStroke(
     val fillStyle: FillStyle = FillStyle.Solid(fillColor),
     val strokeStyle: FillStyle = FillStyle.Solid(strokeColor),
     val settings: ToolSettings = PencilSettings(),
+    val customToolId: String? = null,
     override var isScaleLocked: Boolean = false
 ) : LayerElement {
     @kotlin.jvm.Transient

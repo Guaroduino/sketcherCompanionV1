@@ -5,7 +5,12 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateListOf
 import com.sketcher.sketchercompanionv1.Layer
-
+import com.sketcher.sketchercompanionv1.LayerElement
+import com.sketcher.sketchercompanionv1.VectorStroke
+import com.sketcher.sketchercompanionv1.FillData
+import com.sketcher.sketchercompanionv1.TextElement
+import com.sketcher.sketchercompanionv1.GroupElement
+import com.sketcher.sketchercompanionv1.dto.copyWithOpacity
 class LayerManager(
     private val performSnapshotAction: (String, () -> Unit) -> Unit
 ) {
@@ -156,8 +161,17 @@ class LayerManager(
                 val fromLayer = layers[fromIndex]
                 val toLayer = layers[toIndex]
 
+                val opacityFactor = fromLayer.opacity
+
                 // Transfer elements
-                toLayer.elements.addAll(fromLayer.elements.map { it.copyElement() })
+                toLayer.elements.addAll(fromLayer.elements.map { 
+                    val copied = it.copyElement()
+                    if (opacityFactor < 1f) {
+                        applyOpacityToElement(copied, opacityFactor)
+                    } else {
+                        copied
+                    }
+                })
 
                 // Remove source
                 layers.removeAt(fromIndex)
@@ -182,5 +196,31 @@ class LayerManager(
      */
     fun activeElements(): androidx.compose.runtime.snapshots.SnapshotStateList<com.sketcher.sketchercompanionv1.LayerElement> {
         return layers[activeLayerIndex].elements
+    }
+
+    private fun applyOpacityToElement(element: LayerElement, layerOpacity: Float): LayerElement {
+        if (layerOpacity >= 1f) return element
+        return when (element) {
+            is VectorStroke -> element.copy(
+                fillStyle = element.fillStyle.copyWithOpacity(element.fillStyle.opacity * layerOpacity),
+                strokeStyle = element.strokeStyle.copyWithOpacity(element.strokeStyle.opacity * layerOpacity)
+            )
+            is FillData -> element.copy(
+                fillStyle = element.fillStyle.copyWithOpacity(element.fillStyle.opacity * layerOpacity)
+            )
+            is TextElement -> {
+                val a = android.graphics.Color.alpha(element.defaultTextColor)
+                val r = android.graphics.Color.red(element.defaultTextColor)
+                val g = android.graphics.Color.green(element.defaultTextColor)
+                val b = android.graphics.Color.blue(element.defaultTextColor)
+                val newA = (a * layerOpacity).toInt().coerceIn(0, 255)
+                val newColor = android.graphics.Color.argb(newA, r, g, b)
+                element.copy(defaultTextColor = newColor)
+            }
+            is GroupElement -> element.copy(
+                elements = element.elements.map { applyOpacityToElement(it, layerOpacity) }.toMutableList()
+            )
+            else -> element
+        }
     }
 }

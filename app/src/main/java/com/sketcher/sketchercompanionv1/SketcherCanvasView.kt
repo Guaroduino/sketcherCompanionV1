@@ -549,6 +549,15 @@ class SketcherCanvasView(context: Context) : View(context) {
 
         }
 
+        override fun onLongPress(e: MotionEvent) {
+            if (currentTool == ToolType.SMART_PICKER) {
+                isSmartPickerLongPressed = true
+                tempTouchPoint[0] = e.x
+                tempTouchPoint[1] = e.y
+                inverseMatrix.mapPoints(tempTouchPoint)
+                onRequestSmartPickLongPress?.invoke(tempTouchPoint[0], tempTouchPoint[1])
+            }
+        }
     })
 
 
@@ -1739,6 +1748,12 @@ class SketcherCanvasView(context: Context) : View(context) {
             field = value
             redrawAllCache()
         }
+    var isPanZoomLocked: Boolean = false
+        set(value) {
+            if (field == value) return
+            field = value
+            redrawAllCache()
+        }
 
     // selectionManager declaration removed to avoid conflict
 
@@ -2886,7 +2901,9 @@ class SketcherCanvasView(context: Context) : View(context) {
         // Delegate to Scale and Gesture Detectors
         val wasInProgress = scaleDetector.isInProgress
 
-        if (hasStylus) {
+        val isPanZoomLockedLocal = isPanZoomLocked
+
+        if (hasStylus || isPanZoomLockedLocal) {
             if (wasInProgress) {
                 // If a gesture was active, cancel it to reset internal detector states cleanly
                 val cancelEvent = MotionEvent.obtain(event)
@@ -2956,6 +2973,7 @@ class SketcherCanvasView(context: Context) : View(context) {
         return when (currentTool) {
 
             ToolType.SELECTION -> handleSelectionInput(event)
+            ToolType.SMART_PICKER -> handleSmartPickerInput(event)
 
             ToolType.ERASER, ToolType.POINT_ERASER -> {
                 if (activeStrokeType == StrokeType.FREEHAND) {
@@ -3783,6 +3801,27 @@ class SketcherCanvasView(context: Context) : View(context) {
     var onRequestCutPath: ((android.graphics.Path) -> Unit)? = null
     var onEraserDragStarted: (() -> Unit)? = null
     var onEraserDragEnded: (() -> Unit)? = null
+    var onRequestSmartPick: ((Float, Float) -> Unit)? = null
+    var onRequestSmartPickLongPress: ((Float, Float) -> Unit)? = null
+
+    private var isSmartPickerLongPressed = false
+
+    private fun handleSmartPickerInput(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                isSmartPickerLongPressed = false
+            }
+            MotionEvent.ACTION_UP -> {
+                if (!isSmartPickerLongPressed) {
+                    tempTouchPoint[0] = event.x
+                    tempTouchPoint[1] = event.y
+                    inverseMatrix.mapPoints(tempTouchPoint)
+                    onRequestSmartPick?.invoke(tempTouchPoint[0], tempTouchPoint[1])
+                }
+            }
+        }
+        return true
+    }
 
     private fun handleEraserInput(event: MotionEvent): Boolean {
         // Mapear coordenadas de pantalla → espacio del mundo

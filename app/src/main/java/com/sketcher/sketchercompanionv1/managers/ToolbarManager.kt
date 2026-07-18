@@ -401,6 +401,39 @@ class ToolbarManager(
         }
     }
 
+    fun revealTool(registryId: String) {
+        // Search in contextual toolbar
+        val ctxList = _contextualToolbar.value.toMutableList()
+        var foundContextual = false
+        for (i in ctxList.indices) {
+            val parentTool = ctxList[i]
+            if (parentTool.registryId == registryId) return // Already at top level
+            val subList = if (parentTool.subTools.isNotEmpty()) parentTool.subTools else ToolRegistry.getSubToolsFor(parentTool.registryId)
+            val subIndex = subList.indexOfFirst { it.registryId == registryId }
+            if (subIndex != -1) {
+                swapSubToolToMain(ToolLocation.ContextBar, i, subIndex)
+                foundContextual = true
+                break
+            }
+        }
+        if (foundContextual) return
+
+        // Search in main toolbars
+        val currentMap = _toolbarState.value.toMutableMap()
+        for ((location, list) in currentMap) {
+            for (i in list.indices) {
+                val parentTool = list[i]
+                if (parentTool.registryId == registryId) return // Already at top level
+                val subList = if (parentTool.subTools.isNotEmpty()) parentTool.subTools else ToolRegistry.getSubToolsFor(parentTool.registryId)
+                val subIndex = subList.indexOfFirst { it.registryId == registryId }
+                if (subIndex != -1) {
+                    swapSubToolToMain(location, i, subIndex)
+                    return
+                }
+            }
+        }
+    }
+
     fun moveSubTool(location: ToolLocation, parentIndex: Int, fromIndex: Int, toIndex: Int) {
         if (location == ToolLocation.ContextBar) {
             val list = _contextualToolbar.value.toMutableList()

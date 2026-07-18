@@ -1520,27 +1520,27 @@ class ToolManager(
         }
     }
     
-    private fun saveFreehandSettingsToGlobal(settings: com.sketcher.sketchercompanionv1.tools.PencilSettings?) {
+    fun saveFreehandSettingsToGlobal(settings: com.sketcher.sketchercompanionv1.tools.PencilSettings?) {
         if (settings != null) prefs.edit().putString("freehand_settings_v4", gson.toJson(settings)).apply()
     }
     
-    private fun savePenSettingsToGlobal(settings: com.sketcher.sketchercompanionv1.tools.PenSettings?) {
+    fun savePenSettingsToGlobal(settings: com.sketcher.sketchercompanionv1.tools.PenSettings?) {
         if (settings != null) prefs.edit().putString("pen_settings_v4", gson.toJson(settings)).apply()
     }
     
-    private fun savePaintSettingsToGlobal(settings: com.sketcher.sketchercompanionv1.tools.PaintSettings?) {
+    fun savePaintSettingsToGlobal(settings: com.sketcher.sketchercompanionv1.tools.PaintSettings?) {
         if (settings != null) prefs.edit().putString("paint_settings_v4", gson.toJson(settings)).apply()
     }
     
-    private fun savePlumaSettingsToGlobal(settings: com.sketcher.sketchercompanionv1.tools.PlumaSettings?) {
+    fun savePlumaSettingsToGlobal(settings: com.sketcher.sketchercompanionv1.tools.PlumaSettings?) {
         if (settings != null) prefs.edit().putString("pluma_settings_v4", gson.toJson(settings)).apply()
     }
     
-    private fun saveWatercolorSettingsToGlobal(settings: com.sketcher.sketchercompanionv1.tools.WatercolorSettings?) {
+    fun saveWatercolorSettingsToGlobal(settings: com.sketcher.sketchercompanionv1.tools.WatercolorSettings?) {
         if (settings != null) prefs.edit().putString("watercolor_settings_v2", gson.toJson(settings)).apply()
     }
     
-    private fun savePencilCumulativeSettingsToGlobal(settings: com.sketcher.sketchercompanionv1.tools.PencilSettings?) {
+    fun savePencilCumulativeSettingsToGlobal(settings: com.sketcher.sketchercompanionv1.tools.PencilSettings?) {
         if (settings != null) prefs.edit().putString("pencil_cumulative_settings_v2", gson.toJson(settings)).apply()
     }
 
@@ -1777,7 +1777,23 @@ class ToolManager(
         val ss = if (useExplicitStroke) {
             preset.strokeStyle ?: FillStyle.Solid(sc)
         } else {
-            _strokeStyle.value
+            if (preset.strokeStyle != null) {
+                when (val style = preset.strokeStyle) {
+                    is FillStyle.Solid -> style.copy(color = sc)
+                    is FillStyle.MathTexture -> style.copy(primaryColor = sc)
+                    is FillStyle.SvgPattern -> style
+                    is FillStyle.ImageTexture -> style
+                    else -> style ?: FillStyle.Solid(sc)
+                }
+            } else {
+                when (val style = _strokeStyle.value) {
+                    is FillStyle.Solid -> style.copy(color = sc)
+                    is FillStyle.MathTexture -> style.copy(primaryColor = sc)
+                    is FillStyle.SvgPattern -> style
+                    is FillStyle.ImageTexture -> style
+                    else -> style
+                }
+            }
         }
         
         val sa = preset.isStrokeActive ?: _isStrokeActive.value
@@ -1791,7 +1807,23 @@ class ToolManager(
         val fs = if (useExplicitFill) {
             preset.fillStyle ?: FillStyle.Solid(fc)
         } else {
-            _fillStyle.value
+            if (preset.fillStyle != null) {
+                when (val style = preset.fillStyle) {
+                    is FillStyle.Solid -> style.copy(color = fc)
+                    is FillStyle.MathTexture -> style.copy(primaryColor = fc)
+                    is FillStyle.SvgPattern -> style
+                    is FillStyle.ImageTexture -> style
+                    else -> style ?: FillStyle.Solid(fc)
+                }
+            } else {
+                when (val style = _fillStyle.value) {
+                    is FillStyle.Solid -> style.copy(color = fc)
+                    is FillStyle.MathTexture -> style.copy(primaryColor = fc)
+                    is FillStyle.SvgPattern -> style
+                    is FillStyle.ImageTexture -> style
+                    else -> style
+                }
+            }
         }
         
         val fa = preset.isFillActive ?: _isFillActive.value

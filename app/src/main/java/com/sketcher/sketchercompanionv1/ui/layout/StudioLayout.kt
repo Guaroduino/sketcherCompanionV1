@@ -493,6 +493,9 @@ fun StudioLayout(
 
             }
 
+            tool.registryId == "canvas_lock" -> {
+                viewModel.isPanZoomLocked
+            }
 
             tool.registryId == "grid_menu" -> {
                 viewModel.gridConfig.isVisible || viewModel.isSnapToGridEnabled
@@ -507,6 +510,9 @@ fun StudioLayout(
 
             }
 
+            tool.registryId == "smart_picker" -> {
+                currentTool == ToolType.SMART_PICKER
+            }
 
             else -> {
 
@@ -1133,6 +1139,12 @@ fun StudioLayout(
                     onEraserDragEnded = {
                         viewModel.endEraserDrag()
                     }
+                    onRequestSmartPick = { x, y ->
+                        viewModel.handleSmartPick(x, y)
+                    }
+                    onRequestSmartPickLongPress = { x, y ->
+                        viewModel.handleSmartPickLongPress(x, y)
+                    }
 
 
                     onCameraMatrixChanged = { matrix: android.graphics.Matrix -> viewModel.saveCameraState(matrix) }
@@ -1235,7 +1247,7 @@ fun StudioLayout(
 
                 view.projectionViewports = viewModel.projectionViewports
 
-
+                view.isPanZoomLocked = viewModel.isPanZoomLocked
                 view.currentTool = viewModel.currentTool
                 view.activeEraserShape = viewModel.currentEraserShape
 
@@ -4421,6 +4433,13 @@ fun StudioLayout(
 
     // TextEditDialog is now replaced by In-Place WYSIWYG editing
 
+    val overlappingStrokes = viewModel.smartPickerOverlappingStrokes.value
+    if (overlappingStrokes != null) {
+        com.sketcher.sketchercompanionv1.ui.dialogs.SmartPickerDialog(
+            strokes = overlappingStrokes,
+            viewModel = viewModel
+        )
+    }
 
 }
 

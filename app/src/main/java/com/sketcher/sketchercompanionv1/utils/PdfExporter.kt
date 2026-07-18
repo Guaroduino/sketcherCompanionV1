@@ -132,11 +132,11 @@ object PdfExporter {
                     }
 
                     for (element in layer.elements) {
-                        RenderHelper.drawElementRecursive(
+                        renderEngine.drawElementRecursive(
                             canvas,
                             element,
-                            componentLibrary = componentLibrary,
-                            isDimmed = false
+                            library = componentLibrary,
+                            viewMatrix = bounds.transform
                         )
                     }
 
@@ -197,9 +197,9 @@ object PdfExporter {
             val page = pdfDocument.startPage(pageInfo)
             val canvas = page.canvas
 
+            val renderEngine = RenderEngine()
             // Draw background if enabled
             if (config.includeBackground) {
-                val renderEngine = RenderEngine()
                 val bgStyle = projectData.backgroundConfig.fillStyle.toFillStyle(projectData.backgroundConfig.color)
                 val canvasSizeConfig = projectData.canvasSizeConfig
                 val pixelsPerMm = if (canvasSizeConfig != null) {
@@ -236,11 +236,11 @@ object PdfExporter {
                 }
 
                 for (element in layer.elements) {
-                    RenderHelper.drawElementRecursive(
+                    renderEngine.drawElementRecursive(
                         canvas,
                         element,
-                        componentLibrary = componentLibrary,
-                        isDimmed = false
+                        library = componentLibrary,
+                        viewMatrix = bounds.transform
                     )
                 }
 

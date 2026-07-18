@@ -163,7 +163,9 @@ data class VectorStrokeJson(
     val settingsType: String? = null,
     val settingsJson: String? = null,
     val exactSvgPath: String? = null,
-    val exactFillSvgPath: String? = null
+    val exactFillSvgPath: String? = null,
+    val isScaleLocked: Boolean? = null,
+    val customToolId: String? = null
 )
 
 data class StrokePointJson(
@@ -304,7 +306,7 @@ data class BrushPresetJson(
     val stabilization: Float? = null
 )
 
-enum class ToolType { FREEHAND, PEN, FILL, ERASER, POINT_ERASER, CUT_ERASER, SELECTION, ANDROID_INK, TRIM, EXTEND, EDIT_POINTS, PAINT, PLUMA, MIRROR, MOVE_PT_PT, ALIGN_2_PT, OFFSET, FILLET, CHAMFER, WATERCOLOR, PENCIL_CUMULATIVE, TEXT }
+enum class ToolType { FREEHAND, PEN, FILL, ERASER, POINT_ERASER, CUT_ERASER, SELECTION, ANDROID_INK, TRIM, EXTEND, EDIT_POINTS, PAINT, PLUMA, MIRROR, MOVE_PT_PT, ALIGN_2_PT, OFFSET, FILLET, CHAMFER, WATERCOLOR, PENCIL_CUMULATIVE, TEXT, SMART_PICKER }
 
 enum class StrokeType { FREEHAND, LINE, POLYLINE, CIRCLE, ARC, ELLIPSE, SPLINE, BEZIER }
 

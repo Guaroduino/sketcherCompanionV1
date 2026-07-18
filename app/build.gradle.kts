@@ -16,8 +16,8 @@ android {
         applicationId = "com.sketcher.sketchercompanionv1"
         minSdk = 26
         targetSdk = 36
-        versionCode = 105
-        versionName = "1.0.104"
+        versionCode = 111
+        versionName = "1.0.110"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
