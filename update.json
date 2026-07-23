@@ -1,7 +1,7 @@
 {
-  "versionCode": 132,
-  "versionName": "1.0.131",
+  "versionCode": 133,
+  "versionName": "1.0.132",
   "apkUrl": "https://firebasestorage.googleapis.com/v0/b/sketchercompanionapp.firebasestorage.app/o/updates%2Fapp-debug.apk?alt=media",
-  "releaseNotes": "Fix: Live fill opacity and cumulative stroke overlap logic",
+  "releaseNotes": "Feature: Live merging of Watercolor/Paint strokes during drawing",
   "forceUpdate": false
 }

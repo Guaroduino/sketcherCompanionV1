@@ -860,16 +860,46 @@ class SketcherCanvasView(context: Context) : View(context) {
 
             
 
+            val wasDrawing = isDrawing
             isDrawing = (update.previewPath != null || update.previewPoints != null)
 
-            // Log removed (OPTIMIZATION C-1)
+            // OPTIMIZATION: Hide matching previous strokes while drawing to allow live merging
+            if (!wasDrawing && isDrawing) {
+                val currentLayer = layers.getOrNull(activeLayerIndex)
+                if (currentLayer != null && !currentLayer.isLocked && (currentTool == ToolType.PAINT || currentTool == ToolType.WATERCOLOR)) {
+                    val settings = activeFreehandSettings
+                    val joinPrevious = when (settings) {
+                        is com.sketcher.sketchercompanionv1.tools.PaintSettings -> settings.paintJoinCurrent && settings.paintJoinPrevious
+                        is com.sketcher.sketchercompanionv1.tools.WatercolorSettings -> settings.paintJoinCurrent && settings.paintJoinPrevious
+                        else -> false
+                    }
+                    if (joinPrevious) {
+                        val sameColorStrokes = currentLayer.elements.filterIsInstance<VectorStroke>().filter { existing ->
+                            existing.brushType == currentTool.name &&
+                            existing.strokeColor == activeStrokeColor &&
+                            existing.fillColor == activeFillColor &&
+                            existing.isFillEnabled == isFillActive &&
+                            existing.isStrokeEnabled == isStrokeActive &&
+                            existing.fillStyle == activeFillStyle &&
+                            existing.strokeStyle == activeStrokeStyle
+                        }
+                        if (sameColorStrokes.isNotEmpty()) {
+                            liveMergedExistingStrokes.clear()
+                            liveMergedExistingStrokes.addAll(sameColorStrokes)
+                            for (s in sameColorStrokes) {
+                                if (s.path != null) {
+                                    strokePipeline.mergePath(s.path)
+                                }
+                            }
+                            // Trigger background redraw immediately to hide them
+                            redrawAllCache()
+                        }
+                    }
+                }
+            }
 
-            
-
-            if (!isDrawing) {
-
+            if (!isDrawing && wasDrawing) {
                 liveMergedExistingStrokes.clear()
-
             }
 
             
