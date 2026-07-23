@@ -1,7 +1,7 @@
 {
-  "versionCode": 111,
-  "versionName": "1.0.110",
+  "versionCode": 131,
+  "versionName": "1.0.130",
   "apkUrl": "https://firebasestorage.googleapis.com/v0/b/sketchercompanionapp.firebasestorage.app/o/updates%2Fapp-debug.apk?alt=media",
-  "releaseNotes": "Nuevos ajustes aplicados",
+  "releaseNotes": "Nueva actualización",
   "forceUpdate": false
 }

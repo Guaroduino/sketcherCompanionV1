@@ -241,8 +241,8 @@ object SvgExporter {
             sb.append("    <path d=\"$d\" fill=\"$colorHex\" stroke=\"none\" $strokeOpacity />\n")
         } else {
             val outlineWidth = when (val s = stroke.settings) {
-                is com.sketcher.sketchercompanionv1.tools.PaintSettings -> s.paintOutlineWidth
-                is com.sketcher.sketchercompanionv1.tools.WatercolorSettings -> s.paintOutlineWidth
+                is com.sketcher.sketchercompanionv1.tools.PaintSettings -> stroke.maxWidth * s.paintOutlineWidthRatio
+                is com.sketcher.sketchercompanionv1.tools.WatercolorSettings -> stroke.maxWidth * s.paintOutlineWidthRatio
                 else -> 2f
             }
             val strokeWidth = if (stroke.brushType == "PAINT" || stroke.brushType == "WATERCOLOR") outlineWidth else stroke.maxWidth

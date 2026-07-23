@@ -13,6 +13,7 @@ interface BrushRenderer {
         stroke: VectorStroke,
         paint: Paint,
         alphaMultiplier: Float,
+        zoom: Float = 1.0f,
         applyFillStyleFunc: (Paint, Float) -> Unit
     )
 }
@@ -27,6 +28,7 @@ class MeshBrushRenderer : BrushRenderer {
         stroke: VectorStroke,
         paint: Paint,
         alphaMultiplier: Float,
+        zoom: Float,
         applyFillStyleFunc: (Paint, Float) -> Unit
     ) {
         paint.style = Paint.Style.FILL
@@ -50,12 +52,13 @@ class OutlineBrushRenderer : BrushRenderer {
         stroke: VectorStroke,
         paint: Paint,
         alphaMultiplier: Float,
+        zoom: Float,
         applyFillStyleFunc: (Paint, Float) -> Unit
     ) {
         val settings = stroke.settings
         val outlineWidth = when (settings) {
-            is PaintSettings -> settings.paintOutlineWidth
-            is WatercolorSettings -> settings.paintOutlineWidth
+            is PaintSettings -> settings.size * settings.paintOutlineWidthRatio
+            is WatercolorSettings -> settings.size * settings.paintOutlineWidthRatio
             else -> 2f
         }
         paint.style = Paint.Style.STROKE
@@ -70,25 +73,40 @@ class OutlineBrushRenderer : BrushRenderer {
  * Renders watercolor bleed and blur effects with optional edge clipping.
  */
 class WatercolorBrushRenderer : BrushRenderer {
+    companion object {
+        private val blurFilterCache = java.util.concurrent.ConcurrentHashMap<Int, android.graphics.BlurMaskFilter>()
+
+        private fun getBlurMaskFilter(radius: Float): android.graphics.BlurMaskFilter {
+            val clampedRadius = radius.coerceAtLeast(0.01f)
+            val key = (clampedRadius * 10f).toInt() // Quantize to 0.1 increments for maximum reuse
+            return blurFilterCache.getOrPut(key) {
+                android.graphics.BlurMaskFilter(
+                    clampedRadius,
+                    android.graphics.BlurMaskFilter.Blur.NORMAL
+                )
+            }
+        }
+    }
+
     override fun draw(
         canvas: Canvas,
         stroke: VectorStroke,
         paint: Paint,
         alphaMultiplier: Float,
+        zoom: Float,
         applyFillStyleFunc: (Paint, Float) -> Unit
     ) {
         val settings = stroke.settings as? WatercolorSettings ?: return
-        val strokeSeed = stroke.hashCode().toLong()
+        val strokeSeed = stroke.seed
         val jitteredPath = stroke.getJitteredPath(strokeSeed)
 
         paint.style = Paint.Style.STROKE
         applyFillStyleFunc(paint, alphaMultiplier * settings.watercolorCenterOpacity)
-        paint.strokeWidth = settings.paintOutlineWidth
+        paint.strokeWidth = settings.size * settings.paintOutlineWidthRatio
         paint.pathEffect = null
-        paint.maskFilter = android.graphics.BlurMaskFilter(
-            settings.watercolorBlurRadius.coerceAtLeast(0.01f),
-            android.graphics.BlurMaskFilter.Blur.NORMAL
-        )
+        
+        val blurRadius = (settings.size * settings.watercolorBlurRadiusRatio).coerceAtLeast(0.01f)
+        paint.maskFilter = getBlurMaskFilter(blurRadius)
 
         if (settings.watercolorEdgeMode == com.sketcher.sketchercompanionv1.dto.WatercolorEdgeMode.INSIDE) {
             canvas.save()
@@ -108,3 +126,5 @@ class WatercolorBrushRenderer : BrushRenderer {
         paint.maskFilter = null
     }
 }
+
+

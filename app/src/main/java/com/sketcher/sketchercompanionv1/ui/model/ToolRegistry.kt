@@ -42,6 +42,14 @@ object ToolRegistry {
         StudioTool("point_eraser", Icons.Default.AutoFixNormal, "Borrador de Puntos", R.drawable.ic_tabler_point_eraser, isPlaceholder = false, parentGroupId = "eraser"),
         StudioTool("cut_eraser", Icons.Default.AutoFixNormal, "Borrador de Corte", R.drawable.ic_tabler_cut_eraser, isPlaceholder = false, parentGroupId = "eraser"),
         StudioTool("text", Icons.Default.Title, "Texto", isPlaceholder = false),
+        StudioTool("android_ink", Icons.Default.Create, "Tinta Android", R.drawable.ic_tabler_paint, isPlaceholder = false, subTools = listOf(
+            StudioTool("android_ink_pen", Icons.Default.Create, "Bolígrafo Ink", R.drawable.ic_tabler_paint, isPlaceholder = false, parentGroupId = "android_ink"),
+            StudioTool("android_ink_highlighter", Icons.Default.Highlight, "Resaltador Ink", R.drawable.ic_tabler_paint, isPlaceholder = false, parentGroupId = "android_ink"),
+            StudioTool("android_ink_marker", Icons.Default.Brush, "Marcador Ink", R.drawable.ic_tabler_paint, isPlaceholder = false, parentGroupId = "android_ink")
+        )),
+        StudioTool("android_ink_pen", Icons.Default.Create, "Bolígrafo Ink", R.drawable.ic_tabler_paint, isPlaceholder = false, parentGroupId = "android_ink"),
+        StudioTool("android_ink_highlighter", Icons.Default.Highlight, "Resaltador Ink", R.drawable.ic_tabler_paint, isPlaceholder = false, parentGroupId = "android_ink"),
+        StudioTool("android_ink_marker", Icons.Default.Brush, "Marcador Ink", R.drawable.ic_tabler_paint, isPlaceholder = false, parentGroupId = "android_ink"),
         
         StudioTool("stroke_freehand", Icons.Default.Gesture, "Mano Alzada", R.drawable.ic_tabler_stroke_freehand, isPlaceholder = false, subTools = listOf(
             StudioTool("stroke_line", Icons.Default.Timeline, "Línea", R.drawable.ic_tabler_stroke_line, isPlaceholder = false, parentGroupId = "stroke_freehand"),

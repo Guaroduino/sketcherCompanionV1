@@ -203,6 +203,28 @@ fun DashboardScreen(
                             modifier = Modifier.background(theme.barBackgroundColor)
                         ) {
                             DropdownMenuItem(
+                                text = { 
+                                    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                                        Text(text = "Escala de Interfaz: ${"%.1f".format(viewModel.dashboardScale)}x", fontSize = 14.sp * scaleFactor, color = theme.iconColor)
+                                        Slider(
+                                            value = viewModel.dashboardScale,
+                                            onValueChange = { viewModel.updateDashboardScale(it) },
+                                            valueRange = 0.5f..2.0f,
+                                            modifier = Modifier.width(180.dp * scaleFactor)
+                                        )
+                                    }
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.ZoomIn,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp * scaleFactor),
+                                        tint = theme.iconColor
+                                    )
+                                },
+                                onClick = { }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Buscar Actualización", fontSize = 14.sp * scaleFactor, color = theme.iconColor) },
                                 leadingIcon = {
                                     Icon(

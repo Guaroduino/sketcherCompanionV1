@@ -49,7 +49,7 @@ class PencilTool(
     override val templateId: String = "pencil"
 
     override fun toFreehandSettings(zoom: Float): FreehandSettings {
-        val s = settings as PencilSettings
+        val s = (settings as? PencilSettings) ?: PencilSettings()
         return FreehandSettings(
             size = s.size,
             thinning = s.thinning,
@@ -84,7 +84,7 @@ class PenTool(
     override val templateId: String = "pen"
 
     override fun toFreehandSettings(zoom: Float): FreehandSettings {
-        val s = settings as PenSettings
+        val s = (settings as? PenSettings) ?: PenSettings()
         return FreehandSettings(
             size = s.size,
             thinning = s.thinning,
@@ -114,7 +114,7 @@ class PlumaTool(
     override val templateId: String = "pluma"
 
     override fun toFreehandSettings(zoom: Float): FreehandSettings {
-        val s = settings as PlumaSettings
+        val s = (settings as? PlumaSettings) ?: PlumaSettings()
         return FreehandSettings(
             size = s.size,
             thinning = s.thinning,
@@ -146,7 +146,7 @@ class PaintTool(
     override val templateId: String = "paint"
 
     override fun toFreehandSettings(zoom: Float): FreehandSettings {
-        val s = settings as PaintSettings
+        val s = (settings as? PaintSettings) ?: PaintSettings()
         return FreehandSettings(
             size = s.size,
             thinning = s.thinning,
@@ -155,8 +155,9 @@ class PaintTool(
             simulatePressure = false,
             start = s.start,
             end = s.end,
-            paintOutlineWidth = s.paintOutlineWidth,
+            paintOutlineWidthRatio = s.paintOutlineWidthRatio,
             paintJoinPrevious = s.paintJoinPrevious,
+            paintJoinCurrent = s.paintJoinCurrent,
             velocityThinning = s.velocityThinning
         )
     }
@@ -175,7 +176,7 @@ class WatercolorTool(
     override val templateId: String = "watercolor"
 
     override fun toFreehandSettings(zoom: Float): FreehandSettings {
-        val s = settings as WatercolorSettings
+        val s = (settings as? WatercolorSettings) ?: WatercolorSettings()
         return FreehandSettings(
             size = s.size,
             thinning = s.thinning,
@@ -184,15 +185,16 @@ class WatercolorTool(
             simulatePressure = false,
             start = s.start,
             end = s.end,
-            paintOutlineWidth = s.paintOutlineWidth,
-            watercolorJitterSegment = s.watercolorJitterSegment,
-            watercolorJitterDeviation = s.watercolorJitterDeviation,
-            watercolorBlurRadius = s.watercolorBlurRadius,
+            paintOutlineWidthRatio = s.paintOutlineWidthRatio,
+            watercolorJitterSegmentRatio = s.watercolorJitterSegmentRatio,
+            watercolorJitterDeviationRatio = s.watercolorJitterDeviationRatio,
+            watercolorBlurRadiusRatio = s.watercolorBlurRadiusRatio,
             watercolorEdgeMode = s.watercolorEdgeMode,
             watercolorCenterOpacity = s.watercolorCenterOpacity,
             watercolorEdgeRingOpacity = s.watercolorEdgeRingOpacity,
-            watercolorEdgeRingWidth = s.watercolorEdgeRingWidth,
+            watercolorEdgeRingWidthRatio = s.watercolorEdgeRingWidthRatio,
             paintJoinPrevious = s.paintJoinPrevious,
+            paintJoinCurrent = s.paintJoinCurrent,
             velocityThinning = s.velocityThinning,
             linkStrokeToFill = s.linkStrokeToFill,
             strokeBrightnessOffset = s.strokeBrightnessOffset
@@ -213,7 +215,7 @@ class PencilCumulativeTool(
     override val templateId: String = "pencil_cumulative"
 
     override fun toFreehandSettings(zoom: Float): FreehandSettings {
-        val s = settings as PencilSettings
+        val s = (settings as? PencilSettings) ?: PencilSettings()
         return FreehandSettings(
             size = s.size,
             thinning = s.thinning,

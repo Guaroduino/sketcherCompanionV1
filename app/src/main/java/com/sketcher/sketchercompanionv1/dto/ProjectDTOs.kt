@@ -165,7 +165,8 @@ data class VectorStrokeJson(
     val exactSvgPath: String? = null,
     val exactFillSvgPath: String? = null,
     val isScaleLocked: Boolean? = null,
-    val customToolId: String? = null
+    val customToolId: String? = null,
+    val seed: Long? = null
 )
 
 data class StrokePointJson(
@@ -262,15 +263,16 @@ data class FreehandSettings(
     val isSimplificationEnabled: Boolean = true,
     val minWidthRatio: Float = 0.1f,
     val isCumulativeOpacity: Boolean = false,
-    val paintOutlineWidth: Float = 2.0f,
-    val watercolorJitterSegment: Float = 12.0f,
-    val watercolorJitterDeviation: Float = 3.5f,
-    val watercolorBlurRadius: Float = 5.0f,
+    val paintOutlineWidthRatio: Float = 0.2f,
+    val watercolorJitterSegmentRatio: Float = 0.6f,
+    val watercolorJitterDeviationRatio: Float = 0.15f,
+    val watercolorBlurRadiusRatio: Float = 0.25f,
     val watercolorEdgeMode: WatercolorEdgeMode = WatercolorEdgeMode.BOTH,
     val watercolorCenterOpacity: Float = 0.8f,
     val watercolorEdgeRingOpacity: Float = 1.0f,
-    val watercolorEdgeRingWidth: Float = 2.0f,
+    val watercolorEdgeRingWidthRatio: Float = 0.1f,
     val paintJoinPrevious: Boolean = true,
+    val paintJoinCurrent: Boolean = true,
     val linkStrokeToFill: Boolean = false,
     val strokeBrightnessOffset: Float = 0.0f
 )
@@ -306,11 +308,16 @@ data class BrushPresetJson(
     val stabilization: Float? = null
 )
 
-enum class ToolType { FREEHAND, PEN, FILL, ERASER, POINT_ERASER, CUT_ERASER, SELECTION, ANDROID_INK, TRIM, EXTEND, EDIT_POINTS, PAINT, PLUMA, MIRROR, MOVE_PT_PT, ALIGN_2_PT, OFFSET, FILLET, CHAMFER, WATERCOLOR, PENCIL_CUMULATIVE, TEXT, SMART_PICKER }
+enum class ToolType { FREEHAND, PEN, FILL, ERASER, POINT_ERASER, CUT_ERASER, SELECTION, TRIM, EXTEND, EDIT_POINTS, PAINT, PLUMA, MIRROR, MOVE_PT_PT, ALIGN_2_PT, OFFSET, FILLET, CHAMFER, WATERCOLOR, PENCIL_CUMULATIVE, TEXT, SMART_PICKER }
 
 enum class StrokeType { FREEHAND, LINE, POLYLINE, CIRCLE, ARC, ELLIPSE, SPLINE, BEZIER }
 
-data class FillSettings(val tolerance: Float = 0.1f)
+data class FillSettings(
+    val tolerance: Float = 0.1f,
+    val isCumulativeFill: Boolean = false,
+    val cumulativeStepOpacity: Float = 0.2f,
+    val sampleAllLayers: Boolean = true
+)
 
 enum class EraserShape { CIRCLE, SQUARE }
 

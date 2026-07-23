@@ -39,6 +39,10 @@ fun CreateBrushDialog(
     // Configs
     var size by remember { mutableFloatStateOf(10f) }
     var opacity by remember { mutableFloatStateOf(1f) }
+    
+    // Ink specific configs
+    var inkBrushFamily by remember { mutableStateOf("pen") }
+    var inkSmoothing by remember { mutableFloatStateOf(0.5f) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -103,6 +107,8 @@ fun CreateBrushDialog(
                         Spacer(modifier = Modifier.height(8.dp))
                         Text("Opacidad Base: ${(opacity * 100).toInt()}%")
                         Slider(value = opacity, onValueChange = { opacity = it }, valueRange = 0.1f..1f, colors = SliderDefaults.colors(thumbColor = theme.highlightColor, activeTrackColor = theme.highlightColor))
+                        
+
                     }
                     
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

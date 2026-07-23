@@ -262,7 +262,8 @@ fun VectorStroke.toVectorStrokeJson(): VectorStrokeJson {
         settingsJson = sJson,
         exactSvgPath = ExactPathSerializer.pathToString(this.path),
         exactFillSvgPath = this.fillPath?.let { ExactPathSerializer.pathToString(it) },
-        customToolId = this.customToolId
+        customToolId = this.customToolId,
+        seed = this.seed
     )
 }
 
@@ -328,16 +329,17 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         is com.sketcher.sketchercompanionv1.tools.PaintSettings -> FreehandSettings(
             size = s.size, thinning = s.thinning, smoothing = s.smoothing, streamline = s.smoothing * 0.8f,
             simulatePressure = false, start = com.sketcher.sketchercompanionv1.dto.StrokeEndOptions(cap = false), end = com.sketcher.sketchercompanionv1.dto.StrokeEndOptions(cap = false),
-            paintOutlineWidth = s.paintOutlineWidth, paintJoinPrevious = s.paintJoinPrevious
+            paintOutlineWidthRatio = s.paintOutlineWidthRatio, paintJoinPrevious = s.paintJoinPrevious, paintJoinCurrent = s.paintJoinCurrent
         )
         is com.sketcher.sketchercompanionv1.tools.WatercolorSettings -> FreehandSettings(
             size = s.size, thinning = s.thinning, smoothing = s.smoothing, streamline = s.smoothing * 0.8f,
             simulatePressure = false, start = com.sketcher.sketchercompanionv1.dto.StrokeEndOptions(cap = false), end = com.sketcher.sketchercompanionv1.dto.StrokeEndOptions(cap = false),
-            paintOutlineWidth = s.paintOutlineWidth, watercolorJitterSegment = s.watercolorJitterSegment,
-            watercolorJitterDeviation = s.watercolorJitterDeviation, watercolorBlurRadius = s.watercolorBlurRadius,
+            paintOutlineWidthRatio = s.paintOutlineWidthRatio, watercolorJitterSegmentRatio = s.watercolorJitterSegmentRatio,
+            watercolorJitterDeviationRatio = s.watercolorJitterDeviationRatio, watercolorBlurRadiusRatio = s.watercolorBlurRadiusRatio,
             watercolorEdgeMode = s.watercolorEdgeMode, watercolorCenterOpacity = s.watercolorCenterOpacity,
-            watercolorEdgeRingOpacity = s.watercolorEdgeRingOpacity, watercolorEdgeRingWidth = s.watercolorEdgeRingWidth,
+            watercolorEdgeRingOpacity = s.watercolorEdgeRingOpacity, watercolorEdgeRingWidthRatio = s.watercolorEdgeRingWidthRatio,
             paintJoinPrevious = s.paintJoinPrevious,
+            paintJoinCurrent = s.paintJoinCurrent,
             linkStrokeToFill = s.linkStrokeToFill,
             strokeBrightnessOffset = s.strokeBrightnessOffset
         )
@@ -354,7 +356,7 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
     
     val strokeTypeVal = this.strokeType ?: StrokeType.FREEHAND
     val isCad = (this.isCadGeometry ?: false) || (strokeTypeVal != StrokeType.FREEHAND)
-    val isMeshBrush = (this.brushType == "FREEHAND" || this.brushType == "PEN" || this.brushType == "PLUMA" || this.brushType == "PENCIL_CUMULATIVE") && !(this.isFlattened ?: false)
+    val isMeshBrush = (this.brushType == "FREEHAND" || this.brushType == "PEN" || this.brushType == "PLUMA" || this.brushType == "PENCIL_CUMULATIVE" || this.brushType == "PAINT" || this.brushType == "WATERCOLOR") && !(this.isFlattened ?: false)
     
     val resultPath = if (exactPath != null) exactPath else if (isCad) {
         val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(strokeTypeVal, pts)
@@ -502,7 +504,8 @@ fun VectorStrokeJson.toVectorStroke(): VectorStroke {
         fillStyle = loadedFillStyle.toFillStyle(fColor),
         strokeStyle = loadedStrokeStyle.toFillStyle(sColor),
         settings = settings,
-        customToolId = this.customToolId
+        customToolId = this.customToolId,
+        seed = this.seed ?: kotlin.random.Random.nextLong()
     )
 }
 

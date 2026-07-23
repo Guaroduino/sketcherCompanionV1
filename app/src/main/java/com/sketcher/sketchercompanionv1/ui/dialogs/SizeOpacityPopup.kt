@@ -179,61 +179,6 @@ fun SizeOpacityPopup(
                                     }
                                 }
                             }
-                        // Preview & Save button Row
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(theme.buttonColor.copy(alpha = 0.15f))
-                                    .border(1.dp, theme.iconColor.copy(alpha = 0.1f), RoundedCornerShape(8.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                StrokePreviewCanvas(
-                                    brushSize = brushSize,
-                                    opacity = brushOpacity,
-                                    strokeColor = Color(strokeColorVal),
-                                    strokeStyle = strokeStyleVal,
-                                    isStrokeActive = isStrokeActive,
-                                    fillStyle = fillStyleVal,
-                                    isFillActive = isFillActive,
-                                    toolType = viewModel.currentTool,
-                                    paintOutlineWidth = when (val s = viewModel.currentFreehandSettings) {
-                                        is com.sketcher.sketchercompanionv1.tools.PaintSettings -> s.paintOutlineWidth
-                                        is com.sketcher.sketchercompanionv1.tools.WatercolorSettings -> s.paintOutlineWidth
-                                        else -> 2f
-                                    }
-                                )
-                            }
-
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(theme.buttonColor.copy(alpha = 0.15f))
-                                    .border(1.dp, theme.iconColor.copy(alpha = 0.1f), RoundedCornerShape(8.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                FillPreviewCanvas(
-                                    strokeSize = brushSize,
-                                    strokeOpacity = brushOpacity,
-                                    strokeColor = Color(strokeColorVal),
-                                    strokeStyle = strokeStyleVal,
-                                    isStrokeActive = isStrokeActive,
-                                    fillStyle = fillStyleVal,
-                                    isFillActive = isFillActive
-                                )
-                            }
-                        }
-
                         val activeCustomToolIdVal = viewModel.activeCustomToolId
                         if (activeCustomToolIdVal != null) {
                             val isModified = viewModel.isCustomToolModified(activeCustomToolIdVal)
@@ -380,6 +325,62 @@ fun SizeOpacityPopup(
                             }
                         }
                     }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        // Preview & Save button Row
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(theme.buttonColor.copy(alpha = 0.15f))
+                                    .border(1.dp, theme.iconColor.copy(alpha = 0.1f), RoundedCornerShape(8.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                StrokePreviewCanvas(
+                                    brushSize = brushSize,
+                                    opacity = brushOpacity,
+                                    strokeColor = Color(strokeColorVal),
+                                    strokeStyle = strokeStyleVal,
+                                    isStrokeActive = isStrokeActive,
+                                    fillStyle = fillStyleVal,
+                                    isFillActive = isFillActive,
+                                    toolType = viewModel.currentTool,
+                                    paintOutlineWidth = when (val s = viewModel.currentFreehandSettings) {
+                                        is com.sketcher.sketchercompanionv1.tools.PaintSettings -> brushSize * s.paintOutlineWidthRatio
+                                        is com.sketcher.sketchercompanionv1.tools.WatercolorSettings -> brushSize * s.paintOutlineWidthRatio
+                                        else -> 2f
+                                    }
+                                )
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(theme.buttonColor.copy(alpha = 0.15f))
+                                    .border(1.dp, theme.iconColor.copy(alpha = 0.1f), RoundedCornerShape(8.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                FillPreviewCanvas(
+                                    strokeSize = brushSize,
+                                    strokeOpacity = brushOpacity,
+                                    strokeColor = Color(strokeColorVal),
+                                    strokeStyle = strokeStyleVal,
+                                    isStrokeActive = isStrokeActive,
+                                    fillStyle = fillStyleVal,
+                                    isFillActive = isFillActive
+                                )
+                            }
+                        }
+
                     } // end isEraser check for Presets
 
                     if (!isEraser) {
@@ -738,30 +739,10 @@ fun SizeOpacityPopup(
                     Spacer(modifier = Modifier.height(16.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        horizontalArrangement = Arrangement.End
                     ) {
-                        OutlinedButton(
-                            onClick = { 
-                                if (viewModel.activeCustomToolId != null) {
-                                    viewModel.activeCustomToolId = viewModel.activeCustomToolId
-                                } else {
-                                    selectedIndex?.let { viewModel.revertBrushPreset(it) }
-                                }
-                            },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = theme.iconColor)
-                        ) {
-                            Text("Restaurar")
-                        }
-                        
-                        Button(
-                            onClick = { 
-                                showSaveConfirmation = true
-                            },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(containerColor = theme.highlightColor, contentColor = Color.White)
-                        ) {
-                            Text("Guardar")
+                        TextButton(onClick = onDismiss) {
+                            Text("Cerrar", color = theme.iconColor)
                         }
                     }
                 }

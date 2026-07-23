@@ -141,20 +141,32 @@ object SnapEngine {
             }
         }
 
-        // 2. Compute Intersections
-        for (i in visibleStrokes.indices) {
-            for (j in i + 1 until visibleStrokes.size) {
-                val s1 = visibleStrokes[i]
-                val s2 = visibleStrokes[j]
-                
-                // Simple Bounding Box check first
-                val b1 = s1.getBoundingBox()
-                val b2 = s2.getBoundingBox()
-                if (!android.graphics.RectF.intersects(b1, b2)) continue
+        // 2. Compute Intersections using SpatialIndex for candidate matching
+        if (visibleStrokes.size > 1) {
+            val spatialIndex = com.sketcher.sketchercompanionv1.spatial.SpatialIndex<VectorStroke>()
+            for (stroke in visibleStrokes) {
+                spatialIndex.insert(stroke.getBoundingBox(), stroke)
+            }
 
-                val intersects = findStrokeIntersections(s1, s2)
-                for (pt in intersects) {
-                    snapPoints.add(SnapPoint(pt, SnapType.INTERSECTION))
+            val checkedPairs = HashSet<Long>()
+            val candidates = HashSet<VectorStroke>()
+
+            for (i in visibleStrokes.indices) {
+                val s1 = visibleStrokes[i]
+                candidates.clear()
+                spatialIndex.query(s1.getBoundingBox(), candidates)
+
+                for (s2 in candidates) {
+                    if (s1 === s2) continue
+                    val id1 = System.identityHashCode(s1).toLong()
+                    val id2 = System.identityHashCode(s2).toLong()
+                    val pairKey = if (id1 < id2) (id1 shl 32) or id2 else (id2 shl 32) or id1
+                    if (!checkedPairs.add(pairKey)) continue
+
+                    val intersects = findStrokeIntersections(s1, s2)
+                    for (pt in intersects) {
+                        snapPoints.add(SnapPoint(pt, SnapType.INTERSECTION))
+                    }
                 }
             }
         }

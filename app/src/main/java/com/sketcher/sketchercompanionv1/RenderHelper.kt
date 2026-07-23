@@ -110,7 +110,10 @@ object RenderHelper {
         // Pass 1: FILL (if enabled)
         if (vStroke.isFillEnabled && vStroke.fillPath != null) {
             vectorPaint.style = Paint.Style.FILL
-            vectorPaint.color = vStroke.fillColor
+            val fillOpacity = vStroke.fillStyle.opacity
+            val fColor = vStroke.fillColor
+            val fAlpha = (android.graphics.Color.alpha(fColor) * fillOpacity).toInt().coerceIn(0, 255)
+            vectorPaint.color = (fColor and 0x00FFFFFF) or (fAlpha shl 24)
             canvas.drawPath(vStroke.fillPath, vectorPaint)
         }
 
@@ -120,14 +123,18 @@ object RenderHelper {
             if (isMeshBrush) {
                 vStroke.getBrushRenderer().draw(canvas, vStroke, vectorPaint, 1f) { p, alpha ->
                     val color = vStroke.strokeColor
-                    p.color = (color and 0x00FFFFFF) or ((android.graphics.Color.alpha(color) * alpha).toInt().coerceIn(0, 255) shl 24)
+                    val sOpacity = vStroke.strokeStyle.opacity
+                    p.color = (color and 0x00FFFFFF) or ((android.graphics.Color.alpha(color) * sOpacity * alpha).toInt().coerceIn(0, 255) shl 24)
                 }
             } else {
                 vectorPaint.style = Paint.Style.STROKE
                 
                 // Apply dash path effect for CAD styles
                 if (vStroke.isCadGeometry) {
-                    vectorPaint.color = vStroke.strokeColor
+                    val sColor = vStroke.strokeColor
+                    val sOpacity = vStroke.strokeStyle.opacity
+                    val sAlpha = (android.graphics.Color.alpha(sColor) * sOpacity).toInt().coerceIn(0, 255)
+                    vectorPaint.color = (sColor and 0x00FFFFFF) or (sAlpha shl 24)
                     val width = (if (vStroke.maxWidth > 0) vStroke.maxWidth else 0f)
                     vectorPaint.strokeWidth = width
                     when (vStroke.lineStyle.uppercase()) {
@@ -150,7 +157,10 @@ object RenderHelper {
                     canvas.drawPath(vStroke.path, vectorPaint)
                     vectorPaint.pathEffect = null
                 } else {
-                    vectorPaint.color = vStroke.strokeColor
+                    val sColor = vStroke.strokeColor
+                    val sOpacity = vStroke.strokeStyle.opacity
+                    val sAlpha = (android.graphics.Color.alpha(sColor) * sOpacity).toInt().coerceIn(0, 255)
+                    vectorPaint.color = (sColor and 0x00FFFFFF) or (sAlpha shl 24)
                     val width = if (vStroke.maxWidth > 0) vStroke.maxWidth else 0f
                     vectorPaint.strokeWidth = width
                     vectorPaint.pathEffect = null

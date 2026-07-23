@@ -63,8 +63,8 @@ class StrokePipeline(
     var currentZoom: Float = 1.0f
 
     // --- Object Pooling & Caching ---
-    private val reusablePreviewPath = Path().apply { fillType = Path.FillType.EVEN_ODD }
-    private val reusableFillPath = Path().apply { fillType = Path.FillType.EVEN_ODD }
+    private val reusablePreviewPath = Path().apply { fillType = Path.FillType.WINDING }
+    private val reusableFillPath = Path().apply { fillType = Path.FillType.WINDING }
     private var liveSettingsCache: com.sketcher.sketchercompanionv1.tools.ToolSettings = com.sketcher.sketchercompanionv1.tools.PencilSettings()
     private var lastBaseSettings: com.sketcher.sketchercompanionv1.tools.ToolSettings? = null
 
@@ -98,7 +98,7 @@ class StrokePipeline(
         // Minimum stroke points before we activate incremental mode
         const val INCREMENTAL_MIN_POINTS = BAKE_CHUNK_SIZE + INCREMENTAL_TAIL_SIZE + 10
     }
-    private val committedPath = Path().apply { fillType = Path.FillType.EVEN_ODD }       // Baked head of the stroke
+    private val committedPath = Path().apply { fillType = Path.FillType.WINDING }       // Baked head of the stroke
     private val mergedPaths = mutableListOf<Path>()
     private var commitHeadCount = 0          // How many points are baked into committedPath
     private var committedLastRadius = 0f     // Radius at the end of the last committed bake
@@ -145,8 +145,11 @@ class StrokePipeline(
         val committedPreviewPath: Path? = null,
         val intersections: List<Path> = emptyList(),
         val bounds: RectF? = null,
-        val isMultiStepInProgress: Boolean = false
+        val isMultiStepInProgress: Boolean = false,
+        val strokeSeed: Long = 0L
     )
+
+    var currentStrokeSeed: Long = 0L
 
     fun onTouchEvent(event: MotionEvent): Boolean {
         val action = event.actionMasked
@@ -159,6 +162,7 @@ class StrokePipeline(
            isDrawing = true
            if (!isMultiStepInProgress) {
                currentStrokeId++
+               currentStrokeSeed = kotlin.random.Random.nextLong()
                currentStrokePoints.clear()
                committedPath.rewind()
                committedPathBounds.setEmpty()
@@ -424,6 +428,19 @@ class StrokePipeline(
 
         if (livePoints.isEmpty()) return
 
+        // Update settings cache if base changed
+        if (activeFreehandSettings !== lastBaseSettings) {
+            liveSettingsCache = activeFreehandSettings
+            lastBaseSettings = activeFreehandSettings
+            // Settings changed: invalidate committed cache
+            committedPath.rewind()
+            committedPathBounds.setEmpty()
+            commitHeadCount = 0
+            committedChunks.clear()
+            committedChunkBounds.clear()
+            committedIntersections.clear()
+        }
+
         val isCad = activeStrokeType != StrokeType.FREEHAND
         if (isCad) {
             val centerline = com.sketcher.sketchercompanionv1.utils.GeometryUtils.buildCenterlinePath(activeStrokeType, livePoints)
@@ -449,22 +466,10 @@ class StrokePipeline(
                 committedPreviewPath = null,
                 intersections = emptyList(),
                 bounds = totalBounds,
-                isMultiStepInProgress = isMultiStepInProgress
+                isMultiStepInProgress = isMultiStepInProgress,
+                strokeSeed = currentStrokeSeed
             ))
             return
-        }
-
-        // Update settings cache if base changed
-        if (activeFreehandSettings !== lastBaseSettings) {
-            liveSettingsCache = activeFreehandSettings
-            lastBaseSettings = activeFreehandSettings
-            // Settings changed: invalidate committed cache
-            committedPath.rewind()
-            committedPathBounds.setEmpty()
-            commitHeadCount = 0
-            committedChunks.clear()
-            committedChunkBounds.clear()
-            committedIntersections.clear()
         }
 
         val shimSettings = toFreehandSettingsShim(liveSettingsCache, activeTool)
@@ -472,10 +477,12 @@ class StrokePipeline(
 
         // 2. Incremental preview for FREEHAND only when stroke is long enough
         val result: PerfectFreehandGenerator.FreehandResult
-        var committedPathToSend: Path? = if ((activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR) && activeTool != ToolType.WATERCOLOR) committedPath else null
+        val isPaintOrWatercolor = activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR
+        val shouldJoinCurrent = isPaintOrWatercolor && shimSettings.paintJoinCurrent
+        var committedPathToSend: Path? = if (shouldJoinCurrent) committedPath else null
 
         if (activeStrokeType == StrokeType.FREEHAND &&
-            activeTool != ToolType.WATERCOLOR &&
+            shouldJoinCurrent &&
             livePoints.size >= INCREMENTAL_MIN_POINTS) {
 
             // -- Bake head if we have enough new points since last commit --
@@ -649,7 +656,8 @@ class StrokePipeline(
             committedPreviewPath = committedPathToSend,
             intersections = liveIntersections,
             bounds = if (hasBounds) totalBounds else null,
-            isMultiStepInProgress = isMultiStepInProgress
+            isMultiStepInProgress = isMultiStepInProgress,
+            strokeSeed = currentStrokeSeed
         ))
     }
 
@@ -700,7 +708,8 @@ class StrokePipeline(
                 strokeType = activeStrokeType,
                 isCadGeometry = true,
                 fillStyle = activeFillStyle,
-                settings = activeFreehandSettings
+                settings = activeFreehandSettings,
+                seed = currentStrokeSeed
             )
             val fill = null
             onStrokeCompleted(stroke, fill)
@@ -731,10 +740,10 @@ class StrokePipeline(
 
         if (activeTool == ToolType.PAINT || activeTool == ToolType.WATERCOLOR) {
             val combinedFinal = Path(rawPath)
-            if (!committedPath.isEmpty) {
+            if (!committedPath.isEmpty && fs.paintJoinCurrent) {
                 combinedFinal.addPath(committedPath)
             }
-            val path = flattenOuterStroke(combinedFinal)
+            val path = if (fs.paintJoinCurrent) flattenOuterStroke(combinedFinal) else combinedFinal
             
             // Committed fill path should connect center points instead of perimeter
             var fPath: Path? = null
@@ -771,7 +780,8 @@ class StrokePipeline(
                 strokeType = activeStrokeType,
                 isFlattened = true,
                 fillStyle = activeFillStyle,
-                settings = activeFreehandSettings
+                settings = activeFreehandSettings,
+                seed = currentStrokeSeed
             )
 
             onStrokeCompleted(stroke, null)
@@ -870,7 +880,8 @@ class StrokePipeline(
                         isFlattened = true,
                         fillStyle = activeFillStyleSnap,
                         settings = activeFreehandSettingsSnap,
-                        customToolId = activeCustomToolId
+                        customToolId = activeCustomToolId,
+                        seed = currentStrokeSeed
                     )
 
                     var fill: FillData? = null
@@ -1402,7 +1413,7 @@ class StrokePipeline(
         }
         val meshPath = Path()
         if (densePoints.isNotEmpty()) {
-            val shimSettings = toFreehandSettingsShim(liveSettingsCache, activeTool)
+            val shimSettings = toFreehandSettingsShim(activeFreehandSettings, activeTool)
             val settings = shimSettings.copy(size = activeSize, isComplete = true, streamline = shimSettings.streamline)
             PerfectFreehandGenerator.generate(densePoints, settings, currentZoom, meshPath)
         }

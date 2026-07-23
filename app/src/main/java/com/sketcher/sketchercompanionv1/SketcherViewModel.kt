@@ -704,6 +704,12 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
         
 
+    var dashboardScale by mutableStateOf(prefs.getFloat("dashboard_scale", 1.0f))
+
+        private set
+
+
+
     fun updateInterfaceScale(scale: Float) {
 
         // Guard against invalid values coming from UI controls (NaN/Infinite)
@@ -721,6 +727,20 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         interfaceScale = clampedScale
 
         prefs.edit().putFloat("interface_scale", clampedScale).apply()
+
+    }
+
+
+
+    fun updateDashboardScale(scale: Float) {
+
+        if (!scale.isFinite()) return
+
+        val clampedScale = scale.coerceIn(0.5f, 2.0f)
+
+        dashboardScale = clampedScale
+
+        prefs.edit().putFloat("dashboard_scale", clampedScale).apply()
 
     }
 
@@ -1161,7 +1181,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         "pen" -> ({ 
              selectTool(ToolType.PEN) 
         })
- 
+        
         "eraser" -> ({ selectTool(ToolType.ERASER) })
         "point_eraser" -> ({ selectTool(ToolType.POINT_ERASER) })
         "cut_eraser" -> ({ selectTool(ToolType.CUT_ERASER) })
@@ -1409,7 +1429,7 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         swapHorizontal = prefs.getBoolean("swap_horizontal", false)
 
         interfaceScale = prefs.getFloat("interface_scale", 0.8f)
-
+        dashboardScale = prefs.getFloat("dashboard_scale", 1.0f)
         buttonSpacingFactor = prefs.getFloat("button_spacing_factor", 1.0f)
 
         toolbarBackgroundColor = getSafeInt("toolbar_background_color", AndroidColor.WHITE)
@@ -4412,11 +4432,10 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
         val isPaintOrWatercolor = stroke.brushType == "PAINT" || stroke.brushType == "WATERCOLOR"
         var shouldJoin = true
         if (isPaintOrWatercolor) {
-            val toolType = if (stroke.brushType == "PAINT") ToolType.PAINT else ToolType.WATERCOLOR
-            val toolSettings = toolManager.getToolConfigMap()[toolType]?.settings
-            shouldJoin = when (toolSettings) {
-                is com.sketcher.sketchercompanionv1.tools.PaintSettings -> toolSettings.paintJoinPrevious
-                is com.sketcher.sketchercompanionv1.tools.WatercolorSettings -> toolSettings.paintJoinPrevious
+            val settings = stroke.settings
+            shouldJoin = when (settings) {
+                is com.sketcher.sketchercompanionv1.tools.PaintSettings -> settings.paintJoinCurrent && settings.paintJoinPrevious
+                is com.sketcher.sketchercompanionv1.tools.WatercolorSettings -> settings.paintJoinCurrent && settings.paintJoinPrevious
                 else -> true
             }
         }
@@ -4430,17 +4449,16 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                         existing.strokeColor == stroke.strokeColor &&
                         existing.fillColor == stroke.fillColor &&
                         existing.isFillEnabled == stroke.isFillEnabled &&
-                        existing.isStrokeEnabled == stroke.isStrokeEnabled
+                        existing.isStrokeEnabled == stroke.isStrokeEnabled &&
+                        existing.fillStyle == stroke.fillStyle &&
+                        existing.strokeStyle == stroke.strokeStyle
                     }
                     
                     val overlappingStrokes = sameColorPaintStrokes.filter { existing ->
-                        if (android.graphics.RectF.intersects(existing.getBoundingBox(), stroke.getBoundingBox())) {
-                            val intersectPath = android.graphics.Path()
-                            intersectPath.op(existing.path, stroke.path, android.graphics.Path.Op.INTERSECT)
-                            !intersectPath.isEmpty
-                        } else {
-                            false
-                        }
+                        val existingBounds = android.graphics.RectF(existing.getBoundingBox())
+                        val pad = maxOf(existing.maxWidth, stroke.maxWidth).coerceAtLeast(4f) * 0.5f
+                        existingBounds.inset(-pad, -pad)
+                        android.graphics.RectF.intersects(existingBounds, stroke.getBoundingBox())
                     }
                     
                     if (overlappingStrokes.isNotEmpty()) {
@@ -4459,8 +4477,8 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                             if (scale > 0.001f) scale else 1.0f
                         }
                         
-                        val step = (8f / zoom).coerceAtLeast(1.0f)
-                        val epsilon = (1.5f / zoom).coerceAtLeast(0.2f)
+                        val step = (4f / zoom).coerceAtLeast(0.5f)
+                        val epsilon = (0.5f / zoom).coerceAtLeast(0.1f)
                         val outlinePointsPointF = com.sketcher.sketchercompanionv1.utils.GeometryUtils.flattenPath(mergedPath, step = step)
                         val outlineStrokePoints = outlinePointsPointF.map { pt -> StrokePoint(pt.x, pt.y, 0.5f) }
                         val simplifiedPoints = if (outlineStrokePoints.size > 2) {
@@ -6037,10 +6055,13 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
 
     private var eraserDragActive = false
     private val eraserSnapshots = mutableMapOf<MutableList<LayerElement>, List<LayerElement>>()
+    private val activeEraserSpatialIndex = com.sketcher.sketchercompanionv1.spatial.SpatialIndex<Pair<MutableList<LayerElement>, LayerElement>>()
 
     fun startEraserDrag() {
         eraserDragActive = true
         eraserSnapshots.clear()
+        activeEraserSpatialIndex.clear()
+
         val containers = if (editingContext != null) {
             listOf(activeContainer)
         } else {
@@ -6053,19 +6074,25 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             }
         }
         for (container in containers) {
-            eraserSnapshots[container] = synchronized(container) { container.toList() }
+            val listCopy = synchronized(container) { container.toList() }
+            eraserSnapshots[container] = listCopy
+            for (element in listCopy) {
+                val bounds = element.getBoundingBox(componentLibrary)
+                activeEraserSpatialIndex.insert(bounds, container to element)
+            }
         }
     }
 
     fun endEraserDrag() {
         if (!eraserDragActive) return
         eraserDragActive = false
+        activeEraserSpatialIndex.clear()
 
         val commands = mutableListOf<UndoCommand>()
-        for ((container, snapshot) in eraserSnapshots) {
-            val currentList = synchronized(container) { container.toList() }
-            val elementsRemoved = snapshot.filter { it !in currentList }
-            val elementsAdded = currentList.filter { it !in snapshot }
+        for ((container, originalState) in eraserSnapshots) {
+            val currentState = synchronized(container) { container.toList() }
+            val elementsRemoved = originalState.filter { it !in currentState }
+            val elementsAdded = currentState.filter { it !in originalState }
 
             if (elementsRemoved.isNotEmpty() || elementsAdded.isNotEmpty()) {
                 commands.add(com.sketcher.sketchercompanionv1.command.PointEraseCommand(container, elementsRemoved, elementsAdded))
@@ -6217,57 +6244,16 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
                 }
             }
         } else {
-            // Legacy full-stroke eraser
-            if (editingContext != null) {
-                val hits = mutableListOf<LayerElement>()
-                val elementsSnapshot = synchronized(activeContainer) { activeContainer.toList() }
-                for (element in elementsSnapshot) {
+            // Full-stroke eraser with SpatialIndex querying
+            val candidateSet = HashSet<Pair<MutableList<LayerElement>, LayerElement>>()
+            val eraserRect = RectF(x - radiusWorld, y - radiusWorld, x + radiusWorld, y + radiusWorld)
+            activeEraserSpatialIndex.query(eraserRect, candidateSet)
+
+            if (candidateSet.isNotEmpty()) {
+                for ((container, element) in candidateSet) {
                     val bounds = element.getBoundingBox(componentLibrary)
-                    if (RectF.intersects(bounds, RectF(x - radiusWorld, y - radiusWorld, x + radiusWorld, y + radiusWorld))) {
-                        hits.add(element)
-                    }
-                }
-                if (hits.isNotEmpty()) {
-                    for (element in hits) {
-                        performAction(EraseCommand(activeContainer, element))
-                        changed = true
-                    }
-                }
-            } else {
-                // Normal mode (non-editing)
-                val hitsWithLayer = mutableListOf<Pair<Layer, LayerElement>>()
-                val layersSnapshot = synchronized(layers) {
-                    layers.toList().map { layer ->
-                        val elementsSnapshot = synchronized(layer.elements) {
-                            layer.elements.toList()
-                        }
-                        layer to elementsSnapshot
-                    }
-                }
-
-                val layersToCheck = if (selectionScope == SelectionScope.ALL_LAYERS) {
-                    layersSnapshot
-                } else {
-                    val activeIndex = activeLayerIndex
-                    if (activeIndex in layersSnapshot.indices) {
-                        listOf(layersSnapshot[activeIndex])
-                    } else {
-                        emptyList()
-                    }
-                }
-
-                for ((layer, elements) in layersToCheck) {
-                    for (element in elements) {
-                        val bounds = element.getBoundingBox(componentLibrary)
-                        if (RectF.intersects(bounds, RectF(x - radiusWorld, y - radiusWorld, x + radiusWorld, y + radiusWorld))) {
-                            hitsWithLayer.add(layer to element)
-                        }
-                    }
-                }
-
-                if (hitsWithLayer.isNotEmpty()) {
-                    for ((layer, element) in hitsWithLayer) {
-                        performAction(EraseCommand(layer.elements, element))
+                    if (RectF.intersects(bounds, eraserRect)) {
+                        performAction(EraseCommand(container, element))
                         changed = true
                     }
                 }
@@ -7427,6 +7413,102 @@ class SketcherViewModel(application: Application) : AndroidViewModel(application
             addElementToGlobalLibrary(context, name, imageElement, parentId)
         }
     }
+
+    fun updateImageInGlobalLibrary(
+        context: Context,
+        itemId: String,
+        bitmap: android.graphics.Bitmap,
+        transparentColors: List<Int>,
+        tolerance: Float,
+        cropRect: android.graphics.RectF?,
+        cropPath: List<android.graphics.PointF>?,
+        transparentColorTolerances: List<Float>,
+        rotation: Float,
+        flipHorizontal: Boolean,
+        flipVertical: Boolean,
+        calibrationScaleFactor: Float = 1.0f
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val currentItems = _globalLibraryItems.value.toMutableList()
+            val index = currentItems.indexOfFirst { it.id == itemId }
+            if (index == -1) return@launch
+            
+            val item = currentItems[index] as? LibraryComponent ?: return@launch
+            
+            val imgFileName = "img_" + java.util.UUID.randomUUID().toString() + ".png"
+            val assetsDir = getLibraryAssetsDir(context)
+            if (!assetsDir.exists()) assetsDir.mkdirs()
+            val destFile = java.io.File(assetsDir, imgFileName)
+            try {
+                val out = java.io.FileOutputStream(destFile)
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+                out.close()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            
+            val matrix = android.graphics.Matrix()
+            if (calibrationScaleFactor != 1.0f) {
+                matrix.postScale(calibrationScaleFactor, calibrationScaleFactor)
+            }
+            
+            val imageElement = ImageElement(
+                id = java.util.UUID.randomUUID().toString(),
+                bitmap = bitmap,
+                imageFileName = imgFileName,
+                matrix = matrix,
+                transparentColors = transparentColors,
+                tolerance = tolerance,
+                cropRect = cropRect,
+                cropPath = cropPath,
+                transparentColorTolerances = transparentColorTolerances,
+                rotation = rotation,
+                flipHorizontal = flipHorizontal,
+                flipVertical = flipVertical
+            )
+            
+            val newDefinition = ComponentDefinition(
+                id = java.util.UUID.randomUUID().toString(),
+                elements = mutableListOf(imageElement)
+            )
+            
+            val updatedItem = item.copy(
+                definition = newDefinition,
+                thumbnailFileName = imgFileName
+            )
+            
+            currentItems[index] = updatedItem
+            _globalLibraryItems.value = currentItems
+            com.sketcher.sketchercompanionv1.managers.LibraryManager.saveLibrary(context, currentItems)
+        }
+    }
+
+    fun updateComponentScaleInGlobalLibrary(
+        context: Context,
+        itemId: String,
+        newScale: Float
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val currentItems = _globalLibraryItems.value.toMutableList()
+            val index = currentItems.indexOfFirst { it.id == itemId }
+            if (index == -1) return@launch
+            
+            val item = currentItems[index] as? LibraryComponent ?: return@launch
+            
+            val newDefinition = item.definition.copy(
+                creationScale = newScale
+            )
+            
+            val updatedItem = item.copy(
+                definition = newDefinition
+            )
+            
+            currentItems[index] = updatedItem
+            _globalLibraryItems.value = currentItems
+            com.sketcher.sketchercompanionv1.managers.LibraryManager.saveLibrary(context, currentItems)
+        }
+    }
+
 
     fun addDxfToGlobalLibrary(
         context: Context,

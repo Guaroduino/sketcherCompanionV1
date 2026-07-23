@@ -400,32 +400,44 @@ class MainActivity : ComponentActivity() {
                         }
 
                         if (sketchViewModel.showDashboard) {
-                            com.sketcher.sketchercompanionv1.ui.DashboardScreen(
-                                viewModel = sketchViewModel,
-                                theme = theme,
-                                onOpenProject = { project ->
-                                    sketchViewModel.loadLocalProject(context, project)
-                                },
-                                versionName = updateManager.getCurrentVersionName(),
-                                updateAvailable = (updateInfo != null),
-                                onUpdateClick = {
-                                    coroutineScope.launch {
-                                        try {
-                                            val info = updateManager.checkForUpdates()
-                                            if (info != null) {
-                                                updateInfo = info
-                                                showUpdateDialog = true
-                                            } else {
-                                                android.widget.Toast.makeText(context, "No hay actualizaciones disponibles", android.widget.Toast.LENGTH_SHORT).show()
+                            val dashScaler = remember(sketchViewModel.dashboardScale, buttonSpacingFactor, screenWidth, screenHeight) {
+                                com.sketcher.sketchercompanionv1.ui.theme.UiScaler(
+                                    scaleFactor = sketchViewModel.dashboardScale,
+                                    buttonSpacingFactor = buttonSpacingFactor,
+                                    screenWidth = screenWidth,
+                                    screenHeight = screenHeight
+                                )
+                            }
+                            androidx.compose.runtime.CompositionLocalProvider(
+                                com.sketcher.sketchercompanionv1.ui.theme.LocalUiScaler provides dashScaler
+                            ) {
+                                com.sketcher.sketchercompanionv1.ui.DashboardScreen(
+                                    viewModel = sketchViewModel,
+                                    theme = theme,
+                                    onOpenProject = { project ->
+                                        sketchViewModel.loadLocalProject(context, project)
+                                    },
+                                    versionName = updateManager.getCurrentVersionName(),
+                                    updateAvailable = (updateInfo != null),
+                                    onUpdateClick = {
+                                        coroutineScope.launch {
+                                            try {
+                                                val info = updateManager.checkForUpdates()
+                                                if (info != null) {
+                                                    updateInfo = info
+                                                    showUpdateDialog = true
+                                                } else {
+                                                    android.widget.Toast.makeText(context, "No hay actualizaciones disponibles", android.widget.Toast.LENGTH_SHORT).show()
+                                                }
+                                            } catch (e: Exception) {
+                                                e.printStackTrace()
+                                                android.widget.Toast.makeText(context, "Error al buscar actualizaciones", android.widget.Toast.LENGTH_SHORT).show()
                                             }
-                                        } catch (e: Exception) {
-                                            e.printStackTrace()
-                                            android.widget.Toast.makeText(context, "Error al buscar actualizaciones", android.widget.Toast.LENGTH_SHORT).show()
                                         }
-                                    }
-                                },
-                                onSignOut = { skipLogin = false }
-                            )
+                                    },
+                                    onSignOut = { skipLogin = false }
+                                )
+                            }
                         } else {
                             // 1. MAIN UI LAYER
                             com.sketcher.sketchercompanionv1.ui.layout.StudioLayout(

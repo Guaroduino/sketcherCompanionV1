@@ -72,6 +72,7 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
     var newName by remember { mutableStateOf("") }
     
     var importImageEditState by remember { mutableStateOf<ImageEditState?>(null) }
+    var componentToScale by remember { mutableStateOf<LibraryComponent?>(null) }
     var dxfImportUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var showDxfImportDialog by remember { mutableStateOf(false) }
 
@@ -271,6 +272,21 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
                             newName = item.name 
                         },
                         onDelete = { viewModel.deleteLibraryItem(context, item.id) },
+                        onEdit = if (item is LibraryComponent) {
+                            {
+                                val imageElement = item.definition.elements.firstOrNull { it is com.sketcher.sketchercompanionv1.ImageElement } as? com.sketcher.sketchercompanionv1.ImageElement
+                                if (imageElement != null) {
+                                    importImageEditState = ImageEditState(
+                                        isNewImport = false,
+                                        elementId = item.id,
+                                        originalBitmap = imageElement.bitmap,
+                                        filename = imageElement.imageFileName
+                                    )
+                                } else {
+                                    componentToScale = item
+                                }
+                            }
+                        } else null,
                         assetsDir = assetsDir
                     )
                 }
@@ -309,6 +325,21 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
                             newName = item.name 
                         },
                         onDelete = { viewModel.deleteLibraryItem(context, item.id) },
+                        onEdit = if (item is LibraryComponent) {
+                            {
+                                val imageElement = item.definition.elements.firstOrNull { it is com.sketcher.sketchercompanionv1.ImageElement } as? com.sketcher.sketchercompanionv1.ImageElement
+                                if (imageElement != null) {
+                                    importImageEditState = ImageEditState(
+                                        isNewImport = false,
+                                        elementId = item.id,
+                                        originalBitmap = imageElement.bitmap,
+                                        filename = imageElement.imageFileName
+                                    )
+                                } else {
+                                    componentToScale = item
+                                }
+                            }
+                        } else null,
                         assetsDir = assetsDir
                     )
                 }
@@ -454,21 +485,41 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
             currentUnit = viewModel.currentUnit,
             onDismiss = { importImageEditState = null },
             onConfirm = { processedBmp, transColors, tol, cropRect, cropPath, transTols, rotation, flipH, flipV, scale ->
-                viewModel.addImageToGlobalLibrary(
-                    context = context,
-                    name = "Imagen Importada",
-                    bitmap = processedBmp,
-                    transparentColors = transColors,
-                    tolerance = tol,
-                    cropRect = cropRect,
-                    cropPath = cropPath,
-                    transparentColorTolerances = transTols,
-                    rotation = rotation,
-                    flipHorizontal = flipH,
-                    flipVertical = flipV,
-                    calibrationScaleFactor = scale,
-                    parentId = currentFolderId
-                )
+                if (imgState.isNewImport) {
+                    viewModel.addImageToGlobalLibrary(
+                        context = context,
+                        name = "Imagen Importada",
+                        bitmap = processedBmp,
+                        transparentColors = transColors,
+                        tolerance = tol,
+                        cropRect = cropRect,
+                        cropPath = cropPath,
+                        transparentColorTolerances = transTols,
+                        rotation = rotation,
+                        flipHorizontal = flipH,
+                        flipVertical = flipV,
+                        calibrationScaleFactor = scale,
+                        parentId = currentFolderId
+                    )
+                } else {
+                    val itemId = imgState.elementId
+                    if (itemId != null) {
+                        viewModel.updateImageInGlobalLibrary(
+                            context = context,
+                            itemId = itemId,
+                            bitmap = processedBmp,
+                            transparentColors = transColors,
+                            tolerance = tol,
+                            cropRect = cropRect,
+                            cropPath = cropPath,
+                            transparentColorTolerances = transTols,
+                            rotation = rotation,
+                            flipHorizontal = flipH,
+                            flipVertical = flipV,
+                            calibrationScaleFactor = scale
+                        )
+                    }
+                }
                 importImageEditState = null
             }
         )
@@ -493,6 +544,21 @@ fun LibraryPanel(viewModel: SketcherViewModel) {
             }
         )
     }
+    
+    componentToScale?.let { comp ->
+        com.sketcher.sketchercompanionv1.ui.dialogs.ComponentScaleDialog(
+            component = comp,
+            componentLibrary = viewModel.componentLibrary,
+            currentUnit = viewModel.currentUnit,
+            basePixelsPerMillimeter = viewModel.scaleConfig.basePixelsPerMillimeter,
+            theme = theme,
+            onDismiss = { componentToScale = null },
+            onConfirm = { newScale ->
+                viewModel.updateComponentScaleInGlobalLibrary(context, comp.id, newScale)
+                componentToScale = null
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -506,6 +572,7 @@ fun LibraryItemGridCell(
     onLongClick: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
+    onEdit: (() -> Unit)? = null,
     assetsDir: File
 ) {
     val scaler = LocalUiScaler.current
@@ -592,6 +659,12 @@ fun LibraryItemGridCell(
                 onDismissRequest = { showMenu = false },
                 modifier = Modifier.background(theme.barBackgroundColor)
             ) {
+                if (onEdit != null) {
+                    DropdownMenuItem(
+                        text = { Text("Editar", fontSize = 13.sp * scaleFactor, color = theme.iconColor) },
+                        onClick = { showMenu = false; onEdit() }
+                    )
+                }
                 DropdownMenuItem(
                     text = { Text("Renombrar", fontSize = 13.sp * scaleFactor, color = theme.iconColor) },
                     onClick = { showMenu = false; onRename() }
@@ -624,6 +697,7 @@ fun LibraryItemListCell(
     onLongClick: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
+    onEdit: (() -> Unit)? = null,
     assetsDir: File
 ) {
     val scaler = LocalUiScaler.current
@@ -705,6 +779,12 @@ fun LibraryItemListCell(
                 onDismissRequest = { showMenu = false },
                 modifier = Modifier.background(theme.barBackgroundColor)
             ) {
+                if (onEdit != null) {
+                    DropdownMenuItem(
+                        text = { Text("Editar", fontSize = 13.sp * scaleFactor, color = theme.iconColor) },
+                        onClick = { showMenu = false; onEdit() }
+                    )
+                }
                 DropdownMenuItem(
                     text = { Text("Renombrar", fontSize = 13.sp * scaleFactor, color = theme.iconColor) },
                     onClick = { showMenu = false; onRename() }

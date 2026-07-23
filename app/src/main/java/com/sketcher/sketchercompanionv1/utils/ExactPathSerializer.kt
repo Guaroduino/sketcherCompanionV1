@@ -72,7 +72,7 @@ object ExactPathSerializer {
         return try {
             PathParser.createPathFromPathData(svgPath).apply { 
                 if (useEvenOdd) {
-                    fillType = Path.FillType.EVEN_ODD 
+                    fillType = Path.FillType.WINDING 
                 } else {
                     fillType = Path.FillType.WINDING
                 }

@@ -36,7 +36,8 @@ data class VectorStroke(
     val strokeStyle: FillStyle = FillStyle.Solid(strokeColor),
     val settings: ToolSettings = PencilSettings(),
     val customToolId: String? = null,
-    override var isScaleLocked: Boolean = false
+    override var isScaleLocked: Boolean = false,
+    val seed: Long = kotlin.random.Random.nextLong()
 ) : LayerElement {
     @kotlin.jvm.Transient
     private var cachedJitteredPath: android.graphics.Path? = null
@@ -57,17 +58,17 @@ data class VectorStroke(
     /**
      * Generates a static jittered path. Uses settings parameter if it is WatercolorSettings.
      */
-    fun getJitteredPath(seed: Long): android.graphics.Path {
+    fun getJitteredPath(seed: Long = this.seed): android.graphics.Path {
         val currentPath = cachedJitteredPath
         if (currentPath != null && cachedJitteredSeed == seed) {
             return currentPath
         }
         val jSeg = when (val s = settings) {
-            is com.sketcher.sketchercompanionv1.tools.WatercolorSettings -> s.watercolorJitterSegment
+            is com.sketcher.sketchercompanionv1.tools.WatercolorSettings -> s.size * s.watercolorJitterSegmentRatio
             else -> 12.0f
         }
         val jDev = when (val s = settings) {
-            is com.sketcher.sketchercompanionv1.tools.WatercolorSettings -> s.watercolorJitterDeviation
+            is com.sketcher.sketchercompanionv1.tools.WatercolorSettings -> s.size * s.watercolorJitterDeviationRatio
             else -> 0f
         }
         val newPath = com.sketcher.sketchercompanionv1.utils.JitterPathHelper.createJitterPath(
@@ -122,7 +123,9 @@ data class VectorStroke(
             fillStyle = fillStyle,
             strokeStyle = strokeStyle,
             settings = settings,
-            isScaleLocked = isScaleLocked
+            customToolId = customToolId,
+            isScaleLocked = isScaleLocked,
+            seed = seed
         )
     }
 }

@@ -769,55 +769,24 @@ class RenderEngine {
          canvas.restore()
      }
 
-     private fun drawVectorStroke(canvas: Canvas, stroke: VectorStroke, viewMatrix: Matrix, alphaMultiplier: Float = 1f) {
+      private fun drawVectorStroke(canvas: Canvas, stroke: VectorStroke, viewMatrix: Matrix, alphaMultiplier: Float = 1f) {
+        viewMatrix.getValues(tempFloatArray)
+        val zoom = kotlin.math.sqrt(tempFloatArray[Matrix.MSCALE_X] * tempFloatArray[Matrix.MSCALE_X] + tempFloatArray[Matrix.MSKEW_X] * tempFloatArray[Matrix.MSKEW_X]).coerceAtLeast(0.001f)
+
         val isPaintOrWatercolor = stroke.brushType == "PAINT" || stroke.brushType == "WATERCOLOR"
         if (isPaintOrWatercolor) {
-            val strokeOpacity = if (stroke.isStrokeEnabled) stroke.strokeStyle.opacity else 0f
-            val fillOpacity = if (stroke.isFillEnabled && stroke.fillPath != null) stroke.fillStyle.opacity else 0f
-            val baseOpacity = maxOf(strokeOpacity, fillOpacity)
-            val totalOpacity = alphaMultiplier * baseOpacity
+            // 1. Draw Fill (if enabled) directly
+            if (stroke.isFillEnabled && stroke.fillPath != null) {
+                vectorPaint.style = Paint.Style.FILL
+                applyFillStyle(vectorPaint, stroke.fillStyle, alphaMultiplier)
+                canvas.drawPath(stroke.fillPath, vectorPaint)
+                vectorPaint.shader = null
+            }
             
-            if (totalOpacity < 1f && totalOpacity > 0f) {
-                val bounds = stroke.getBoundingBox(emptyMap())
-                val tempBounds = RectF(bounds)
-                val pad = stroke.maxWidth.coerceAtLeast(4f) * 1.5f
-                tempBounds.inset(-pad, -pad)
-                
-                val savePaint = layerAlphaPaint.apply { alpha = (totalOpacity * 255).toInt().coerceIn(0, 255) }
-                val saveCount = canvas.saveLayer(tempBounds, savePaint)
-                
-                // 1. Draw Fill (if enabled)
-                if (stroke.isFillEnabled && stroke.fillPath != null) {
-                    val relativeFillAlpha = if (baseOpacity > 0f) fillOpacity / baseOpacity else 0f
-                    vectorPaint.style = Paint.Style.FILL
-                    applyFillStyle(vectorPaint, stroke.fillStyle.copyWithOpacity(1f), relativeFillAlpha)
-                    canvas.drawPath(stroke.fillPath, vectorPaint)
-                    vectorPaint.shader = null
-                }
-                
-                // 2. Draw Stroke outline (if enabled)
-                if (stroke.isStrokeEnabled) {
-                    val relativeStrokeAlpha = if (baseOpacity > 0f) strokeOpacity / baseOpacity else 0f
-                    stroke.getBrushRenderer().draw(canvas, stroke, vectorPaint, relativeStrokeAlpha) { p, alpha ->
-                        applyFillStyle(p, stroke.strokeStyle.copyWithOpacity(1f), alpha)
-                    }
-                }
-                
-                canvas.restoreToCount(saveCount)
-            } else if (totalOpacity >= 1f) {
-                // 1. Draw Fill (if enabled) directly
-                if (stroke.isFillEnabled && stroke.fillPath != null) {
-                    vectorPaint.style = Paint.Style.FILL
-                    applyFillStyle(vectorPaint, stroke.fillStyle, alphaMultiplier)
-                    canvas.drawPath(stroke.fillPath, vectorPaint)
-                    vectorPaint.shader = null
-                }
-                
-                // 2. Draw Stroke outline (if enabled) directly
-                if (stroke.isStrokeEnabled) {
-                    stroke.getBrushRenderer().draw(canvas, stroke, vectorPaint, alphaMultiplier) { p, alpha ->
-                        applyFillStyle(p, stroke.strokeStyle, alphaMultiplier * alpha)
-                    }
+            // 2. Draw Stroke outline (if enabled) directly
+            if (stroke.isStrokeEnabled) {
+                stroke.getBrushRenderer().draw(canvas, stroke, vectorPaint, alphaMultiplier, zoom = zoom) { p, alpha ->
+                    applyFillStyle(p, stroke.strokeStyle, alpha)
                 }
             }
             return
@@ -848,13 +817,13 @@ class RenderEngine {
                     val savePaint = layerAlphaPaint.apply { alpha = (totalOpacity * 255).toInt().coerceIn(0, 255) }
                     val saveCount = canvas.saveLayer(tempBounds, savePaint)
                     
-                    stroke.getBrushRenderer().draw(canvas, stroke, vectorPaint, 1f) { p, alpha ->
+                    stroke.getBrushRenderer().draw(canvas, stroke, vectorPaint, 1f, zoom = zoom) { p, alpha ->
                         applyFillStyle(p, stroke.strokeStyle.copyWithOpacity(1f), alpha)
                     }
                     canvas.restoreToCount(saveCount)
                 } else {
-                    stroke.getBrushRenderer().draw(canvas, stroke, vectorPaint, alphaMultiplier) { p, alpha ->
-                        applyFillStyle(p, stroke.strokeStyle, alphaMultiplier * alpha)
+                    stroke.getBrushRenderer().draw(canvas, stroke, vectorPaint, alphaMultiplier, zoom = zoom) { p, alpha ->
+                        applyFillStyle(p, stroke.strokeStyle, alpha)
                     }
                 }
             } else {
