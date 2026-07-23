@@ -1,7 +1,7 @@
 {
-  "versionCode": 131,
-  "versionName": "1.0.130",
+  "versionCode": 132,
+  "versionName": "1.0.131",
   "apkUrl": "https://firebasestorage.googleapis.com/v0/b/sketchercompanionapp.firebasestorage.app/o/updates%2Fapp-debug.apk?alt=media",
-  "releaseNotes": "Nueva actualización",
+  "releaseNotes": "Fix: Live fill opacity and cumulative stroke overlap logic",
   "forceUpdate": false
 }
