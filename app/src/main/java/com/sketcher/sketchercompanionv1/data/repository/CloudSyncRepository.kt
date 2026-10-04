@@ -10,6 +10,12 @@ import java.io.File
 import android.util.Log
 
 class CloudSyncRepository {
+    companion object {
+        const val PROJECTS_COLLECTION = "sketch_projects"
+        const val STORAGE_BASE = "sketch_projects"
+        private const val LEGACY_PROJECTS_COLLECTION = "projects"
+    }
+
     private val firestore = FirebaseFirestore.getInstance()
     private val storage = FirebaseStorage.getInstance()
     private val auth = FirebaseAuth.getInstance()
@@ -30,20 +36,20 @@ class CloudSyncRepository {
             val uploadTimestamp = timestamp ?: System.currentTimeMillis()
 
             // Upload project file under versioned path
-            val projectRef = storage.reference.child("users/${user.uid}/projects/$projectId/versions/$versionId/project.skc")
+            val projectRef = storage.reference.child("users/${user.uid}/$STORAGE_BASE/$projectId/versions/$versionId/project.skc")
             projectRef.putFile(projectFileUri).await()
             val projectUrl = projectRef.downloadUrl.await().toString()
 
             var thumbnailUrl: String? = null
             if (thumbnailUri != null) {
-                val thumbRef = storage.reference.child("users/${user.uid}/projects/$projectId/versions/$versionId/thumbnail.png")
+                val thumbRef = storage.reference.child("users/${user.uid}/$STORAGE_BASE/$projectId/versions/$versionId/thumbnail.png")
                 thumbRef.putFile(thumbnailUri).await()
                 thumbnailUrl = thumbRef.downloadUrl.await().toString()
             }
 
             // Get existing versions from Firestore
             val docRef = firestore.collection("users").document(user.uid)
-                .collection("projects").document(projectId)
+                .collection(PROJECTS_COLLECTION).document(projectId)
             
             var existingVersions: List<Map<String, Any>> = emptyList()
             try {
@@ -77,10 +83,10 @@ class CloudSyncRepository {
             for (v in deleteVersions) {
                 val oldVersionId = v["versionId"] as? String ?: continue
                 try {
-                    storage.reference.child("users/${user.uid}/projects/$projectId/versions/$oldVersionId/project.skc").delete().await()
+                    storage.reference.child("users/${user.uid}/$STORAGE_BASE/$projectId/versions/$oldVersionId/project.skc").delete().await()
                 } catch (e: Exception) { /* ignore */ }
                 try {
-                    storage.reference.child("users/${user.uid}/projects/$projectId/versions/$oldVersionId/thumbnail.png").delete().await()
+                    storage.reference.child("users/${user.uid}/$STORAGE_BASE/$projectId/versions/$oldVersionId/thumbnail.png").delete().await()
                 } catch (e: Exception) { /* ignore */ }
             }
 
@@ -108,8 +114,20 @@ class CloudSyncRepository {
     suspend fun getProjects(): Result<List<Map<String, Any>>> {
         val user = auth.currentUser ?: return Result.failure(Exception("User not authenticated"))
         return try {
-            val snapshot = firestore.collection("users").document(user.uid)
-                .collection("projects").get().await()
+            val userDocRef = firestore.collection("users").document(user.uid)
+            var snapshot = userDocRef.collection(PROJECTS_COLLECTION).get().await()
+            if (snapshot.isEmpty) {
+                val legacySnapshot = userDocRef.collection(LEGACY_PROJECTS_COLLECTION).get().await()
+                if (!legacySnapshot.isEmpty) {
+                    for (doc in legacySnapshot.documents) {
+                        val data = doc.data
+                        if (data != null) {
+                            userDocRef.collection(PROJECTS_COLLECTION).document(doc.id).set(data)
+                        }
+                    }
+                    snapshot = userDocRef.collection(PROJECTS_COLLECTION).get().await()
+                }
+            }
             val projects = snapshot.documents.map { it.data ?: emptyMap<String, Any>() }
             Result.success(projects)
         } catch (e: Exception) {
@@ -121,12 +139,12 @@ class CloudSyncRepository {
         val user = auth.currentUser ?: return Result.failure(Exception("User not authenticated"))
         return try {
             val snapshot = firestore.collection("users").document(user.uid)
-                .collection("projects").get().await()
+                .collection(PROJECTS_COLLECTION).get().await()
             
             // Delete from Firestore
             for (doc in snapshot.documents) {
                 firestore.collection("users").document(user.uid)
-                    .collection("projects").document(doc.id).delete().await()
+                    .collection(PROJECTS_COLLECTION).document(doc.id).delete().await()
             }
             
             // Delete folders from Firestore
@@ -150,7 +168,7 @@ class CloudSyncRepository {
             } catch (e: Exception) { /* ignore */ }
             
             // Delete projects from Storage
-            val listResult = storage.reference.child("users/${user.uid}/projects").listAll().await()
+            val listResult = storage.reference.child("users/${user.uid}/$STORAGE_BASE").listAll().await()
             for (prefix in listResult.prefixes) {
                 try {
                     prefix.child("project.skc").delete().await()
@@ -186,7 +204,7 @@ class CloudSyncRepository {
         val user = auth.currentUser ?: return Result.failure(Exception("User not authenticated"))
         return try {
             val docRef = firestore.collection("users").document(user.uid)
-                .collection("projects").document(projectId)
+                .collection(PROJECTS_COLLECTION).document(projectId)
             
             var versions: List<Map<String, Any>> = emptyList()
             val currentData = mutableMapOf<String, Any>()
@@ -206,10 +224,10 @@ class CloudSyncRepository {
                 for (v in olderVersions) {
                     val oldVersionId = v["versionId"] as? String ?: continue
                     try {
-                        storage.reference.child("users/${user.uid}/projects/$projectId/versions/$oldVersionId/project.skc").delete().await()
+                        storage.reference.child("users/${user.uid}/$STORAGE_BASE/$projectId/versions/$oldVersionId/project.skc").delete().await()
                     } catch (e: Exception) { /* ignore */ }
                     try {
-                        storage.reference.child("users/${user.uid}/projects/$projectId/versions/$oldVersionId/thumbnail.png").delete().await()
+                        storage.reference.child("users/${user.uid}/$STORAGE_BASE/$projectId/versions/$oldVersionId/thumbnail.png").delete().await()
                     } catch (e: Exception) { /* ignore */ }
                 }
                 
@@ -225,10 +243,10 @@ class CloudSyncRepository {
             
             // Delete legacy unversioned files if they exist
             try {
-                storage.reference.child("users/${user.uid}/projects/$projectId/project.skc").delete().await()
+                storage.reference.child("users/${user.uid}/$STORAGE_BASE/$projectId/project.skc").delete().await()
             } catch (e: Exception) { /* ignore */ }
             try {
-                storage.reference.child("users/${user.uid}/projects/$projectId/thumbnail.png").delete().await()
+                storage.reference.child("users/${user.uid}/$STORAGE_BASE/$projectId/thumbnail.png").delete().await()
             } catch (e: Exception) { /* ignore */ }
             
             Result.success(Unit)
@@ -243,7 +261,7 @@ class CloudSyncRepository {
             val projectRef = if (!fileUrl.isNullOrEmpty()) {
                 storage.getReferenceFromUrl(fileUrl)
             } else {
-                storage.reference.child("users/${user.uid}/projects/$projectId/project.skc")
+                storage.reference.child("users/${user.uid}/$STORAGE_BASE/$projectId/project.skc")
             }
             projectRef.getFile(destinationFile).await()
             Result.success(Unit)
@@ -258,7 +276,7 @@ class CloudSyncRepository {
             val thumbRef = if (!thumbnailUrl.isNullOrEmpty()) {
                 storage.getReferenceFromUrl(thumbnailUrl)
             } else {
-                storage.reference.child("users/${user.uid}/projects/$projectId/thumbnail.png")
+                storage.reference.child("users/${user.uid}/$STORAGE_BASE/$projectId/thumbnail.png")
             }
             thumbRef.getFile(destinationFile).await()
             Result.success(Unit)
