@@ -29,11 +29,17 @@ class PresentationCanvasView @JvmOverloads constructor(
     private var phoneW: Float = 0f
     private var phoneH: Float = 0f
 
-    // Live preview states
+    // Live preview states and reusable objects to prevent allocations in projection loop
     private var livePoints: List<StrokePoint>? = null
-    private var livePath: Path? = null
-    private var committedPath: Path? = null
-    private var liveFillPath: Path? = null
+    private val reusableLivePath = Path()
+    private val reusableCommittedPath = Path()
+    private val reusableLiveFillPath = Path()
+    private var hasLivePath: Boolean = false
+    private var hasCommittedPath: Boolean = false
+    private var hasLiveFillPath: Boolean = false
+    private val fitMatrix = Matrix()
+    private val phoneCameraMatrix = Matrix()
+
     private var liveRadius: Float = 0f
     private var strokeColor: Int = Color.BLACK
     private var fillColor: Int = Color.TRANSPARENT
@@ -64,7 +70,9 @@ class PresentationCanvasView @JvmOverloads constructor(
         this.layersSnapshot = layers
         this.componentLibrarySnapshot = componentLibrary
         this.backgroundStyleSnapshot = backgroundStyle
-        this.cameraMatrixValuesSnapshot = cameraMatrixValues.clone()
+        if (cameraMatrixValues.size == 9) {
+            System.arraycopy(cameraMatrixValues, 0, this.cameraMatrixValuesSnapshot, 0, 9)
+        }
         this.phoneW = phoneW
         this.phoneH = phoneH
         this.strokeColor = strokeColor
@@ -74,9 +82,28 @@ class PresentationCanvasView @JvmOverloads constructor(
         this.fillStyle = fillStyle
         this.strokeStyle = strokeStyle
         this.livePoints = livePoints
-        this.livePath = livePath?.let { Path(it) }
-        this.committedPath = committedPath?.let { Path(it) }
-        this.liveFillPath = liveFillPath?.let { Path(it) }
+
+        if (livePath != null) {
+            this.reusableLivePath.set(livePath)
+            this.hasLivePath = true
+        } else {
+            this.hasLivePath = false
+        }
+
+        if (committedPath != null) {
+            this.reusableCommittedPath.set(committedPath)
+            this.hasCommittedPath = true
+        } else {
+            this.hasCommittedPath = false
+        }
+
+        if (liveFillPath != null) {
+            this.reusableLiveFillPath.set(liveFillPath)
+            this.hasLiveFillPath = true
+        } else {
+            this.hasLiveFillPath = false
+        }
+
         this.liveRadius = liveRadius
         invalidate()
     }
@@ -95,8 +122,6 @@ class PresentationCanvasView @JvmOverloads constructor(
         val outH = height.toFloat()
         if (outW <= 0f || outH <= 0f) return
 
-        val fitMatrix = Matrix()
-        
         // Calculate dynamic scaling matching the aspect ratio of the phone screen
         val pW = phoneW.coerceAtLeast(1f)
         val pH = phoneH.coerceAtLeast(1f)
@@ -116,7 +141,6 @@ class PresentationCanvasView @JvmOverloads constructor(
             ty = (outH - pH * scale) / 2f
         }
 
-        val phoneCameraMatrix = Matrix()
         phoneCameraMatrix.setValues(cameraMatrixValuesSnapshot)
 
         fitMatrix.set(phoneCameraMatrix)
@@ -139,12 +163,12 @@ class PresentationCanvasView @JvmOverloads constructor(
         )
 
         // Draw committed preview stroke if any
-        if (committedPath != null && isStrokeActive) {
+        if (hasCommittedPath && isStrokeActive) {
             canvas.save()
             canvas.concat(fitMatrix)
             renderEngine.drawCommittedPreview(
                 canvas = canvas,
-                committedPath = committedPath!!,
+                committedPath = reusableCommittedPath,
                 strokeColor = strokeColor,
                 fillColor = fillColor,
                 isStrokeActive = isStrokeActive,
@@ -156,13 +180,13 @@ class PresentationCanvasView @JvmOverloads constructor(
         }
 
         // Draw live active stroke if any
-        if (livePath != null || livePoints != null) {
+        if (hasLivePath || livePoints != null) {
             renderEngine.drawLiveStroke(
                 canvas = canvas,
                 previewPoints = livePoints,
-                previewPath = livePath,
+                previewPath = if (hasLivePath) reusableLivePath else null,
                 previewColor = strokeColor,
-                fillPath = liveFillPath,
+                fillPath = if (hasLiveFillPath) reusableLiveFillPath else null,
                 fillColor = fillColor,
                 isFillActive = isFillActive,
                 isStrokeActive = isStrokeActive,

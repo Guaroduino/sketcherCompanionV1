@@ -355,9 +355,6 @@ fun StudioLayout(
     val showGridMenuDialog by viewModel.showGridMenuDialog.collectAsState()
     val showStudioMenu by viewModel.showStudioMenu.collectAsState()
 
-    val cameraMatrix by viewModel.cameraMatrix.collectAsState()
-
-
     val currentTool = viewModel.toolManager.currentTool
 
 
@@ -546,6 +543,16 @@ fun StudioLayout(
 
     val canvasViewRef = remember { mutableStateOf<SketcherCanvasView?>(null) }
 
+    LaunchedEffect(viewModel) {
+        viewModel.cameraMatrix.collect { matrix ->
+            canvasViewRef.value?.let { view ->
+                if (!view.isCameraEqual(matrix)) {
+                    view.setCameraMatrix(matrix)
+                }
+            }
+        }
+    }
+
 
     val handleToolClick: (StudioTool) -> Unit = { tool ->
 
@@ -614,144 +621,114 @@ fun StudioLayout(
 
 
     LaunchedEffect(isProjectionActive) {
-
-
         if (!isProjectionActive) return@LaunchedEffect
-
 
         var frameCount = 0
 
-
         while (viewModel.isProjectionActive) {
-
+            val controller = viewModel.liveProjectionController
+            if (!controller.hasActiveClients) {
+                kotlinx.coroutines.delay(500)
+                continue
+            }
 
             if (viewModel.currentSelectionMode != com.sketcher.sketchercompanionv1.SketcherViewModel.SelectionMode.TRANSFORM_BOX) {
-
-
                 if (viewModel.projectionMode == "sync") {
-
-
                     canvasViewRef.value?.let { view ->
-
-
                         val livePoints = view.getLiveStrokePoints()
-
-
                         val livePath = view.getLiveStrokePath()?.let { android.graphics.Path(it) }
-
-
                         val committedPath = view.getLiveCommittedPath()
-
-
                         val liveFillPath = view.getLiveFillPath()?.let { android.graphics.Path(it) }
-
-
                         val liveRadius = view.getLiveGeneratedRadius()
 
-
                         viewModel.renderAndSendSyncFrame(livePoints, livePath, committedPath, liveFillPath, liveRadius)
-
-
                     } ?: run {
-
-
                         viewModel.renderAndSendSyncFrame(null, null, null, null, 0f)
-
-
                     }
-
-
                 }
-
 
                 frameCount++
 
-
                 if (frameCount % 8 == 0) {
-
-
                     if (viewModel.projectionMode == "fixed") {
-
-
                         canvasViewRef.value?.let { view ->
-
-
                             val livePoints = view.getLiveStrokePoints()
-
-
                             val livePath = view.getLiveStrokePath()?.let { android.graphics.Path(it) }
-
-
                             val committedPath = view.getLiveCommittedPath()
-
-
                             val liveFillPath = view.getLiveFillPath()?.let { android.graphics.Path(it) }
-
-
                             val liveRadius = view.getLiveGeneratedRadius()
 
-
                             viewModel.renderAndSendFixedSnapshot(livePoints, livePath, committedPath, liveFillPath, liveRadius)
-
-
                         } ?: run {
-
-
                             viewModel.renderAndSendFixedSnapshot(null, null, null, null, 0f)
-
-
                         }
-
-
                     }
-
-
                 }
-
-
             }
 
-
             kotlinx.coroutines.delay(66)
-
-
         }
-
-
     }
 
     val isWirelessProjectionActive = viewModel.isWirelessProjectionActive
     LaunchedEffect(isWirelessProjectionActive) {
         if (!isWirelessProjectionActive) return@LaunchedEffect
-        while (viewModel.isWirelessProjectionActive) {
-            canvasViewRef.value?.let { view ->
-                val livePoints = view.getLiveStrokePoints()
-                val livePath = view.getLiveStrokePath()?.let { android.graphics.Path(it) }
-                val committedPath = view.getLiveCommittedPath()
-                val liveFillPath = view.getLiveFillPath()?.let { android.graphics.Path(it) }
-                val liveRadius = view.getLiveGeneratedRadius()
+        var wasDrawing = false
+        var lastCameraHash = 0
+        var lastLayersCount = -1
 
-                viewModel.wirelessProjectionManager?.updateCanvas(
-                    layers = viewModel.layers,
-                    componentLibrary = viewModel.componentLibrary,
-                    backgroundStyle = viewModel.backgroundStyle,
-                    cameraMatrixValues = viewModel.cameraMatrixValues,
-                    phoneW = view.width.toFloat(),
-                    phoneH = view.height.toFloat(),
-                    strokeColor = viewModel.strokeColor.value,
-                    fillColor = viewModel.fillColor.value,
-                    isStrokeActive = viewModel.isStrokeActive.value,
-                    isFillActive = viewModel.isFillActive.value,
-                    fillStyle = viewModel.fillStyle.value,
-                    strokeStyle = viewModel.strokeStyle.value,
-                    livePoints = livePoints,
-                    livePath = livePath,
-                    committedPath = committedPath,
-                    liveFillPath = liveFillPath,
-                    liveRadius = liveRadius
-                )
+        while (viewModel.isWirelessProjectionActive) {
+            val manager = viewModel.wirelessProjectionManager
+            if (manager != null && manager.hasActivePresentation) {
+                val view = canvasViewRef.value
+                if (view != null) {
+                    val livePoints = view.getLiveStrokePoints()
+                    val livePath = view.getLiveStrokePath()
+                    val committedPath = view.getLiveCommittedPath()
+                    val liveFillPath = view.getLiveFillPath()
+                    val liveRadius = view.getLiveGeneratedRadius()
+
+                    val isDrawingNow = (livePoints != null && livePoints.isNotEmpty()) || livePath != null || committedPath != null || liveFillPath != null
+                    val cameraHash = viewModel.cameraMatrixValues.contentHashCode()
+                    val layersCount = viewModel.layers.size
+
+                    // Update display only when drawing, transitioning from draw to idle, or when camera/layers change
+                    if (isDrawingNow || wasDrawing || cameraHash != lastCameraHash || layersCount != lastLayersCount) {
+                        manager.updateCanvas(
+                            layers = viewModel.layers,
+                            componentLibrary = viewModel.componentLibrary,
+                            backgroundStyle = viewModel.backgroundStyle,
+                            cameraMatrixValues = viewModel.cameraMatrixValues,
+                            phoneW = view.width.toFloat(),
+                            phoneH = view.height.toFloat(),
+                            strokeColor = viewModel.strokeColor.value,
+                            fillColor = viewModel.fillColor.value,
+                            isStrokeActive = viewModel.isStrokeActive.value,
+                            isFillActive = viewModel.isFillActive.value,
+                            fillStyle = viewModel.fillStyle.value,
+                            strokeStyle = viewModel.strokeStyle.value,
+                            livePoints = livePoints,
+                            livePath = livePath,
+                            committedPath = committedPath,
+                            liveFillPath = liveFillPath,
+                            liveRadius = liveRadius
+                        )
+                        lastCameraHash = cameraHash
+                        lastLayersCount = layersCount
+                        wasDrawing = isDrawingNow
+                    }
+
+                    if (isDrawingNow) {
+                        kotlinx.coroutines.delay(16) // Smooth 60 FPS while user is actively drawing
+                    } else {
+                        kotlinx.coroutines.delay(100) // 10 FPS low-power check while idle
+                    }
+                } else {
+                    kotlinx.coroutines.delay(200)
+                }
+            } else {
+                kotlinx.coroutines.delay(250) // No secondary screen connected, poll very slowly
             }
-            kotlinx.coroutines.delay(16)
         }
     }
 
@@ -1345,17 +1322,10 @@ fun StudioLayout(
                 view.activeTextElementForEdit = viewModel.activeTextElementForEdit
 
                 // Synchronize Camera Matrix (Studio UI Activation)
-
-
                 // BREAK FEEDBACK LOOP: Only update if the camera actually changed from an external source
-
-
-                if (!view.isCameraEqual(cameraMatrix)) {
-
-
-                    view.setCameraMatrix(cameraMatrix)
-
-
+                val currentExternalMatrix = viewModel.cameraMatrix.value
+                if (!view.isCameraEqual(currentExternalMatrix)) {
+                    view.setCameraMatrix(currentExternalMatrix)
                 }
 
 
@@ -1411,144 +1381,21 @@ fun StudioLayout(
         // --- TEXT EDIT OVERLAY ---
         val activeTextElementForEdit = viewModel.activeTextElementForEdit
         if (activeTextElementForEdit != null) {
-            val currentCameraMatrix by viewModel.cameraMatrix.collectAsState()
-            
-            val screenMatrix = android.graphics.Matrix()
-            screenMatrix.set(currentCameraMatrix)
-            screenMatrix.postConcat(activeTextElementForEdit.getMatrix())
-            
-            val values = FloatArray(9)
-            screenMatrix.getValues(values)
-            val tx = values[android.graphics.Matrix.MTRANS_X]
-            val ty = values[android.graphics.Matrix.MTRANS_Y]
-            val sx = values[android.graphics.Matrix.MSCALE_X]
-            val sy = values[android.graphics.Matrix.MSCALE_Y]
-            val angle = kotlin.math.atan2(values[android.graphics.Matrix.MSKEW_Y], values[android.graphics.Matrix.MSCALE_X]) * (180.0 / kotlin.math.PI).toFloat()
-
-            val initialTextHtml = remember(activeTextElementForEdit.id) { activeTextElementForEdit.textHtml }
-
-            // To sync the width without causing an infinite re-render loop
-            val textWidthDp = with(androidx.compose.ui.platform.LocalDensity.current) { activeTextElementForEdit.width.toDp() }
-
-            AndroidView(
-                modifier = Modifier
-                    .graphicsLayer {
-                        translationX = tx
-                        translationY = ty
-                        scaleX = sx
-                        scaleY = sy
-                        rotationZ = angle
-                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
-                    }
-                    .width(textWidthDp),
-                factory = { ctx ->
-                    android.widget.EditText(ctx).apply {
-                        setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                        setPadding(0, 0, 0, 0)
-                        setTextColor(activeTextElementForEdit.defaultTextColor)
-                        textSize = activeTextElementForEdit.defaultTextSize
-                        gravity = android.view.Gravity.TOP or android.view.Gravity.START
-                        inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
-                        
-                        try {
-                            typeface = android.graphics.Typeface.create(activeTextElementForEdit.fontFamilyName, android.graphics.Typeface.NORMAL)
-                        } catch (e: Exception) {}
-
-                        if (initialTextHtml.isNotEmpty()) {
-                            setText(android.text.Html.fromHtml(initialTextHtml, android.text.Html.FROM_HTML_MODE_LEGACY))
-                        }
-                        
-                        addTextChangedListener(object : android.text.TextWatcher {
-                            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-                            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-                            override fun afterTextChanged(s: android.text.Editable?) {
-                                if (s != null) {
-                                    val html = android.text.Html.toHtml(s, android.text.Html.TO_HTML_PARAGRAPH_LINES_CONSECUTIVE)
-                                    activeTextElementForEdit.textHtml = html
-                                    // Update the canvas to reflect new height if needed
-                                    canvasViewRef.value?.redrawAllCache()
-                                }
-                            }
-                        })
-                        
-                        post { 
-                            requestFocus()
-                            val imm = ctx.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
-                            imm.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-                        }
-                        
-                        // Set the ref to viewModel for styling
-                        viewModel.activeEditTextRef = this
-                    }
-                },
-                update = { editText ->
-                    editText.setTextColor(activeTextElementForEdit.defaultTextColor)
-                    editText.textSize = activeTextElementForEdit.defaultTextSize
-                    try {
-                        editText.typeface = android.graphics.Typeface.create(activeTextElementForEdit.fontFamilyName, android.graphics.Typeface.NORMAL)
-                    } catch (e: Exception) {}
-                    
-                    val align = when (activeTextElementForEdit.alignment) {
-                        "CENTER" -> android.view.Gravity.CENTER_HORIZONTAL
-                        "RIGHT" -> android.view.Gravity.END
-                        else -> android.view.Gravity.START
-                    }
-                    editText.gravity = android.view.Gravity.TOP or align
-                }
+            StudioTextEditOverlay(
+                viewModel = viewModel,
+                canvasViewRef = canvasViewRef,
+                activeTextElementForEdit = activeTextElementForEdit
             )
         }
 
         // --- 0. BACKGROUND UI LAYERS (Scale Indicator) ---
-
-
-        // We get current zoom from the ViewModel which tracks it via onCameraMatrixChanged
-
-
-        val currentCameraMatrix by viewModel.cameraMatrix.collectAsState()
-
-
-        val matrixValues = FloatArray(9)
-
-
-        currentCameraMatrix.getValues(matrixValues)
-
-
-        val currentZoom = matrixValues[Matrix.MSCALE_X]
-
-
-        // Position below the Top-Left Corner button
-
-
-        // The corner button is at 'animTopOffset' (visually). Its size is 'scaler.baseButtonSize'.
-
-
-        // We add a margin to place the indicator below it.
-
-
         val indicatorTopOffset = (if (swapVertical) animBottomOffset else animTopOffset) + scaler.baseButtonSize + scaler.smallMargin
 
-
-        com.sketcher.sketchercompanionv1.ui.ScaleIndicator(
-
-
-            scaleConfig = viewModel.scaleConfig,
-
-
-            currentUnit = viewModel.currentUnit,
-
-
-            currentZoom = currentZoom,
-
-
+        StudioScaleIndicator(
+            viewModel = viewModel,
             modifier = Modifier
-
-
                 .align(Alignment.TopStart)
-
-
-                .padding(start = startPadding, top = indicatorTopOffset) 
-
-
+                .padding(start = startPadding, top = indicatorTopOffset)
         )
 
 
@@ -4713,10 +4560,115 @@ fun PerformanceStatsOverlay(
 
         }
 
-
     }
 
+}
 
+@Composable
+private fun StudioScaleIndicator(
+    viewModel: SketcherViewModel,
+    modifier: Modifier = Modifier
+) {
+    val currentCameraMatrix by viewModel.cameraMatrix.collectAsState()
+    val matrixValues = remember { FloatArray(9) }
+    currentCameraMatrix.getValues(matrixValues)
+    val currentZoom = matrixValues[android.graphics.Matrix.MSCALE_X]
+
+    com.sketcher.sketchercompanionv1.ui.ScaleIndicator(
+        scaleConfig = viewModel.scaleConfig,
+        currentUnit = viewModel.currentUnit,
+        currentZoom = currentZoom,
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun StudioTextEditOverlay(
+    viewModel: SketcherViewModel,
+    canvasViewRef: androidx.compose.runtime.MutableState<SketcherCanvasView?>,
+    activeTextElementForEdit: com.sketcher.sketchercompanionv1.TextElement
+) {
+    val currentCameraMatrix by viewModel.cameraMatrix.collectAsState()
+
+    val screenMatrix = remember { android.graphics.Matrix() }
+    screenMatrix.set(currentCameraMatrix)
+    screenMatrix.postConcat(activeTextElementForEdit.getMatrix())
+
+    val values = remember { FloatArray(9) }
+    screenMatrix.getValues(values)
+    val tx = values[android.graphics.Matrix.MTRANS_X]
+    val ty = values[android.graphics.Matrix.MTRANS_Y]
+    val sx = values[android.graphics.Matrix.MSCALE_X]
+    val sy = values[android.graphics.Matrix.MSCALE_Y]
+    val angle = kotlin.math.atan2(values[android.graphics.Matrix.MSKEW_Y], values[android.graphics.Matrix.MSCALE_X]) * (180.0 / kotlin.math.PI).toFloat()
+
+    val initialTextHtml = remember(activeTextElementForEdit.id) { activeTextElementForEdit.textHtml }
+    val textWidthDp = with(androidx.compose.ui.platform.LocalDensity.current) { activeTextElementForEdit.width.toDp() }
+
+    AndroidView(
+        modifier = Modifier
+            .graphicsLayer {
+                translationX = tx
+                translationY = ty
+                scaleX = sx
+                scaleY = sy
+                rotationZ = angle
+                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+            }
+            .width(textWidthDp),
+        factory = { ctx ->
+            android.widget.EditText(ctx).apply {
+                setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                setPadding(0, 0, 0, 0)
+                setTextColor(activeTextElementForEdit.defaultTextColor)
+                textSize = activeTextElementForEdit.defaultTextSize
+                gravity = android.view.Gravity.TOP or android.view.Gravity.START
+                inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+
+                try {
+                    typeface = android.graphics.Typeface.create(activeTextElementForEdit.fontFamilyName, android.graphics.Typeface.NORMAL)
+                } catch (e: Exception) {}
+
+                if (initialTextHtml.isNotEmpty()) {
+                    setText(android.text.Html.fromHtml(initialTextHtml, android.text.Html.FROM_HTML_MODE_LEGACY))
+                }
+
+                addTextChangedListener(object : android.text.TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                    override fun afterTextChanged(s: android.text.Editable?) {
+                        if (s != null) {
+                            val html = android.text.Html.toHtml(s, android.text.Html.TO_HTML_PARAGRAPH_LINES_CONSECUTIVE)
+                            activeTextElementForEdit.textHtml = html
+                            canvasViewRef.value?.redrawAllCache()
+                        }
+                    }
+                })
+
+                post {
+                    requestFocus()
+                    val imm = ctx.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                    imm.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                }
+
+                viewModel.activeEditTextRef = this
+            }
+        },
+        update = { editText ->
+            editText.setTextColor(activeTextElementForEdit.defaultTextColor)
+            editText.textSize = activeTextElementForEdit.defaultTextSize
+            try {
+                editText.typeface = android.graphics.Typeface.create(activeTextElementForEdit.fontFamilyName, android.graphics.Typeface.NORMAL)
+            } catch (e: Exception) {}
+
+            val align = when (activeTextElementForEdit.alignment) {
+                "CENTER" -> android.view.Gravity.CENTER_HORIZONTAL
+                "RIGHT" -> android.view.Gravity.END
+                else -> android.view.Gravity.START
+            }
+            editText.gravity = android.view.Gravity.TOP or align
+        }
+    )
 }
 
 

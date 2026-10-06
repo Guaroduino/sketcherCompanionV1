@@ -53,6 +53,7 @@ class StrokePipeline(
     var fingerOffsetX: Float = 0f
     var fingerOffsetY: Float = 50f
     var isOrthoMode: Boolean = false
+    var isDebugWireframe: Boolean = false
 
     private val pipelineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val consolidationMutex = Mutex()
@@ -572,7 +573,8 @@ class StrokePipeline(
                 livePoints,
                 settings,
                 currentZoom,
-                reusablePreviewPath
+                reusablePreviewPath,
+                generateAuxiliaryPoints = isDebugWireframe
             )
         }
 
@@ -648,8 +650,8 @@ class StrokePipeline(
         onUpdate(PipelineUpdate(
             previewPath = result.path,
             previewPoints = livePoints,
-            centerPoints = result.center,
-            outlinePoints = result.left + result.right,
+            centerPoints = if (isDebugWireframe) result.center else emptyList(),
+            outlinePoints = if (isDebugWireframe) (result.left + result.right) else emptyList(),
             lastRadius = result.lastRadius,
             fillPath = fillPath,
             fillColor = if (isFillActive) activeFillColor else 0,
@@ -1230,19 +1232,15 @@ class StrokePipeline(
                             }
                             processPoint(predictedEvent.x, predictedEvent.y, predictedEvent.pressure, predictedEvent.eventTime)
                             
-                            android.util.Log.d("PREDICTOR", "Hardware Predictor Triggered: Added ${historySize + 1} points")
-                            
                             predictedEvent.recycle()
                             predictedPointsAdded = true
                         }
                     } catch (e: Exception) {
-                        android.util.Log.e("PREDICTOR", "Error using hardware predictor", e)
                         e.printStackTrace()
                     }
                     
                     if (!predictedPointsAdded) {
                         val latencyMs = toFreehandSettingsShim(activeFreehandSettings, activeTool).predictionLatency.toLong()
-                        android.util.Log.d("PREDICTOR", "Fallback to Software Predictor (Latency: $latencyMs ms)")
                         val predictedPt = predictor.getPredictedPoint(
                             points = currentStrokePoints,
                             predictionLatencyMillis = latencyMs,

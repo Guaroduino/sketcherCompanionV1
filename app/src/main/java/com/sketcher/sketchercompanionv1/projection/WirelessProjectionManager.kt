@@ -15,6 +15,9 @@ class WirelessProjectionManager(private val context: Context) {
     var isActive = false
         private set
 
+    val hasActivePresentation: Boolean
+        get() = presentation != null
+
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) {
             Log.d("WirelessProjection", "Display added: $displayId")

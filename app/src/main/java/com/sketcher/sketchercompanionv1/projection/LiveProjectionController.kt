@@ -53,6 +53,9 @@ class LiveProjectionController(
     var isProjectionPaused = false
         private set
 
+    val hasActiveClients: Boolean
+        get() = (projectionServer?.clients?.isNotEmpty() == true) && !isProjectionPaused
+
     var projectionMode = "sync" // "sync" | "fixed"
         private set
 

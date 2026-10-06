@@ -38,10 +38,32 @@ import com.sketcher.sketchercompanionv1.utils.PdfPrintAdapter
 import com.sketcher.sketchercompanionv1.utils.PdfExporter
 
 class MainActivity : ComponentActivity() {
+    private val screenDimHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val clearKeepScreenOnRunnable = Runnable {
+        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        resetScreenTimeout()
+    }
+
+    private fun resetScreenTimeout() {
+        screenDimHandler.removeCallbacks(clearKeepScreenOnRunnable)
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // Automatically release KEEP_SCREEN_ON after 10 minutes of inactivity to protect battery and prevent overheating
+        screenDimHandler.postDelayed(clearKeepScreenOnRunnable, 10 * 60 * 1000L)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        screenDimHandler.removeCallbacks(clearKeepScreenOnRunnable)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        resetScreenTimeout()
         
         setContent {
             val view = androidx.compose.ui.platform.LocalView.current

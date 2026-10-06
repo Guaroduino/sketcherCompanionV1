@@ -133,8 +133,10 @@ class SketcherCanvasView(context: Context) : View(context) {
     private val cachedBitmapMatrix = Matrix()
 
     private val drawTransformMatrix = Matrix() // Persistent matrix for onDraw scaling
+    private val touchCombinedMatrix = Matrix() // Persistent matrix for onTouchEvent transform
 
     private val matrixValuesBuffer = FloatArray(9) // Reuse for equality check
+    private val drawMatrixValuesBuffer = FloatArray(9) // Reuse for onDraw calculations
 
     private val cameraEqualCurrentBuffer = FloatArray(9)
 
@@ -240,6 +242,7 @@ class SketcherCanvasView(context: Context) : View(context) {
     private val frameTimesNs = LongArray(10)
 
     private var frameTimeIndex = 0
+    private var lastFpsUpdateMs = 0L
 
     val fpsState = androidx.compose.runtime.mutableStateOf(0)
 
@@ -257,8 +260,10 @@ class SketcherCanvasView(context: Context) : View(context) {
 
     var projectionViewports: List<SketcherViewModel.ProjectionViewport> = emptyList()
         set(value) {
-            field = value
-            invalidate()
+            if (field != value) {
+                field = value
+                invalidate()
+            }
         }
 
     var hiddenElementId: String? = null
@@ -474,13 +479,13 @@ class SketcherCanvasView(context: Context) : View(context) {
 
             setCameraMatrix(viewMatrix, isIntermediate = true)
 
-            onCameraMatrixChanged?.invoke(viewMatrix)
-
             return true
 
         }
 
         override fun onScaleEnd(detector: ScaleGestureDetector) {
+
+            onCameraMatrixChanged?.invoke(viewMatrix)
 
             redrawAllCache()
 
@@ -522,8 +527,6 @@ class SketcherCanvasView(context: Context) : View(context) {
                 clampMatrixToBounds(viewMatrix)
 
                 setCameraMatrix(viewMatrix, isIntermediate = true)
-
-                onCameraMatrixChanged?.invoke(viewMatrix)
 
                 return true
 
@@ -1472,6 +1475,7 @@ class SketcherCanvasView(context: Context) : View(context) {
             field = value
 
             renderEngine.isDebugWireframe = value
+            strokePipeline.isDebugWireframe = value
 
             redrawAllCache()
 
@@ -1978,11 +1982,12 @@ class SketcherCanvasView(context: Context) : View(context) {
             }
 
             if (count > 0) {
-
-                val avgFrameTimeNs = sum / count
-
-                fpsState.value = (1_000_000_000L / avgFrameTimeNs).toInt()
-
+                val nowMs = System.currentTimeMillis()
+                if (nowMs - lastFpsUpdateMs >= 500L) {
+                    lastFpsUpdateMs = nowMs
+                    val avgFrameTimeNs = sum / count
+                    fpsState.value = (1_000_000_000L / avgFrameTimeNs).toInt()
+                }
             }
 
         }
@@ -2126,11 +2131,10 @@ class SketcherCanvasView(context: Context) : View(context) {
                                 seed = currentStrokeSeed,
                                 strokeStyle = activeStrokeStyle
                             )
-                            val drawMatrixValues = FloatArray(9)
-                            drawCombinedMatrix.getValues(drawMatrixValues)
+                            drawCombinedMatrix.getValues(drawMatrixValuesBuffer)
                             val liveZoom = kotlin.math.sqrt(
-                                drawMatrixValues[android.graphics.Matrix.MSCALE_X] * drawMatrixValues[android.graphics.Matrix.MSCALE_X] +
-                                drawMatrixValues[android.graphics.Matrix.MSKEW_X] * drawMatrixValues[android.graphics.Matrix.MSKEW_X]
+                                drawMatrixValuesBuffer[android.graphics.Matrix.MSCALE_X] * drawMatrixValuesBuffer[android.graphics.Matrix.MSCALE_X] +
+                                drawMatrixValuesBuffer[android.graphics.Matrix.MSKEW_X] * drawMatrixValuesBuffer[android.graphics.Matrix.MSKEW_X]
                             ).coerceAtLeast(0.001f)
 
                             dummyStroke.getBrushRenderer().draw(canvas, dummyStroke, liveFillPaint, activeLayerOpacity, zoom = liveZoom) { p, alpha ->
@@ -2183,9 +2187,8 @@ class SketcherCanvasView(context: Context) : View(context) {
                                 seed = currentStrokeSeed,
                                 strokeStyle = com.sketcher.sketchercompanionv1.dto.FillStyle.Solid(layerStrokeColor)
                             )
-                            val drawMatrixValues = FloatArray(9)
-                            drawCombinedMatrix.getValues(drawMatrixValues)
-                            val liveZoom = kotlin.math.sqrt(drawMatrixValues[android.graphics.Matrix.MSCALE_X] * drawMatrixValues[android.graphics.Matrix.MSCALE_X] + drawMatrixValues[android.graphics.Matrix.MSKEW_X] * drawMatrixValues[android.graphics.Matrix.MSKEW_X]).coerceAtLeast(0.001f)
+                            drawCombinedMatrix.getValues(drawMatrixValuesBuffer)
+                            val liveZoom = kotlin.math.sqrt(drawMatrixValuesBuffer[android.graphics.Matrix.MSCALE_X] * drawMatrixValuesBuffer[android.graphics.Matrix.MSCALE_X] + drawMatrixValuesBuffer[android.graphics.Matrix.MSKEW_X] * drawMatrixValuesBuffer[android.graphics.Matrix.MSKEW_X]).coerceAtLeast(0.001f)
                             dummyStroke.getBrushRenderer().draw(canvas, dummyStroke, liveFillPaint, 1f, zoom = liveZoom) { p, alpha ->
                                 renderEngine.applyFillStyle(p, com.sketcher.sketchercompanionv1.dto.FillStyle.Solid(layerStrokeColor), alphaMultiplier = activeLayerOpacity * alpha)
                             }
@@ -2785,9 +2788,13 @@ class SketcherCanvasView(context: Context) : View(context) {
         // --- 1. GESTURES (Zoom/Pan) ---
 
         // Detect if a stylus is touching the screen to avoid gesture conflicts
-        val hasStylus = (0 until event.pointerCount).any { i ->
+        var hasStylus = false
+        for (i in 0 until event.pointerCount) {
             val toolType = event.getToolType(i)
-            toolType == MotionEvent.TOOL_TYPE_STYLUS || toolType == MotionEvent.TOOL_TYPE_ERASER
+            if (toolType == MotionEvent.TOOL_TYPE_STYLUS || toolType == MotionEvent.TOOL_TYPE_ERASER) {
+                hasStylus = true
+                break
+            }
         }
 
         // Delegate to Scale and Gesture Detectors
@@ -2809,48 +2816,28 @@ class SketcherCanvasView(context: Context) : View(context) {
             gestureDetector.onTouchEvent(event)
         }
 
-        // Manual Pan Logic Removed (Replaced by GestureDetector)
-
-
-
         // If we are zooming or have 2+ fingers, don't draw.
-
-        // We only allow scale/pan block if we actually have 2+ pointers to avoid single-finger ghost/stuck scale detector states.
-
         val isScaleActive = scaleDetector.isInProgress && !hasStylus && event.pointerCount >= 2
 
         if (!hasStylus && (isScaleActive || event.pointerCount >= 2 || (wasInProgress && (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_POINTER_UP)))) {
 
             if (event.actionMasked == MotionEvent.ACTION_UP || (event.pointerCount == 2 && event.actionMasked == MotionEvent.ACTION_POINTER_UP)) {
-
+                onCameraMatrixChanged?.invoke(viewMatrix)
                 redrawAllCache()
-
             }
 
             return true
 
         }
 
-
-
         // Basic Palm Rejection: If enabled and we have a stylus, ignore non-stylus events
-        if (currentTool != ToolType.SELECTION && isPalmRejectionEnabled) {
-            val hasStylus = (0 until event.pointerCount).any { i ->
-                val toolType = event.getToolType(i)
-                toolType == MotionEvent.TOOL_TYPE_STYLUS || toolType == MotionEvent.TOOL_TYPE_ERASER
-            }
-            if (!hasStylus) {
-                return true // Consume event to keep stream alive for gestures, but don't draw
-            }
+        if (currentTool != ToolType.SELECTION && isPalmRejectionEnabled && !hasStylus) {
+            return true // Consume event to keep stream alive for gestures, but don't draw
         }
 
-
-
-        val combined = Matrix(viewMatrix)
-
-        editingContainerMatrix?.let { combined.preConcat(it) }
-
-        strokePipeline.canvasViewMatrix.set(combined)
+        touchCombinedMatrix.set(viewMatrix)
+        editingContainerMatrix?.let { touchCombinedMatrix.preConcat(it) }
+        strokePipeline.canvasViewMatrix.set(touchCombinedMatrix)
 
         
 

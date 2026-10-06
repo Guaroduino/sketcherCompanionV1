@@ -1,7 +1,7 @@
 {
-  "versionCode": 136,
-  "versionName": "1.0.135",
+  "versionCode": 137,
+  "versionName": "1.0.136",
   "apkUrl": "https://firebasestorage.googleapis.com/v0/b/sketchercompanionapp.firebasestorage.app/o/updates%2Fapp-debug.apk?alt=media",
-  "releaseNotes": "Actualización 1.0.135: Centralización en Guaroduino y certificados OAuth",
+  "releaseNotes": "Actualizacion 1.0.136: Optimizacion de rendimiento, reduccion de bateria y temperatura, y eliminacion de lag en zoom",
   "forceUpdate": false
 }

@@ -94,6 +94,37 @@ class RenderEngine {
         color = Color.RED
     }
 
+    // Pre-allocated background paints to avoid GC churn in draw loops
+    private val bgPaperPaint = Paint().apply {
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val notebookLinePaint = Paint().apply {
+        color = Color.parseColor("#C5D0E6")
+        style = Paint.Style.STROKE
+        isAntiAlias = true
+    }
+    private val notebookMarginPaint = Paint().apply {
+        color = Color.parseColor("#FF5252")
+        style = Paint.Style.STROKE
+        isAntiAlias = true
+    }
+    private val mathGridPaint = Paint().apply {
+        color = Color.parseColor("#D9E1F0")
+        style = Paint.Style.STROKE
+        isAntiAlias = true
+    }
+    private val calligraphyLinePaint = Paint().apply {
+        color = Color.parseColor("#A2B5CD")
+        style = Paint.Style.STROKE
+        isAntiAlias = true
+    }
+    private val calligraphyShadedPaint = Paint().apply {
+        color = Color.parseColor("#15A2B5CD")
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+
     // Workspace Paints
     private val workspacePaint = Paint().apply {
         color = Color.parseColor("#FFEEEEEE") // Light Gray
@@ -346,12 +377,8 @@ class RenderEngine {
         style: FillStyle,
         pixelsPerMm: Float = 5.0f
     ) {
-        val bgPaint = Paint().apply {
-            this.style = Paint.Style.FILL
-            isAntiAlias = true
-        }
-        applyFillStyle(bgPaint, style, alphaMultiplier = 1f)
-        canvas.drawRect(left, top, right, bottom, bgPaint)
+        applyFillStyle(bgPaperPaint, style, alphaMultiplier = 1f)
+        canvas.drawRect(left, top, right, bottom, bgPaperPaint)
 
         if (style is FillStyle.MathTexture) {
             when (style.patternName.uppercase()) {
@@ -373,30 +400,19 @@ class RenderEngine {
         val lineSpacing = 8f * pixelsPerMm
         val topMargin = top + 35f * pixelsPerMm
         
-        val linePaint = Paint().apply {
-            color = Color.parseColor("#C5D0E6") // Soft light blue-gray
-            strokeWidth = 1f * (pixelsPerMm / 5f)
-            style = Paint.Style.STROKE
-            isAntiAlias = true
-        }
-        
-        val marginPaint = Paint().apply {
-            color = Color.parseColor("#FF5252") // Soft red
-            strokeWidth = 1.5f * (pixelsPerMm / 5f)
-            style = Paint.Style.STROKE
-            isAntiAlias = true
-        }
+        notebookLinePaint.strokeWidth = 1f * (pixelsPerMm / 5f)
+        notebookMarginPaint.strokeWidth = 1.5f * (pixelsPerMm / 5f)
         
         // Draw horizontal lines
         var currentY = topMargin
         while (currentY < bottom) {
-            canvas.drawLine(left, currentY, right, currentY, linePaint)
+            canvas.drawLine(left, currentY, right, currentY, notebookLinePaint)
             currentY += lineSpacing
         }
         
         // Draw vertical margin line
         if (marginX < right) {
-            canvas.drawLine(marginX, top, marginX, bottom, marginPaint)
+            canvas.drawLine(marginX, top, marginX, bottom, notebookMarginPaint)
         }
     }
 
@@ -404,37 +420,26 @@ class RenderEngine {
         val marginX = left + 32f * pixelsPerMm
         val gridSpacing = 5f * pixelsPerMm
         
-        val gridPaint = Paint().apply {
-            color = Color.parseColor("#D9E1F0") // Very soft grid lines
-            strokeWidth = 0.8f * (pixelsPerMm / 5f)
-            style = Paint.Style.STROKE
-            isAntiAlias = true
-        }
-        
-        val marginPaint = Paint().apply {
-            color = Color.parseColor("#FF5252") // Soft red
-            strokeWidth = 1.5f * (pixelsPerMm / 5f)
-            style = Paint.Style.STROKE
-            isAntiAlias = true
-        }
+        mathGridPaint.strokeWidth = 0.8f * (pixelsPerMm / 5f)
+        notebookMarginPaint.strokeWidth = 1.5f * (pixelsPerMm / 5f)
         
         // Draw vertical grid lines
         var currentX = left + gridSpacing
         while (currentX < right) {
-            canvas.drawLine(currentX, top, currentX, bottom, gridPaint)
+            canvas.drawLine(currentX, top, currentX, bottom, mathGridPaint)
             currentX += gridSpacing
         }
         
         // Draw horizontal grid lines
         var currentY = top + gridSpacing
         while (currentY < bottom) {
-            canvas.drawLine(left, currentY, right, currentY, gridPaint)
+            canvas.drawLine(left, currentY, right, currentY, mathGridPaint)
             currentY += gridSpacing
         }
         
         // Draw vertical margin line
         if (marginX < right) {
-            canvas.drawLine(marginX, top, marginX, bottom, marginPaint)
+            canvas.drawLine(marginX, top, marginX, bottom, notebookMarginPaint)
         }
     }
 
@@ -444,34 +449,18 @@ class RenderEngine {
         val bandSpacing = 8f * pixelsPerMm  // Distance between consecutive bands
         val topMargin = top + 35f * pixelsPerMm
         
-        val linePaint = Paint().apply {
-            color = Color.parseColor("#A2B5CD") // Soft blue-gray
-            strokeWidth = 1f * (pixelsPerMm / 5f)
-            style = Paint.Style.STROKE
-            isAntiAlias = true
-        }
-        
-        val shadedPaint = Paint().apply {
-            color = Color.parseColor("#15A2B5CD") // 8% opacity blue-gray shading
-            style = Paint.Style.FILL
-        }
-        
-        val marginPaint = Paint().apply {
-            color = Color.parseColor("#FF5252") // Soft red
-            strokeWidth = 1.5f * (pixelsPerMm / 5f)
-            style = Paint.Style.STROKE
-            isAntiAlias = true
-        }
+        calligraphyLinePaint.strokeWidth = 1f * (pixelsPerMm / 5f)
+        notebookMarginPaint.strokeWidth = 1.5f * (pixelsPerMm / 5f)
         
         // Draw calligraphy lines and bands
         var currentY = topMargin
         while (currentY + bandHeight < bottom) {
             // Draw shaded band inside the pair of lines
-            canvas.drawRect(left, currentY, right, currentY + bandHeight, shadedPaint)
+            canvas.drawRect(left, currentY, right, currentY + bandHeight, calligraphyShadedPaint)
             
             // Draw the top and bottom lines of the band
-            canvas.drawLine(left, currentY, right, currentY, linePaint)
-            canvas.drawLine(left, currentY + bandHeight, right, currentY + bandHeight, linePaint)
+            canvas.drawLine(left, currentY, right, currentY, calligraphyLinePaint)
+            canvas.drawLine(left, currentY + bandHeight, right, currentY + bandHeight, calligraphyLinePaint)
             
             // Move to next band
             currentY += bandHeight + bandSpacing
@@ -479,7 +468,7 @@ class RenderEngine {
         
         // Draw vertical margin line
         if (marginX < right) {
-            canvas.drawLine(marginX, top, marginX, bottom, marginPaint)
+            canvas.drawLine(marginX, top, marginX, bottom, notebookMarginPaint)
         }
     }
 
@@ -804,27 +793,11 @@ class RenderEngine {
         if (stroke.isStrokeEnabled) {
             val isMeshBrush = stroke.brushType == "FREEHAND" || stroke.brushType == "PEN" || stroke.brushType == "PLUMA" || stroke.brushType == "PENCIL_CUMULATIVE" || stroke.brushType == "PAINT" || stroke.brushType == "WATERCOLOR"
             if (isMeshBrush) {
-                val isCumulative = stroke.brushType == "PENCIL_CUMULATIVE"
                 val strokeOpacity = stroke.strokeStyle.opacity
                 val totalOpacity = alphaMultiplier * strokeOpacity
                 
-                if (totalOpacity < 1f && !isCumulative) {
-                    val bounds = stroke.getBoundingBox(emptyMap())
-                    val tempBounds = RectF(bounds)
-                    val pad = stroke.maxWidth.coerceAtLeast(4f) * 1.5f
-                    tempBounds.inset(-pad, -pad)
-                    
-                    val savePaint = layerAlphaPaint.apply { alpha = (totalOpacity * 255).toInt().coerceIn(0, 255) }
-                    val saveCount = canvas.saveLayer(tempBounds, savePaint)
-                    
-                    stroke.getBrushRenderer().draw(canvas, stroke, vectorPaint, 1f, zoom = zoom) { p, alpha ->
-                        applyFillStyle(p, stroke.strokeStyle.copyWithOpacity(1f), alpha)
-                    }
-                    canvas.restoreToCount(saveCount)
-                } else {
-                    stroke.getBrushRenderer().draw(canvas, stroke, vectorPaint, alphaMultiplier, zoom = zoom) { p, alpha ->
-                        applyFillStyle(p, stroke.strokeStyle, alpha)
-                    }
+                stroke.getBrushRenderer().draw(canvas, stroke, vectorPaint, totalOpacity, zoom = zoom) { p, alpha ->
+                    applyFillStyle(p, stroke.strokeStyle, alpha)
                 }
             } else {
                 // For others, it's a line

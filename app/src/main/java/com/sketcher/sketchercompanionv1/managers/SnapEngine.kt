@@ -47,8 +47,15 @@ object SnapEngine {
                         snapPoints.add(SnapPoint(PointF((p1.x + p2.x) / 2, (p1.y + p2.y) / 2), SnapType.MIDPOINT))
                     }
                 }
-                StrokeType.POLYLINE, StrokeType.FREEHAND, StrokeType.SPLINE, StrokeType.BEZIER -> {
-                    // For polylines/freehand, endpoints of the entire stroke
+                StrokeType.FREEHAND -> {
+                    // For freehand strokes, only the start and end of the stroke are snap points
+                    val pStart = PointF(pts.first().x, pts.first().y)
+                    val pEnd = PointF(pts.last().x, pts.last().y)
+                    snapPoints.add(SnapPoint(pStart, SnapType.ENDPOINT))
+                    snapPoints.add(SnapPoint(pEnd, SnapType.ENDPOINT))
+                }
+                StrokeType.POLYLINE, StrokeType.SPLINE, StrokeType.BEZIER -> {
+                    // For polylines / CAD splines, endpoints of the entire stroke
                     val pStart = PointF(pts.first().x, pts.first().y)
                     val pEnd = PointF(pts.last().x, pts.last().y)
                     snapPoints.add(SnapPoint(pStart, SnapType.ENDPOINT))

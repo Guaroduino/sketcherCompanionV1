@@ -83,7 +83,8 @@ object PerfectFreehandGenerator {
         rawPoints: List<StrokePoint>,
         settings: FreehandSettings = FreehandSettings(),
         zoom: Float = 1.0f,
-        outPath: Path = Path()
+        outPath: Path = Path(),
+        generateAuxiliaryPoints: Boolean = false
     ): FreehandResult {
         val path = outPath.apply { rewind() }
         val size = settings.size
@@ -125,9 +126,9 @@ object PerfectFreehandGenerator {
         }
         path.close()
 
-        val leftConv = outline.left.map { PointF(it.x, it.y) }
-        val rightConv = outline.right.map { PointF(it.x, it.y) }
-        val centerConv = strokePoints.map { PointF(it.point.x, it.point.y) }
+        val leftConv = if (generateAuxiliaryPoints) outline.left.map { PointF(it.x, it.y) } else emptyList()
+        val rightConv = if (generateAuxiliaryPoints) outline.right.map { PointF(it.x, it.y) } else emptyList()
+        val centerConv = if (generateAuxiliaryPoints) strokePoints.map { PointF(it.point.x, it.point.y) } else emptyList()
         
         return FreehandResult(path, leftConv, rightConv, centerConv, outline.lastRadius)
     }
